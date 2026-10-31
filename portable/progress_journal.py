@@ -158,12 +158,14 @@ class ProgressJournal:
                completed_units: int | None = None, total_units: int | None = None,
                evidence_ref: str | None = None, timestamp: str | None = None,
                priority: int | None = None, parent_task_id: str | None = None,
-               decision_required: bool | None = None) -> ProgressEvent:
+               decision_required: bool | None = None,
+               expected_sequence: int | None = None) -> ProgressEvent:
         return self._record(
             task_id, event, state=state, stage=stage, message=message,
             completed_units=completed_units, total_units=total_units,
             evidence_ref=evidence_ref, timestamp=timestamp, priority=priority,
             parent_task_id=parent_task_id, decision_required=decision_required,
+            expected_sequence=expected_sequence,
             allow_terminal_correction=False,
         )
 
@@ -313,9 +315,9 @@ class ProgressJournal:
     ) -> ProgressEvent:
         """Durably acknowledge the next contiguous, integrity-bound response chunk.
 
-        The response body stays in its canonical artifact/host buffer. This journal
-        stores only its digest and contiguous acknowledgement cursor, so a restart
-        can resume without persisting duplicate response content.
+        Optimistic sequence checks serialize read/validate/append transitions
+        across threads and processes. The journal stores only the cursor and
+        digest; response bytes remain in the canonical artifact store.
         """
         response_id = self._validate_response_digest(response_id, "response_id")
         response_sha256 = self._validate_response_digest(response_sha256, "response_sha256")
@@ -326,25 +328,34 @@ class ProgressJournal:
         if type(acknowledged_index) is not int or not 1 <= acknowledged_index <= total_chunks:
             raise ValueError("acknowledged_index must be within the response chunk range")
         stage = f"response-delivery:{response_id}"
-        rows = [row for row in self._events() if row["task_id"] == task_id
-                and row["stage"] == stage and row["event"] == "response_chunk_acknowledged"]
-        previous = rows[-1] if rows else None
-        if previous is not None:
-            if previous.get("total_units") != total_chunks or previous.get("evidence_ref") != f"sha256:{response_sha256}":
-                raise ValueError("response manifest changed while resuming chunk delivery")
-            prior_index = previous.get("completed_units")
-            if acknowledged_index == prior_index:
-                return ProgressEvent(**previous)
-            if acknowledged_index != prior_index + 1:
-                raise ValueError("response chunk acknowledgements must be contiguous and monotonic")
-        elif acknowledged_index != 1:
-            raise ValueError("first response chunk acknowledgement must start at index 1")
-        return self.record(
-            task_id, "response_chunk_acknowledged", state="running",
-            stage=stage, message=f"acknowledged response chunk {acknowledged_index}/{total_chunks}",
-            completed_units=acknowledged_index, total_units=total_chunks,
-            evidence_ref=f"sha256:{response_sha256}",
-        )
+        for _attempt in range(8):
+            task_rows = [row for row in self._events() if row["task_id"] == task_id]
+            expected_sequence = int(task_rows[-1]["sequence"]) if task_rows else 0
+            rows = [row for row in task_rows
+                    if row["stage"] == stage and row["event"] == "response_chunk_acknowledged"]
+            previous = rows[-1] if rows else None
+            if previous is not None:
+                if previous.get("total_units") != total_chunks or previous.get("evidence_ref") != f"sha256:{response_sha256}":
+                    raise ValueError("response manifest changed while resuming chunk delivery")
+                prior_index = previous.get("completed_units")
+                if acknowledged_index == prior_index:
+                    return ProgressEvent(**previous)
+                if acknowledged_index != prior_index + 1:
+                    raise ValueError("response chunk acknowledgements must be contiguous and monotonic")
+            elif acknowledged_index != 1:
+                raise ValueError("first response chunk acknowledgement must start at index 1")
+            try:
+                return self.record(
+                    task_id, "response_chunk_acknowledged", state="running",
+                    stage=stage, message=f"acknowledged response chunk {acknowledged_index}/{total_chunks}",
+                    completed_units=acknowledged_index, total_units=total_chunks,
+                    evidence_ref=f"sha256:{response_sha256}",
+                    expected_sequence=expected_sequence,
+                )
+            except RuntimeError as exc:
+                if str(exc) != "progress journal changed during reconciliation; retry":
+                    raise
+        raise TimeoutError("response acknowledgement changed repeatedly; retry from durable checkpoint")
 
     def response_delivery_checkpoint(self, task_id: str, response_id: str) -> dict[str, Any]:
         """Return the verified contiguous acknowledgement cursor for restart/resume."""

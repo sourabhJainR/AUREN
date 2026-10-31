@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from concurrent.futures import ThreadPoolExecutor
 import http.client
 import json
 from http.server import ThreadingHTTPServer
@@ -253,5 +254,46 @@ def test_identical_response_bodies_use_independent_receiver_cursors(monkeypatch,
         assert status == 200 and first_status["acknowledged_index"] == 1
         status, _, second_status = _request(server, "GET", second["status"])
         assert status == 200 and second_status["acknowledged_index"] == 0
+    finally:
+        _stop_server(server, thread)
+
+
+def test_concurrent_duplicate_acknowledgements_are_idempotent(monkeypatch, tmp_path):
+    result = SimpleNamespace(
+        provider="test", model="fixture", success=True, attempts=1, latency_ms=1.0,
+        resource_usage={}, fallback_reason=None, result={"answer": "parallel-ack-" * 3000}, error=None,
+    )
+    server, thread = _start_server(monkeypatch, tmp_path, result)
+    try:
+        status, _, manifest = _request(
+            server, "POST", "/api/route", {"task": "parallel duplicate ack"},
+            headers={"Accept": dashboard_server.CHUNKED_RESPONSE_ACCEPT},
+        )
+        assert status == 202
+        status, _, chunk = _request(server, "GET", manifest["next"])
+        assert status == 200
+        ack = {
+            "chunk_index": 1, "chunk_sha256": chunk["chunk_sha256"],
+            "response_sha256": manifest["response_sha256"],
+            "total_chunks": manifest["total_chunks"],
+        }
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(
+                lambda _index: _request(server, "POST", manifest["ack"], ack),
+                range(8),
+            ))
+        assert all(status == 200 for status, _headers, _body in results)
+        task_id = server.RequestHandlerClass._delivery_task_id(
+            manifest["response_id"], manifest["delivery_id"],
+        )
+        checkpoint = server.RequestHandlerClass.progress_journal.response_delivery_checkpoint(
+            task_id, manifest["response_id"],
+        )
+        assert checkpoint["acknowledged_index"] == 1
+        rows = [
+            row for row in server.RequestHandlerClass.progress_journal._events()
+            if row["task_id"] == task_id and row["event"] == "response_chunk_acknowledged"
+        ]
+        assert len(rows) == 1
     finally:
         _stop_server(server, thread)
