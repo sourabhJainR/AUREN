@@ -381,7 +381,11 @@ class _Handler(BaseHTTPRequestHandler):
                 query = parse_qs(urlparse(self.path).query, keep_blank_values=False)
                 offset = int(query.get("offset", ["0"])[0])
                 limit = int(query.get("limit", ["50"])[0])
-                payload = self.control_center.session_snapshot(offset=offset, limit=limit)
+                search = query.get("q", [""])[0]
+                status = query.get("status", ["all"])[0]
+                payload = self.control_center.session_snapshot(
+                    offset=offset, limit=limit, query=search, status=status,
+                )
                 self._send_api_json(200, payload)
             except (TypeError, ValueError):
                 self._send(400, b'{"error":"invalid session pagination bounds"}', "application/json; charset=utf-8")
