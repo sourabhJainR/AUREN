@@ -265,6 +265,15 @@ class _Handler(BaseHTTPRequestHandler):
                     raise ValueError("chunk digest mismatch")
                 if index not in {acknowledged, acknowledged + 1}:
                     raise ValueError("acknowledgements must be contiguous")
+                snapshot = self.progress_journal.snapshot(task_id)
+                state = snapshot.get("reported_state", snapshot.get("state"))
+                if state == "completed":
+                    if index != acknowledged or acknowledged != manifest.total_chunks:
+                        raise ValueError("completed delivery only accepts an exact duplicate final acknowledgement")
+                elif state != "running":
+                    raise ValueError("delivery is not running")
+                elif snapshot.get("state") != "running":
+                    raise RuntimeError("delivery is stale; reconcile before acknowledging")
                 self.progress_journal.record_response_chunk_ack(
                     task_id, response_id=response_id,
                     acknowledged_index=index, total_chunks=manifest.total_chunks,
