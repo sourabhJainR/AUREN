@@ -135,6 +135,14 @@ class EngineeringDashboard:
                 handle.flush()
                 os.fsync(handle.fileno())
 
+    def live_session_projection(self) -> dict[str, Any]:
+        """Build the live session view without rebuilding repository intelligence."""
+        return {
+            "generated_at": _utc(),
+            "tasks": {"progress": self._progress_snapshots()},
+            "plan_runs": self._plan_runs(self._sqlite_files()),
+        }
+
     def snapshot(self) -> DashboardSnapshot:
         repo = self._repository()
         dbs = self._sqlite_files()
