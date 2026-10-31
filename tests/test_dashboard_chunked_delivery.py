@@ -20,7 +20,7 @@ from portable.response_delivery_supervisor import ResponseDeliverySupervisor
 from portable.hybrid_model_router import HybridModelRouter
 
 
-def _start_server(monkeypatch, root: Path, result):
+def _start_server(monkeypatch, root: Path, result, *, delivery_deadline_seconds=600.0):
     if result is not None:
         monkeypatch.setattr(HybridModelRouter, "route", lambda _self, _request: result)
     runtime_root = root / ".auren"
@@ -29,6 +29,7 @@ def _start_server(monkeypatch, root: Path, result):
         "artifact_store": store,
         "response_repository": ResponseArtifactRepository(store),
         "progress_journal": ProgressJournal(runtime_root / "progress.jsonl"),
+        "delivery_deadline_seconds": delivery_deadline_seconds,
         "delivery_supervisor": ResponseDeliverySupervisor(
             ExecutionController(root), runtime_root / "progress.jsonl"
         ),
@@ -118,8 +119,16 @@ def test_chunked_route_supports_acknowledged_resume_after_server_restart(monkeyp
     finally:
         _stop_server(server, thread)
 
-    # A fresh server process reconstructs artifact and cursor from the canonical
-    # content-addressed release artifact store and ExecutionController journal path.
+    # Simulate an abrupt host exit. The next host may reclaim only after the
+    # durable worker lease and heartbeat are expired.
+    task_id = dashboard_server._Handler._delivery_task_id(response_id, manifest["delivery_id"])
+    with sqlite3.connect(tmp_path / ".auren" / "execution.sqlite3") as db:
+        db.execute(
+            "UPDATE tasks SET lease_until=?,heartbeat_at=? WHERE id=?",
+            ("2000-01-01T00:00:00+00:00", "2000-01-01T00:00:00+00:00", task_id),
+        )
+
+    # A fresh host reconstructs the artifact, parent task, and acknowledged cursor.
     server, thread = _start_server(monkeypatch, tmp_path, None)
     try:
         status, _, checkpoint = _request(server, "GET", manifest["status"])
