@@ -3,7 +3,7 @@
   const safe = value => String(value ?? "").replace(/[&<>"']/g, ch => ({
     "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
   }[ch]));
-  const state = { snapshot: null, busy: false, filter: "all", query: "" };
+  const state = { snapshot: null, busy: false, filter: "all", query: "", offset: 0, limit: 50 };
   const time = value => {
     if (value === null || value === undefined || value === "") return "—";
     const date = typeof value === "number" ? new Date(value * 1000) : new Date(value);
@@ -95,7 +95,13 @@
     if (!data) return;
     renderMetrics(data);
     const sessions = (data.sessions || []).filter(matches);
-    byId("session-count").textContent = sessions.length + " of " + (data.sessions || []).length + " sessions";
+    byId("session-count").textContent = sessions.length + " of " + (data.pagination?.total ?? (data.sessions || []).length) + " on this page";
+    const page = data.pagination || {offset:0,limit:state.limit,total:(data.sessions || []).length,has_more:false};
+    const pageNumber = Math.floor(page.offset / page.limit) + 1;
+    const pageCount = Math.max(1, Math.ceil(page.total / page.limit));
+    byId("session-page-label").textContent = "Page " + pageNumber + " of " + pageCount + " · " + page.total + " sessions";
+    byId("session-page-prev").disabled = page.offset <= 0;
+    byId("session-page-next").disabled = !page.has_more;
     byId("session-list").innerHTML = sessions.length ? sessions.map(sessionCard).join("") :
       '<div class="empty session-empty">No sessions match this filter. Missing records are not treated as completed.</div>';
     const tasks = data.tasks || [];
@@ -111,9 +117,10 @@
     if (state.busy) return;
     state.busy = true;
     try {
-      const response = await fetch("/api/sessions", {cache:"no-store"});
+      const response = await fetch("/api/sessions?offset=" + state.offset + "&limit=" + state.limit, {cache:"no-store"});
       if (!response.ok) throw new Error("HTTP " + response.status);
       state.snapshot = await response.json();
+      state.offset = state.snapshot.pagination?.offset ?? state.offset;
       render();
     } catch (error) {
       byId("sessions-updated").textContent = "Session data unavailable";
@@ -129,6 +136,8 @@
     state.filter = event.target.value; render();
   });
   byId("session-refresh").addEventListener("click", refresh);
+  byId("session-page-prev").addEventListener("click", () => { state.offset = Math.max(0, state.offset - state.limit); refresh(); });
+  byId("session-page-next").addEventListener("click", () => { state.offset += state.limit; refresh(); });
   refresh();
   window.setInterval(refresh, 4000);
 })();

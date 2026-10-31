@@ -35,3 +35,6 @@
 
 .session-refresh-button{border:1px solid #2a3957;background:#1b2742;color:#e8edf7;padding:10px 15px;border-radius:9px;cursor:pointer;font-weight:600}
 .session-refresh-button:hover{background:#263756}
+
+.session-pagination{display:flex;align-items:center;justify-content:flex-end;gap:12px;margin:12px 0 20px}
+.session-refresh-button:disabled{opacity:.4;cursor:not-allowed}
