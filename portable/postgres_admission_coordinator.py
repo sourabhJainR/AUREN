@@ -168,12 +168,18 @@ class PostgreSQLAdmissionCoordinator:
                         raise AdmissionPolicyConflict("operation_id is already bound to another owner")
                     cursor.execute("SELECT CURRENT_TIMESTAMP")
                     now = cursor.fetchone()[0]
-                    if prior[3] <= now:
+                    if prior[3] > now:
+                        lease = AdmissionLease(self.namespace, resource, owner, operation_id, prior[1], int(prior[2]), prior[3])
                         connection.commit()
-                        return None
-                    lease = AdmissionLease(self.namespace, resource, owner, operation_id, prior[1], int(prior[2]), prior[3])
-                    connection.commit()
-                    return lease
+                        return lease
+                    # The same stable operation may be retried after its old
+                    # lease expires. Delete only under the resource lock, then
+                    # issue a fresh fencing generation below.
+                    cursor.execute(
+                        "DELETE FROM auren_admission_leases WHERE namespace=%s AND resource=%s "
+                        "AND owner=%s AND operation_id=%s AND token=%s",
+                        (self.namespace, resource, owner, operation_id, prior[1]),
+                    )
                 cursor.execute(
                     "DELETE FROM auren_admission_leases WHERE namespace=%s AND resource=%s AND expires_at<=CURRENT_TIMESTAMP",
                     (self.namespace, resource),
