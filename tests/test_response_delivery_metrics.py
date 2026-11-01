@@ -7,7 +7,10 @@ import unittest
 from pathlib import Path
 
 from portable.progress_journal import ProgressJournal
-from portable.response_delivery_metrics import aggregate_delivery_metrics, record_delivery_metrics
+from portable.response_delivery_metrics import (
+    aggregate_delivery_metrics, record_chunk_ack_measurement,
+    record_chunk_offer, record_delivery_failure, record_delivery_metrics,
+)
 from portable.response_delivery_supervisor import ResponseDeliverySupervisor
 
 
@@ -55,6 +58,39 @@ class ResponseDeliveryMetricsTests(unittest.TestCase):
         self.assertEqual(0, result["measured_deliveries"])
         self.assertEqual([], result["completion_digests"])
 
+
+
+    def test_http_offer_ack_metrics_are_idempotent_and_content_free(self):
+        with tempfile.TemporaryDirectory() as temp:
+            journal = ProgressJournal(Path(temp) / "progress.jsonl")
+            journal.record("http-task", "started", state="running")
+            response_id = "e" * 64
+            chunk_digest = "f" * 64
+            record_chunk_offer(
+                journal, "http-task", response_id,
+                chunk_index=1, chunk_sha256=chunk_digest,
+                chunk_bytes=1200, total_bytes=2400, total_chunks=2,
+            )
+            import time
+            time.sleep(0.005)
+            first_wait = record_chunk_ack_measurement(
+                journal, "http-task", response_id,
+                chunk_index=1, chunk_sha256=chunk_digest, chunk_bytes=1200,
+            )
+            duplicate_wait = record_chunk_ack_measurement(
+                journal, "http-task", response_id,
+                chunk_index=1, chunk_sha256=chunk_digest, chunk_bytes=1200,
+            )
+            record_delivery_failure(journal, "http-task", response_id, "shared_budget_exhausted")
+            events = journal._events()
+            self.assertEqual(first_wait, duplicate_wait)
+            self.assertEqual(1, sum(
+                row.get("event") == "response_delivery_chunk_measurement" for row in events
+            ))
+            metrics = aggregate_delivery_metrics(events)
+            self.assertEqual(1200, metrics["peak_in_flight_bytes"])
+            self.assertGreaterEqual(metrics["backpressure_wait_ms"], 0)
+            self.assertIn("shared_budget_exhausted", metrics["failure_reasons"])
 
     def test_supervisor_exposes_durable_measurements_to_control_center(self):
         class Controller:
