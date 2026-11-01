@@ -146,9 +146,18 @@ independent two-host acceptance gate complete from this rehearsal alone.
 
 The repository now includes service-backed PostgreSQL tests for permanent
 work-key identity, same-owner recovery, cross-owner duplicate rejection, and
-intent mismatch. These tests run only when `AUREN_TEST_POSTGRES_DSN` is
-configured. They do not replace operator staging across at least two distinct
-runtime roots and hosts.
+intent mismatch. It also runs a three-process rehearsal with separate roots,
+plus a Docker simulation with three independent containers and network
+namespaces sharing one PostgreSQL container. The Docker simulation records
+container IDs, network IPs, runtime IDs, task IDs and winner/duplicate outcomes.
+CI retains both JSON reports as the `auren-multi-instance-admission-staging`
+artifact.
+
+These rehearsals provide strong repeatable evidence for independent AUREN
+instances and isolated network namespaces. They still execute on one physical
+runner host. They do not replace operator staging across at least two distinct
+physical hosts with independently managed credentials and real network,
+restart, failover and rollback boundaries.
 
 Before closing issue #1193, complete the two-host staging rehearsal: process
 death after identity claim and before local insert; restart with the same owner;
