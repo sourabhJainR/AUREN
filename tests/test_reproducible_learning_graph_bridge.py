@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -101,7 +102,10 @@ class ReproducibleLearningGraphBridgeTests(unittest.TestCase):
                 edge.relation == "pinned_by"
                 for edge in learning.graph.lineage(manifest_node, direction="in")
             ))
-            self.assertEqual(1, len(experiments.get_outcomes("bridge-exp")) if hasattr(experiments, "get_outcomes") else 1)
+            with sqlite3.connect(experiments.path) as db:
+                self.assertEqual(1, db.execute(
+                    "SELECT COUNT(*) FROM experiment_outcomes WHERE experiment_id=?", ("bridge-exp",)
+                ).fetchone()[0])
 
     def test_unknown_outcome_is_preserved_but_never_becomes_a_positive_lesson(self):
         with tempfile.TemporaryDirectory() as tmp:
