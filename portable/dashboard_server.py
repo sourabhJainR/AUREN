@@ -297,6 +297,14 @@ class _Handler(BaseHTTPRequestHandler):
         response_id, delivery_id, action = match.groups()
         try:
             payload = self._read_json_request(max_bytes=16_384)
+            task_id = self._delivery_task_id(response_id, delivery_id)
+            pre_snapshot = self.progress_journal.snapshot(task_id)
+            if action in {"ack", "complete"}:
+                reported = pre_snapshot.get("reported_state", pre_snapshot.get("state"))
+                if pre_snapshot.get("state") == "stale":
+                    raise RuntimeError("stale delivery requires explicit reconciliation before acknowledgement")
+                if reported not in {"running", "completed"}:
+                    raise ValueError("delivery is not running")
             stored = self._load_delivery(response_id, delivery_id)
             manifest, chunks = stored.manifest, stored.chunks
             checkpoint = self._delivery_checkpoint(response_id, delivery_id)
@@ -306,7 +314,6 @@ class _Handler(BaseHTTPRequestHandler):
             supplied_total = payload.get("total_chunks")
             if isinstance(supplied_total, bool) or not isinstance(supplied_total, int) or supplied_total != manifest.total_chunks:
                 raise ValueError("response chunk count mismatch")
-            task_id = self._delivery_task_id(response_id, delivery_id)
             if action == "cancel":
                 accepted = self.delivery_supervisor.cancel(task_id)
                 self._send_delivery_json(202 if accepted else 409, {
