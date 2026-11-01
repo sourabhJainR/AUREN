@@ -55,7 +55,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                 "budget_id": "crew:team-a:run-1", "guard": guard,
                 "policy_digest": "a" * 64,
             },
-            approval_resolver=lambda run_id, task_id, handler, payload: {
+            approval_resolver=lambda run_id, task_id, handler: {
                 "approval_id": record.approval_id, "request": request,
             },
         )
@@ -138,10 +138,10 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         root = TrustedPlanDispatchRoot(
             controller=self.controller, store=self.plan_store,
             recovery_bridge=self.recovery_bridge, approval_store=store,
-            budget_resolver=lambda *args: {
+            budget_resolver=lambda run_id, task_id, handler: {
                 "budget_id": "crew:team-a:run-1", "guard": guard, "policy_digest": "a" * 64,
             },
-            approval_resolver=lambda *args: {"approval_id": record.approval_id, "request": request},
+            approval_resolver=lambda run_id, task_id, handler: {"approval_id": record.approval_id, "request": request},
         )
         with self.assertRaisesRegex(PermissionError, "not approved"):
             root.dispatch(
@@ -159,10 +159,10 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             TrustedPlanDispatchRoot(
                 controller=self.controller, store=self.plan_store,
                 recovery_bridge=self.recovery_bridge, approval_store=approvals,
-                budget_resolver=lambda *args: {
+                budget_resolver=lambda run_id, task_id, handler: {
                     "budget_id": "crew:team-a:run-1", "guard": guard, "policy_digest": "a" * 64,
                 },
-                approval_resolver=lambda *args: {
+                approval_resolver=lambda run_id, task_id, handler: {
                     "approval_id": record.approval_id, "request": request,
                 },
             ).dispatch(
