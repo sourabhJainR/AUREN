@@ -308,15 +308,7 @@ class ResponseDeliverySupervisor:
         return datetime.now(timezone.utc)
 
     def _acquire_worker_slot(self, task_id: str) -> str | None:
-        """Reserve local capacity and, when configured, deployment-wide capacity."""
-        if self.admission_coordinator is not None:
-            lease = self.admission_coordinator.acquire(
-                "response_delivery_workers", self.deployment_host_id, task_id,
-                capacity=MAX_ACTIVE_DELIVERY_WORKERS, lease_seconds=WORKER_SLOT_LEASE_SECONDS,
-            )
-            if lease is None:
-                return None
-            self._deployment_leases[task_id] = lease
+        """Reserve local capacity, then deployment-wide capacity when configured."""
         now = self._utc_now()
         now_text = now.isoformat(timespec="microseconds")
         lease_until = (now + timedelta(seconds=WORKER_SLOT_LEASE_SECONDS)).isoformat(timespec="microseconds")
@@ -336,7 +328,30 @@ class ResponseDeliverySupervisor:
                 "INSERT INTO delivery_worker_slots(task_id,owner_token,lease_until) VALUES(?,?,?)",
                 (task_id, owner_token, lease_until),
             )
-            return owner_token
+        if self.admission_coordinator is not None:
+            try:
+                lease = self.admission_coordinator.acquire(
+                    "response_delivery_workers", self.deployment_host_id, task_id,
+                    capacity=MAX_ACTIVE_DELIVERY_WORKERS, lease_seconds=WORKER_SLOT_LEASE_SECONDS,
+                )
+                if lease is None:
+                    with sqlite3.connect(self.registry_path, timeout=10) as db:
+                        db.execute(
+                            "DELETE FROM delivery_worker_slots WHERE task_id=? AND owner_token=?",
+                            (task_id, owner_token),
+                        )
+                    return None
+                self._deployment_leases[task_id] = lease
+            except Exception:
+                # A failed shared authority must not leave a local reservation
+                # that could be mistaken for successful deployment admission.
+                with sqlite3.connect(self.registry_path, timeout=10) as db:
+                    db.execute(
+                        "DELETE FROM delivery_worker_slots WHERE task_id=? AND owner_token=?",
+                        (task_id, owner_token),
+                    )
+                raise
+        return owner_token
 
     def _renew_worker_slot(self, task_id: str, owner_token: str) -> bool:
         if self.admission_coordinator is not None:
