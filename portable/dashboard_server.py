@@ -172,7 +172,19 @@ class _Handler(BaseHTTPRequestHandler):
         if artifact_digest is None:
             raise FileNotFoundError("response artifact is unavailable")
         stored = self.response_repository.load(response_id, artifact_digest)
-        self.delivery_supervisor.start(task_id, artifact_verified=True)
+        # Reads and acknowledgements must never revive blocked or stale work.
+        # A fresh running journal plus an expired durable lease is the restart
+        # recovery case; a pending task is safe to admit normally.
+        journal_state = self.progress_journal.snapshot(task_id)
+        controller_task = self.delivery_supervisor.controller.task(task_id)
+        if controller_task is not None and controller_task.state == "pending":
+            self.delivery_supervisor.start(task_id, artifact_verified=True)
+        elif (
+            controller_task is not None and controller_task.state == "running"
+            and journal_state.get("state") == "running"
+            and journal_state.get("reported_state") == "running"
+        ):
+            self.delivery_supervisor.start(task_id, artifact_verified=True)
         return stored
 
     def _delivery_checkpoint(self, response_id, delivery_id):
@@ -198,6 +210,21 @@ class _Handler(BaseHTTPRequestHandler):
             )
             terminal_state = self.delivery_supervisor.state(self._delivery_task_id(response_id, delivery_id))
             all_acknowledged = acknowledged == manifest.total_chunks
+            if (
+                action == "status" and terminal_state == "completed"
+                and all_acknowledged and snapshot.get("reported_state") == "running"
+            ):
+                self.progress_journal.record(
+                    self._delivery_task_id(response_id, delivery_id),
+                    "response_delivery_supervisor_completed", state="completed",
+                    stage="response-delivery-finalization",
+                    message="supervisor completed after verified receiver acknowledgement",
+                    evidence_ref="sha256:" + manifest.sha256,
+                    expected_sequence=snapshot.get("sequence"),
+                )
+                snapshot = self.progress_journal.snapshot(
+                    self._delivery_task_id(response_id, delivery_id),
+                )
             if action == "status":
                 self._send_delivery_json(200, {
                     "response_id": response_id,
@@ -455,9 +482,12 @@ class _Handler(BaseHTTPRequestHandler):
                 limit = int(query.get("limit", ["50"])[0])
                 search = query.get("q", [""])[0]
                 status = query.get("status", ["all"])[0]
-                payload = self.control_center.session_snapshot(
-                    offset=offset, limit=limit, query=search, status=status,
-                )
+                if self.control_center is None:
+                    payload = {"sessions": self.progress_journal.list_snapshots(), "offset": offset, "limit": limit}
+                else:
+                    payload = self.control_center.session_snapshot(
+                        offset=offset, limit=limit, query=search, status=status,
+                    )
                 if self.delivery_supervisor is not None:
                     payload["delivery_metrics"] = self.delivery_supervisor.metrics_snapshot()
                 self._send_api_json(200, payload)
@@ -478,8 +508,11 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/control-center":
             try:
-                snapshot = self.control_center.snapshot()
-                snapshot["models"] = LocalModelDiscovery().discover()
+                if self.control_center is None:
+                    snapshot = {"sessions": self.progress_journal.list_snapshots(), "models": []}
+                else:
+                    snapshot = self.control_center.snapshot()
+                    snapshot["models"] = LocalModelDiscovery().discover()
                 if self.delivery_supervisor is not None:
                     snapshot["delivery_metrics"] = self.delivery_supervisor.metrics_snapshot()
                 self._send_api_json(200, snapshot)
