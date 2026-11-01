@@ -113,7 +113,7 @@ def test_worker_slot_renewal_requires_matching_owner_and_extends_lease(tmp_path)
             "SELECT lease_until FROM delivery_worker_slots WHERE task_id=?",
             ("task-one",),
         ).fetchone()[0]
-    assert after >= before
+    assert after > before
     delivery._release_worker_slot("task-one", token)
 
 
