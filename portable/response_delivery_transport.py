@@ -133,25 +133,27 @@ def deliver_response(
             ack = receiver(chunk)
         except Exception as exc:
             receiver_wait_ms += (time.perf_counter() - receiver_started) * 1000.0
+            # Persist the advisory category while the task is still writable;
+            # then record the authoritative blocked/replay-fence transition.
+            record_metrics(failure_reason="receiver_exception")
             journal.record(
                 task_id, "response_chunk_outcome_unknown", state="blocked",
                 stage=delivery_stage,
                 message=f"receiver outcome unknown for chunk {chunk.index}; automatic replay disabled",
                 evidence_ref=f"sha256:{manifest.sha256}",
             )
-            record_metrics(failure_reason="receiver_exception")
             raise DeliveryOutcomeUnknown(
                 "receiver outcome is unknown; automatic replay is blocked until receiver status is reconciled"
             ) from exc
         receiver_wait_ms += (time.perf_counter() - receiver_started) * 1000.0
         if not isinstance(ack, Mapping):
+            record_metrics(failure_reason="missing_ack")
             journal.record(
                 task_id, "response_chunk_outcome_unknown", state="blocked",
                 stage=delivery_stage,
                 message=f"receiver returned no verifiable acknowledgement for chunk {chunk.index}",
                 evidence_ref=f"sha256:{manifest.sha256}",
             )
-            record_metrics(failure_reason="missing_ack")
             raise DeliveryOutcomeUnknown("receiver returned no verifiable acknowledgement; automatic replay is blocked")
         expected = {
             "response_id": manifest.response_id,
@@ -159,13 +161,13 @@ def deliver_response(
             "chunk_sha256": chunk.sha256,
         }
         if any(ack.get(key) != value for key, value in expected.items()):
+            record_metrics(failure_reason="ack_mismatch")
             journal.record(
                 task_id, "response_chunk_outcome_unknown", state="blocked",
                 stage=delivery_stage,
                 message=f"receiver acknowledgement mismatch for chunk {chunk.index}; automatic replay disabled",
                 evidence_ref=f"sha256:{manifest.sha256}",
             )
-            record_metrics(failure_reason="ack_mismatch")
             raise DeliveryOutcomeUnknown("receiver acknowledgement mismatch; automatic replay is blocked")
         # Persist only after the receiver has confirmed this exact chunk.
         journal.record_response_chunk_ack(
