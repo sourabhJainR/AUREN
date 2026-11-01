@@ -65,7 +65,11 @@ class DashboardSharedBudgetInjectionTests(unittest.TestCase):
         handler.progress_journal = Journal()
         handler.delivery_execution_guard = guard
         handler.delivery_budget_id = "crew:real-path"
-        stored = handler._persist_response_artifact("a" * 64, "c" * 32, b"hello")
+        with patch(
+            "portable.dashboard_server.record_delivery_metrics",
+            return_value=None,
+        ):
+            stored = handler._persist_response_artifact("a" * 64, "c" * 32, b"hello")
         self.assertEqual("hello", captured["text"])
         self.assertIs(captured["create"][3]["execution_guard"], guard)
         self.assertEqual("crew:real-path", captured["create"][3]["budget_id"])
