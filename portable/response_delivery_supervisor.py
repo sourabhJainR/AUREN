@@ -5,6 +5,8 @@ import json
 import sqlite3
 import threading
 import time
+import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -19,6 +21,8 @@ from .execution_controller import (
 
 _HANDLER = "portable.response_delivery.await_receiver"
 MAX_ACTIVE_DELIVERY_WORKERS = 8
+WORKER_SLOT_LEASE_SECONDS = 30
+WORKER_SLOT_HEARTBEAT_SECONDS = 5
 _THREADS: dict[tuple[str, str], threading.Thread] = {}
 _THREADS_LOCK = threading.Lock()
 _SATURATION_COUNT = 0
@@ -100,6 +104,15 @@ class ResponseDeliverySupervisor:
             db.execute(
                 "CREATE TABLE IF NOT EXISTS delivery_budgets ("
                 "budget_id TEXT PRIMARY KEY, snapshot_json TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+            )
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS delivery_worker_slots ("
+                "task_id TEXT PRIMARY KEY, owner_token TEXT NOT NULL, lease_until TEXT NOT NULL, "
+                "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+            )
+            db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_delivery_worker_slots_lease "
+                "ON delivery_worker_slots(lease_until)"
             )
             legacy = db.execute(
                 "SELECT task_id FROM deliveries WHERE budget_id IS NULL OR budget_id=''"
@@ -272,6 +285,63 @@ class ResponseDeliverySupervisor:
         return str(row[0])
 
     @staticmethod
+    def _utc_now() -> datetime:
+        return datetime.now(timezone.utc)
+
+    def _acquire_worker_slot(self, task_id: str) -> str | None:
+        """Atomically reserve a host-wide worker slot across processes sharing the registry."""
+        now = self._utc_now()
+        now_text = now.isoformat(timespec="seconds")
+        lease_until = (now + timedelta(seconds=WORKER_SLOT_LEASE_SECONDS)).isoformat(timespec="seconds")
+        owner_token = f"{uuid.uuid4().hex}:{task_id}"
+        with sqlite3.connect(self.registry_path, timeout=10) as db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute("DELETE FROM delivery_worker_slots WHERE lease_until<=?", (now_text,))
+            existing = db.execute(
+                "SELECT owner_token FROM delivery_worker_slots WHERE task_id=?", (task_id,),
+            ).fetchone()
+            if existing is not None:
+                return None
+            active = int(db.execute("SELECT COUNT(*) FROM delivery_worker_slots").fetchone()[0])
+            if active >= MAX_ACTIVE_DELIVERY_WORKERS:
+                return None
+            db.execute(
+                "INSERT INTO delivery_worker_slots(task_id,owner_token,lease_until) VALUES(?,?,?)",
+                (task_id, owner_token, lease_until),
+            )
+            return owner_token
+
+    def _renew_worker_slot(self, task_id: str, owner_token: str) -> bool:
+        now = self._utc_now()
+        lease_until = (now + timedelta(seconds=WORKER_SLOT_LEASE_SECONDS)).isoformat(timespec="seconds")
+        with sqlite3.connect(self.registry_path, timeout=10) as db:
+            cursor = db.execute(
+                "UPDATE delivery_worker_slots SET lease_until=?,updated_at=CURRENT_TIMESTAMP "
+                "WHERE task_id=? AND owner_token=?",
+                (lease_until, task_id, owner_token),
+            )
+            return cursor.rowcount == 1
+
+    def _release_worker_slot(self, task_id: str, owner_token: str) -> None:
+        with sqlite3.connect(self.registry_path, timeout=10) as db:
+            db.execute(
+                "DELETE FROM delivery_worker_slots WHERE task_id=? AND owner_token=?",
+                (task_id, owner_token),
+            )
+
+    def shared_capacity_snapshot(self) -> dict[str, int | bool]:
+        now_text = self._utc_now().isoformat(timespec="seconds")
+        with sqlite3.connect(self.registry_path, timeout=10) as db:
+            db.execute("DELETE FROM delivery_worker_slots WHERE lease_until<=?", (now_text,))
+            active = int(db.execute("SELECT COUNT(*) FROM delivery_worker_slots").fetchone()[0])
+        return {
+            "active_workers": active,
+            "worker_limit": MAX_ACTIVE_DELIVERY_WORKERS,
+            "available_workers": max(0, MAX_ACTIVE_DELIVERY_WORKERS - active),
+            "saturated": active >= MAX_ACTIVE_DELIVERY_WORKERS,
+        }
+
+    @staticmethod
     def capacity_snapshot() -> dict[str, int | bool]:
         """Return bounded worker capacity and in-process saturation telemetry."""
         with _THREADS_LOCK:
@@ -305,8 +375,10 @@ class ResponseDeliverySupervisor:
             if row.get("event") == "response_delivery_receiver_acknowledged"
         }
         capacity = self.capacity_snapshot()
+        shared_capacity = self.shared_capacity_snapshot()
         return {
             "capacity": capacity,
+            "shared_capacity": shared_capacity,
             "tasks_by_state": states,
             "pending_tasks": states.get("pending", 0),
             "running_tasks": states.get("running", 0),
@@ -386,12 +458,21 @@ class ResponseDeliverySupervisor:
             if active_count >= MAX_ACTIVE_DELIVERY_WORKERS:
                 _SATURATION_COUNT += 1
                 return False
+            owner_token = self._acquire_worker_slot(task_id)
+            if owner_token is None:
+                _SATURATION_COUNT += 1
+                return False
             thread = threading.Thread(
-                target=self._run, args=(key, task_id),
+                target=self._run, args=(key, task_id, owner_token),
                 name="auren-response-delivery-" + task_id[:8], daemon=True,
             )
             _THREADS[key] = thread
-            thread.start()
+            try:
+                thread.start()
+            except BaseException:
+                _THREADS.pop(key, None)
+                self._release_worker_slot(task_id, owner_token)
+                raise
         # Wait briefly for the durable controller to acquire the new lease.
         # Returning success while the task is still pending makes the HTTP host
         # appear runnable even though no worker has started.
@@ -414,14 +495,39 @@ class ResponseDeliverySupervisor:
             time.sleep(0.01)
         return False
 
-    def _run(self, key: tuple[str, str], task_id: str) -> None:
+    def _run(self, key: tuple[str, str], task_id: str, owner_token: str) -> None:
+        heartbeat_stop = threading.Event()
+        heartbeat_lost = threading.Event()
+
+        def renew_slot() -> None:
+            while not heartbeat_stop.wait(WORKER_SLOT_HEARTBEAT_SECONDS):
+                try:
+                    if not self._renew_worker_slot(task_id, owner_token):
+                        heartbeat_lost.set()
+                        return
+                except Exception:
+                    # Do not silently assume the shared slot is still owned.
+                    heartbeat_lost.set()
+                    return
+
+        heartbeat = threading.Thread(
+            target=renew_slot, name="auren-delivery-slot-" + task_id[:8], daemon=True,
+        )
         try:
-            self.controller.run_once(task_id)
+            if not self._renew_worker_slot(task_id, owner_token):
+                return
+            heartbeat.start()
+            if not heartbeat_lost.is_set():
+                self.controller.run_once(task_id)
         except LeaseLostError:
             # Expected when a replacement supervisor has fenced this worker.
             # The new lease owner is responsible for continuing the task.
             pass
         finally:
+            heartbeat_stop.set()
+            if heartbeat.is_alive():
+                heartbeat.join(timeout=1.0)
+            self._release_worker_slot(task_id, owner_token)
             with _THREADS_LOCK:
                 _THREADS.pop(key, None)
 
