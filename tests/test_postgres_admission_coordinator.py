@@ -174,6 +174,27 @@ class PostgreSQLAdmissionCoordinatorTests(unittest.TestCase):
         )
         self.assertEqual("task-other-namespace", separate.task_id)
 
+    def test_connection_establishment_failure_is_normalized_and_fails_closed(self):
+        from portable.postgres_admission_coordinator import (
+            AdmissionCoordinatorUnavailable, PostgreSQLAdmissionCoordinator,
+        )
+
+        coordinator = PostgreSQLAdmissionCoordinator(
+            lambda: __import__("psycopg").connect(
+                "postgresql://invalid:invalid@127.0.0.1:1/unavailable?connect_timeout=1"
+            ),
+            namespace="outage-" + uuid4().hex,
+            policy_version="v1",
+            provision=False,
+        )
+        digest = __import__("hashlib").sha256(b"intent").hexdigest()
+        with self.assertRaises(AdmissionCoordinatorUnavailable):
+            coordinator.claim_work_key("outage-work", digest, "runtime-a", "task-a")
+        with self.assertRaises(AdmissionCoordinatorUnavailable):
+            coordinator.acquire("workers", "runtime-a", "task-a", capacity=1)
+        with self.assertRaises(AdmissionCoordinatorUnavailable):
+            coordinator.active_count("workers")
+
     @unittest.skipUnless(os.environ.get("AUREN_TEST_POSTGRES_DSN"), "real PostgreSQL service is not configured")
     def test_capacity_policy_mismatch_fails_closed(self):
         coordinator = self._coordinator()
