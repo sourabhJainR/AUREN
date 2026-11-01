@@ -2197,6 +2197,7 @@ class ExecutionController:
         # insertion. A committed task is then repaired/verified in the projection stores.
         task: DurableTask
         created = False
+        pending_admission_lease: Any | None = None
         with closing(sqlite3.connect(self.db_path, timeout=10)) as db:
             db.execute("BEGIN IMMEDIATE")
             try:
@@ -2258,11 +2259,16 @@ class ExecutionController:
                     if pending_count >= self.max_pending_tasks:
                         # This check shares the BEGIN IMMEDIATE transaction with task
                         # insertion and runs before AutonomousCompany.start(), so
-                        # concurrent processes cannot overfill the queue or leave an
-                        # orphan work unit when admission is rejected.
+                        # concurrent processes cannot overfill the local queue.
                         raise QueueAdmissionRejected(pending_count, self.max_pending_tasks)
+                    task_id = uuid4().hex
+                    if self._deployment_admission_coordinator is not None:
+                        pending_admission_lease = self._acquire_deployment_pending_slot(task_id)
+                        if pending_admission_lease is None:
+                            active = self._deployment_admission_coordinator.active_count("durable_pending_tasks")
+                            raise QueueAdmissionRejected(active, self.max_pending_tasks)
                     work = self.company.start(goal_text, work_key=stable_work_key)
-                    task = DurableTask(uuid4().hex, handler, payload_copy, "pending", 0, work.id, deadline_at=requested_deadline_at)
+                    task = DurableTask(task_id, handler, payload_copy, "pending", 0, work.id, deadline_at=requested_deadline_at)
                     now = _now()
                     db.execute(
                         "INSERT INTO tasks(id,handler,payload,state,attempts,work_unit_id,created_at,updated_at,"
@@ -2278,6 +2284,13 @@ class ExecutionController:
             except BaseException:
                 if db.in_transaction:
                     db.rollback()
+                if pending_admission_lease is not None:
+                    try:
+                        self._release_deployment_pending_slot(pending_admission_lease)
+                    except Exception:
+                        # The shared lease has a bounded expiry. Preserve the
+                        # original submission error; a leaked slot fails closed.
+                        pass
                 raise
 
         if not self._ensure_submission_event(task):
