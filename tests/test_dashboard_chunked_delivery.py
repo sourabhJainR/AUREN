@@ -182,6 +182,22 @@ def test_chunked_route_supports_acknowledged_resume_after_server_restart(monkeyp
         assert status == 200 and final["complete"] is True
         assert server.RequestHandlerClass.delivery_supervisor.state(task_id) == "completed"
         assert server.RequestHandlerClass.progress_journal.snapshot(task_id)["state"] == "completed"
+        measurements = server.RequestHandlerClass.delivery_supervisor.metrics_snapshot()["measurements"]
+        assert measurements["total_bytes"] == manifest["total_bytes"]
+        assert measurements["total_chunks"] == manifest["total_chunks"]
+        assert measurements["peak_in_flight_bytes"] > 0
+        assert measurements["backpressure_wait_ms"] >= 0
+        assert measurements["resume_count"] >= 1
+        assert "acknowledgement_rejected" in measurements["failure_reasons"]
+        assert response_id in measurements["completion_digests"]
+        metric_messages = [
+            row["message"] for row in server.RequestHandlerClass.progress_journal._events()
+            if row.get("task_id") == task_id and row.get("event") in {
+                "response_delivery_metrics", "response_delivery_chunk_measurement",
+                "response_delivery_failure", "response_chunk_offered",
+            }
+        ]
+        assert all(answer not in message for message in metric_messages)
     finally:
         _stop_server(server, thread)
 
@@ -634,5 +650,66 @@ def test_http_delivery_charges_one_shared_crew_budget_across_deliveries_and_rest
         status, _, blocked = _request(server, "GET", second["next"])
         assert status == 429
         assert "shared crew delivery byte budget exhausted" in blocked["error"]
+    finally:
+        _stop_server(server, thread)
+
+
+def test_dashboard_telemetry_failures_do_not_change_ack_or_completion(monkeypatch, tmp_path):
+    from unittest.mock import patch
+
+    result = SimpleNamespace(
+        provider="test", model="fixture", success=True, attempts=1, latency_ms=1.0,
+        resource_usage={}, fallback_reason=None, result={"answer": "telemetry isolation"}, error=None,
+    )
+    server, thread = _start_server(monkeypatch, tmp_path, result)
+    try:
+        status, _, manifest = _request(
+            server, "POST", "/api/route", {"task": "telemetry isolation"},
+            headers={"Accept": dashboard_server.CHUNKED_RESPONSE_ACCEPT},
+        )
+        assert status == 202
+        task_id = server.RequestHandlerClass._delivery_task_id(
+            manifest["response_id"], manifest["delivery_id"],
+        )
+        for expected_index in range(1, manifest["total_chunks"] + 1):
+            status, _, chunk = _request(server, "GET", manifest["next"])
+            assert status == 200 and chunk["chunk_index"] == expected_index
+            ack = {
+                "chunk_index": chunk["chunk_index"],
+                "chunk_sha256": chunk["chunk_sha256"],
+                "response_sha256": manifest["response_sha256"],
+                "total_chunks": manifest["total_chunks"],
+            }
+            if expected_index == 1:
+                with patch.object(
+                    dashboard_server, "record_chunk_ack_measurement",
+                    side_effect=OSError("metrics store unavailable"),
+                ):
+                    status, _, ack_result = _request(server, "POST", manifest["ack"], ack)
+            else:
+                status, _, ack_result = _request(server, "POST", manifest["ack"], ack)
+            assert status == 200 and ack_result["acknowledged_index"] == expected_index
+        checkpoint = server.RequestHandlerClass.progress_journal.response_delivery_checkpoint(
+            task_id, manifest["response_id"],
+        )
+        assert checkpoint["acknowledged_index"] == manifest["total_chunks"]
+
+        complete = {
+            "response_sha256": manifest["response_sha256"],
+            "total_chunks": manifest["total_chunks"],
+        }
+        with patch.object(
+            dashboard_server, "record_delivery_metrics",
+            side_effect=OSError("metrics store unavailable"),
+        ):
+            status, _, receipt = _request(server, "POST", manifest["complete"], complete)
+        assert status == 202 and receipt["accepted"] is True
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            if server.RequestHandlerClass.delivery_supervisor.state(task_id) == "completed":
+                break
+            time.sleep(0.02)
+        assert server.RequestHandlerClass.delivery_supervisor.state(task_id) == "completed"
+        assert server.RequestHandlerClass.delivery_metrics_failures >= 2
     finally:
         _stop_server(server, thread)

@@ -13,6 +13,7 @@ from typing import Any, Callable, Mapping, Protocol
 
 from portable.response_delivery import ResponseChunk, chunk_response, chunks_after
 from portable.progress_journal import ProgressJournal
+from portable.response_delivery_metrics import record_delivery_metrics
 
 
 class ChunkReceiver(Protocol):
@@ -92,24 +93,49 @@ def deliver_response(
         raise DeliveryBlocked("stored acknowledgement cursor exceeds response")
     started = time.monotonic()
     peak_in_flight = 0
+    receiver_wait_ms = 0.0
+
+    def record_metrics(*, failure_reason: str | None = None, completion_digest: str | None = None) -> None:
+        # Telemetry is advisory. It must never replace a delivery result,
+        # acknowledgement, or typed unknown-outcome fence.
+        try:
+            record_delivery_metrics(
+                journal, task_id, manifest.response_id,
+                total_bytes=manifest.total_bytes, total_chunks=manifest.total_chunks,
+                peak_in_flight_bytes=peak_in_flight,
+                backpressure_wait_ms=receiver_wait_ms,
+                resumed_from_chunk=acknowledged,
+                failure_reason=failure_reason, completion_digest=completion_digest,
+            )
+        except Exception:
+            return
 
     for chunk in chunks_after(chunks, acknowledged):
         if is_cancelled is not None and is_cancelled():
+            record_metrics(failure_reason="cancelled")
             raise DeliveryBlocked("delivery cancelled before next chunk")
         if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
+            record_metrics(failure_reason="deadline_exceeded")
             raise DeliveryBlocked("delivery deadline reached before next chunk")
         if execution_guard is not None:
             execution_guard.check()
             operation_key = f"delivery:{task_id}:{manifest.response_id}:{chunk.index}:{chunk.sha256}"
             if not execution_guard.consume_delivery_bytes(chunk.utf8_bytes, operation_key=operation_key):
+                record_metrics(failure_reason="shared_budget_exhausted")
                 raise DeliveryBlocked("shared crew delivery byte budget exhausted or this chunk was already charged")
         elif consume_shared_budget is not None and not consume_shared_budget(chunk.utf8_bytes):
+            record_metrics(failure_reason="shared_budget_exhausted")
             raise DeliveryBlocked("shared crew byte budget exhausted before next chunk")
 
         peak_in_flight = max(peak_in_flight, chunk.utf8_bytes)
+        receiver_started = time.perf_counter()
         try:
             ack = receiver(chunk)
         except Exception as exc:
+            receiver_wait_ms += (time.perf_counter() - receiver_started) * 1000.0
+            # Persist the advisory category while the task is still writable;
+            # then record the authoritative blocked/replay-fence transition.
+            record_metrics(failure_reason="receiver_exception")
             journal.record(
                 task_id, "response_chunk_outcome_unknown", state="blocked",
                 stage=delivery_stage,
@@ -119,7 +145,9 @@ def deliver_response(
             raise DeliveryOutcomeUnknown(
                 "receiver outcome is unknown; automatic replay is blocked until receiver status is reconciled"
             ) from exc
+        receiver_wait_ms += (time.perf_counter() - receiver_started) * 1000.0
         if not isinstance(ack, Mapping):
+            record_metrics(failure_reason="missing_ack")
             journal.record(
                 task_id, "response_chunk_outcome_unknown", state="blocked",
                 stage=delivery_stage,
@@ -133,6 +161,7 @@ def deliver_response(
             "chunk_sha256": chunk.sha256,
         }
         if any(ack.get(key) != value for key, value in expected.items()):
+            record_metrics(failure_reason="ack_mismatch")
             journal.record(
                 task_id, "response_chunk_outcome_unknown", state="blocked",
                 stage=delivery_stage,
@@ -151,7 +180,9 @@ def deliver_response(
 
     final = journal.response_delivery_checkpoint(task_id, manifest.response_id)
     if final["acknowledged_index"] != manifest.total_chunks or final["response_sha256"] != manifest.sha256:
+        record_metrics(failure_reason="ack_cursor_incomplete")
         raise DeliveryBlocked("delivery is not fully acknowledged; parent task must remain nonterminal")
+    record_metrics(completion_digest=manifest.sha256)
     return DeliveryReceipt(
         response_id=manifest.response_id,
         total_chunks=manifest.total_chunks,
