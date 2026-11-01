@@ -178,9 +178,9 @@ Map these findings to LearningSteward, causal attribution, experiment manifests,
 
 #### Current repository evidence — 2026-11-01
 
-Main is \`1d6534d4ea533fe034a4258a131e8a03b9bc4b98\`. Its 25 check-runs are terminal: 23 succeeded, two were skipped, none failed and none remain pending. Skipped checks are not passes. All six post-merge push workflows completed successfully.
+Main is `1d6534d4ea533fe034a4258a131e8a03b9bc4b98`. Its 25 check-runs are terminal: 23 succeeded, two were skipped, none failed and none remain pending. Skipped checks are not passes. All six post-merge push workflows completed successfully.
 
-The v1.0.6 portable bundle is pinned to this main SHA. Bundle artifact SHA-256: \`bbec2aae1993fddfa0e6c9c36537398ff59048c55e5c3e87f10cc78ccc7460ff\`; checksum artifact SHA-256: \`20a27e5dcc6adc0fb953356a9b90a0e1d4f39b3881123ca34d9ddf3fc3dede3b\`; embedded ZIP SHA-256: \`7ba4719e83ffb30fcd5daed75e072d4bc64d5a041e89e78c6d96d38f405734fa\`. All 524 manifest entries match their recorded size and digest; the only expected generated entry outside the manifest is \`payload/PORTABLE_BUNDLE.txt\`. The manifest declares \`target_repository_mutation=false\`.
+The v1.0.6 portable bundle is pinned to this main SHA. Bundle artifact SHA-256: `bbec2aae1993fddfa0e6c9c36537398ff59048c55e5c3e87f10cc78ccc7460ff`; checksum artifact SHA-256: `20a27e5dcc6adc0fb953356a9b90a0e1d4f39b3881123ca34d9ddf3fc3dede3b`; embedded ZIP SHA-256: `7ba4719e83ffb30fcd5daed75e072d4bc64d5a041e89e78c6d96d38f405734fa`. All 524 manifest entries match their recorded size and digest; the only expected generated entry outside the manifest is `payload/PORTABLE_BUNDLE.txt`. The manifest declares `target_repository_mutation=false`.
 
 PR #1183 remains open on an isolated branch and was still awaiting exact-head checks at the time of this snapshot. The visible main ruleset contains deletion and non-fast-forward protections but no required-status-check rule; the branch-protection API was not accessible to this integration, so owner/admin confirmation is still required. No local checkout/runtime was available, so no local tests or process-level fault injection are claimed.
 
