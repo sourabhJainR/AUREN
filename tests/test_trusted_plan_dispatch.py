@@ -285,6 +285,22 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
 
 
+    def test_worker_resume_requires_trusted_root_bootstrap(self):
+        approvals, request, record = self._approval(self.controller, context=self.context)
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        root = self._root(self.controller, approvals, request, record, guard, context=self.context)
+        task = root.dispatch(
+            run_id=self.plan.run_id, task_id="implement", dispatch_key="resume-root-required",
+            handler="dispatch-test", packet=self.packet, payload={"change": "small"},
+        )
+        token = self.controller._trusted_plan_dispatch_token
+        self.controller._trusted_plan_dispatch_token = None
+        with self.assertRaisesRegex(EngineeringPlanCheckpointMismatch, "root is not configured"):
+            self.controller._verify_engineering_plan_dispatch_checkpoint(task)
+        self.controller._trusted_plan_dispatch_token = token
+        self.controller._verify_engineering_plan_dispatch_checkpoint(task)
+
+
     def test_trusted_binding_is_revalidated_at_controller_preflight(self):
         approvals, request, record = self._approval(self.controller, context=self.context)
         guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
