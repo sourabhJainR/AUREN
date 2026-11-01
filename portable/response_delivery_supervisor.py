@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 from typing import Any, Mapping
 
+from .runtime_recovery import RuntimeExecutionGuard
 from .execution_controller import (
     ExecutionController,
     LeaseLostError,
@@ -81,12 +82,21 @@ class ResponseDeliverySupervisor:
         self.journal_path = Path(journal_path).expanduser().resolve()
         self.registry_path = controller.db_path.parent / "response_delivery_registry.sqlite3"
         self.registry_path.parent.mkdir(parents=True, exist_ok=True)
+        self._budget_lock = threading.RLock()
+        self._execution_guards: dict[str, RuntimeExecutionGuard] = {}
         with sqlite3.connect(self.registry_path) as db:
             db.execute(
                 "CREATE TABLE IF NOT EXISTS deliveries ("
                 "response_id TEXT NOT NULL, delivery_id TEXT NOT NULL, task_id TEXT NOT NULL UNIQUE, "
-                "response_sha256 TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                "response_sha256 TEXT NOT NULL, budget_id TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
                 "PRIMARY KEY(response_id, delivery_id))"
+            )
+            columns = {row[1] for row in db.execute("PRAGMA table_info(deliveries)")}
+            if "budget_id" not in columns:
+                db.execute("ALTER TABLE deliveries ADD COLUMN budget_id TEXT")
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS delivery_budgets ("
+                "budget_id TEXT PRIMARY KEY, snapshot_json TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
             )
         try:
             self.controller._load_handler(_HANDLER)
@@ -95,9 +105,16 @@ class ResponseDeliverySupervisor:
                 _HANDLER, await_receiver_acknowledgement, execution_class="read_only",
             )
 
-    def create(self, response_id: str, delivery_id: str, digest: str, *, deadline_seconds: float = 600.0) -> str:
+    def create(
+        self, response_id: str, delivery_id: str, digest: str, *, deadline_seconds: float = 600.0,
+        execution_guard: RuntimeExecutionGuard | None = None, budget_id: str | None = None,
+    ) -> str:
         if response_id != digest or len(digest) != 64:
             raise ValueError("response identity must equal its SHA-256 digest")
+        if execution_guard is not None and not isinstance(execution_guard, RuntimeExecutionGuard):
+            raise TypeError("execution_guard must be a RuntimeExecutionGuard")
+        if budget_id is not None and (not isinstance(budget_id, str) or not budget_id.strip()):
+            raise ValueError("budget_id must be a non-empty string")
         with sqlite3.connect(self.registry_path, timeout=10) as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
@@ -128,11 +145,67 @@ class ResponseDeliverySupervisor:
                 work_key=work_key,
                 deadline_seconds=deadline_seconds,
             )
+            resolved_budget_id = budget_id or f"delivery:{task.id}"
+            snapshot = execution_guard.snapshot() if execution_guard is not None else RuntimeExecutionGuard().snapshot()
+            existing_budget = db.execute(
+                "SELECT snapshot_json FROM delivery_budgets WHERE budget_id=?", (resolved_budget_id,),
+            ).fetchone()
+            if existing_budget is None:
+                db.execute(
+                    "INSERT INTO delivery_budgets(budget_id,snapshot_json) VALUES(?,?)",
+                    (resolved_budget_id, json.dumps(snapshot, sort_keys=True, separators=(",", ":"))),
+                )
+            elif execution_guard is not None:
+                persisted = json.loads(existing_budget[0])
+                if persisted.get("digest") != snapshot.get("digest"):
+                    raise ValueError("shared crew budget does not match its durable checkpoint")
             db.execute(
-                "INSERT INTO deliveries(response_id,delivery_id,task_id,response_sha256) VALUES(?,?,?,?)",
-                (response_id, delivery_id, task.id, digest),
+                "INSERT INTO deliveries(response_id,delivery_id,task_id,response_sha256,budget_id) VALUES(?,?,?,?,?)",
+                (response_id, delivery_id, task.id, digest, resolved_budget_id),
             )
+            if execution_guard is not None:
+                self._execution_guards[resolved_budget_id] = execution_guard
             return task.id
+
+    def consume_delivery_bytes(self, task_id: str, amount: int, *, operation_key: str) -> bool:
+        """Charge a response chunk to the durable shared crew budget before sending it."""
+        with self._budget_lock, sqlite3.connect(self.registry_path, timeout=10) as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT budget_id FROM deliveries WHERE task_id=?", (task_id,),
+            ).fetchone()
+            if row is None or not row[0]:
+                raise RuntimeError("delivery task has no durable budget binding")
+            budget_id = str(row[0])
+            budget = db.execute(
+                "SELECT snapshot_json FROM delivery_budgets WHERE budget_id=?", (budget_id,),
+            ).fetchone()
+            if budget is None:
+                raise RuntimeError("shared delivery budget checkpoint is unavailable")
+            guard = self._execution_guards.get(budget_id)
+            persisted = json.loads(budget[0])
+            if guard is None:
+                guard = RuntimeExecutionGuard.resume(persisted)
+                self._execution_guards[budget_id] = guard
+            elif guard.snapshot().get("digest") != persisted.get("digest"):
+                raise RuntimeError("in-memory crew budget diverged from its durable checkpoint")
+            charged = guard.consume_delivery_bytes(amount, operation_key=operation_key)
+            if charged:
+                db.execute(
+                    "UPDATE delivery_budgets SET snapshot_json=?,updated_at=CURRENT_TIMESTAMP WHERE budget_id=?",
+                    (json.dumps(guard.snapshot(), sort_keys=True, separators=(",", ":")), budget_id),
+                )
+            return charged
+
+    def delivery_budget_snapshot(self, task_id: str) -> dict[str, Any]:
+        with sqlite3.connect(self.registry_path) as db:
+            row = db.execute(
+                "SELECT b.snapshot_json FROM deliveries d JOIN delivery_budgets b ON b.budget_id=d.budget_id WHERE d.task_id=?",
+                (task_id,),
+            ).fetchone()
+        if row is None:
+            raise FileNotFoundError("delivery budget checkpoint is unavailable")
+        return json.loads(row[0])
 
     def task_id(self, response_id: str, delivery_id: str) -> str:
         with sqlite3.connect(self.registry_path) as db:
