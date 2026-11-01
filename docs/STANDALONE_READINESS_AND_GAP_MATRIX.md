@@ -248,3 +248,19 @@ The result is a controlled local comparison, not a production performance guaran
 | Independent Arena / isolation | Not production-ready | External custody, repeatability, adversarial holdouts, OS-level isolation audit and signed attestation |
 
 **Readiness decision:** the repository now has a more explicit software-company team model and an independent capability experiment harness. It is not a production-ready autonomous engineering company, and it has not demonstrated AGI. Do not promote the new persona adapters to production or close the remaining roadmap gates until the evidence above is attached and independently reviewed. Product version remains unchanged. Rollback is a revert of the relevant PR; the separate lab has no runtime dependency on AUREN.
+
+
+### Refreshed delivery benchmark — exact candidate revision `81bc9d74ba64a5531d90690db3c8139842011c7f`
+
+Artifact: [Response delivery benchmark run 41264913663](https://github.com/sourabhJainR/AUREN/actions/runs/41264913663), artifact `response-delivery-benchmark-81bc9d74ba64a5531d90690db3c8139842011c7f`.
+
+Five paired iterations on Python 3.12.15 / Linux runner, 299,008 UTF-8 payload bytes:
+
+| Measure | Baseline | Candidate | Difference |
+|---|---:|---:|---:|
+| Latency | 173.865 ms | 168.394 ms | -5.471 ms |
+| Peak traced memory | 3,262,528 B | 2,181,992 B | -1,080,536 B |
+| Transported bytes | 299,008 B | 299,008 B | 0 B |
+| Chunks | 74 | 74 | 0 |
+
+Both baseline and candidate passed integrity and completion in all iterations. Recovery resumed after two acknowledged chunks, completed the response, and did not replay acknowledged chunks. Provider monetary cost remains unknown; transported bytes are only a proxy. These local measurements do not establish production latency, multi-host contention, or deployment readiness.
