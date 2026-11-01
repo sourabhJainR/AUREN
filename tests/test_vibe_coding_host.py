@@ -1742,8 +1742,6 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
                 read_only_response_merger=lambda results: {"items": []},
             )
 
-if __name__ == "__main__":
-    unittest.main()
     def test_oversized_atomic_mcp_frame_rejects_and_terminates_spawned_descendant(self):
         from portable.vibe_coding_host import AdapterUnavailable, MCPStdioToolAdapter
         with tempfile.TemporaryDirectory() as temp:
@@ -1774,3 +1772,7 @@ if __name__ == "__main__":
                 tool({"stage": "research", "intent": "reject oversized frame", "state": {"workspace_root": str(root)}})
             time.sleep(1.5)
             self.assertFalse(marker.exists(), "oversized MCP frame must terminate the complete child process tree")
+
+
+if __name__ == "__main__":
+    unittest.main()
