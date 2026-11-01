@@ -2166,6 +2166,10 @@ class ExecutionController:
             # Keep the key visible in the durable task envelope so operators and
             # resumed handlers can identify the canonical work unit.
             payload_copy["work_key"] = stable_work_key
+        if self._deployment_admission_coordinator is not None and stable_work_key is None:
+            raise ValueError(
+                "shared deployment task identity requires an explicit stable work_key"
+            )
         # Assigned work must be host-authorized before its durable task intent
         # is created, not only when a worker later attempts dispatch. Keep the
         # same validation at dispatch time because registry or policy can change
@@ -2284,6 +2288,20 @@ class ExecutionController:
                         raise QueueAdmissionRejected(pending_count, self.max_pending_tasks)
                     task_id = uuid4().hex
                     if self._deployment_admission_coordinator is not None:
+                        claim_work_key = getattr(
+                            self._deployment_admission_coordinator, "claim_work_key", None
+                        )
+                        if not callable(claim_work_key):
+                            raise RuntimeError(
+                                "shared admission coordinator does not support durable work-key identity"
+                            )
+                        identity = claim_work_key(
+                            stable_work_key,
+                            intent_digest,
+                            self._deployment_instance_id,
+                            task_id,
+                        )
+                        task_id = identity.task_id
                         pending_admission_lease = self._acquire_deployment_pending_slot(task_id)
                         if pending_admission_lease is None:
                             active = self._deployment_admission_coordinator.active_count("durable_pending_tasks")
