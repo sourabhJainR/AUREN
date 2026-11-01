@@ -96,6 +96,14 @@ class PostgreSQLAdmissionCoordinator:
                         PRIMARY KEY(namespace, resource)
                     )
                 """)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS auren_admission_resource_policy (
+                        namespace TEXT NOT NULL,
+                        resource TEXT NOT NULL,
+                        capacity INTEGER NOT NULL CHECK(capacity > 0),
+                        PRIMARY KEY(namespace, resource)
+                    )
+                """)
                 cursor.execute(
                     "INSERT INTO auren_admission_policy(namespace,policy_version) VALUES(%s,%s) "
                     "ON CONFLICT(namespace) DO NOTHING",
@@ -157,6 +165,18 @@ class PostgreSQLAdmissionCoordinator:
                 if policy is None or policy[0] != self.policy_version:
                     raise AdmissionPolicyConflict("shared admission policy is missing or mismatched")
                 self._lock(cursor, resource)
+                cursor.execute(
+                    "INSERT INTO auren_admission_resource_policy(namespace,resource,capacity) VALUES(%s,%s,%s) "
+                    "ON CONFLICT(namespace,resource) DO NOTHING",
+                    (self.namespace, resource, capacity),
+                )
+                cursor.execute(
+                    "SELECT capacity FROM auren_admission_resource_policy WHERE namespace=%s AND resource=%s",
+                    (self.namespace, resource),
+                )
+                stored_capacity = cursor.fetchone()
+                if stored_capacity is None or int(stored_capacity[0]) != capacity:
+                    raise AdmissionPolicyConflict("hosts supplied different capacity for the same deployment resource")
                 cursor.execute(
                     "SELECT owner,token,generation,expires_at FROM auren_admission_leases "
                     "WHERE namespace=%s AND resource=%s AND operation_id=%s",
