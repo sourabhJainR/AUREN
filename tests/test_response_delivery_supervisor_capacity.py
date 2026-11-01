@@ -94,6 +94,29 @@ def test_shared_worker_slots_enforce_cross_process_quota_and_expire_after_crash(
         assert second.shared_capacity_snapshot()["active_workers"] == 0
 
 
+def test_worker_slot_renewal_requires_matching_owner_and_extends_lease(tmp_path):
+    db_path = tmp_path / "execution.sqlite3"
+    delivery = supervisor_module.ResponseDeliverySupervisor(
+        _Controller(db_path), tmp_path / "progress.jsonl"
+    )
+    token = delivery._acquire_worker_slot("task-one")
+    assert token is not None
+    with sqlite3.connect(delivery.registry_path) as db:
+        before = db.execute(
+            "SELECT lease_until FROM delivery_worker_slots WHERE task_id=?",
+            ("task-one",),
+        ).fetchone()[0]
+    assert delivery._renew_worker_slot("task-one", "wrong-owner") is False
+    assert delivery._renew_worker_slot("task-one", token) is True
+    with sqlite3.connect(delivery.registry_path) as db:
+        after = db.execute(
+            "SELECT lease_until FROM delivery_worker_slots WHERE task_id=?",
+            ("task-one",),
+        ).fetchone()[0]
+    assert after >= before
+    delivery._release_worker_slot("task-one", token)
+
+
 def test_starting_an_already_active_delivery_does_not_consume_another_slot(tmp_path):
     supervisor_module._THREADS.clear()
     supervisor_module._SATURATION_COUNT = 0
