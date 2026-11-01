@@ -205,6 +205,7 @@ class _Handler(BaseHTTPRequestHandler):
                     "all_chunks_acknowledged": all_acknowledged,
                     "complete": terminal_state == "completed",
                     "state": terminal_state,
+                    "capacity": self.delivery_supervisor.capacity_snapshot(),
                 })
                 return
             if snapshot.get("state") != "running":
