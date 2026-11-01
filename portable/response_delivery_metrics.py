@@ -294,20 +294,6 @@ def aggregate_delivery_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
     for payload in chunk_measurements.values():
         total_wait += max(0.0, float(payload.get("backpressure_wait_ms", 0.0)))
         peak_in_flight = max(peak_in_flight, int(payload.get("chunk_bytes", 0)))
-    for task_id, count in admissions.items():
-        # The first admission is initial delivery; each later admission is a resume.
-        if count > 1:
-            # Metrics rows with a resumed_from_chunk already contribute one resume.
-            metric_resume = sum(
-                1 for (candidate_task, _response_id), row in latest.items()
-                if candidate_task == task_id and int(row.get("resumed_from_chunk", 0)) > 0
-            )
-            resume_count = max(0, count - 1 - metric_resume)
-        else:
-            resume_count = 0
-        if resume_count:
-            # Add to the count below after collecting all tasks.
-            pass
     admission_resumes = sum(max(0, count - 1) for count in admissions.values())
     metric_resumes = sum(
         1 for row in latest.values() if int(row.get("resumed_from_chunk", 0)) > 0
@@ -325,4 +311,4 @@ def aggregate_delivery_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 
-__all__ = ["SCHEMA_VERSION", "record_delivery_metrics", "aggregate_delivery_metrics"]
+__all__ = [\n    "SCHEMA_VERSION", "record_delivery_metrics", "record_chunk_offer",\n    "record_chunk_ack_measurement", "record_delivery_failure", "aggregate_delivery_metrics",\n]
