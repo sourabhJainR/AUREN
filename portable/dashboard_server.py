@@ -162,7 +162,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.delivery_supervisor.start(task_id, artifact_verified=True)
         return stored
 
-    def _load_delivery(self, response_id, delivery_id):
+    def _load_delivery(self, response_id, delivery_id, *, resume=False):
         if not re.fullmatch(r"[0-9a-f]{64}", response_id):
             raise ValueError("invalid response identity")
         if self.response_repository is None or self.progress_journal is None:
@@ -177,14 +177,9 @@ class _Handler(BaseHTTPRequestHandler):
         # recovery case; a pending task is safe to admit normally.
         journal_state = self.progress_journal.snapshot(task_id)
         controller_task = self.delivery_supervisor.controller.task(task_id)
-        if controller_task is not None and controller_task.state == "pending":
-            self.delivery_supervisor.start(task_id, artifact_verified=True)
-        elif (
-            controller_task is not None and controller_task.state == "running"
-            and journal_state.get("state") == "running"
-            and journal_state.get("reported_state") == "running"
-        ):
-            self.delivery_supervisor.start(task_id, artifact_verified=True)
+        if resume and journal_state.get("state") == "running" and journal_state.get("reported_state") == "running":
+            if controller_task is not None and controller_task.state in {"pending", "running"}:
+                self.delivery_supervisor.start(task_id, artifact_verified=True)
         return stored
 
     def _delivery_checkpoint(self, response_id, delivery_id):
@@ -199,7 +194,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         response_id, delivery_id, action = match.groups()
         try:
-            stored = self._load_delivery(response_id, delivery_id)
+            stored = self._load_delivery(response_id, delivery_id, resume=(action == "next"))
             manifest, chunks = stored.manifest, stored.chunks
             checkpoint = self._delivery_checkpoint(response_id, delivery_id)
             acknowledged = checkpoint["acknowledged_index"]
