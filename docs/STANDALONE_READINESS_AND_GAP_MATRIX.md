@@ -424,7 +424,7 @@ These tests establish workflow contracts with deterministic fixtures. They do no
 
 Additional operational gaps:
 - The eight-worker quota applies only to processes sharing the same registry database. Distinct registries and deployment-wide multi-host coordination remain unproven.
-- The durable pending queue is not yet bounded by a global admission quota.
+- The durable pending queue has a persisted per-ExecutionController-database cap (default 256), enforced transactionally across processes sharing that database. A deployment-wide quota across distinct roots/databases is not yet enforced.
 - Real provider-side-effect ambiguity and cross-adapter idempotency still need production receipts.
 - Required-check enforcement must be verified by a repository owner/admin; CI results alone do not prove the branch rules are configured correctly.
 - No staging migration or rollback rehearsal has been claimed.
