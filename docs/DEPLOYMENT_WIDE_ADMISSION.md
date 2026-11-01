@@ -26,8 +26,7 @@ safe but may temporarily reduce throughput.
 
 Use a dedicated PostgreSQL database/schema and a service identity managed by
 the operator. Install the project's PostgreSQL driver in the host environment.
-Run one provisioning step with a migration identity that can create the four
-`auren_admission_*` tables:
+Run one provisioning step with a migration identity that can create the shared admission and work-identity tables:
 
 ```python
 from psycopg import connect
