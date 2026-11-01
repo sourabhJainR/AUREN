@@ -2253,3 +2253,23 @@ class PostgreSQLSharedPendingAdmissionIntegrationTests(unittest.TestCase):
             accepted = second.submit("tests.durable_handler", {"id": "b"}, work_key="pg:b")
             self.assertEqual("pending", accepted.state)
             self.assertEqual(1, coordinator.active_count("durable_pending_tasks"))
+
+
+def test_shared_pending_release_must_be_confirmed_before_dispatch(tmp_path: Path):
+    class UnconfirmedReleaseCoordinator(_FakeDeploymentAdmissionCoordinator):
+        def release(self, lease):
+            return False
+
+    coordinator = UnconfirmedReleaseCoordinator()
+    controller = ExecutionController(
+        tmp_path, max_pending_tasks=1,
+        deployment_admission_coordinator=coordinator,
+        deployment_instance_id="runtime-a",
+    )
+    controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    task = controller.submit("tests.durable_handler", {"id": "must-not-run"}, work_key="shared:release-fence")
+    controller.run_once(task.id)
+    with closing(sqlite3.connect(controller.db_path)) as db:
+        state = db.execute("SELECT state FROM tasks WHERE id=?", (task.id,)).fetchone()[0]
+    assert state == "pending"
+    assert coordinator.active_count("durable_pending_tasks") == 1
