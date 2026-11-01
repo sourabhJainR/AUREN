@@ -264,3 +264,19 @@ Five paired iterations on Python 3.12.15 / Linux runner, 299,008 UTF-8 payload b
 | Chunks | 74 | 74 | 0 |
 
 Both baseline and candidate passed integrity and completion in all iterations. Recovery resumed after two acknowledged chunks, completed the response, and did not replay acknowledged chunks. Provider monetary cost remains unknown; transported bytes are only a proxy. These local measurements do not establish production latency, multi-host contention, or deployment readiness.
+
+
+### Additional benchmark repeat — 2026-11-01
+
+Artifact: [Response delivery benchmark run 41265374509](https://github.com/sourabhJainR/AUREN/actions/runs/41265374509), candidate revision `0e83780125ed9059ea3470b1c85d861ac0be9256`.
+
+Five paired iterations, same 299,008-byte payload and Python 3.12.15 / Linux runner:
+
+| Measure | Baseline | Candidate | Difference |
+|---|---:|---:|---:|
+| Latency | 282.188 ms | 283.269 ms | +1.081 ms |
+| Peak traced memory | 3,262,528 B | 2,181,992 B | -1,080,536 B |
+| Transported bytes | 299,008 B | 299,008 B | 0 B |
+| Chunks | 74 | 74 | 0 |
+
+Integrity and completion passed all five iterations; recovery resumed from chunk 2 with no replay of acknowledged chunks. This repeat does **not** show a latency improvement; the candidate was 1.081 ms slower in this run. The stable observed benefit is lower peak traced memory, with identical transported bytes. Provider monetary cost remains unknown. Treat latency as environment-sensitive and do not claim a general speedup from these small local runs.
