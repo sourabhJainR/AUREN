@@ -193,3 +193,29 @@ No local test run is claimed for this review because no AUREN checkout/runtime i
 - [ ] Complete cross-process/global worker quota, persistent queue admission policy, independent production isolation, external evaluator/holdout custody, required-check enforcement and staging rollback rehearsal as separate deployment gates.
 
 The implementation status above is source/test intent, not a passing-CI claim. Keep the product version unchanged. Revert the PR as a unit if required; do not remove the existing byte caps, digest-bound acknowledgement, unknown-outcome block, or atomic MCP frame rejection.
+
+
+### Response-delivery benchmark evidence — 2026-11-01
+
+**Baseline:** `40bd0bd98a68ddabfad74aeca26b2a5a84ef2b1b`.
+**Candidate PR head:** `3d0cfa9ff6ecfbdfb3f163a26855c58af80356f1`.
+**Benchmark merge revision:** `8b6cf7a0e4fc13821b129adaf9415bb2bfb8323c`.
+**Artifact:** [Response delivery benchmark run 41263044268](https://github.com/sourabhJainR/AUREN/actions/runs/41263044268), artifact `response-delivery-benchmark-8b6cf7a0e4fc13821b129adaf9415bb2bfb8323c`.
+
+Five paired iterations on Python 3.12.15 / Ubuntu runner, 299,008 UTF-8 payload bytes:
+
+| Measure | Baseline | Candidate | Difference |
+|---|---:|---:|---:|
+| Median latency | 159.463 ms | 156.201 ms | -3.262 ms |
+| Peak traced memory | 3,262,528 B | 2,181,992 B | -1,080,536 B |
+| Transported bytes | 299,008 B | 299,008 B | 0 B |
+| Chunks | 74 | 74 | 0 |
+
+- [x] All baseline and candidate iterations preserved integrity and completed delivery.
+- [x] Interrupted recovery resumed after two acknowledged chunks, completed the response, and did not replay acknowledged chunks.
+- [x] The benchmark artifact is published and retained by Actions.
+- [ ] Monetary provider cost remains unmeasured because this local benchmark has no metered provider. Transported bytes are only a cost proxy.
+- [ ] Production receiver latency/memory, concurrent multi-host queue behavior, and operator-controlled staging rollback remain external deployment evidence.
+
+The result is a controlled local comparison, not a production performance guarantee or a promotion decision. Exact-head PR CI remains the merge gate.
+
