@@ -228,6 +228,12 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                     run_id="run", task_id="task", dispatch_key="key",
                     handler="dispatch-test", packet=self.packet,
                 )
+            with self.assertRaisesRegex(PermissionError, "trusted plan dispatch composition root"):
+                runtime.execution_controller.dispatch_engineering_plan_task(
+                    store=self.plan_store, run_id=self.plan.run_id, task_id="implement",
+                    dispatch_key="direct-before-bootstrap", handler="dispatch-test",
+                    packet=self.packet, recovery_bridge=self.recovery_bridge,
+                )
             root = runtime.configure_trusted_plan_dispatch(
                 store=store,
                 recovery_bridge=bridge,
