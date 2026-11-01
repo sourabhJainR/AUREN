@@ -8,8 +8,10 @@ never enqueue a second task for the same run/task/revision.
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 from uuid import uuid4
 
@@ -159,6 +161,7 @@ class EngineeringPlanDispatch:
         packet: EngineeringContextPacket,
         payload: Mapping[str, Any] | None = None,
         goal: str | None = None,
+        deadline_seconds: float | None = None,
     ):
         """Persist an idempotent dispatch intent before the handler can run.
 
@@ -168,6 +171,14 @@ class EngineeringPlanDispatch:
         """
         key = self._nonempty(dispatch_key, "dispatch_key")
         handler_name = self._nonempty(handler, "handler")
+        if deadline_seconds is not None and (
+            isinstance(deadline_seconds, bool)
+            or not isinstance(deadline_seconds, (int, float))
+            or not math.isfinite(deadline_seconds)
+            or not 0 < deadline_seconds <= 86400
+        ):
+            raise ValueError("deadline_seconds must be finite, greater than 0, and at most 86400")
+        deadline_policy_seconds = float(deadline_seconds) if deadline_seconds is not None else None
 
         # A retry must be able to retrieve its original task after the plan has
         # advanced. Validate the immutable packet/plan binding first, but do not
@@ -207,6 +218,7 @@ class EngineeringPlanDispatch:
                 "run_id": run_id, "task_id": task_id, "plan_digest": plan.digest,
                 "run_revision": int(existing["run_revision"]), "source_revision": plan.source_revision,
                 "packet_digest": packet.packet_digest, "handler": handler_name,
+                "deadline_policy_seconds": deadline_policy_seconds,
                 "payload_digest": __import__("hashlib").sha256(encoded_payload.encode("utf-8")).hexdigest(),
             }
             return self._replay_or_conflict(existing, binding, handler_name, encoded_payload)
@@ -225,6 +237,7 @@ class EngineeringPlanDispatch:
             "run_id": run_id, "task_id": task_id, "plan_digest": plan.digest,
             "run_revision": run.revision, "source_revision": plan.source_revision,
             "packet_digest": packet.packet_digest, "handler": handler_name,
+            "deadline_policy_seconds": deadline_policy_seconds,
             "payload_digest": __import__("hashlib").sha256(encoded_payload.encode("utf-8")).hexdigest(),
         }
         binding_digest = __import__("hashlib").sha256(
@@ -267,11 +280,16 @@ class EngineeringPlanDispatch:
                     raise DispatchConflict("shared plan dispatch budget is exhausted")
 
         now = time.time()
+        deadline_at = (
+            (datetime.now(timezone.utc) + timedelta(seconds=deadline_policy_seconds)).isoformat()
+            if deadline_policy_seconds is not None else None
+        )
         task_identifier = uuid4().hex
         task_payload = {
             **safe_payload,
             "auren_dispatch": {
                 **binding, "dispatch_key": key, "binding_digest": binding_digest,
+                "deadline_at": deadline_at,
                 "plan_store_path": str(self.store.database_path.resolve()),
             },
         }
@@ -309,10 +327,10 @@ class EngineeringPlanDispatch:
                 # the committed intent before it can create an orphan work unit.
                 work = self.controller.company.start(goal or f"engineering plan {run_id}: {task_id}")
                 db.execute(
-                    "INSERT INTO tasks(id,handler,payload,state,attempts,work_unit_id,created_at,updated_at,heartbeat_at,lease_until) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?)",
+                    "INSERT INTO tasks(id,handler,payload,state,attempts,work_unit_id,created_at,updated_at,heartbeat_at,lease_until,deadline_at,deadline_seconds) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                     (task_identifier, handler_name, task_json, "pending", 0, work.id,
-                     timestamp, timestamp, timestamp, timestamp),
+                     timestamp, timestamp, timestamp, timestamp, deadline_at, deadline_policy_seconds),
                 )
                 db.execute(
                     "INSERT INTO engineering_dispatch_intents "
@@ -354,6 +372,7 @@ class EngineeringPlanDispatch:
                 "plan_digest": binding["plan_digest"], "run_revision": binding["run_revision"],
                 "source_revision": binding["source_revision"], "packet_digest": binding["packet_digest"],
                 "handler": handler,
+                "deadline_policy_seconds": binding["deadline_policy_seconds"],
                 "payload_digest": __import__("hashlib").sha256(encoded_payload.encode("utf-8")).hexdigest(),
             }
             actual = {name: recorded.get(name) for name in expected}
