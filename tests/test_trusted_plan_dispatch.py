@@ -15,7 +15,7 @@ from portable.execution_controller import ExecutionController
 from portable.engineering_plan_recovery import EngineeringPlanCheckpointMismatch
 from portable.runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
 from portable.trusted_plan_dispatch import TrustedPlanDispatchRoot
-from tests.test_engineering_plan_dispatch import prepared
+from tests.test_engineering_plan_dispatch import dispatch_test_handler, prepared
 
 
 class TrustedPlanDispatchRootTests(unittest.TestCase):
@@ -326,6 +326,30 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             root.dispatch(
                 run_id=self.plan.run_id, task_id="implement", dispatch_key="changed-approval-context",
                 handler="dispatch-test", packet=self.packet,
+            )
+        with sqlite3.connect(self.controller.db_path) as db:
+            self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
+
+
+
+    def test_consequential_handler_without_canonical_approval_is_blocked(self):
+        self.controller.register_handler(
+            "consequential-test", dispatch_test_handler, execution_class="consequential",
+        )
+        approvals = DurableApprovalStore(self.controller, context_provider=lambda request: dict(self.context))
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        root = TrustedPlanDispatchRoot(
+            controller=self.controller, store=self.plan_store,
+            recovery_bridge=self.recovery_bridge, approval_store=approvals,
+            budget_resolver=lambda run_id, task_id, handler: {
+                "budget_id": "crew:team-a:run-1", "guard": guard, "policy_digest": "a" * 64,
+            },
+            approval_resolver=lambda run_id, task_id, handler: None,
+        )
+        with self.assertRaisesRegex(PermissionError, "requires a canonical durable approval"):
+            root.dispatch(
+                run_id=self.plan.run_id, task_id="implement", dispatch_key="missing-approval",
+                handler="consequential-test", packet=self.packet,
             )
         with sqlite3.connect(self.controller.db_path) as db:
             self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
