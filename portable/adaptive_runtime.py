@@ -100,6 +100,7 @@ class AdaptiveRuntime:
         self.last_maintenance_receipt: MaintenanceReceipt | None = None
         from .execution_controller import ExecutionController
         self.execution_controller = ExecutionController(state / "executive")
+        self.execution_controller._trusted_plan_dispatch_required = True
         self.trusted_plan_dispatch_root = None
         self.recovery_ledger = EngineeringRecoveryLedger(
             state / "engineering-recovery.sqlite3",
