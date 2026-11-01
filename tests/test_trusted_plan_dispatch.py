@@ -285,6 +285,22 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
 
 
+    def test_caller_deadline_cannot_extend_supervisor_budget(self):
+        approvals, request, record = self._approval(self.controller, context=self.context)
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4, deadline_seconds=60)
+        root = self._root(self.controller, approvals, request, record, guard, context=self.context)
+        task = root.dispatch(
+            run_id=self.plan.run_id, task_id="implement", dispatch_key="bounded-supervisor-deadline",
+            handler="dispatch-test", packet=self.packet, deadline_seconds=300,
+        )
+        with sqlite3.connect(self.controller.db_path) as db:
+            deadline_seconds = db.execute(
+                "SELECT deadline_seconds FROM tasks WHERE id=?", (task.id,),
+            ).fetchone()[0]
+        self.assertGreater(deadline_seconds, 0)
+        self.assertLessEqual(deadline_seconds, 60.0)
+
+
     def test_worker_resume_requires_trusted_root_bootstrap(self):
         approvals, request, record = self._approval(self.controller, context=self.context)
         guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
