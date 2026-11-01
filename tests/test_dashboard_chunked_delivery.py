@@ -652,3 +652,60 @@ def test_http_delivery_charges_one_shared_crew_budget_across_deliveries_and_rest
         assert "shared crew delivery byte budget exhausted" in blocked["error"]
     finally:
         _stop_server(server, thread)
+
+
+def test_dashboard_telemetry_failures_do_not_change_ack_or_completion(monkeypatch, tmp_path):
+    from unittest.mock import patch
+
+    result = SimpleNamespace(
+        provider="test", model="fixture", success=True, attempts=1, latency_ms=1.0,
+        resource_usage={}, fallback_reason=None, result={"answer": "telemetry isolation"}, error=None,
+    )
+    server, thread = _start_server(monkeypatch, tmp_path, result)
+    try:
+        status, _, manifest = _request(
+            server, "POST", "/api/route", {"task": "telemetry isolation"},
+            headers={"Accept": dashboard_server.CHUNKED_RESPONSE_ACCEPT},
+        )
+        assert status == 202
+        status, _, chunk = _request(server, "GET", manifest["next"])
+        assert status == 200
+        ack = {
+            "chunk_index": chunk["chunk_index"],
+            "chunk_sha256": chunk["chunk_sha256"],
+            "response_sha256": manifest["response_sha256"],
+            "total_chunks": manifest["total_chunks"],
+        }
+        task_id = server.RequestHandlerClass._delivery_task_id(
+            manifest["response_id"], manifest["delivery_id"],
+        )
+        with patch.object(
+            dashboard_server, "record_chunk_ack_measurement",
+            side_effect=OSError("metrics store unavailable"),
+        ):
+            status, _, ack_result = _request(server, "POST", manifest["ack"], ack)
+        assert status == 200 and ack_result["acknowledged_index"] == 1
+        checkpoint = server.RequestHandlerClass.progress_journal.response_delivery_checkpoint(
+            task_id, manifest["response_id"],
+        )
+        assert checkpoint["acknowledged_index"] == 1
+
+        complete = {
+            "response_sha256": manifest["response_sha256"],
+            "total_chunks": manifest["total_chunks"],
+        }
+        with patch.object(
+            dashboard_server, "record_delivery_metrics",
+            side_effect=OSError("metrics store unavailable"),
+        ):
+            status, _, receipt = _request(server, "POST", manifest["complete"], complete)
+        assert status == 202 and receipt["accepted"] is True
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            if server.RequestHandlerClass.delivery_supervisor.state(task_id) == "completed":
+                break
+            time.sleep(0.02)
+        assert server.RequestHandlerClass.delivery_supervisor.state(task_id) == "completed"
+        assert server.RequestHandlerClass.delivery_metrics_failures >= 2
+    finally:
+        _stop_server(server, thread)
