@@ -8,8 +8,6 @@ transaction-scoped advisory locks.
 from __future__ import annotations
 
 import hashlib
-import re
-import time
 import uuid
 from dataclasses import dataclass
 from typing import Any, Callable
