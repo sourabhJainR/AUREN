@@ -1,6 +1,6 @@
 # AUREN software-team operating model
 
-AUREN executes engineering work as a supervised software organisation, not as an unstructured collection of independent chat agents. Graph/crew execution is the work graph; the supervisor owns lifecycle, authority, durable state, budgets, deadlines, cancellation, recovery, and final acknowledgement.
+AUREN executes engineering work as a supervised software organisation, not as an unstructured collection of independent chat agents. The canonical graph crew catalogue now includes solution architect, engineering manager, research/evaluation, release/operations, CTO sponsor, and CEO sponsor contracts alongside the existing specialist crews. `build_software_team_persona_adapters` creates their proposal adapters with explicit per-persona read-only tool scopes; registration remains an explicit host configuration step. Graph/crew execution is the work graph; the supervisor owns lifecycle, authority, durable state, budgets, deadlines, cancellation, recovery, and final acknowledgement.
 
 ## Organisation
 
