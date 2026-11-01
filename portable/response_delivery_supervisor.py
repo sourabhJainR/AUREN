@@ -357,8 +357,17 @@ class ResponseDeliverySupervisor:
         key = (str(self.controller.db_path), task_id)
         with _THREADS_LOCK:
             active = _THREADS.get(key)
+        if active is not None and active.is_alive():
+            # A reclaimed task may still have an old in-process worker unwinding
+            # after its lease was revoked. Let that worker observe LeaseLostError
+            # and exit before starting the replacement worker.
+            active.join(timeout=1.0)
+            if active.is_alive():
+                return False
+        with _THREADS_LOCK:
+            active = _THREADS.get(key)
             if active is not None and active.is_alive():
-                return True
+                return False
             active_count = sum(1 for thread in _THREADS.values() if thread.is_alive())
             if active_count >= MAX_ACTIVE_DELIVERY_WORKERS:
                 _SATURATION_COUNT += 1
