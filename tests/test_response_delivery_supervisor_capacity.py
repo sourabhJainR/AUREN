@@ -1,5 +1,7 @@
 """Bounded response-delivery worker admission regressions."""
 from pathlib import Path
+import multiprocessing
+import os
 import sqlite3
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -19,6 +21,17 @@ class _Controller:
 
     def task(self, _task_id):
         return SimpleNamespace(state="pending")
+
+
+def _process_slot_contender(db_path, progress_path, acquired_queue, release_event):
+    controller = _Controller(db_path)
+    delivery = supervisor_module.ResponseDeliverySupervisor(controller, progress_path)
+    task_id = f"process-{os.getpid()}"
+    token = delivery._acquire_worker_slot(task_id)
+    acquired_queue.put(token is not None)
+    release_event.wait(10)
+    if token is not None:
+        delivery._release_worker_slot(task_id, token)
 
 
 class _LiveThread:
@@ -115,6 +128,33 @@ def test_worker_slot_renewal_requires_matching_owner_and_extends_lease(tmp_path)
         ).fetchone()[0]
     assert after > before
     delivery._release_worker_slot("task-one", token)
+
+
+def test_real_processes_share_the_eight_worker_quota(tmp_path):
+    context = multiprocessing.get_context("spawn")
+    acquired_queue = context.Queue()
+    release_event = context.Event()
+    db_path = str(tmp_path / "execution.sqlite3")
+    processes = [
+        context.Process(
+            target=_process_slot_contender,
+            args=(db_path, str(tmp_path / f"progress-{index}.jsonl"), acquired_queue, release_event),
+        )
+        for index in range(supervisor_module.MAX_ACTIVE_DELIVERY_WORKERS + 1)
+    ]
+    for process in processes:
+        process.start()
+    try:
+        results = [acquired_queue.get(timeout=15) for _ in processes]
+        assert sum(results) == supervisor_module.MAX_ACTIVE_DELIVERY_WORKERS
+    finally:
+        release_event.set()
+        for process in processes:
+            process.join(timeout=10)
+            if process.is_alive():
+                process.terminate()
+                process.join(timeout=2)
+    assert all(process.exitcode == 0 for process in processes)
 
 
 def test_starting_an_already_active_delivery_does_not_consume_another_slot(tmp_path):
