@@ -310,6 +310,21 @@ def test_blocked_delivery_cannot_accept_late_ack_or_complete(monkeypatch, tmp_pa
         assert status == 202
         task_id = server.RequestHandlerClass._delivery_task_id(manifest["response_id"], manifest["delivery_id"])
         journal = server.RequestHandlerClass.progress_journal
+        # The HTTP host returns after the supervisor has acquired its task lease,
+        # which can precede the handler's first progress projection. Wait until
+        # handler dispatch is visible before injecting the blocked state so a
+        # late preflight/handler_started event cannot overwrite the fixture.
+        dispatch_deadline = time.monotonic() + 3.0
+        while time.monotonic() < dispatch_deadline:
+            if any(
+                row.get("task_id") == task_id and row.get("event") == "handler_started"
+                for row in journal._events()
+            ):
+                break
+            time.sleep(0.01)
+        else:
+            raise AssertionError("delivery supervisor did not reach handler dispatch")
+
         status, _, offered = _request(server, "GET", manifest["next"])
         assert status == 200
         ack = {
