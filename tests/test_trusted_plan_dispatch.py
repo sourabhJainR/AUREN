@@ -313,5 +313,24 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             )
 
 
+    def test_approved_record_with_changed_current_artifact_context_is_rejected(self):
+        approvals, request, pending_record = self._approval(
+            self.controller, context=self.context,
+        )
+        record = approvals.get(pending_record.approval_id)
+        self.assertEqual("approved", record.status)
+        self.context["artifact_digest"] = "9" * 64
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        root = self._root(self.controller, approvals, request, record, guard, context=self.context)
+        with self.assertRaisesRegex(PermissionError, "artifact_digest"):
+            root.dispatch(
+                run_id=self.plan.run_id, task_id="implement", dispatch_key="changed-approval-context",
+                handler="dispatch-test", packet=self.packet,
+            )
+        with sqlite3.connect(self.controller.db_path) as db:
+            self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
+
+
+
 if __name__ == "__main__":
     unittest.main()
