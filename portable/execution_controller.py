@@ -3417,7 +3417,7 @@ class ExecutionController:
         # Receiver-acknowledged response delivery has its own journal state.
         # A generic lease heartbeat must not overwrite blocked/stale/terminal
         # delivery evidence with a misleading running projection.
-        if not str(task.work_key or "").startswith("dashboard-response:"):
+        if not str(task.payload.get("work_key", "") if isinstance(task.payload, Mapping) else "").startswith("dashboard-response:"):
             self._record_progress(
                 task.id, "heartbeat", state="running", stage="execution",
                 message="Worker lease renewed; completion is not implied.",
