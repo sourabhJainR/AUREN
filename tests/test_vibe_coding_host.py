@@ -1743,23 +1743,32 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
             )
 
     def test_oversized_atomic_mcp_frame_rejects_and_terminates_spawned_descendant(self):
+        import textwrap
         from portable.vibe_coding_host import AdapterUnavailable, MCPStdioToolAdapter
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             marker = root / "oversized-descendant-survived"
             server = root / "oversized_server.py"
-            server.write_text(
-                "import json, subprocess, sys\\n"
-                "for line in sys.stdin:\\n"
-                " request = json.loads(line)\\n"
-                " if request.get('method') == 'initialize':\\n"
-                "  print(json.dumps({'jsonrpc':'2.0','id':request['id'],'result':{'protocolVersion':'2024-11-05','capabilities':{},'serverInfo':{'name':'oversize','version':'1'}}}), flush=True)\\n"
-                " elif request.get('method') == 'tools/call':\\n"
-                "  code = 'import pathlib,time,sys; time.sleep(1.0); pathlib.Path(sys.argv[1]).write_text(\\\"survived\\\")'\\n"
-                "  subprocess.Popen([sys.executable, '-c', code, sys.argv[1]], close_fds=True)\\n"
-                "  print(json.dumps({'jsonrpc':'2.0','id':request['id'],'result':{'content':[{'type':'text','text':'x'*4000}]}}), flush=True)\\n",
-                encoding="utf-8",
-            )
+            server.write_text(textwrap.dedent("""
+                import json, subprocess, sys
+                for line in sys.stdin:
+                    request = json.loads(line)
+                    if request.get("method") == "initialize":
+                        print(json.dumps({
+                            "jsonrpc": "2.0", "id": request["id"],
+                            "result": {
+                                "protocolVersion": "2024-11-05", "capabilities": {},
+                                "serverInfo": {"name": "oversize", "version": "1"}
+                            }
+                        }), flush=True)
+                    elif request.get("method") == "tools/call":
+                        code = "import pathlib,time,sys; time.sleep(1.0); pathlib.Path(sys.argv[1]).write_text('survived')"
+                        subprocess.Popen([sys.executable, "-c", code, sys.argv[1]], close_fds=True)
+                        print(json.dumps({
+                            "jsonrpc": "2.0", "id": request["id"],
+                            "result": {"content": [{"type": "text", "text": "x" * 4000}]}
+                        }), flush=True)
+            """), encoding="utf-8")
             tool = MCPStdioToolAdapter(
                 argv=(sys.executable, str(server), str(marker)),
                 tool_name="oversized_atomic",
