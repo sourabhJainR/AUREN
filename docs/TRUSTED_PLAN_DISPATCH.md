@@ -48,3 +48,12 @@ tests/test_trusted_plan_dispatch.py covers approved/pending/changed-context case
 Rollback by reverting the root module, the dispatch token fence, AdaptiveRuntime/SDK integration, and the focused tests together. Retain existing task, plan, approval and recovery databases; no durable rows are rewritten or deleted.
 
 Host bootstrap must install the root before any engineering-plan worker can be scheduled. A missing resolver, stale checkpoint, invalid approval chain, or absent approval blocks dispatch before queue insertion.
+
+
+## Worker preflight and deadline bounds
+
+The root checks the live supervisor guard before insertion and clamps the queued task deadline to the guard's remaining time. A caller may request a shorter deadline but cannot extend the canonical supervisor deadline. A missing, cancelled, expired or malformed guard blocks insertion.
+
+The controller recomputes the complete dispatch binding immediately before handler execution, including the deadline policy, shared-budget receipt and durable approval receipt. Partial or tampered bindings fail closed. When the host uses AdaptiveRuntime or AurenClient, the controller requires the trusted root during worker preflight; after a process restart, bootstrap the root and register the canonical recovery bridge before calling resume_pending. A plan task encountered before that bootstrap remains blocked.
+
+This is still an application-level contract. It does not prove production OS isolation or independent evaluator custody.
