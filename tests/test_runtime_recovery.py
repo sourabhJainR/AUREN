@@ -177,8 +177,6 @@ class RuntimeExecutionGuardTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "finite positive"):
                 RuntimeExecutionGuard(deadline_seconds=value)
 
-if __name__ == "__main__":
-    unittest.main()
 
 
     def test_shared_delivery_byte_budget_is_checkpointed_and_idempotent(self):
@@ -197,3 +195,7 @@ if __name__ == "__main__":
         self.assertTrue(guard.consume_delivery_bytes(40, operation_key="response:chunk:1"))
         with self.assertRaisesRegex(ValueError, "different byte charge"):
             guard.consume_delivery_bytes(41, operation_key="response:chunk:1")
+
+
+if __name__ == "__main__":
+    unittest.main()
