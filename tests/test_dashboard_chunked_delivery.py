@@ -140,7 +140,7 @@ def test_chunked_route_supports_acknowledged_resume_after_server_restart(monkeyp
         parts = [first_text]
         while True:
             status, _, chunk = _request(server, "GET", manifest["next"])
-            assert status == 200
+            assert status == 200, (status, chunk)
             if chunk.get("all_chunks_acknowledged"):
                 break
             assert chunk["chunk_index"] == len(parts) + 1
@@ -608,7 +608,7 @@ def test_http_delivery_charges_one_shared_crew_budget_across_deliveries_and_rest
         # Re-reading an unacknowledged chunk is idempotent: it does not consume
         # budget twice and the same bytes remain available for receiver retry.
         status, _, repeated = _request(server, "GET", first["next"])
-        assert status == 200
+        assert status == 200, (status, repeated)
         assert repeated["chunk_sha256"] == chunk["chunk_sha256"]
         assert guard.delivery_bytes_used == chunk["utf8_bytes"]
 
