@@ -14,7 +14,7 @@ from portable.execution_controller import ExecutionController
 from portable.engineering_plan_recovery import EngineeringPlanCheckpointMismatch
 from portable.runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
 from portable.trusted_plan_dispatch import TrustedPlanDispatchRoot
-from tests.test_engineering_plan_dispatch import dispatch_test_handler, prepared
+from tests.test_engineering_plan_dispatch import prepared
 
 
 class TrustedPlanDispatchRootTests(unittest.TestCase):
