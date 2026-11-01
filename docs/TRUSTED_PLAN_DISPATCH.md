@@ -29,7 +29,7 @@ Example host flow:
         payload=task_payload,
     )
 
-The approval checkpoint must also bind the exact plan run ID, plan task ID, plan digest, run revision, and source revision from the immutable EngineeringContextPacket. The root checks the live guard snapshot, binds the immutable supervisor admission checkpoint digest, and checks cancellation/deadline state, approval status, current artifact/evidence/policy digests, audit-chain integrity, required approval count and separation of duties. It derives the approval binding from the canonical durable record and vote-event chain. This digest is content-bound audit evidence, not a detached cryptographic signature.
+The approval checkpoint must also bind the exact plan run ID, plan task ID, plan digest, run revision, and source revision from the immutable EngineeringContextPacket. The root checks the live guard snapshot, binds the immutable supervisor admission checkpoint digest, and checks cancellation/deadline state, approval status, current artifact/evidence/policy digests, audit-chain integrity, request-row/expiry consistency with the original append-only request event, final approval state/version consistency, required approval count and separation of duties. It derives the approval binding from the canonical durable record and vote-event chain. This digest is content-bound audit evidence, not a detached cryptographic signature.
 
 After root registration, direct calls to EngineeringPlanDispatch.dispatch() and the legacy ExecutionController.dispatch_engineering_plan_task() path fail closed. The AdaptiveRuntime and SDK facade also refuse dispatch until configured.
 
