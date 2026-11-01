@@ -37,6 +37,13 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             policy_digest=context["policy_digest"],
             requester_id="worker-1", required_role="engineering_manager",
             scope="repo:write",
+            checkpoint={
+                "plan_run_id": self.plan.run_id,
+                "plan_task_id": "implement",
+                "plan_digest": self.plan.digest,
+                "run_revision": self.packet.run_revision,
+                "source_revision": self.packet.source_revision,
+            },
             expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
         )
         store.decide(
@@ -132,7 +139,13 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             evidence_digest=self.context["evidence_digest"],
             policy_digest=self.context["policy_digest"],
             requester_id="worker-1", required_role="engineering_manager",
-            scope="repo:write", expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+            scope="repo:write", checkpoint={
+                "plan_run_id": self.plan.run_id,
+                "plan_task_id": "implement",
+                "plan_digest": self.plan.digest,
+                "run_revision": self.packet.run_revision,
+                "source_revision": self.packet.source_revision,
+            }, expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
         )
         guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
         root = TrustedPlanDispatchRoot(
