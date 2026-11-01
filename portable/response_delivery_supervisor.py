@@ -375,7 +375,7 @@ class ResponseDeliverySupervisor:
             # A reclaimed task may still have an old in-process worker unwinding
             # after its lease was revoked. Let that worker observe LeaseLostError
             # and exit before starting the replacement worker.
-            active.join(timeout=1.0)
+            active.join(timeout=2.0)
             if active.is_alive():
                 return False
         with _THREADS_LOCK:
