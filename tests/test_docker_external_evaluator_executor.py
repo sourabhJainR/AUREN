@@ -77,7 +77,7 @@ class DockerExternalEvaluatorExecutorTests(unittest.TestCase):
             container = _ContainerProcess("/usr/bin/docker", "auren-test", ["/usr/bin/docker", "run"])
         run.side_effect = [
             subprocess_module.CompletedProcess([], 1),  # kill failed
-            subprocess_module.CompletedProcess([], 0, stdout="true\\n"),  # still running
+            subprocess_module.CompletedProcess([], 0, stdout="true\n"),  # still running
             subprocess_module.CompletedProcess([], 1),  # rm failed
             subprocess_module.CompletedProcess([], 0),  # inspect says it still exists
         ]
