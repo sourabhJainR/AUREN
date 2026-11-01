@@ -100,6 +100,8 @@ class AdaptiveRuntime:
         self.last_maintenance_receipt: MaintenanceReceipt | None = None
         from .execution_controller import ExecutionController
         self.execution_controller = ExecutionController(state / "executive")
+        self.execution_controller._trusted_plan_dispatch_required = True
+        self.trusted_plan_dispatch_root = None
         self.recovery_ledger = EngineeringRecoveryLedger(
             state / "engineering-recovery.sqlite3",
             max_same_hypothesis_attempts=2,
@@ -113,6 +115,35 @@ class AdaptiveRuntime:
         legacy_recovery_journal = state / "recovery-decisions.sqlite3"
         self.recovery_decision_journal = RecoveryDecisionJournal(self.recovery_ledger.path)
         self.recovery_decision_journal.import_from(legacy_recovery_journal)
+
+    def configure_trusted_plan_dispatch(
+        self,
+        *,
+        store: Any,
+        recovery_bridge: Any,
+        approval_store: Any,
+        budget_resolver: Any,
+        approval_resolver: Any,
+    ) -> Any:
+        """Install the trusted host resolvers before engineering-plan workers can dispatch."""
+        if self.trusted_plan_dispatch_root is not None:
+            raise RuntimeError("trusted plan dispatch is already configured")
+        from .trusted_plan_dispatch import TrustedPlanDispatchRoot
+        self.trusted_plan_dispatch_root = TrustedPlanDispatchRoot(
+            controller=self.execution_controller,
+            store=store,
+            recovery_bridge=recovery_bridge,
+            approval_store=approval_store,
+            budget_resolver=budget_resolver,
+            approval_resolver=approval_resolver,
+        )
+        return self.trusted_plan_dispatch_root
+
+    def dispatch_engineering_plan_task(self, **request: Any) -> Any:
+        """Dispatch only through the host-configured trusted plan composition root."""
+        if self.trusted_plan_dispatch_root is None:
+            raise RuntimeError("trusted plan dispatch root is not configured; refusing unbound dispatch")
+        return self.trusted_plan_dispatch_root.dispatch(**request)
 
     def capability(self, name: str, preferred: tuple[str, ...] = ()) -> RoutingDecision:
         return self.provider_fabric.route(CapabilityRequest(name, preferred))

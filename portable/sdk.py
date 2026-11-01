@@ -35,6 +35,8 @@ class AurenClient:
         self.controller = ExecutionController(
             self.project_root, agent_assignment_verifier=agent_assignment_verifier
         )
+        self.controller._trusted_plan_dispatch_required = True
+        self.trusted_plan_dispatch_root = None
         resolved_memory_path = (
             Path(memory_path).expanduser().resolve()
             if memory_path is not None
@@ -42,6 +44,35 @@ class AurenClient:
         )
         self.memory = PersistentMemory(resolved_memory_path)
         self.dashboard = EngineeringDashboard(self.project_root) if dashboard_enabled else None
+
+    def configure_trusted_plan_dispatch(
+        self,
+        *,
+        store: Any,
+        recovery_bridge: Any,
+        approval_store: Any,
+        budget_resolver: Callable[..., Mapping[str, Any]],
+        approval_resolver: Callable[..., Mapping[str, Any] | None],
+    ) -> Any:
+        """Install host-owned budget and approval resolvers before plan dispatch."""
+        if self.trusted_plan_dispatch_root is not None:
+            raise RuntimeError("trusted plan dispatch is already configured")
+        from .trusted_plan_dispatch import TrustedPlanDispatchRoot
+        self.trusted_plan_dispatch_root = TrustedPlanDispatchRoot(
+            controller=self.controller,
+            store=store,
+            recovery_bridge=recovery_bridge,
+            approval_store=approval_store,
+            budget_resolver=budget_resolver,
+            approval_resolver=approval_resolver,
+        )
+        return self.trusted_plan_dispatch_root
+
+    def dispatch_engineering_plan_task(self, **request: Any) -> Any:
+        """Use the trusted composition root; fail closed when host policy is absent."""
+        if self.trusted_plan_dispatch_root is None:
+            raise RuntimeError("trusted plan dispatch root is not configured; refusing unbound dispatch")
+        return self.trusted_plan_dispatch_root.dispatch(**request)
 
     def register_handler(
         self,

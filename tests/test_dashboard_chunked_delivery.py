@@ -402,7 +402,19 @@ def test_stale_delivery_cannot_accept_ack_or_complete(monkeypatch, tmp_path):
             message="stale delivery fixture",
             timestamp="2026-10-30T00:00:00+00:00",
         )
-        assert journal.snapshot(task_id)["state"] == "stale"
+        stale_snapshot = journal.snapshot(task_id)
+        assert stale_snapshot["state"] == "stale"
+        # Freeze the observed stale supervisor state for this request. The live
+        # worker can emit a fresh lease heartbeat concurrently; without this
+        # snapshot fence the test races a legitimate recovery heartbeat.
+        original_snapshot = journal.snapshot
+        monkeypatch.setattr(
+            journal, "snapshot",
+            lambda requested_task_id: (
+                stale_snapshot if requested_task_id == task_id
+                else original_snapshot(requested_task_id)
+            ),
+        )
         status, _, rejected = _request(server, "POST", manifest["ack"], ack)
         assert status == 503
         assert "completion is not confirmed" in rejected["error"] or "delivery state unavailable" in rejected["error"]

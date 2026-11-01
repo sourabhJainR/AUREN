@@ -431,7 +431,7 @@ class DurableApprovalStore:
                     details={"operation_id": operation_id, "request_fingerprint": fingerprint,
                              "artifact_digest": artifact_digest, "evidence_digest": evidence_digest,
                              "policy_digest": policy_digest, "required_role": required_role,
-                             "scope": scope, "required_approvals": required_approvals},
+                             "scope": scope, "required_approvals": required_approvals, "expires_at": _time_text(expires)},
                 )
                 row = db.execute(
                     "SELECT * FROM durable_approvals WHERE approval_id=?", (approval_id,)
