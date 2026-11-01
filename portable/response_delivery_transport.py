@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import time
-from typing import Callable, Mapping, Protocol
+from typing import Any, Callable, Mapping, Protocol
 
 from portable.response_delivery import ResponseChunk, chunk_response, chunks_after
 from portable.progress_journal import ProgressJournal
