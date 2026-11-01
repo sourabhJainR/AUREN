@@ -121,9 +121,15 @@ provided disposable PostgreSQL database:
 
 ```bash
 python -m unittest tests.test_multi_instance_admission_staging -v
+python scripts/staging/run_containerized_multi_host_simulation.py
 ```
 
-The rehearsal starts three independent AUREN controller processes. Each process
+The second command requires Docker. It creates a disposable PostgreSQL
+container and three AUREN runtime containers on an isolated Docker network.
+Each runtime container has its own network namespace and state root, while all
+three use the same PostgreSQL service.
+
+The process rehearsal starts three independent AUREN controller processes. Each process
 has its own SQLite state root and unique stable runtime ID; all connect to one
 PostgreSQL namespace. It races the same work key and records the single winner
 and duplicate rejections. It also injects process death after the permanent
