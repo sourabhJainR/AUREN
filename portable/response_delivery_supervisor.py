@@ -369,15 +369,19 @@ class ResponseDeliverySupervisor:
             return cursor.rowcount == 1
 
     def _release_worker_slot(self, task_id: str, owner_token: str) -> None:
-        if self.admission_coordinator is not None:
-            lease = self._deployment_leases.pop(task_id, None)
-            if lease is not None:
-                self.admission_coordinator.release(lease)
-        with sqlite3.connect(self.registry_path, timeout=10) as db:
-            db.execute(
-                "DELETE FROM delivery_worker_slots WHERE task_id=? AND owner_token=?",
-                (task_id, owner_token),
-            )
+        try:
+            if self.admission_coordinator is not None:
+                lease = self._deployment_leases.pop(task_id, None)
+                if lease is not None:
+                    self.admission_coordinator.release(lease)
+        finally:
+            # Always free this process's local slot. If the shared release is
+            # uncertain, its bounded lease expires and remains fail-closed.
+            with sqlite3.connect(self.registry_path, timeout=10) as db:
+                db.execute(
+                    "DELETE FROM delivery_worker_slots WHERE task_id=? AND owner_token=?",
+                    (task_id, owner_token),
+                )
 
     def shared_capacity_snapshot(self) -> dict[str, int | bool]:
         now_text = self._utc_now().isoformat(timespec="microseconds")
