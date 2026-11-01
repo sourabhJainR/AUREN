@@ -366,7 +366,7 @@ PR [#1166](https://github.com/sourabhJainR/AUREN/pull/1166) merged at `81906e3ec
 
 ### OS-process contention proof — active PR
 
-PR [#1170](https://github.com/sourabhJainR/AUREN/pull/1170) adds a nine-process contention test and converts the quota tests to discoverable `unittest.TestCase` cases. The earlier pytest run found two obsolete fake-thread tests; they were replaced with direct durable-slot tests. Exact-head CI must pass before merge.
+PR [#1171](https://github.com/sourabhJainR/AUREN/pull/1171) adds a nine-process contention test and converts the quota tests to discoverable `unittest.TestCase` cases. The earlier pytest run found two obsolete fake-thread tests; they were replaced with direct durable-slot tests. Exact-head CI must pass before merge.
 
 ### Roadmap status
 
