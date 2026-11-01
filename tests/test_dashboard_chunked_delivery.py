@@ -56,10 +56,12 @@ def _request(server, method, path, payload=None, *, headers=None):
     return status, response_headers, decoded
 
 
-def _stop_server(server, thread):
+def _stop_server(server, thread, *, preserve_workers=False):
     server.shutdown()
     server.server_close()
     thread.join(timeout=3)
+    if not preserve_workers:
+        server.RequestHandlerClass.delivery_supervisor.shutdown(wait_seconds=2.0)
 
 
 def test_chunked_route_supports_acknowledged_resume_after_server_restart(monkeypatch, tmp_path):
@@ -117,7 +119,7 @@ def test_chunked_route_supports_acknowledged_resume_after_server_restart(monkeyp
         status, _, duplicate = _request(server, "POST", manifest["ack"], first_ack)
         assert status == 200 and duplicate["acknowledged_index"] == 1
     finally:
-        _stop_server(server, thread)
+        _stop_server(server, thread, preserve_workers=True)
 
     # Simulate an abrupt host exit. The next host may reclaim only after the
     # durable worker lease and heartbeat are expired.
