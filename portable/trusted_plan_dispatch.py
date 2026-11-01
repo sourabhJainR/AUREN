@@ -75,7 +75,7 @@ class TrustedPlanDispatchRoot:
 
     def _budget_binding(
         self, run_id: str, task_id: str, handler: str,
-    ) -> tuple[dict[str, str], float | None]:
+    ) -> tuple[dict[str, str], RuntimeExecutionGuard]:
         resolved = self.budget_resolver(run_id, task_id, handler)
         if not isinstance(resolved, Mapping):
             raise PermissionError("trusted supervisor did not resolve a shared budget")
@@ -98,21 +98,11 @@ class TrustedPlanDispatchRoot:
         )
         if not live_checkpoint_digest:
             raise PermissionError("live supervisor budget checkpoint is invalid")
-        remaining_seconds = snapshot.get("remaining_seconds")
-        if remaining_seconds is not None:
-            if (
-                isinstance(remaining_seconds, bool)
-                or not isinstance(remaining_seconds, (int, float))
-                or not math.isfinite(remaining_seconds)
-                or remaining_seconds <= 0
-            ):
-                raise PermissionError("canonical supervisor deadline is exhausted or invalid")
-            remaining_seconds = float(remaining_seconds)
         return ({
             "budget_id": budget_id.strip(),
             "checkpoint_digest": checkpoint_digest,
             "policy_digest": policy_digest,
-        }, remaining_seconds)
+        }, guard)
 
     def _approval_binding(
         self, run_id: str, task_id: str, handler: str, packet: EngineeringContextPacket,
@@ -243,7 +233,24 @@ class TrustedPlanDispatchRoot:
         if payload is not None and not isinstance(payload, Mapping):
             raise ValueError("dispatch payload must be a mapping")
         safe_payload = dict(payload or {})
-        budget, remaining_seconds = self._budget_binding(run_id, task_id, handler)
+        budget, guard = self._budget_binding(run_id, task_id, handler)
+        approval = self._approval_binding(run_id, task_id, handler, packet)
+        # Approval resolution may take time. Re-check the same live supervisor
+        # guard immediately before queue insertion so cancellation or deadline
+        # tightening during approval cannot admit stale work.
+        guard.check()
+        live_snapshot = guard.snapshot()
+        RuntimeExecutionGuard.resume(live_snapshot)
+        remaining_seconds = live_snapshot.get("remaining_seconds")
+        if remaining_seconds is not None:
+            if (
+                isinstance(remaining_seconds, bool)
+                or not isinstance(remaining_seconds, (int, float))
+                or not math.isfinite(remaining_seconds)
+                or remaining_seconds <= 0
+            ):
+                raise PermissionError("canonical supervisor deadline is exhausted or invalid")
+            remaining_seconds = float(remaining_seconds)
         if deadline_seconds is not None:
             if (
                 isinstance(deadline_seconds, bool)
@@ -261,7 +268,6 @@ class TrustedPlanDispatchRoot:
                 bounded_deadline if deadline_seconds is None
                 else min(deadline_seconds, bounded_deadline)
             )
-        approval = self._approval_binding(run_id, task_id, handler, packet)
         return EngineeringPlanDispatch(
             store=self.store, controller=self.controller, recovery_bridge=self.recovery_bridge,
         ).dispatch(
