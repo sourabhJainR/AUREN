@@ -195,6 +195,9 @@ class _Handler(BaseHTTPRequestHandler):
         response_id, delivery_id, action = match.groups()
         try:
             task_id = self._delivery_task_id(response_id, delivery_id)
+            # Verify the immutable artifact before reporting lifecycle state so
+            # corruption is never hidden behind a blocked/cancelled task response.
+            stored = self._load_delivery(response_id, delivery_id, resume=(action == "next"))
             initial_snapshot = self.progress_journal.snapshot(task_id)
             if action == "next" and initial_snapshot.get("state") != "running":
                 self._send_delivery_json(409, {
@@ -202,7 +205,6 @@ class _Handler(BaseHTTPRequestHandler):
                     "state": initial_snapshot.get("state", "unknown"),
                 })
                 return
-            stored = self._load_delivery(response_id, delivery_id, resume=(action == "next"))
             manifest, chunks = stored.manifest, stored.chunks
             checkpoint = self._delivery_checkpoint(response_id, delivery_id)
             acknowledged = checkpoint["acknowledged_index"]
@@ -317,6 +319,8 @@ class _Handler(BaseHTTPRequestHandler):
                 if pre_snapshot.get("state") == "stale":
                     raise RuntimeError("stale delivery requires explicit reconciliation before acknowledgement")
                 if reported not in {"running", "completed"}:
+                    if action == "complete":
+                        raise RuntimeError("blocked delivery cannot be completed")
                     raise ValueError("delivery is not running")
             stored = self._load_delivery(response_id, delivery_id)
             manifest, chunks = stored.manifest, stored.chunks
