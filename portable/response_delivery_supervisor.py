@@ -291,8 +291,8 @@ class ResponseDeliverySupervisor:
     def _acquire_worker_slot(self, task_id: str) -> str | None:
         """Atomically reserve a host-wide worker slot across processes sharing the registry."""
         now = self._utc_now()
-        now_text = now.isoformat(timespec="seconds")
-        lease_until = (now + timedelta(seconds=WORKER_SLOT_LEASE_SECONDS)).isoformat(timespec="seconds")
+        now_text = now.isoformat(timespec="microseconds")
+        lease_until = (now + timedelta(seconds=WORKER_SLOT_LEASE_SECONDS)).isoformat(timespec="microseconds")
         owner_token = f"{uuid.uuid4().hex}:{task_id}"
         with sqlite3.connect(self.registry_path, timeout=10) as db:
             db.execute("BEGIN IMMEDIATE")
@@ -313,7 +313,7 @@ class ResponseDeliverySupervisor:
 
     def _renew_worker_slot(self, task_id: str, owner_token: str) -> bool:
         now = self._utc_now()
-        lease_until = (now + timedelta(seconds=WORKER_SLOT_LEASE_SECONDS)).isoformat(timespec="seconds")
+        lease_until = (now + timedelta(seconds=WORKER_SLOT_LEASE_SECONDS)).isoformat(timespec="microseconds")
         with sqlite3.connect(self.registry_path, timeout=10) as db:
             cursor = db.execute(
                 "UPDATE delivery_worker_slots SET lease_until=?,updated_at=CURRENT_TIMESTAMP "
@@ -330,7 +330,7 @@ class ResponseDeliverySupervisor:
             )
 
     def shared_capacity_snapshot(self) -> dict[str, int | bool]:
-        now_text = self._utc_now().isoformat(timespec="seconds")
+        now_text = self._utc_now().isoformat(timespec="microseconds")
         with sqlite3.connect(self.registry_path, timeout=10) as db:
             db.execute("DELETE FROM delivery_worker_slots WHERE lease_until<=?", (now_text,))
             active = int(db.execute("SELECT COUNT(*) FROM delivery_worker_slots").fetchone()[0])
