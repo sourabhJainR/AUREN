@@ -449,5 +449,36 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
 
 
 
+    def test_supervisor_cancellation_during_approval_resolution_blocks_queue_insert(self):
+        approvals, request, pending_record = self._approval(
+            self.controller, context=self.context,
+        )
+        record = approvals.get(pending_record.approval_id)
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        admission_digest = guard.snapshot()["digest"]
+
+        def resolve_approval(run_id, task_id, handler):
+            guard.cancel("cancelled while approval context was resolving")
+            return {"approval_id": record.approval_id, "request": request}
+
+        root = TrustedPlanDispatchRoot(
+            controller=self.controller, store=self.plan_store,
+            recovery_bridge=self.recovery_bridge, approval_store=approvals,
+            budget_resolver=lambda run_id, task_id, handler: {
+                "budget_id": "crew:team-a:run-1", "guard": guard,
+                "checkpoint_digest": admission_digest, "policy_digest": "a" * 64,
+            },
+            approval_resolver=resolve_approval,
+        )
+        with self.assertRaises(ExecutionBudgetExceeded):
+            root.dispatch(
+                run_id=self.plan.run_id, task_id="implement", dispatch_key="cancel-during-approval",
+                handler="dispatch-test", packet=self.packet,
+            )
+        with sqlite3.connect(self.controller.db_path) as db:
+            self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
+
+
+
 if __name__ == "__main__":
     unittest.main()
