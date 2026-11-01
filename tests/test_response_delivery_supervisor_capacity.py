@@ -30,6 +30,9 @@ class _Controller:
 def _process_slot_contender(db_path, acquired_queue, release_event):
     delivery = object.__new__(supervisor_module.ResponseDeliverySupervisor)
     delivery.registry_path = Path(db_path).parent / "response_delivery_registry.sqlite3"
+    delivery.admission_coordinator = None
+    delivery.deployment_host_id = None
+    delivery._deployment_leases = {}
     task_id = f"process-{os.getpid()}"
     token = delivery._acquire_worker_slot(task_id)
     acquired_queue.put(token is not None)
