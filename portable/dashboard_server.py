@@ -211,7 +211,7 @@ class _Handler(BaseHTTPRequestHandler):
                     "capacity": self.delivery_supervisor.capacity_snapshot(),
                 })
                 return
-            if snapshot.get("state") != "running":
+            if snapshot.get("state") != "running" or terminal_state != "running":
                 if terminal_state == "completed" and all_acknowledged:
                     self._send_delivery_json(200, {
                         "response_id": response_id, "delivery_id": delivery_id,
@@ -297,6 +297,9 @@ class _Handler(BaseHTTPRequestHandler):
                 if index not in {acknowledged, acknowledged + 1}:
                     raise ValueError("acknowledgements must be contiguous")
                 snapshot = self.progress_journal.snapshot(task_id)
+                supervisor_state = self.delivery_supervisor.state(task_id)
+                if supervisor_state != "running":
+                    raise RuntimeError("delivery supervisor is not running; reconcile before acknowledging")
                 state = snapshot.get("reported_state", snapshot.get("state"))
                 if state == "completed":
                     if index != acknowledged or acknowledged != manifest.total_chunks:
