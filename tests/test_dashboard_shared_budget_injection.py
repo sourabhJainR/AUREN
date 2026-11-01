@@ -53,6 +53,8 @@ class DashboardSharedBudgetInjectionTests(unittest.TestCase):
             def start(self, task_id, *, artifact_verified):
                 captured["start"] = (task_id, artifact_verified)
         class Journal:
+            def _events(self):
+                return []
             def record_response_artifact(self, task_id, **kwargs):
                 captured["journal"] = (task_id, kwargs)
 
