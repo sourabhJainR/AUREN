@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from datetime import datetime, timezone
 from typing import Any, Callable, Mapping
 
@@ -102,6 +103,7 @@ class TrustedPlanDispatchRoot:
             if (
                 isinstance(remaining_seconds, bool)
                 or not isinstance(remaining_seconds, (int, float))
+                or not math.isfinite(remaining_seconds)
                 or remaining_seconds <= 0
             ):
                 raise PermissionError("canonical supervisor deadline is exhausted or invalid")
@@ -246,6 +248,7 @@ class TrustedPlanDispatchRoot:
             if (
                 isinstance(deadline_seconds, bool)
                 or not isinstance(deadline_seconds, (int, float))
+                or not math.isfinite(deadline_seconds)
                 or deadline_seconds <= 0
                 or deadline_seconds > 86400
             ):
