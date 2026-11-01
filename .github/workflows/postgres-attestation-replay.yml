@@ -16,6 +16,12 @@ on:
   push:
     branches: [main]
     paths:
+      - "portable/execution_controller.py"
+      - "tests/test_execution_controller.py"
+      - "portable/postgres_admission_coordinator.py"
+      - "portable/response_delivery_supervisor.py"
+      - "tests/test_postgres_admission_coordinator.py"
+      - "tests/test_response_delivery_supervisor_capacity.py"
       - "portable/postgres_attestation_replay_registry.py"
       - "portable/attestation_freshness.py"
       - "tests/test_postgres_attestation_replay_registry.py"
