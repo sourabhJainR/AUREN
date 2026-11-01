@@ -168,6 +168,19 @@ class ResponseDeliveryTransportTests(unittest.TestCase):
             )
         self.assertEqual(calls, [1])
 
+    def test_missing_receiver_capability_fails_before_journal_or_budget_mutation(self):
+        from portable.runtime_recovery import RuntimeExecutionGuard
+        self.start_task("task-no-receiver")
+        before = self.journal._events()
+        guard = RuntimeExecutionGuard(max_delivery_bytes=1024)
+        with self.assertRaisesRegex(TypeError, "receiver must be callable"):
+            deliver_response(
+                "task-no-receiver", "payload", receiver=None,
+                journal=self.journal, execution_guard=guard,
+            )
+        self.assertEqual(before, self.journal._events())
+        self.assertEqual(0, guard.delivery_bytes_used)
+
     def test_total_byte_limit_fails_before_receiver(self):
         calls = []
         with self.assertRaises(DeliveryBlocked):
