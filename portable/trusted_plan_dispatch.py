@@ -93,7 +93,7 @@ class TrustedPlanDispatchRoot:
         }
 
     def _approval_binding(
-        self, run_id: str, task_id: str, handler: str,
+        self, run_id: str, task_id: str, handler: str, packet: EngineeringContextPacket,
     ) -> dict[str, str] | None:
         resolved = self.approval_resolver(run_id, task_id, handler)
         execution_class = self.controller._handler_execution_class(handler)
@@ -112,6 +112,19 @@ class TrustedPlanDispatchRoot:
             raise PermissionError(f"durable approval is {record.status}, not approved")
         if request.task_id != record.task_id or request.fingerprint() != record.request_fingerprint:
             raise PermissionError("durable approval is not bound to the resolved operation")
+        if not isinstance(packet, EngineeringContextPacket):
+            raise TypeError("approval verification requires the immutable EngineeringContextPacket")
+        packet.verify()
+        checkpoint = self.approval_store.checkpoint_for(approval_id)
+        expected_plan_binding = {
+            "plan_run_id": run_id,
+            "plan_task_id": task_id,
+            "plan_digest": packet.plan_digest,
+            "run_revision": packet.run_revision,
+            "source_revision": packet.source_revision,
+        }
+        if any(checkpoint.get(name) != value for name, value in expected_plan_binding.items()):
+            raise PermissionError("durable approval checkpoint is not bound to this exact plan task revision")
         if not self.approval_store.verify_audit_chain():
             raise PermissionError("durable approval audit chain failed verification")
         if self.approval_store.context_provider is None:
@@ -174,7 +187,7 @@ class TrustedPlanDispatchRoot:
             raise ValueError("dispatch payload must be a mapping")
         safe_payload = dict(payload or {})
         budget = self._budget_binding(run_id, task_id, handler)
-        approval = self._approval_binding(run_id, task_id, handler)
+        approval = self._approval_binding(run_id, task_id, handler, packet)
         return EngineeringPlanDispatch(
             store=self.store, controller=self.controller, recovery_bridge=self.recovery_bridge,
         ).dispatch(
