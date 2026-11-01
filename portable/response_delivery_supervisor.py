@@ -331,7 +331,7 @@ class ResponseDeliverySupervisor:
         if self.admission_coordinator is not None:
             try:
                 lease = self.admission_coordinator.acquire(
-                    "response_delivery_workers", self.deployment_host_id, task_id,
+                    "response_delivery_workers", f"{self.deployment_host_id}:{task_id}", task_id,
                     capacity=MAX_ACTIVE_DELIVERY_WORKERS, lease_seconds=WORKER_SLOT_LEASE_SECONDS,
                 )
                 if lease is None:
