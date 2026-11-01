@@ -417,3 +417,44 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DurableTaskIntentBindingTests(unittest.TestCase):
+    def test_shared_budget_and_approval_evidence_are_bound_to_task_intent(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            plan, run, packet, _, store, controller, bridge = prepared(tmp)
+            budget = {'budget_id': 'crew-budget-1', 'checkpoint_digest': 'a' * 64, 'policy_digest': 'b' * 64}
+            approval = {'approval_id': 'approval-1', 'receipt_digest': 'c' * 64, 'evidence_digest': 'd' * 64,
+                        'policy_digest': 'e' * 64, 'approver_id': 'manager-7', 'approver_role': 'engineering_manager',
+                        'decision': 'approved'}
+            task = controller.dispatch_engineering_plan_task(
+                store=store, run_id=plan.run_id, task_id='implement', dispatch_key='immutable-bindings',
+                handler='dispatch-test', packet=packet, recovery_bridge=bridge.recovery_bridge,
+                shared_budget_binding=budget, approval_evidence=approval,
+            )
+            dispatch = task.payload['auren_dispatch']
+            self.assertEqual(budget, dispatch['shared_budget_binding'])
+            self.assertEqual(approval, dispatch['approval_evidence'])
+            replay = bridge.dispatch(run_id=plan.run_id, task_id='implement', dispatch_key='immutable-bindings',
+                                    handler='dispatch-test', packet=packet, shared_budget_binding=budget,
+                                    approval_evidence=approval)
+            self.assertEqual(task.id, replay.id)
+            changed_budget = dict(budget, checkpoint_digest='f' * 64)
+            with self.assertRaises(DispatchConflict):
+                bridge.dispatch(run_id=plan.run_id, task_id='implement', dispatch_key='immutable-bindings',
+                                handler='dispatch-test', packet=packet, shared_budget_binding=changed_budget,
+                                approval_evidence=approval)
+
+    def test_unapproved_or_incomplete_evidence_cannot_bind_to_task_intent(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            plan, run, packet, _, store, controller, bridge = prepared(tmp)
+            pending = {'approval_id': 'approval-1', 'receipt_digest': 'c' * 64, 'evidence_digest': 'd' * 64,
+                       'policy_digest': 'e' * 64, 'approver_id': 'manager-7', 'approver_role': 'engineering_manager',
+                       'decision': 'pending'}
+            with self.assertRaises(ValueError):
+                bridge.dispatch(run_id=plan.run_id, task_id='implement', dispatch_key='pending-approval',
+                                handler='dispatch-test', packet=packet, approval_evidence=pending)
+            with self.assertRaises(ValueError):
+                bridge.dispatch(run_id=plan.run_id, task_id='implement', dispatch_key='missing-budget-digest',
+                                handler='dispatch-test', packet=packet,
+                                shared_budget_binding={'budget_id': 'crew-budget-1'})

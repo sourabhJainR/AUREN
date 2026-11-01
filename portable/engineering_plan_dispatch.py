@@ -116,6 +116,45 @@ class EngineeringPlanDispatch:
             for index, item in enumerate(value):
                 cls._validate_payload_keys(item, f"{path}[{index}]")
 
+    @staticmethod
+    def _normalize_budget_binding(value):
+        if value is None:
+            return None
+        if not isinstance(value, Mapping):
+            raise ValueError('shared_budget_binding must be a mapping')
+        required = {'budget_id', 'checkpoint_digest', 'policy_digest'}
+        if not required.issubset(value):
+            raise ValueError('shared budget binding requires budget_id, checkpoint_digest and policy_digest')
+        result = {name: value[name] for name in required}
+        for name, item in result.items():
+            if not isinstance(item, str) or not item.strip():
+                raise ValueError('shared budget fields must be non-empty text')
+            result[name] = item.strip()
+        for name in ('checkpoint_digest', 'policy_digest'):
+            digest = result[name]
+            if len(digest) != 64 or any(c not in '0123456789abcdef' for c in digest):
+                raise ValueError('shared budget digests must be lowercase SHA-256')
+        return result
+
+    @staticmethod
+    def _normalize_approval_evidence(value):
+        if value is None:
+            return None
+        if not isinstance(value, Mapping):
+            raise ValueError('approval_evidence must be a mapping')
+        required = {'approval_id', 'receipt_digest', 'evidence_digest', 'policy_digest', 'approver_id', 'approver_role', 'decision'}
+        if not required.issubset(value) or value.get('decision') != 'approved':
+            raise ValueError('approval evidence must be a complete approved durable receipt')
+        result = {name: value[name] for name in required}
+        for name in required - {'decision'}:
+            if not isinstance(result[name], str) or not result[name].strip():
+                raise ValueError('approval evidence fields must be non-empty text')
+        for name in ('receipt_digest', 'evidence_digest', 'policy_digest'):
+            digest = result[name]
+            if len(digest) != 64 or any(c not in '0123456789abcdef' for c in digest):
+                raise ValueError('approval evidence digests must be lowercase SHA-256')
+        return result
+
     def _load_plan_state(self, run_id: str) -> tuple[EngineeringPlan, EngineeringPlanRun]:
         """Never load plan state for dispatch without its canonical checkpoint."""
         return self.recovery_bridge.load_verified(run_id)
@@ -162,6 +201,8 @@ class EngineeringPlanDispatch:
         payload: Mapping[str, Any] | None = None,
         goal: str | None = None,
         deadline_seconds: float | None = None,
+        shared_budget_binding: Mapping[str, Any] | None = None,
+        approval_evidence: Mapping[str, Any] | None = None,
     ):
         """Persist an idempotent dispatch intent before the handler can run.
 
@@ -179,6 +220,8 @@ class EngineeringPlanDispatch:
         ):
             raise ValueError("deadline_seconds must be finite, greater than 0, and at most 86400")
         deadline_policy_seconds = float(deadline_seconds) if deadline_seconds is not None else None
+        budget_binding = self._normalize_budget_binding(shared_budget_binding)
+        approval_binding = self._normalize_approval_evidence(approval_evidence)
 
         # A retry must be able to retrieve its original task after the plan has
         # advanced. Validate the immutable packet/plan binding first, but do not
@@ -219,6 +262,8 @@ class EngineeringPlanDispatch:
                 "run_revision": int(existing["run_revision"]), "source_revision": plan.source_revision,
                 "packet_digest": packet.packet_digest, "handler": handler_name,
                 "deadline_policy_seconds": deadline_policy_seconds,
+                "shared_budget_binding": budget_binding,
+                "approval_evidence": approval_binding,
                 "payload_digest": __import__("hashlib").sha256(encoded_payload.encode("utf-8")).hexdigest(),
             }
             return self._replay_or_conflict(existing, binding, handler_name, encoded_payload)
@@ -238,6 +283,8 @@ class EngineeringPlanDispatch:
             "run_revision": run.revision, "source_revision": plan.source_revision,
             "packet_digest": packet.packet_digest, "handler": handler_name,
             "deadline_policy_seconds": deadline_policy_seconds,
+            "shared_budget_binding": budget_binding,
+            "approval_evidence": approval_binding,
             "payload_digest": __import__("hashlib").sha256(encoded_payload.encode("utf-8")).hexdigest(),
         }
         binding_digest = __import__("hashlib").sha256(
@@ -373,6 +420,8 @@ class EngineeringPlanDispatch:
                 "source_revision": binding["source_revision"], "packet_digest": binding["packet_digest"],
                 "handler": handler,
                 "deadline_policy_seconds": binding["deadline_policy_seconds"],
+                "shared_budget_binding": binding["shared_budget_binding"],
+                "approval_evidence": binding["approval_evidence"],
                 "payload_digest": __import__("hashlib").sha256(encoded_payload.encode("utf-8")).hexdigest(),
             }
             actual = {name: recorded.get(name) for name in expected}
