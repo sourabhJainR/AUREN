@@ -38,3 +38,5 @@
 
 .session-pagination{display:flex;align-items:center;justify-content:flex-end;gap:12px;margin:12px 0 20px}
 .session-refresh-button:disabled{opacity:.4;cursor:not-allowed}
+
+.pill.warning{border-color:#8b5b39;color:#e7bd70}
