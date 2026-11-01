@@ -441,6 +441,8 @@ class _Handler(BaseHTTPRequestHandler):
                 payload = self.control_center.session_snapshot(
                     offset=offset, limit=limit, query=search, status=status,
                 )
+                if self.delivery_supervisor is not None:
+                    payload["delivery_metrics"] = self.delivery_supervisor.metrics_snapshot()
                 self._send_api_json(200, payload)
             except (TypeError, ValueError):
                 self._send(400, b'{"error":"invalid session pagination bounds"}', "application/json; charset=utf-8")
@@ -461,6 +463,8 @@ class _Handler(BaseHTTPRequestHandler):
             try:
                 snapshot = self.control_center.snapshot()
                 snapshot["models"] = LocalModelDiscovery().discover()
+                if self.delivery_supervisor is not None:
+                    snapshot["delivery_metrics"] = self.delivery_supervisor.metrics_snapshot()
                 self._send_api_json(200, snapshot)
             except Exception:
                 # Keep the local console responsive; report a bounded error without internals.
