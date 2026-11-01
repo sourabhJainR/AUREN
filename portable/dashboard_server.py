@@ -296,7 +296,6 @@ class _Handler(BaseHTTPRequestHandler):
                 })
                 return
             if snapshot.get("state") != "running" or terminal_state != "running":
-                self._record_delivery_failure(task_id, response_id, "delivery_not_runnable")
                 if terminal_state == "completed" and all_acknowledged:
                     self._send_delivery_json(200, {
                         "response_id": response_id, "delivery_id": delivery_id,
@@ -305,6 +304,7 @@ class _Handler(BaseHTTPRequestHandler):
                         "total_chunks": manifest.total_chunks,
                     })
                     return
+                self._record_delivery_failure(task_id, response_id, "delivery_not_runnable")
                 durable_state = snapshot.get("state", "unknown")
                 self._send_delivery_json(409, {
                     "error": "delivery is not runnable; reconcile its durable state before resuming",
