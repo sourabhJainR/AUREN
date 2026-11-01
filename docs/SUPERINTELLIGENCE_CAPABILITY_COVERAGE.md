@@ -172,7 +172,7 @@ Map the pattern to ActionRequest, DurableApprovalStore, ExecutionBoundary, agent
 
 #### Scientific discovery and validation
 
-[Co-Scientist (Nature, 2026-05-19)](https://www.nature.com/articles/s41586-026-10644-y) describes agents that generate, critique and refine research hypotheses for experimental verification. [MechHypoBench (2026-10-04)](https://arxiv.org/abs/2610.05197) combines mechanisms from 14 fields with 17.98 million observations and evaluates hypotheses by consequences under withheld conditions; its authors report a substantial gap between generated hypotheses and underlying mechanisms.
+[Co-Scientist (Nature, 2026-05-19)](https://www.nature.com/articles/s41586-026-10644-y) describes agents that generate, critique and refine research hypotheses for experimental verification. [MechHypoBench (2026-10-04)](https://arxiv.org/abs/2610.05197) combines mechanisms from 14 fields with 17.98 million records and evaluates hypotheses by consequences under withheld conditions; its authors report a substantial gap between generated hypotheses and underlying mechanisms.
 
 Map these findings to LearningSteward, causal attribution, experiment manifests, the canonical evidence graph and independent Arena replication. Require preregistered hypotheses, executable baselines, withheld-condition predictions, sensitivity analysis, negative-result retention and independent domain replication. Literature synthesis or a plausible mechanism narrative is not validation. Retract the lesson and restore the prior memory/policy digest if replication or source-domain regression fails.
 
