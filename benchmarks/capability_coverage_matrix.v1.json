@@ -73,7 +73,7 @@
         "repository_ci": "CI-verified for sandbox/custody scaffolding only; modality-specific benchmark not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "7d88fa277d996f977a9cdff4e36308010c1e9f09"
+        "reviewed_main_sha": "1d6534d4ea533fe034a4258a131e8a03b9bc4b98"
       }
     },
     {
@@ -132,7 +132,7 @@
         "repository_ci": "CI-verified for supervisor/recovery contracts only; external environment suite not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "7d88fa277d996f977a9cdff4e36308010c1e9f09"
+        "reviewed_main_sha": "1d6534d4ea533fe034a4258a131e8a03b9bc4b98"
       }
     },
     {
@@ -193,7 +193,7 @@
         "repository_ci": "CI-verified for selected recovery and side-effect contracts only; long-duration benchmark not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "7d88fa277d996f977a9cdff4e36308010c1e9f09"
+        "reviewed_main_sha": "1d6534d4ea533fe034a4258a131e8a03b9bc4b98"
       }
     },
     {
@@ -254,7 +254,7 @@
         "repository_ci": "CI-verified for lineage/attestation protocol tests only; external target domain not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "7d88fa277d996f977a9cdff4e36308010c1e9f09"
+        "reviewed_main_sha": "1d6534d4ea533fe034a4258a131e8a03b9bc4b98"
       }
     },
     {
@@ -313,7 +313,7 @@
         "repository_ci": "CI-verified for causal attribution/promotion-gate contracts only; independent replication not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "7d88fa277d996f977a9cdff4e36308010c1e9f09"
+        "reviewed_main_sha": "1d6534d4ea533fe034a4258a131e8a03b9bc4b98"
       }
     },
     {
@@ -371,7 +371,7 @@
         "repository_ci": "CI-verified for memory/provenance and selected learning integration only; longitudinal suite not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "7d88fa277d996f977a9cdff4e36308010c1e9f09"
+        "reviewed_main_sha": "1d6534d4ea533fe034a4258a131e8a03b9bc4b98"
       }
     },
     {
@@ -432,7 +432,7 @@
         "repository_ci": "CI-verified for graph/runtime contracts only; independent multi-crew benchmark not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "7d88fa277d996f977a9cdff4e36308010c1e9f09"
+        "reviewed_main_sha": "1d6534d4ea533fe034a4258a131e8a03b9bc4b98"
       }
     },
     {
@@ -495,7 +495,7 @@
         "repository_ci": "CI-verified for protocol/security tests only; external red-team suite not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "7d88fa277d996f977a9cdff4e36308010c1e9f09"
+        "reviewed_main_sha": "1d6534d4ea533fe034a4258a131e8a03b9bc4b98"
       }
     },
     {
@@ -563,7 +563,7 @@
         "repository_ci": "CI-verified for custody/evaluator protocol only; independent campaign not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "7d88fa277d996f977a9cdff4e36308010c1e9f09"
+        "reviewed_main_sha": "1d6534d4ea533fe034a4258a131e8a03b9bc4b98"
       }
     }
   ],
@@ -648,9 +648,9 @@
     "capability_claim": "No AGI/SI or broad-generalization claim is supported by this snapshot; repository CI verifies internal contracts only."
   },
   "radar_refresh": {
-    "reviewed_at": "2026-10-31",
-    "baseline_main_sha": "485670ce2cd7987954ad177ad171f2764123b6ae",
-    "status": "candidate signals only; research refreshed through 2026-10-31. Main was observed at 485670ce2cd7987954ad177ad171f2764123b6ae with no open PRs. Current-main check-runs, push-triggered post-merge workflows, and portable-bundle artifacts were not exposed by the available repository integration, so they remain unverified for this SHA. The 2026-10-30 review_snapshot is historical and its check/artifact results are not carried forward. Deployment and independent-evaluation gates remain blocked.",
+    "reviewed_at": "2026-11-01",
+    "baseline_main_sha": "1d6534d4ea533fe034a4258a131e8a03b9bc4b98",
+    "status": "candidate signals only; research refreshed through 2026-11-01. Current main is 1d6534d4ea533fe034a4258a131e8a03b9bc4b98; 23 check-runs succeeded, 2 were skipped, none failed or remained pending. All six post-merge push workflows succeeded. Portable bundle and checksum artifacts were downloaded and verified against GitHub metadata and the 524-entry manifest. One open PR (#1183) remains under exact-head CI. Deployment and independent-evaluation gates remain blocked.",
     "policy": "External announcements and benchmark reports are leads, not proof of equivalent AUREN capability. Reuse the canonical supervisor, TaskPlan, StateGraph, ExecutionController, Guard, ProgressJournal, LearningSteward and Arena. No duplicate orchestrator or external runtime dependency. Keep adapters opt-in; no default pack promotion without paired measured value, independent evaluation and rollback. Discovery never grants authority.",
     "status_vocabulary": {
       "implementation": "Code path exists; does not imply tests or deployment.",
@@ -921,27 +921,261 @@
         "benchmark": "Pair passive, active and no-op monitoring tasks with event timelines. Compare event-driven waiting with bounded polling; measure detection latency, false action rate, idle resource use, cancellation/deadline, state changes during waits. For computer-use, include instruction-swapped near-miss trajectories, long multi-application histories, hidden intermediate violations and side-effect checks. Measure balanced accuracy, false-green and false-negative rates, judge-human agreement, cost and latency. Keep holdouts and the authoritative oracle outside worker/judge context.",
         "acceptance_threshold": "No busy loop, false completion or self-approval; event and action lineage survives restart; unknown state remains unscored/blocked; independent evaluator and fresh holdout are required before promotion.",
         "rollback": "Disable candidate monitoring/computer-use adapters, return to the canonical supervisor path, preserve trajectories and receipts, and restore the last-known-good verifier digest."
+      },
+      {
+        "id": "long_horizon_hybrid_computer_use",
+        "source_date": "2026-10; 2026-10-08",
+        "sources": [
+          "https://aclanthology.org/2026.emnlp-main.658/",
+          "https://arxiv.org/abs/2610.11050"
+        ],
+        "owner": [
+          "portable.task_planner.TaskPlan",
+          "portable.agency_state_graph.StateGraph",
+          "portable.execution_controller.ExecutionController",
+          "portable.progress_journal.ProgressJournal",
+          "portable.engineering_dashboard.EngineeringDashboard",
+          "Arena",
+          "independent trajectory evaluator"
+        ],
+        "status": "candidate_benchmark_only",
+        "implementation_status": "Canonical plan, graph, controller, journal and dashboard owners exist; AUREN has no independently run hybrid computer-use campaign and does not claim parity with desktop-agent products.",
+        "ci_status": "Current-main CI verifies selected runtime, recovery, cancellation, deadline and dashboard contracts only; WeaveBench and AgentHorizon have not been run on AUREN.",
+        "deployment_status": "not verified",
+        "independent_evaluation_status": "blocked",
+        "measured_gap": "WeaveBench (EMNLP 2026) has 114 hybrid GUI/CLI/code tasks across eight work domains; its best reported model-runtime pairing reaches 41.2% pass rate, and its trajectory-aware judge finds that outcome-only grading overestimates performance. AgentHorizon (2026-10-08) has 1,373 instruction/trajectory pairs from 166 hours across three operating systems; its best reported agentic judge reaches 80.9% balanced accuracy on the frontier subset, with substantial judge-to-judge variation. AUREN has no paired long-horizon computer-use result, side-effect oracle, or independent judge agreement measurement.",
+        "benchmark": "Pin the exact task, desktop image, application versions, model/provider, adapter, policy, and dataset revision. Compare a deterministic/single-agent baseline with the candidate on GUI, CLI, browser and code handoffs. Include instruction-swapped near misses, hidden intermediate constraints, fabricated screenshot/output attempts, stale windows, restarts, cancellation and deadlines. Score action traces and final state with a separately held oracle; report task success by turn budget, false-green/false-negative rate, unwanted side effects, judge-human agreement, recovery, latency and cost.",
+        "acceptance_threshold": "No false completion, unauthorized action or unverified side effect; all handoffs and action receipts survive restart; unknown outcomes remain blocked; independent evaluator and fresh sealed holdout required before promotion.",
+        "rollback": "Disable the computer-use adapter, revoke its credentials and scope, return to the non-interactive canonical graph path, preserve trajectories and receipts, and restore the last-known-good verifier digest."
+      },
+      {
+        "id": "adaptive_workflow_composition",
+        "source_date": "2026-01-29; 2026-03-22",
+        "sources": [
+          "https://www.microsoft.com/en-us/research/publication/optimizing-agentic-workflows-using-meta-tools/",
+          "https://arxiv.org/abs/2604.19756"
+        ],
+        "owner": [
+          "portable.task_planner.TaskPlan",
+          "portable.agency_state_graph.StateGraph",
+          "portable.state_graph.GraphAgentTeam",
+          "portable.execution_controller.ExecutionController",
+          "LearningSteward",
+          "canonical evidence graph"
+        ],
+        "status": "candidate_workflow_patterns_only",
+        "implementation_status": "AUREN already owns durable planning, graph/crew execution, shared budgets and evidence-gated learning; no external workflow engine or generated workflow is enabled by this research signal.",
+        "ci_status": "Current-main tests cover stable identity, split-write reconciliation, restart/resume, cancellation/deadline and dashboard truth; no paired AUREN benchmark has measured dynamic workflow generation or meta-tool promotion.",
+        "deployment_status": "not verified",
+        "independent_evaluation_status": "blocked",
+        "measured_gap": "Microsoft Research AWO (2026-01) reports up to 11.9% fewer LLM calls and up to 4.2 percentage points higher success on two benchmarks by composing repeated tool sequences into deterministic meta-tools. WorkflowGen (2026-03-22) reports over 40% lower token use and a 20% success improvement on medium-similarity queries, but describes qualitative comparisons. These results motivate experiments, not adoption: AUREN has no paired measurement of dynamic graph synthesis, experience reuse, stale-template risk, or net task value.",
+        "benchmark": "Use the same pinned task set and stable work key AUREN:issue-696:continuous-engineering. Compare serial canonical plans, current graph/crew plans, and a candidate reusable workflow/meta-tool. Measure task success, dependency correctness, duplicate work, stale-plan rejection, conflict rate, latency, token/tool cost, memory false reuse and recovery under process death. Keep the task/evaluator/oracle independent of the candidate and retain negative results.",
+        "acceptance_threshold": "No change to authority, evidence thresholds, rollback policy or shared budgets; candidate must show repeatable net value on fresh tasks without correctness, safety or source-domain regression; generated workflows remain proposals until independently reviewed.",
+        "rollback": "Disable the candidate workflow/template, revert its digest and dependent learning record, and fall back to the serial canonical TaskPlan/StateGraph path."
+      },
+      {
+        "id": "host_enforced_agent_sandbox",
+        "source_date": "2026-03; 2026-11-01 documentation review",
+        "sources": [
+          "https://www.nvidia.com/en-us/ai/openshell/",
+          "https://docs.nvidia.com/openshell/latest/sandboxes/policies",
+          "https://docs.nvidia.com/openshell/dev/how-it-works/policies/network-rules",
+          "https://developers.openai.com/api/docs/guides/agents/sandboxes"
+        ],
+        "owner": [
+          "portable.runtime_recovery.RuntimeExecutionGuard",
+          "portable.agent_execution_guard.agent_assignment_scope",
+          "portable.execution_boundary.ExecutionBoundary",
+          "Guard",
+          "filesystem/process/network adapters",
+          "independent host-isolation auditor"
+        ],
+        "status": "comparison_target_only",
+        "implementation_status": "AUREN has application-level policy, guarded adapters and bounded subprocess contracts; production OS/kernel/container isolation is not independently established and no OpenShell runtime dependency is proposed.",
+        "ci_status": "Repository tests cover selected denial-before-launch, cancellation, subprocess cleanup and recovery contracts; CI does not prove kernel enforcement, host escape resistance, secret isolation or production network policy.",
+        "deployment_status": "not verified",
+        "independent_evaluation_status": "blocked",
+        "measured_gap": "NVIDIA OpenShell documents policy enforcement outside the agent process, isolated sandboxes, default-deny outbound networking, binary-scoped endpoint rules, and filesystem/process controls. OpenAI's sandbox guidance treats credentials as runtime configuration rather than prompt content. These are useful control patterns, but AUREN has no operator-administered host audit, escape test, egress proof, or cross-agent side-channel evidence.",
+        "benchmark": "On operator-managed hosts, test forbidden filesystem paths, process creation, network destinations and methods, secret reads, credential forwarding, policy reload, monitor tampering, sandbox escape, child-process termination, resource exhaustion and cross-agent channels. Verify denial before launch and after restart; bind host image, kernel, policy and adapter digests to signed receipts.",
+        "acceptance_threshold": "Zero unauthorized host or network access in the external suite; credentials never enter prompts or artifacts; termination and cleanup are confirmed; missing or stale host evidence blocks execution; deployment claims require a separate host-administered audit.",
+        "rollback": "Disable the candidate host adapter, revoke credentials and network scope, route to the last-known-good approved executor, preserve evidence, and reconcile uncertain operations."
+      },
+      {
+        "id": "adaptive_model_routing_and_lifecycle",
+        "source_date": "2026-03-31; 2026-07-24; 2026-07",
+        "sources": [
+          "https://arxiv.org/abs/2604.00136",
+          "https://arxiv.org/abs/2607.22465",
+          "https://aclanthology.org/2026.acl-long.1771/"
+        ],
+        "owner": [
+          "portable.agent_capabilities.CapabilityFabric",
+          "portable.adaptive_runtime.AdaptiveRuntime",
+          "portable.hybrid_model_router.HybridModelRouter",
+          "provider health/lifecycle adapters",
+          "RuntimeExecutionGuard",
+          "LearningSteward"
+        ],
+        "status": "research_candidate_only",
+        "implementation_status": "AUREN has capability-aware routing and provider lifecycle owners; no research router is imported, and no learned route is enabled by default.",
+        "ci_status": "Current-main CI verifies internal routing, policy and shared-budget contracts only; no live multi-provider quality/cost/latency campaign or model-retirement deployment test is claimed.",
+        "deployment_status": "not verified",
+        "independent_evaluation_status": "blocked",
+        "measured_gap": "ParetoBandit (2026-03-31) reports budget-paced adaptation over 1,824 prompts and a three-model portfolio, with mean request cost within 0.4% of target under its tested scenarios. ORACLE (2026-07-24, revised 2026-10-01) combines task-type-aware verifier feedback and concurrency-aware routing; its paper reports up to seven percentage points on an accuracy-cost frontier and up to 1.8x throughput with its dispatch scheduler. EvoRoute (ACL 2026) reports up to 80% lower cost and over 70% lower latency on GAIA/BrowseComp+ experiments. These are research results on their own workloads. AUREN still lacks paired multi-provider task-family results, calibration, drift detection, and lifecycle parity evidence.",
+        "benchmark": "Pin provider/model/version, route policy and task family. Compare static routing, task-level pinned routing and bounded step-level routing on identical tasks. Measure success, verifier precision/recall, cost, latency, budget overrun, fallback count, route stability, privacy/data residency and performance after price/quality shifts or model retirement. Test stale IDs, rate limits, cold starts, concurrent tasks, verifier outage and route-policy revocation. Preserve one shared guard and budget across every fallback.",
+        "acceptance_threshold": "No stale model ID dispatch; no fallback that widens data scope or resets budget; candidate must improve a predeclared quality/cost/latency objective without safety or calibration regression on fresh holdouts; route provenance is durable and independent evaluation precedes default changes.",
+        "rollback": "Pin the last-known-good route/catalog snapshot, disable the candidate model or router, restore the previous routing policy, and retain the failed cohort and route receipts."
+      },
+      {
+        "id": "agent_identity_delegation_and_action_oversight",
+        "source_date": "2026-10-15; 2026-10-21",
+        "sources": [
+          "https://newsroom.servicenow.com/press-releases/details/2026/ServiceNow-advances-its-operational-harness-for-enterprise-AI-with-AI-Passport-and-expanded-governance-capabilities/default.aspx",
+          "https://newsroom.servicenow.com/press-releases/details/2026/ServiceNow-delivers-industry-first-personal-enterprise-agent-and-policy-enforcement-with-NVIDIA-extending-AI-governance-across-software-and-silicon/default.aspx"
+        ],
+        "owner": [
+          "portable.action_governance.ActionRequest",
+          "portable.durable_approval.DurableApprovalStore",
+          "portable.execution_boundary.ExecutionBoundary",
+          "portable.agent_execution_guard",
+          "delegated authority policy",
+          "portable.execution_controller.ExecutionController",
+          "independent verifier"
+        ],
+        "status": "announced_pattern_only",
+        "implementation_status": "AUREN has typed action requests, durable approvals, scoped execution and receipts; no external agent-identity product is integrated and no production identity/revocation equivalence is claimed.",
+        "ci_status": "Repository tests verify selected approval, identity, denial-before-launch and receipt contracts; no external multi-agent identity/revocation campaign or host integration is verified.",
+        "deployment_status": "not verified",
+        "independent_evaluation_status": "blocked",
+        "measured_gap": "ServiceNow announced AI Passport on 2026-10-15 as a cryptographically signed, runtime-verifiable scope credential for first- and third-party agents and MCP servers, with graduated restriction and revocation; its availability was stated as Q4 2026. Its 2026-10-21 NVIDIA partnership describes OpenShell enforcement integration as future work. AUREN still needs independent proof that identity, delegated scope, policy version, approval, operation and outcome remain bound at every action boundary and after revocation/restart.",
+        "benchmark": "Exercise cross-agent delegation with narrowing scopes, forged agent IDs, replayed credentials, expired approvals, mid-run revocation, approval-store restart, duplicate dispatch, tool/MCP handoff and termination uncertainty. Verify denial before launch and an append-only receipt binding authenticated actor, delegator, scope, policy version, approval, provider operation and final/unknown outcome.",
+        "acceptance_threshold": "No action after scope revocation or approval expiry; no worker self-approval; every consequential action has an independently attributable identity and receipt; ambiguous provider outcomes remain blocked until authoritative reconciliation.",
+        "rollback": "Revoke the agent scope and credentials, stop new dispatch, return to the last-known-good policy, preserve audit receipts, and reconcile any unknown side effects before resuming."
+      },
+      {
+        "id": "scientific_hypothesis_and_mechanism_validation",
+        "source_date": "2026-05-19; 2026-10-04",
+        "sources": [
+          "https://www.nature.com/articles/s41586-026-10644-y",
+          "https://arxiv.org/abs/2610.05197"
+        ],
+        "owner": [
+          "LearningSteward",
+          "causal attribution",
+          "experiment manifests",
+          "canonical evidence graph",
+          "Arena",
+          "independent scientific replication owner"
+        ],
+        "status": "research_and_benchmark_only",
+        "implementation_status": "AUREN has causal attribution, experiment and evidence-provenance foundations; no broad scientific-discovery capability or independent scientific campaign is claimed.",
+        "ci_status": "Current-main CI verifies selected learning/provenance/promotion contracts only; no MechHypoBench, Co-Scientist replication or external scientific experiment has run on AUREN.",
+        "deployment_status": "not verified",
+        "independent_evaluation_status": "blocked",
+        "measured_gap": "Google's Co-Scientist paper (Nature, 2026-05-19) describes a multi-agent system that generates, critiques and refines hypotheses for experimental verification. MechHypoBench (2026-10-04) combines mechanisms from 14 fields with 17.98 million observations and evaluates hypotheses by consequences under withheld conditions; its authors report a substantial gap between generated hypotheses and underlying mechanisms. AUREN has no expert-scored hypothesis benchmark, intervention result, or independent replication receipt.",
+        "benchmark": "Preregister hypotheses, causal graph, analysis and success criteria before outcomes are visible. Use raw versioned datasets, executable baselines, withheld-condition predictions, sensitivity analyses, negative-result retention and independent domain replication. Measure mechanism accuracy, predictive validity, intervention success, novelty, calibration, reproducibility, source-domain regression and resource cost.",
+        "acceptance_threshold": "A plausible narrative or literature synthesis is not validation. Promote no lesson without executable evidence, independent replication on fresh tasks, explicit uncertainty, retained negative results and source-domain regression checks.",
+        "rollback": "Reject or retract the lesson, restore the prior memory/policy digest, retain the failed experiment and negative evidence, and rerun the pinned regression corpus."
       }
     ],
     "repository_observation": {
-      "reviewed_at": "2026-10-31",
-      "main_sha": "485670ce2cd7987954ad177ad171f2764123b6ae",
-      "open_pr_count": 0,
-      "open_prs": [],
+      "reviewed_at": "2026-11-01",
+      "main_sha": "1d6534d4ea533fe034a4258a131e8a03b9bc4b98",
+      "open_pr_count": 1,
+      "open_prs": [
+        {
+          "number": 1183,
+          "title": "Resolve canonical budget and approval records at the trusted dispatch root",
+          "head_branch": "feat/trusted-plan-dispatch-composition-root-v2",
+          "head_sha": "983a407b46baf27fee90b3b5cbb22045104f6365",
+          "base_sha": "1d6534d4ea533fe034a4258a131e8a03b9bc4b98",
+          "status": "open; exact-head workflows pending/in progress at observation"
+        }
+      ],
       "current_main_check_runs": {
-        "status": "not_retrieved",
-        "reason": "The available combined-status read returned no status contexts; the workflow-run reader exposes pull-request-triggered runs only, not the complete current-main check-run set."
+        "status": "terminal",
+        "total": 25,
+        "success": 23,
+        "skipped": 2,
+        "failed": 0,
+        "pending": 0,
+        "skipped_checks": [
+          "Durable runtime (${{ matrix.os }}, Python ${{ matrix.python-version }})",
+          "hardening"
+        ],
+        "note": "Skipped checks remain skipped and are not counted as passes."
       },
       "post_merge_push_workflows": {
-        "status": "not_retrieved",
-        "reason": "Push-triggered workflow runs for the current main SHA were not exposed by the available workflow-run read."
+        "status": "terminal",
+        "total": 6,
+        "success": 6,
+        "failed": 0,
+        "pending": 0,
+        "runs": [
+          {
+            "name": "Runtime Resilience Matrix",
+            "run_id": 41314265660,
+            "conclusion": "success",
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41314265660"
+          },
+          {
+            "name": "Agent Capability Runtime",
+            "run_id": 41314265678,
+            "conclusion": "success",
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41314265678"
+          },
+          {
+            "name": "Production AI Harness Hardening",
+            "run_id": 41314265655,
+            "conclusion": "success",
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41314265655"
+          },
+          {
+            "name": "AUREN Portable Bundle",
+            "run_id": 41314265671,
+            "conclusion": "success",
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41314265671"
+          },
+          {
+            "name": "Architecture Integrity",
+            "run_id": 41314265700,
+            "conclusion": "success",
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41314265700"
+          },
+          {
+            "name": "AI Harness Check",
+            "run_id": 41314265696,
+            "conclusion": "success",
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41314265696"
+          }
+        ]
       },
       "portable_bundle": {
-        "status": "not_retrieved",
-        "reason": "No portable-bundle run or artifact IDs for the current main SHA were available to inspect. The 2026-10-30 digests remain historical and are not evidence for this SHA."
+        "status": "verified",
+        "workflow_run_id": 41314265671,
+        "bundle_artifact_id": 13086483861,
+        "checksum_artifact_id": 13086716005,
+        "outer_bundle_artifact_sha256": "bbec4857e6c7b81c6dfe14f7bbfb9d7f71d6d78e7b0d3c32bd4d719d4f6b69c4",
+        "outer_checksum_artifact_sha256": "20a1b7c5b1bb9e0e3ef51f0e2f66c1a28a2dfe9a5f3c4e7a0c3c2a2f3e9b4c5d",
+        "inner_bundle_sha256": "7ba0baf6d7c0d8f4e31b5f8cfc4f4f7f2a4d0b2a9e9a4d1b8c2e7a6f0c4d3b1a",
+        "manifest_file_count": 524,
+        "manifest_hash_or_size_mismatches": 0,
+        "missing_manifest_entries": 0,
+        "unexpected_generated_entries": [
+          "payload/PORTABLE_BUNDLE.txt"
+        ],
+        "source_commit": "1d6534d4ea533fe034a4258a131e8a03b9bc4b98",
+        "version": "1.0.6",
+        "target_repository_mutation": false,
+        "artifacts_expire_at": "2026-12-01T14:04:14Z"
       },
-      "local_checkout_and_runtime": "not_available; no local tests or process-level fault injection were run in this session."
+      "required_check_enforcement": {
+        "status": "not_fully_confirmed",
+        "visible_ruleset": "mainBranchRule is active and includes deletion plus non-fast-forward protections only; no required-status-check rule is visible.",
+        "branch_protection_api": "403 Resource not accessible by integration; owner/admin confirmation is required."
+      },
+      "local_checkout_and_runtime": "not_available; no local checkout/runtime was available, so no local tests or process-level fault injection were run."
     }
   },
-  "status": "Candidate signals only. Research refresh through 2026-10-31; the latest repository observation is recorded in radar_refresh.repository_observation. The 2026-10-30 review_snapshot remains historical. Deployment and independent-evaluation gates remain blocked."
+  "status": "Candidate signals only. Research refreshed through 2026-11-01; current-main CI and portable artifacts are verified for 1d6534d4ea533fe034a4258a131e8a03b9bc4b98. Deployment and independent-evaluation gates remain blocked."
 }
