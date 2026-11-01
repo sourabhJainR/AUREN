@@ -202,6 +202,7 @@ class TrustedPlanDispatchRoot:
             "version": record.version,
             "status": record.status,
             "expires_at": record.expires_at,
+            "request_event_digest": request_events[0]["event_digest"],
             "decision_event_digests": [item["event_digest"] for item in votes],
         })
         return {
