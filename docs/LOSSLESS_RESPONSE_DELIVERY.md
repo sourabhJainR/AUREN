@@ -61,6 +61,29 @@ and offers at most one chunk at a time. It does not claim a bounded number of du
 pending tasks or a global cross-process worker quota. Hosts that need those stronger
 limits must enforce them at their deployment admission boundary.
 
+## Shared crew budget and host sinks
+
+The acknowledged transport accepts the same `RuntimeExecutionGuard` instance used by
+the graph/crew and charges UTF-8 bytes before each chunk send. Its operation key is
+bound to task, response digest, chunk index and chunk digest. The guard snapshot
+preserves the byte ledger across checkpoint/resume; duplicate charge keys do not
+grant a second send through this transport API.
+
+The HTTP Session Control Center path also charges each chunk offer against a
+supervisor-owned durable budget record before returning the chunk. Hosts may inject
+a shared guard and stable `delivery_budget_id` when creating delivery tasks; tasks
+using the same ID share one budget ledger. The registry stores the guard snapshot,
+and restart resumes from that snapshot. Re-reading an unacknowledged chunk is
+allowed without a second charge because the operation key and byte count must match.
+A different chunk or delivery cannot spend beyond the remaining shared budget.
+Without an injected crew guard, the supervisor creates a delivery-scoped budget.
+
+The CLI `auren deliver` command supports bounded stdin/stdout and file output.
+Oversized input is rejected before writing. A partial stdout write is reported as
+unknown and must not be replayed automatically. File output is staged in the target
+directory and committed atomically; existing files require explicit `--overwrite`.
+Atomic MCP JSON-RPC frames remain subject to their frame limit and are never split.
+
 ## Boundaries and rollback
 
 This module is a deterministic transport primitive. It does not prove that a
