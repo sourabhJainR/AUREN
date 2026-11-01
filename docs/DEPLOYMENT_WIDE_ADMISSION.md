@@ -22,7 +22,7 @@ every admission path is globally coordinated.
 
 Use a dedicated PostgreSQL database/schema and a service identity managed by
 the operator. Install the project's PostgreSQL driver in the host environment.
-Run one provisioning step with a migration identity that can create the three
+Run one provisioning step with a migration identity that can create the four
 `auren_admission_*` tables:
 
 ```python
@@ -40,8 +40,10 @@ coordinator = PostgreSQLAdmissionCoordinator(
 Do not put a DSN or password in source control, task payloads, logs, or issue
 comments. Runtime hosts should use a secret manager or workload identity and
 construct the coordinator with `provision=False`. Every host in one
-deployment must use the same database, namespace, policy version, and
-capacity policy.
+deployment must use the same database, namespace, policy version, resource
+names, and capacity values. The first claim pins each resource's capacity in
+the shared resource-policy table; a later host with a different value is
+rejected rather than silently changing the limit.
 
 ## Delivery supervisor wiring
 
