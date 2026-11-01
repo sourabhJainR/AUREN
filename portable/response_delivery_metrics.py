@@ -201,15 +201,35 @@ def record_delivery_failure(
 
 
 def aggregate_delivery_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
-    """Aggregate the latest size per delivery and all observed wait/failure evidence."""
+    """Aggregate durable transport and HTTP pull/ack measurements."""
     latest: dict[tuple[str, str], dict[str, Any]] = {}
+    chunk_measurements: dict[tuple[str, str, int], dict[str, Any]] = {}
+    admissions: dict[str, int] = {}
     failure_reasons: set[str] = set()
     completion_digests: set[str] = set()
     total_wait = 0.0
     peak_in_flight = 0
-    resume_count = 0
+
     for row in events:
-        if not isinstance(row, dict) or row.get("event") != "response_delivery_metrics":
+        if not isinstance(row, dict):
+            continue
+        task_id = row.get("task_id")
+        event_name = row.get("event")
+        if not isinstance(task_id, str):
+            continue
+        if event_name == "response_delivery_worker_admitted":
+            admissions[task_id] = admissions.get(task_id, 0) + 1
+        if event_name == "response_delivery_receiver_acknowledged":
+            evidence = row.get("evidence_ref")
+            if isinstance(evidence, str) and evidence.startswith("sha256:"):
+                digest = evidence.removeprefix("sha256:")
+                if len(digest) == 64 and all(ch in "0123456789abcdef" for ch in digest):
+                    completion_digests.add(digest)
+        if event_name not in {
+            "response_delivery_metrics",
+            "response_delivery_chunk_measurement",
+            "response_delivery_failure",
+        }:
             continue
         try:
             payload = json.loads(str(row.get("message", "")))
@@ -217,48 +237,88 @@ def aggregate_delivery_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
             continue
         if not isinstance(payload, dict) or payload.get("schema_version") != SCHEMA_VERSION:
             continue
-        task_id = row.get("task_id")
         response_id = payload.get("response_id")
-        if not isinstance(task_id, str) or not isinstance(response_id, str):
+        if not isinstance(response_id, str) or len(response_id) != 64 or any(
+            ch not in "0123456789abcdef" for ch in response_id
+        ):
             continue
-        try:
-            total_bytes = payload.get("total_bytes")
-            total_chunks = payload.get("total_chunks")
-            wait_ms = float(payload.get("backpressure_wait_ms", 0.0))
-            peak_bytes = payload.get("peak_in_flight_bytes")
-            resumed = payload.get("resumed_from_chunk")
+        if event_name == "response_delivery_metrics":
+            try:
+                total_bytes = payload.get("total_bytes")
+                total_chunks = payload.get("total_chunks")
+                wait_ms = float(payload.get("backpressure_wait_ms", 0.0))
+                peak_bytes = payload.get("peak_in_flight_bytes")
+                resumed = payload.get("resumed_from_chunk")
+                if (
+                    type(total_bytes) is not int or total_bytes < 0
+                    or type(total_chunks) is not int or total_chunks < 0
+                    or type(peak_bytes) is not int or peak_bytes < 0
+                    or type(resumed) is not int or not 0 <= resumed <= total_chunks
+                    or not math.isfinite(wait_ms) or wait_ms < 0
+                ):
+                    continue
+            except (TypeError, ValueError, OverflowError):
+                continue
+            latest[(task_id, response_id)] = payload
+            total_wait += wait_ms
+            peak_in_flight = max(peak_in_flight, peak_bytes)
+            if resumed > 0:
+                admissions[task_id] = admissions.get(task_id, 0) + 1
+            digest = payload.get("completion_digest")
+            if isinstance(digest, str) and digest == response_id:
+                completion_digests.add(digest)
+        elif event_name == "response_delivery_chunk_measurement":
+            index = payload.get("chunk_index")
+            chunk_bytes = payload.get("chunk_bytes")
+            chunk_digest = payload.get("chunk_sha256")
+            try:
+                wait_ms = float(payload.get("backpressure_wait_ms", 0.0))
+            except (TypeError, ValueError, OverflowError):
+                continue
             if (
-                type(total_bytes) is not int or total_bytes < 0
-                or type(total_chunks) is not int or total_chunks < 0
-                or type(peak_bytes) is not int or peak_bytes < 0
-                or type(resumed) is not int or not 0 <= resumed <= total_chunks
+                type(index) is not int or index < 1
+                or type(chunk_bytes) is not int or chunk_bytes < 0
                 or not math.isfinite(wait_ms) or wait_ms < 0
+                or not isinstance(chunk_digest, str) or len(chunk_digest) != 64
+                or any(ch not in "0123456789abcdef" for ch in chunk_digest)
             ):
                 continue
-        except (TypeError, ValueError, OverflowError):
-            continue
-        latest[(task_id, response_id)] = payload
-        total_wait += wait_ms
-        peak_in_flight = max(peak_in_flight, peak_bytes)
-        if resumed > 0:
-            resume_count += 1
-        failure = payload.get("failure_reason")
-        if isinstance(failure, str) and 0 < len(failure) <= 80 and all(
-            ch in "abcdefghijklmnopqrstuvwxyz0123456789_-" for ch in failure
-        ):
-            failure_reasons.add(failure)
-        digest = payload.get("completion_digest")
-        if isinstance(digest, str) and len(digest) == 64 and all(
-            ch in "0123456789abcdef" for ch in digest
-        ) and digest == response_id:
-            completion_digests.add(digest)
+            chunk_measurements[(task_id, response_id, index)] = payload
+        else:
+            failure = payload.get("failure_reason")
+            if isinstance(failure, str) and 0 < len(failure) <= 80 and all(
+                ch in "abcdefghijklmnopqrstuvwxyz0123456789_-" for ch in failure
+            ):
+                failure_reasons.add(failure)
+
+    for payload in chunk_measurements.values():
+        total_wait += max(0.0, float(payload.get("backpressure_wait_ms", 0.0)))
+        peak_in_flight = max(peak_in_flight, int(payload.get("chunk_bytes", 0)))
+    for task_id, count in admissions.items():
+        # The first admission is initial delivery; each later admission is a resume.
+        if count > 1:
+            # Metrics rows with a resumed_from_chunk already contribute one resume.
+            metric_resume = sum(
+                1 for (candidate_task, _response_id), row in latest.items()
+                if candidate_task == task_id and int(row.get("resumed_from_chunk", 0)) > 0
+            )
+            resume_count = max(0, count - 1 - metric_resume)
+        else:
+            resume_count = 0
+        if resume_count:
+            # Add to the count below after collecting all tasks.
+            pass
+    admission_resumes = sum(max(0, count - 1) for count in admissions.values())
+    metric_resumes = sum(
+        1 for row in latest.values() if int(row.get("resumed_from_chunk", 0)) > 0
+    )
     return {
-        "measured_deliveries": len(latest),
+        "measured_deliveries": len(set(latest) | {(task, response) for task, response, _ in chunk_measurements}),
         "total_bytes": sum(int(row.get("total_bytes", 0)) for row in latest.values()),
         "total_chunks": sum(int(row.get("total_chunks", 0)) for row in latest.values()),
         "peak_in_flight_bytes": peak_in_flight,
         "backpressure_wait_ms": round(total_wait, 3),
-        "resume_count": resume_count,
+        "resume_count": max(admission_resumes, metric_resumes),
         "failure_reasons": sorted(failure_reasons),
         "completion_digests": sorted(completion_digests),
     }
