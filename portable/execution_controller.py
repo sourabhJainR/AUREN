@@ -173,6 +173,8 @@ class ExecutionController:
         agent_assignment_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
         workflow_profile_path: str | Path | None = None,
         max_pending_tasks: int | None = None,
+        deployment_admission_coordinator: Any | None = None,
+        deployment_instance_id: str | None = None,
     ) -> None:
         if max_pending_tasks is not None and (
             type(max_pending_tasks) is not int or not 1 <= max_pending_tasks <= 100000
@@ -181,6 +183,14 @@ class ExecutionController:
         if provider_resume_authorizer is not None and not callable(provider_resume_authorizer):
             raise TypeError("provider_resume_authorizer must be callable")
         self._provider_resume_authorizer = provider_resume_authorizer
+        if deployment_admission_coordinator is not None and (
+            not isinstance(deployment_instance_id, str) or not deployment_instance_id.strip()
+        ):
+            raise ValueError("deployment_instance_id is required when shared pending-task admission is enabled")
+        self._deployment_admission_coordinator = deployment_admission_coordinator
+        self._deployment_instance_id = (
+            deployment_instance_id.strip() if isinstance(deployment_instance_id, str) else None
+        )
         if agent_assignment_verifier is not None and not callable(agent_assignment_verifier):
             raise TypeError("agent_assignment_verifier must be callable")
         # Host-owned verifier is injected by trusted bootstrap and re-used after restart.
@@ -2052,6 +2062,23 @@ class ExecutionController:
         return CIRepairWatchdog(self, recovery_ledger).stale_tasks(
             stale_after_seconds=stale_after_seconds, now=now,
         )
+
+    def _acquire_deployment_pending_slot(self, task_id: str) -> Any | None:
+        """Acquire the shared pending-task slot; no local fallback is allowed."""
+        coordinator = self._deployment_admission_coordinator
+        if coordinator is None:
+            return None
+        return coordinator.acquire(
+            "durable_pending_tasks",
+            f"{self._deployment_instance_id}:{task_id}",
+            task_id,
+            capacity=self.max_pending_tasks,
+            lease_seconds=86400,
+        )
+
+    def _release_deployment_pending_slot(self, lease: Any | None) -> None:
+        if lease is not None and self._deployment_admission_coordinator is not None:
+            self._deployment_admission_coordinator.release(lease)
 
     def submit(
         self,
