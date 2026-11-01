@@ -324,7 +324,7 @@ class ResponseDeliverySupervisor:
             "source": "execution_controller_and_progress_journal",
         }
 
-    def start(self, task_id: str) -> bool:
+    def start(self, task_id: str, *, artifact_verified: bool = False) -> bool:
         """Start a pending delivery only when a bounded worker slot is available.
 
         Saturation leaves the durable task pending. A later host poll may retry;
@@ -334,8 +334,11 @@ class ResponseDeliverySupervisor:
         task = self.controller.task(task_id)
         if task is None:
             raise FileNotFoundError("supervisor delivery task is unavailable")
+        if type(artifact_verified) is not bool:
+            raise TypeError("artifact_verified must be a boolean")
         if task.state == "running":
-            # Reclaim only after both the lease and heartbeat are stale.
+            # Reclaim only after both the lease and heartbeat are stale and the
+            # host has reloaded and verified the immutable response artifact.
             with sqlite3.connect(self.controller.db_path) as db:
                 row = db.execute("SELECT lease_until FROM tasks WHERE id=?", (task_id,)).fetchone()
             if row and row[0]:
@@ -346,11 +349,22 @@ class ResponseDeliverySupervisor:
                     return False
                 if lease.tzinfo is None or lease > datetime.now(timezone.utc):
                     return False
+            if not artifact_verified:
+                return False
             self.controller.recover_stale(
                 task_id, reason="delivery host restarted; prior worker lease expired",
                 stale_after_seconds=1,
             )
             task = self.controller.task(task_id)
+            if task is not None and task.state == "pending":
+                journal = ProgressJournal(self.journal_path)
+                checkpoint = journal.snapshot(task_id)
+                if checkpoint.get("state") != "running":
+                    journal.record_reconciliation(
+                        task_id, state="running", stage="response-delivery-recovery",
+                        message="immutable artifact and acknowledged cursor reloaded; supervisor resumed delivery",
+                        expected_sequence=int(checkpoint.get("sequence", 0)),
+                    )
         if task is None or task.state != "pending":
             return False
 
