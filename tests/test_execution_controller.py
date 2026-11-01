@@ -23,6 +23,44 @@ from portable.execution_controller import (
 def durable_handler(payload):
     return {"success": True, "detail": "done", "evidence": [payload["id"]]}
 
+class _FakeDeploymentAdmissionCoordinator:
+    def __init__(self):
+        self.leases = {}
+        self.fail = False
+
+    def acquire(self, resource, owner, operation_id, *, capacity, lease_seconds):
+        if self.fail:
+            raise RuntimeError("shared coordinator unavailable")
+        key = (resource, operation_id)
+        existing = self.leases.get(key)
+        if existing is not None:
+            if existing.owner != owner:
+                raise RuntimeError("operation identity is owned by another instance")
+            return existing
+        active = sum(1 for (kind, _), _lease in self.leases.items() if kind == resource)
+        if active >= capacity:
+            return None
+        lease = type("Lease", (), {})()
+        lease.namespace = "test"
+        lease.resource = resource
+        lease.owner = owner
+        lease.operation_id = operation_id
+        lease.token = "token-" + operation_id
+        lease.generation = 1
+        self.leases[key] = lease
+        return lease
+
+    def release(self, lease):
+        key = (lease.resource, lease.operation_id)
+        if self.leases.get(key) is not lease:
+            return False
+        del self.leases[key]
+        return True
+
+    def active_count(self, resource):
+        return sum(1 for (kind, _), _lease in self.leases.items() if kind == resource)
+
+
 def durable_marker_handler(payload):
     marker = Path(payload["marker_path"])
     with marker.open("a", encoding="utf-8") as stream:
@@ -446,6 +484,67 @@ def test_submit_rejects_stable_work_key_reuse_for_different_intent(tmp_path: Pat
     else:
         raise AssertionError("stable work key reuse with changed intent must fail closed")
 
+
+
+def test_shared_pending_admission_is_atomic_across_separate_controller_roots(tmp_path: Path):
+    coordinator = _FakeDeploymentAdmissionCoordinator()
+    first = ExecutionController(
+        tmp_path / "root-a", max_pending_tasks=1,
+        deployment_admission_coordinator=coordinator, deployment_instance_id="instance-a",
+    )
+    second = ExecutionController(
+        tmp_path / "root-b", max_pending_tasks=1,
+        deployment_admission_coordinator=coordinator, deployment_instance_id="instance-b",
+    )
+    first.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    second.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+
+    task_a = first.submit("tests.durable_handler", {"id": "a"}, work_key="shared:a")
+    assert coordinator.active_count("durable_pending_tasks") == 1
+    try:
+        second.submit("tests.durable_handler", {"id": "b"}, work_key="shared:b")
+    except QueueAdmissionRejected as exc:
+        assert exc.pending_count == 1
+        assert exc.limit == 1
+    else:
+        raise AssertionError("separate roots must share one pending-task capacity")
+
+    first.run_once(task_a.id)
+    assert coordinator.active_count("durable_pending_tasks") == 0
+    task_b = second.submit("tests.durable_handler", {"id": "b"}, work_key="shared:b")
+    assert task_b.state == "pending"
+    assert coordinator.active_count("durable_pending_tasks") == 1
+
+
+def test_shared_pending_admission_outage_fails_closed_before_work_creation(tmp_path: Path):
+    coordinator = _FakeDeploymentAdmissionCoordinator()
+    coordinator.fail = True
+    controller = ExecutionController(
+        tmp_path, max_pending_tasks=1,
+        deployment_admission_coordinator=coordinator, deployment_instance_id="instance-a",
+    )
+    controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    try:
+        controller.submit("tests.durable_handler", {"id": "blocked"}, work_key="shared:blocked")
+    except RuntimeError as exc:
+        assert "shared coordinator unavailable" in str(exc)
+    else:
+        raise AssertionError("coordinator outage must block pending-task admission")
+    with sqlite3.connect(controller.db_path) as db:
+        assert db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
+    with controller.company._db() as db:
+        assert db.execute("SELECT COUNT(*) FROM work_units").fetchone()[0] == 0
+
+
+def test_shared_pending_admission_requires_stable_instance_identity(tmp_path: Path):
+    try:
+        ExecutionController(
+            tmp_path, deployment_admission_coordinator=_FakeDeploymentAdmissionCoordinator(),
+        )
+    except ValueError as exc:
+        assert "deployment_instance_id is required" in str(exc)
+    else:
+        raise AssertionError("shared admission must require stable instance identity")
 
 def test_pending_queue_admission_is_persistent_and_rejects_before_work_unit_creation(tmp_path: Path):
     controller = ExecutionController(tmp_path, max_pending_tasks=1)
