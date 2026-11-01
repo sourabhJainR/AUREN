@@ -159,6 +159,46 @@ class ResponseDeliverySupervisor:
                 "saturation_events": _SATURATION_COUNT,
             }
 
+    def metrics_snapshot(self) -> dict[str, Any]:
+        """Expose delivery queue, integrity and lifecycle metrics from durable state."""
+        states: dict[str, int] = {}
+        with sqlite3.connect(self.controller.db_path) as db:
+            rows = db.execute(
+                "SELECT state,COUNT(*) FROM tasks WHERE work_key LIKE 'dashboard-response:%' GROUP BY state"
+            ).fetchall()
+            states = {str(state): int(count) for state, count in rows}
+        events = ProgressJournal(self.journal_path)._events()
+        delivery_events = [
+            row for row in events
+            if str(row.get("task_id", "")).strip()
+            and str(row.get("stage", "")).startswith("response-delivery:")
+        ]
+        ack_rows = [row for row in delivery_events if row.get("event") == "response_chunk_acknowledged"]
+        unknown_rows = [row for row in delivery_events if row.get("event") == "response_chunk_outcome_unknown"]
+        completed_receipts = {
+            row.get("task_id") for row in delivery_events
+            if row.get("event") == "response_delivery_receiver_acknowledged"
+        }
+        capacity = self.capacity_snapshot()
+        return {
+            "capacity": capacity,
+            "tasks_by_state": states,
+            "pending_tasks": states.get("pending", 0),
+            "running_tasks": states.get("running", 0),
+            "completed_tasks": states.get("completed", 0),
+            "failed_tasks": states.get("failed", 0),
+            "cancelled_tasks": states.get("cancelled", 0),
+            "acknowledged_chunks": len(ack_rows),
+            "unknown_outcomes": len(unknown_rows),
+            "receiver_acknowledged_deliveries": len(completed_receipts),
+            "integrity": {
+                "unknown_outcomes_block_replay": True,
+                "completion_requires_receiver_ack": True,
+                "atomic_protocols_are_not_chunked": True,
+            },
+            "source": "execution_controller_and_progress_journal",
+        }
+
     def start(self, task_id: str) -> bool:
         """Start a pending delivery only when a bounded worker slot is available.
 
