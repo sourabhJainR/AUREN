@@ -280,3 +280,22 @@ Five paired iterations, same 299,008-byte payload and Python 3.12.15 / Linux run
 | Chunks | 74 | 74 | 0 |
 
 Integrity and completion passed all five iterations; recovery resumed from chunk 2 with no replay of acknowledged chunks. This repeat does **not** show a latency improvement; the candidate was 1.081 ms slower in this run. The stable observed benefit is lower peak traced memory, with identical transported bytes. Provider monetary cost remains unknown. Treat latency as environment-sensitive and do not claim a general speedup from these small local runs.
+
+
+### Latest delivery evidence and CI — 2026-11-01
+
+**Exact branch head:** `95156a49cd5e182e017d2d44ab9a313f9430b20c`.  
+**Portable bundle and live delivery integration:** [run 41265759848](https://github.com/sourabhJainR/AUREN/actions/runs/41265759848) — passed deterministic contracts, live dashboard delivery integration tests, host entrypoint compilation, canonical bundle verification, checksum, and exact source pin.
+
+**Latest paired benchmark:** [run 41265759849](https://github.com/sourabhJainR/AUREN/actions/runs/41265759849), artifact candidate revision `ce754e39064450e9d6092ec710d5145c47160a78`.
+
+Five paired iterations on Python 3.12.15 / Linux, 299,008-byte payload:
+
+| Measure | Baseline | Candidate | Difference |
+|---|---:|---:|---:|
+| Latency | 285.335 ms | 282.141 ms | -3.194 ms |
+| Peak traced memory | 3,262,528 B | 2,181,992 B | -1,080,536 B |
+| Transported bytes | 299,008 B | 299,008 B | 0 B |
+| Chunks | 74 | 74 | 0 |
+
+Both variants preserved integrity and completed all iterations. Recovery resumed from chunk 2 without replaying acknowledged chunks. Provider USD cost remains unmeasured; transported bytes are a proxy only. The other PR-level required workflows and branch policy must still pass before merge. The latest bundle success is not a substitute for the complete exact-head check set.
