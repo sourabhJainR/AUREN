@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 WORKDIR /workspace
-COPY auren_env_compat.py /workspace/auren_env_compat.py
+COPY *.py /workspace/
 COPY portable/ /workspace/portable/
 COPY tests/ /workspace/tests/
 COPY scripts/staging/multi_instance_container_worker.py /workspace/scripts/staging/multi_instance_container_worker.py
