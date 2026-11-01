@@ -2287,3 +2287,97 @@ def test_shared_pending_release_must_be_confirmed_before_dispatch(tmp_path: Path
         state = db.execute("SELECT state FROM tasks WHERE id=?", (task.id,)).fetchone()[0]
     assert state == "pending"
     assert coordinator.active_count("durable_pending_tasks") == 1
+
+
+def test_shared_work_key_identity_prevents_duplicate_submission_across_roots(tmp_path: Path):
+    import pytest
+
+    coordinator = _FakeDeploymentAdmissionCoordinator()
+    first = ExecutionController(
+        tmp_path / "root-a", deployment_admission_coordinator=coordinator,
+        deployment_instance_id="runtime-a",
+    )
+    second = ExecutionController(
+        tmp_path / "root-b", deployment_admission_coordinator=coordinator,
+        deployment_instance_id="runtime-b",
+    )
+    for controller in (first, second):
+        controller.register_handler(
+            "tests.durable_handler", durable_handler, execution_class="read_only"
+        )
+    first_task = first.submit(
+        "tests.durable_handler", {"id": "same-intent"},
+        goal="one canonical task", work_key="deployment:shared:one",
+    )
+    with pytest.raises(RuntimeError, match="owned by another runtime"):
+        second.submit(
+            "tests.durable_handler", {"id": "same-intent"},
+            goal="one canonical task", work_key="deployment:shared:one",
+        )
+    assert first.task(first_task.id).state == "pending"
+    assert coordinator.work_keys["deployment:shared:one"][2] == first_task.id
+
+
+def test_shared_work_key_rejects_changed_intent_and_requires_stable_key(tmp_path: Path):
+    import pytest
+
+    coordinator = _FakeDeploymentAdmissionCoordinator()
+    first = ExecutionController(
+        tmp_path / "root-a", deployment_admission_coordinator=coordinator,
+        deployment_instance_id="runtime-a",
+    )
+    first.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    first.submit(
+        "tests.durable_handler", {"id": "original"},
+        goal="original goal", work_key="deployment:immutable:intent",
+    )
+    with pytest.raises(RuntimeError, match="different immutable intent"):
+        first.submit(
+            "tests.durable_handler", {"id": "changed"},
+            goal="original goal", work_key="deployment:immutable:intent",
+        )
+    with pytest.raises(ValueError, match="requires an explicit stable work_key"):
+        first.submit("tests.durable_handler", {"id": "missing-key"})
+
+
+def test_shared_work_key_recovers_canonical_task_id_after_preinsert_crash(tmp_path: Path):
+    coordinator = _FakeDeploymentAdmissionCoordinator()
+    # Model a process that committed the shared identity but died before its
+    # local SQLite task insert. A retry by the same stable runtime recovers it.
+    import hashlib
+    import json
+
+    root = tmp_path / "root-a"
+    controller = ExecutionController(
+        root, deployment_admission_coordinator=coordinator,
+        deployment_instance_id="runtime-a",
+    )
+    controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    payload = {"id": "recover"}
+    profile = controller.workflow_profile_path
+    from portable.workflow_profile import resolve_profile
+    saved = None
+    effective = resolve_profile(task=None, saved=saved)
+    payload["_auren_workflow_profile"] = effective.as_dict()
+    payload["_auren_workflow_profile_digest"] = effective.digest
+    payload["work_key"] = "deployment:crash:recover"
+    intent = {
+        "schema_version": "auren-task-intent-v2",
+        "handler": "tests.durable_handler",
+        "goal": "recover after crash",
+        "payload": payload,
+        "deadline_policy_seconds": None,
+    }
+    digest = hashlib.sha256(
+        json.dumps(intent, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    canonical_id = "canonical-task-after-crash"
+    coordinator.claim_work_key(
+        "deployment:crash:recover", digest, "runtime-a", canonical_id,
+    )
+    recovered = controller.submit(
+        "tests.durable_handler", {"id": "recover"},
+        goal="recover after crash", work_key="deployment:crash:recover",
+    )
+    assert recovered.id == canonical_id
+    assert controller.task(canonical_id).state == "pending"
