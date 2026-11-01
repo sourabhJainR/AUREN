@@ -7,11 +7,11 @@ provides atomic lease claims against one shared PostgreSQL database. It is
 intended for hosts that use separate AUREN state roots. It does not treat a
 shared SQLite file or a per-host registry as a deployment coordinator.
 
-The coordinator is integrated with response-delivery worker slots and, in the
-follow-up pending-task integration, durable task submission and requeue paths.
-The local SQLite limits remain active as a second safety layer. Shared admission
-is opt-in; when configured, an unavailable or mismatched shared authority
-fails closed.
+The coordinator is integrated with response-delivery worker slots and durable
+task submission/requeue paths. It also owns a permanent cross-root work-key
+identity registry. The local SQLite limits remain active as a second safety
+layer. Shared admission is opt-in; when configured, an unavailable or
+mismatched shared authority fails closed.
 
 Pending-task leases use the durable task ID as the operation identity and a
 stable operator-assigned instance ID plus task ID as the owner. The owner ID
@@ -26,8 +26,7 @@ safe but may temporarily reduce throughput.
 
 Use a dedicated PostgreSQL database/schema and a service identity managed by
 the operator. Install the project's PostgreSQL driver in the host environment.
-Run one provisioning step with a migration identity that can create the four
-`auren_admission_*` tables:
+Run one provisioning step with a migration identity that can create the shared admission and work-identity tables:
 
 ```python
 from psycopg import connect
@@ -88,6 +87,18 @@ and release, and bounded expiry. A host must stop work when renewal fails or
 the coordinator cannot be reached. Never create a local-only fallback when
 shared admission is configured.
 
+Before enabling this feature for an existing deployment, stop new
+submissions and reconcile every existing task with a work key into the shared
+identity registry. Each identity must retain its existing task ID, intent
+digest, and stable runtime owner. Run
+`controller.reconcile_deployment_work_key_identities()` on each root while
+submissions are stopped. The method is idempotent and includes terminal tasks;
+a partial run can be repeated safely. Do not allow a second host to accept new
+work until every root has reconciled. Existing tasks without a work key cannot
+be retroactively deduplicated; assign keys only through an operator-reviewed
+migration that preserves their original task identity. Conflicting work keys,
+owners, digests, or task IDs must be resolved by an operator, not overwritten.
+
 ## Rollout and rollback
 
 1. Provision the shared database and policy row.
@@ -105,17 +116,17 @@ shared admission is configured.
 
 ## Evidence still required
 
-Repository unit tests cover supervisor wiring and fail-closed behavior. They
-do not prove PostgreSQL transaction behavior across real hosts. Before closing
-issue #1193, add and run service-backed PostgreSQL tests for concurrent
-multi-process claims, duplicate operation IDs, expiry/reacquisition, clock
-skew, coordinator partitions, policy mismatch, restart, and owner fencing.
-Then perform a staging test across at least two distinct runtime roots and
-hosts.
+The repository now includes service-backed PostgreSQL tests for permanent
+work-key identity, same-owner recovery, cross-owner duplicate rejection, and
+intent mismatch. These tests run only when `AUREN_TEST_POSTGRES_DSN` is
+configured. They do not replace operator staging across at least two distinct
+runtime roots and hosts.
 
-Pending-task leases are currently tied to each durable task ID; they do not
-provide cross-root deduplication for equal work keys. Expired or uncertain
-claims can temporarily consume capacity until bounded expiry. The staging
-rehearsal must cover process death before and after task insertion, restart,
-requeue, and coordinator outage. Do not close #1193 until those cases and
-multi-host staging evidence are reviewed.
+Before closing issue #1193, complete the two-host staging rehearsal: process
+death after identity claim and before local insert; restart with the same owner;
+process death after local insert; duplicate submission from another owner;
+intent mismatch; pending lease expiry/reacquisition; requeue; coordinator
+outage; policy mismatch; and rollback. Capture host identities, config/policy
+versions, task IDs, intent digests, timestamps, lease outcomes, and rollback
+evidence. Keep local SQLite admission enabled. Do not close #1193 until
+operator-controlled staging evidence is reviewed.

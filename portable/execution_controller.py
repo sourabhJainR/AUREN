@@ -2101,6 +2101,44 @@ class ExecutionController:
             active = self._deployment_admission_coordinator.active_count("durable_pending_tasks")
             raise QueueAdmissionRejected(active, self.max_pending_tasks)
 
+    def reconcile_deployment_work_key_identities(self) -> dict[str, Any]:
+        """Backfill all local keyed tasks into the shared identity registry.
+
+        Run this on each existing runtime root while submissions are stopped,
+        before enabling cross-root submissions. The operation is idempotent:
+        partial progress can be retried after a crash. It includes terminal
+        tasks so a completed key cannot be silently resubmitted from another
+        root. Missing digests or conflicting canonical IDs fail closed.
+        """
+        coordinator = self._deployment_admission_coordinator
+        if coordinator is None or not self._deployment_instance_id:
+            raise ValueError("shared deployment admission must be configured for identity reconciliation")
+        claim_work_key = getattr(coordinator, "claim_work_key", None)
+        if not callable(claim_work_key):
+            raise RuntimeError("shared admission coordinator does not support durable work-key identity")
+        with closing(sqlite3.connect(self.db_path)) as db:
+            rows = db.execute(
+                "SELECT id,work_key,intent_digest FROM tasks "
+                "WHERE work_key IS NOT NULL ORDER BY created_at,id"
+            ).fetchall()
+        reconciled: list[str] = []
+        for task_id, work_key, intent_digest in rows:
+            if not isinstance(work_key, str) or not work_key.strip():
+                raise WorkKeyConflict(f"task {task_id} has a malformed legacy work key")
+            if not isinstance(intent_digest, str) or not re.fullmatch(r"[0-9a-f]{64}", intent_digest):
+                raise WorkKeyConflict(
+                    f"task {task_id} has no valid immutable intent digest; operator review is required"
+                )
+            identity = claim_work_key(
+                work_key, intent_digest, self._deployment_instance_id, task_id,
+            )
+            if identity.task_id != task_id:
+                raise WorkKeyConflict(
+                    f"task {task_id} does not match the canonical deployment task ID for work_key {work_key!r}"
+                )
+            reconciled.append(task_id)
+        return {"reconciled": len(reconciled), "task_ids": tuple(reconciled)}
+
     def submit(
         self,
         handler: str,
@@ -2166,6 +2204,10 @@ class ExecutionController:
             # Keep the key visible in the durable task envelope so operators and
             # resumed handlers can identify the canonical work unit.
             payload_copy["work_key"] = stable_work_key
+        if self._deployment_admission_coordinator is not None and stable_work_key is None:
+            raise ValueError(
+                "shared deployment task identity requires an explicit stable work_key"
+            )
         # Assigned work must be host-authorized before its durable task intent
         # is created, not only when a worker later attempts dispatch. Keep the
         # same validation at dispatch time because registry or policy can change
@@ -2256,6 +2298,32 @@ class ExecutionController:
                         raise WorkKeyConflict(
                             "work_key already belongs to a different handler, payload, or goal; deadline policy must also match"
                         )
+                    if self._deployment_admission_coordinator is not None:
+                        claim_work_key = getattr(
+                            self._deployment_admission_coordinator, "claim_work_key", None
+                        )
+                        if not callable(claim_work_key):
+                            raise RuntimeError(
+                                "shared admission coordinator does not support durable work-key identity"
+                            )
+                        stored_intent_digest = existing[8]
+                        if (
+                            not isinstance(stored_intent_digest, str)
+                            or not re.fullmatch(r"[0-9a-f]{64}", stored_intent_digest)
+                        ):
+                            raise WorkKeyConflict(
+                                "existing local task has no valid immutable intent digest"
+                            )
+                        identity = claim_work_key(
+                            stable_work_key,
+                            stored_intent_digest,
+                            self._deployment_instance_id,
+                            existing[0],
+                        )
+                        if identity.task_id != existing[0]:
+                            raise WorkKeyConflict(
+                                "local task ID does not match the deployment's canonical work-key identity"
+                            )
                     task = DurableTask(
                         existing[0], existing[1], json.loads(existing[2]), existing[3],
                         int(existing[4]), existing[5], int(existing[6] or 0), existing[7], existing[9],
@@ -2284,6 +2352,20 @@ class ExecutionController:
                         raise QueueAdmissionRejected(pending_count, self.max_pending_tasks)
                     task_id = uuid4().hex
                     if self._deployment_admission_coordinator is not None:
+                        claim_work_key = getattr(
+                            self._deployment_admission_coordinator, "claim_work_key", None
+                        )
+                        if not callable(claim_work_key):
+                            raise RuntimeError(
+                                "shared admission coordinator does not support durable work-key identity"
+                            )
+                        identity = claim_work_key(
+                            stable_work_key,
+                            intent_digest,
+                            self._deployment_instance_id,
+                            task_id,
+                        )
+                        task_id = identity.task_id
                         pending_admission_lease = self._acquire_deployment_pending_slot(task_id)
                         if pending_admission_lease is None:
                             active = self._deployment_admission_coordinator.active_count("durable_pending_tasks")
