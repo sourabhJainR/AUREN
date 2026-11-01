@@ -50,6 +50,7 @@ class StateMigrationRehearsalEvidenceTests(unittest.TestCase):
             self.assertTrue(report["destination_manifest_verified"])
             self.assertTrue(report["source_unchanged"])
             self.assertEqual("passed", report["sqlite_integrity"][0]["status"])
+            self.assertEqual(["ok"], report["sqlite_integrity"][0]["integrity_check"])
             self.assertTrue((source / "session.txt").exists())
             self.assertTrue((destination / "session.txt").exists())
             self.assertFalse(report["runtime_resume_verified"])
@@ -88,6 +89,23 @@ class StateMigrationRehearsalEvidenceTests(unittest.TestCase):
             self.assertEqual("blocked_or_incomplete", report["status"])
             self.assertFalse(report["sqlite_integrity_passed"])
             self.assertFalse(report["file_copy_verified"])
+            self.assertFalse(report["completion_claim_permitted"])
+
+
+    def test_corrupt_sqlite_file_blocks_file_copy_verification(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "legacy"
+            destination = root / "candidate"
+            source.mkdir()
+            (source / "state.sqlite3").write_bytes(b"not-a-sqlite-database")
+            report = capture_migration_rehearsal(
+                source=source, destination=destination, operator_id="staging-operator",
+                candidate_revision=REV_A, last_known_good_revision=REV_B, mode="apply",
+            )
+            self.assertEqual("blocked_or_incomplete", report["status"])
+            self.assertFalse(report["sqlite_integrity_passed"])
+            self.assertEqual("failed", report["sqlite_integrity"][0]["status"])
             self.assertFalse(report["completion_claim_permitted"])
 
 if __name__ == "__main__":
