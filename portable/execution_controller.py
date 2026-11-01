@@ -1741,6 +1741,7 @@ class ExecutionController:
             raise RuntimeError("provider clarification is not in a resolvable state")
         if self.company.open_clarifications(work_unit_id):
             raise RuntimeError("other open clarifications must be resolved before resuming the task")
+        self._reserve_deployment_pending_for_requeue(task_id)
         with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             cursor = db.execute(
                 "UPDATE tasks SET state='pending',updated_at=?,heartbeat_at=NULL,lease_until=NULL,"
@@ -2030,6 +2031,7 @@ class ExecutionController:
                 db.rollback()
                 raise InvalidApprovalTransition(f"task is {row[1]}, not waiting for this approval")
             payload["auren_approval_resume"] = {**dict(checkpoint), "status": "approved"}
+            self._reserve_deployment_pending_for_requeue(task_id)
             cursor = db.execute(
                 "UPDATE tasks SET state='pending',payload=?,updated_at=?,heartbeat_at=NULL,lease_until=NULL,"
                 "lease_token=NULL WHERE id=? AND state='waiting_approval'",
@@ -2079,6 +2081,14 @@ class ExecutionController:
     def _release_deployment_pending_slot(self, lease: Any | None) -> None:
         if lease is not None and self._deployment_admission_coordinator is not None:
             self._deployment_admission_coordinator.release(lease)
+
+    def _reserve_deployment_pending_for_requeue(self, task_id: str) -> None:
+        if self._deployment_admission_coordinator is None:
+            return
+        lease = self._acquire_deployment_pending_slot(task_id)
+        if lease is None:
+            active = self._deployment_admission_coordinator.active_count("durable_pending_tasks")
+            raise QueueAdmissionRejected(active, self.max_pending_tasks)
 
     def submit(
         self,
@@ -2773,6 +2783,10 @@ class ExecutionController:
                     "AND next_retry_at IS NOT NULL AND next_retry_at<=?", (task_id, stamp),
                 ).fetchone()
                 if not row:
+                    continue
+                try:
+                    self._reserve_deployment_pending_for_requeue(task_id)
+                except QueueAdmissionRejected:
                     continue
                 cursor = db.execute(
                     "UPDATE tasks SET state='pending',updated_at=?,next_retry_at=NULL,quota_reason=NULL "
@@ -3667,6 +3681,10 @@ class ExecutionController:
                     return
                 if heartbeat_time.tzinfo is None or heartbeat_time > cutoff:
                     return
+            try:
+                self._reserve_deployment_pending_for_requeue(task_id)
+            except QueueAdmissionRejected:
+                return
             cursor = db.execute(
                 "UPDATE tasks SET state='pending',updated_at=?,lease_until=NULL "
                 "WHERE id=? AND state='running'",
