@@ -134,3 +134,54 @@ This refresh adds benchmark and host-control signals. It does not change any AUR
 **Repository observation — 2026-10-31.** Main was observed at `485670ce2cd7987954ad177ad171f2764123b6ae`; no open PRs were returned by the repository query. The available integration did not expose the current-main check-run set, push-triggered post-merge workflows, or a portable-bundle run/artifacts for this SHA. The 2026-10-30 CI and artifact snapshot remains historical and is not carried forward. No local checkout/runtime was available, so no local tests or process-level fault injection were run. These limits are recorded in `benchmarks/capability_coverage_matrix.v1.json`.
 
 These updates are research inputs and benchmark requirements only. Keep production isolation, independent evaluator identity, sealed-holdout custody, deployment verification and operator migration/rollback gates blocked until genuine independently verifiable receipts exist. Do not infer AGI/SI capability from product announcements, research benchmarks or repository CI.
+
+
+### Capability radar refresh — 2026-11-01
+
+This refresh adds research and product signals published through 2026-11-01. These are benchmark and design inputs only; they do not change AUREN's deployment or independent-verification status.
+
+#### Long-horizon work and computer use
+
+[WeaveBench (EMNLP 2026)](https://aclanthology.org/2026.emnlp-main.658/) evaluates 114 real-world tasks across eight domains, combining desktop GUI, CLI and code in one trajectory. Its best reported model/runtime pairing reaches 41.2% pass rate, and its trajectory-aware judge finds that outcome-only grading overstates success. [AgentHorizon (2026-10-08)](https://arxiv.org/abs/2610.11050) evaluates 1,373 instruction/trajectory pairs from 166 hours across three operating systems; its best reported agentic judge reaches 80.9% balanced accuracy on the frontier split, with material variation between judges.
+
+Map these findings to the existing TaskPlan, StateGraph, ExecutionController, ProgressJournal, EngineeringDashboard and Arena. The gap is not another computer-use framework: it is the absence of an AUREN-run, independently scored campaign that checks intermediate constraints, action traces and side effects across long GUI/CLI/browser/code workflows. Add instruction-swapped near misses, hidden intermediate violations, fabricated evidence attempts, restarts, cancellation and deadline cases. Measure task success by turn budget, false-green and false-negative rates, unwanted side effects, judge-human agreement, recovery, latency and cost. A plausible final screen is not proof of correct work.
+
+#### Dynamic workflows and experience reuse
+
+[Microsoft Research's Agent Workflow Optimization (2026-01)](https://www.microsoft.com/en-us/research/publication/optimizing-agentic-workflows-using-meta-tools/) reports up to 11.9% fewer LLM calls and up to 4.2 percentage points higher task success on two benchmarks by turning repeated tool sequences into deterministic meta-tools. [WorkflowGen (2026-03-22)](https://arxiv.org/abs/2604.19756) reports over 40% lower token use and a 20% success improvement on medium-similarity queries, while describing qualitative comparisons.
+
+Map these patterns to the existing TaskPlan, StateGraph, GraphAgentTeam, ExecutionController, LearningSteward and evidence graph. Benchmark serial plans against the current graph/crew path and any proposed reusable workflow on the same pinned tasks. Measure success, dependency correctness, stale-template reuse, duplicate work, conflict rate, latency, tool/token cost and recovery. A learned workflow or meta-tool remains a proposal until paired value, independent evaluation and rollback are demonstrated. Do not add a second planner or orchestrator.
+
+#### Host-enforced sandbox and secret boundaries
+
+[NVIDIA OpenShell](https://www.nvidia.com/en-us/ai/openshell/) describes policy enforcement outside the agent process, per-agent sandboxes, and default-deny access. Its [network policy documentation](https://docs.nvidia.com/openshell/dev/how-it-works/policies/network-rules) binds outbound destinations to executable identities and can enforce request-level method/path rules. [OpenAI's sandbox guidance](https://developers.openai.com/api/docs/guides/agents/sandboxes) treats credentials as runtime configuration rather than prompt content.
+
+Map the control patterns to RuntimeExecutionGuard, Guard, agent_execution_guard, ExecutionBoundary and the existing filesystem/process/network adapters. Do not import OpenShell or another runtime as a dependency. AUREN still lacks independently administered proof of kernel/host isolation, escape resistance, credential separation, egress control and cross-agent side-channel protection. Benchmark denial before launch, forbidden paths and endpoints, secret access, process-tree cleanup, monitor tampering, escape, resource exhaustion and policy changes across restart. Deployment claims remain blocked until an independent host audit is attached.
+
+#### Adaptive model routing and model lifecycle
+
+[ORACLE (2026-07-24; revised 2026-10-01)](https://arxiv.org/abs/2607.22465) studies task-type-aware verifier feedback and concurrency-aware routing; its paper reports up to seven percentage points on an accuracy-cost frontier and up to 1.8x throughput with its dispatch scheduler. [ParetoBandit (2026-03-31)](https://arxiv.org/abs/2604.00136) studies online budget pacing and price/quality drift across 1,824 prompts and a three-model portfolio. [EvoRoute (ACL 2026)](https://aclanthology.org/2026.acl-long.1771/) studies experience-driven Pareto routing and reports large cost/latency reductions on its GAIA and BrowseComp+ workloads.
+
+Map these ideas to CapabilityFabric, AdaptiveRuntime, HybridModelRouter, provider lifecycle adapters, LearningSteward and the shared RuntimeExecutionGuard. Compare static routing, task-level pinned routing and bounded step-level routing on the same AUREN task families. Measure task success, verifier quality, cost, latency, budget overrun, route stability, privacy and recovery under provider loss or model retirement. Pin a route for a task by default; any subtask-level change must preserve the same authority, privacy and budget. Discovery must never install a model or grant permission. No candidate router is enabled by default.
+
+#### Agent identity, delegation and action oversight
+
+[ServiceNow AI Passport (announced 2026-10-15)](https://newsroom.servicenow.com/press-releases/details/2026/ServiceNow-advances-its-operational-harness-for-enterprise-AI-with-AI-Passport-and-expanded-governance-capabilities/default.aspx) describes signed, runtime-verifiable scope credentials for first- and third-party agents and MCP servers, including narrowing and revocation across workflow stages. ServiceNow stated Q4 2026 availability. Its [2026-10-21 NVIDIA partnership](https://newsroom.servicenow.com/press-releases/details/2026/ServiceNow-delivers-industry-first-personal-enterprise-agent-and-policy-enforcement-with-NVIDIA-extending-AI-governance-across-software-and-silicon/default.aspx) describes future integration with OpenShell and hardware enforcement; this is not evidence of AUREN capability or a dependency to add.
+
+Map the pattern to ActionRequest, DurableApprovalStore, ExecutionBoundary, agent_execution_guard, delegated authority policy and the durable action receipt. Test forged identities, narrowed delegation, expiry, revocation during execution, restart between approval and action, replay and unknown provider outcomes. Every consequential action must bind authenticated actor, delegator, scope, policy version, approval, provider operation and outcome. Revoke scope and stop dispatch on mismatch; workers cannot approve themselves.
+
+#### Scientific discovery and validation
+
+[Co-Scientist (Nature, 2026-05-19)](https://www.nature.com/articles/s41586-026-10644-y) describes agents that generate, critique and refine research hypotheses for experimental verification. [MechHypoBench (2026-10-04)](https://arxiv.org/abs/2610.05197) combines mechanisms from 14 fields with 17.98 million observations and evaluates hypotheses by consequences under withheld conditions; its authors report a substantial gap between generated hypotheses and underlying mechanisms.
+
+Map these findings to LearningSteward, causal attribution, experiment manifests, the canonical evidence graph and independent Arena replication. Require preregistered hypotheses, executable baselines, withheld-condition predictions, sensitivity analysis, negative-result retention and independent domain replication. Literature synthesis or a plausible mechanism narrative is not validation. Retract the lesson and restore the prior memory/policy digest if replication or source-domain regression fails.
+
+#### Current repository evidence — 2026-11-01
+
+Main is \`1d6534d4ea533fe034a4258a131e8a03b9bc4b98\`. Its 25 check-runs are terminal: 23 succeeded, two were skipped, none failed and none remain pending. Skipped checks are not passes. All six post-merge push workflows completed successfully.
+
+The v1.0.6 portable bundle is pinned to this main SHA. Bundle artifact SHA-256: \`bbec2aae1993fddfa0e6c9c36537398ff59048c55e5c3e87f10cc78ccc7460ff\`; checksum artifact SHA-256: \`20a27e5dcc6adc0fb953356a9b90a0e1d4f39b3881123ca34d9ddf3fc3dede3b\`; embedded ZIP SHA-256: \`7ba4719e83ffb30fcd5daed75e072d4bc64d5a041e89e78c6d96d38f405734fa\`. All 524 manifest entries match their recorded size and digest; the only expected generated entry outside the manifest is \`payload/PORTABLE_BUNDLE.txt\`. The manifest declares \`target_repository_mutation=false\`.
+
+PR #1183 remains open on an isolated branch and was still awaiting exact-head checks at the time of this snapshot. The visible main ruleset contains deletion and non-fast-forward protections but no required-status-check rule; the branch-protection API was not accessible to this integration, so owner/admin confirmation is still required. No local checkout/runtime was available, so no local tests or process-level fault injection are claimed.
+
+These results verify repository contracts and artifact integrity only. Production isolation, independent evaluator identity, sealed-holdout custody, external campaign results, staging migration and rollback remain blocked. No AGI/SI or broad-generalization claim is supported.
