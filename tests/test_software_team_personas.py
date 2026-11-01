@@ -1,6 +1,6 @@
 import unittest
 
-from portable.state_graph import build_crew_plan, default_crew_definitions
+from portable.orchestration import Node, NodeKind\nfrom portable.state_graph import GraphAgentTeam, StateGraph, build_crew_plan, default_crew_definitions
 
 
 class SoftwareTeamPersonaTests(unittest.TestCase):
@@ -30,6 +30,18 @@ class SoftwareTeamPersonaTests(unittest.TestCase):
             "engineering_manager", "solution_architect", "research_evaluation",
             "cto_sponsor", "ceo_sponsor", "qa_reviewer",
         }.issubset(selected))
+
+    def test_graph_agent_team_exposes_manager_architect_and_leadership_personas(self):
+        graph = StateGraph.from_nodes([
+            Node("software-team-work", NodeKind.DETERMINISTIC, lambda _state: "ok")
+        ])
+        team = GraphAgentTeam(graph)
+        personas = set(team.required_personas(
+            "Engineering manager coordinate software architecture, research capability experiment, release deployment, CTO technical strategy and CEO investor update"
+        ))
+        self.assertTrue({
+            "manager", "architect", "research_evaluation", "release_operations", "cto", "ceo",
+        }.issubset(personas))
 
     def test_release_operations_is_selected_for_deployment_and_rollback_work(self):
         plan = build_crew_plan(
