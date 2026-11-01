@@ -104,8 +104,20 @@ def main() -> int:
             ])
             created.append(name)
         # All three containers are started before the shared gate opens.
+        # Capture network identities while they are attached and waiting;
+        # Docker detaches exited containers from the bridge.
         time.sleep(2)
-        gate.write_text("go\n", encoding="utf-8")
+        container_meta = {}
+        for name in names:
+            inspected = json.loads(run(["docker", "inspect", name]).stdout)[0]
+            container_meta[name] = {
+                "container_id": inspected["Id"],
+                "network_ip": inspected["NetworkSettings"]["Networks"][network]["IPAddress"],
+            }
+        network_ips = [item["network_ip"] for item in container_meta.values()]
+        if len(set(network_ips)) != 3 or any(not ip for ip in network_ips):
+            raise AssertionError(f"runtime containers do not have three distinct network addresses: {network_ips}")
+        gate.write_text("go\\n", encoding="utf-8")
 
         accepted = []
         rejected = []
@@ -116,11 +128,10 @@ def main() -> int:
                 result = json.loads(logs.splitlines()[-1])
             except (IndexError, json.JSONDecodeError) as exc:
                 raise RuntimeError(f"{name} did not emit a valid JSON result: {logs}") from exc
-            inspected = json.loads(run(["docker", "inspect", name]).stdout)[0]
             instance = {
                 "container_name": name,
-                "container_id": inspected["Id"],
-                "network_ip": inspected["NetworkSettings"]["Networks"][network]["IPAddress"],
+                "container_id": container_meta[name]["container_id"],
+                "network_ip": container_meta[name]["network_ip"],
                 "runtime_owner": owner,
                 "exit_code": exit_code,
                 "result": result,
