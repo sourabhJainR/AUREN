@@ -61,6 +61,8 @@ def deliver_response(
     """
     if not isinstance(task_id, str) or not task_id.strip():
         raise ValueError("task_id must be non-empty")
+    if not callable(receiver):
+        raise TypeError("receiver must be callable and support the chunk acknowledgement contract")
     if not isinstance(text, str):
         raise TypeError("response text must be a string")
     if consume_shared_budget is not None and execution_guard is not None:
