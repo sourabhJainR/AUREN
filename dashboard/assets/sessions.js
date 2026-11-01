@@ -59,6 +59,13 @@
     const local = d.capacity || {};
     const shared = d.shared_capacity || {};
     const integrity = d.integrity || {};
+    const measurements = d.measurements || {};
+    const digests = Array.isArray(measurements.completion_digests)
+      ? measurements.completion_digests.map(value => String(value).slice(0, 12)).join(", ")
+      : "—";
+    const failures = Array.isArray(measurements.failure_reasons)
+      ? measurements.failure_reasons.join(", ") || "None recorded"
+      : "—";
     const cards = [
       metric("Active workers", local.active_workers ?? "—", "This host process"),
       metric("Shared active", shared.active_workers ?? "—", "Across processes sharing the registry"),
@@ -69,7 +76,15 @@
       metric("Acknowledged chunks", d.acknowledged_chunks ?? "—", "Receiver-confirmed chunks"),
       metric("Receiver completions", d.receiver_acknowledged_deliveries ?? "—", "Whole-response acknowledgement"),
       metric("Unknown outcomes", d.unknown_outcomes ?? "—", "Requires reconciliation; never replayed"),
-      metric("Failed / cancelled", (Number(d.failed_tasks || 0) + Number(d.cancelled_tasks || 0)), "Failed " + (d.failed_tasks ?? 0) + " · cancelled " + (d.cancelled_tasks ?? 0))
+      metric("Failed / cancelled", (Number(d.failed_tasks || 0) + Number(d.cancelled_tasks || 0)), "Failed " + (d.failed_tasks ?? 0) + " · cancelled " + (d.cancelled_tasks ?? 0)),
+      metric("Measured deliveries", measurements.measured_deliveries ?? "—", "Journal-backed measurements"),
+      metric("Total bytes", measurements.total_bytes ?? "—", "UTF-8 bytes delivered"),
+      metric("Total chunks", measurements.total_chunks ?? "—", "Chunk count"),
+      metric("Peak in-flight", measurements.peak_in_flight_bytes ?? "—", "Bytes at receiver boundary"),
+      metric("Backpressure wait", measurements.backpressure_wait_ms === undefined ? "—" : measurements.backpressure_wait_ms + " ms", "Receiver wait accumulated"),
+      metric("Resumes", measurements.resume_count ?? "—", "Observed resume attempts"),
+      metric("Failure categories", failures, "Safe categories only"),
+      metric("Completion digests", digests, "SHA-256 references; shortened for display")
     ];
     target.innerHTML = cards.join("");
     const integrityOk = integrity.unknown_outcomes_block_replay === true &&

@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from portable.progress_journal import ProgressJournal
+from portable.response_delivery_metrics import aggregate_delivery_metrics
 from portable.response_delivery_transport import (
     DeliveryBlocked,
     DeliveryOutcomeUnknown,
@@ -43,6 +44,11 @@ class ResponseDeliveryTransportTests(unittest.TestCase):
         self.assertTrue(all(c.utf8_bytes <= 80 for c in seen))
         checkpoint = self.journal.response_delivery_checkpoint("task-1", receipt.response_id)
         self.assertEqual(checkpoint["acknowledged_index"], receipt.total_chunks)
+        metrics = aggregate_delivery_metrics(self.journal._events())
+        self.assertEqual(len(source.encode("utf-8")), metrics["total_bytes"])
+        self.assertEqual(receipt.total_chunks, metrics["total_chunks"])
+        self.assertEqual(receipt.peak_in_flight_bytes, metrics["peak_in_flight_bytes"])
+        self.assertEqual([receipt.response_id], metrics["completion_digests"])
 
     def test_restart_resumes_after_last_acknowledged_chunk(self):
         self.start_task("task-2")
@@ -68,6 +74,9 @@ class ResponseDeliveryTransportTests(unittest.TestCase):
         self.assertEqual(resumed, list(range(3, receipt.total_chunks + 1)))
         self.assertEqual(receipt.resumed_from_chunk, 2)
         self.assertEqual(seen, [1, 2])
+        metrics = aggregate_delivery_metrics(self.journal._events())
+        self.assertEqual(1, metrics["resume_count"])
+        self.assertGreater(metrics["total_chunks"], 0)
 
     def test_ambiguous_send_is_durably_blocked_from_automatic_replay(self):
         self.start_task("task-ambiguous")
@@ -85,6 +94,34 @@ class ResponseDeliveryTransportTests(unittest.TestCase):
                              receiver=lambda chunk: calls.append(chunk.index),
                              journal=self.journal)
         self.assertEqual(calls, [1])
+        metrics = aggregate_delivery_metrics(self.journal._events())
+        self.assertIn("receiver_exception", metrics["failure_reasons"])
+
+
+    def test_metrics_write_failure_cannot_erase_unknown_outcome_fence(self):
+        from unittest.mock import patch
+        self.start_task("task-metrics-failure")
+        with patch(
+            "portable.response_delivery_transport.record_delivery_metrics",
+            side_effect=OSError("metrics store unavailable"),
+        ):
+            with self.assertRaises(OSError):
+                deliver_response(
+                    "task-metrics-failure", "remote result",
+                    receiver=lambda chunk: (_ for _ in ()).throw(OSError("receiver disconnected")),
+                    journal=self.journal,
+                )
+        events = self.journal._events()
+        self.assertTrue(any(
+            row.get("task_id") == "task-metrics-failure"
+            and row.get("event") == "response_chunk_outcome_unknown"
+            for row in events
+        ))
+        with self.assertRaises(DeliveryBlocked):
+            deliver_response(
+                "task-metrics-failure", "remote result",
+                receiver=self.ack, journal=self.journal,
+            )
 
     def test_mismatched_ack_blocks_without_advancing_cursor(self):
         self.start_task("task-3")
@@ -188,6 +225,9 @@ class ResponseDeliveryTransportTests(unittest.TestCase):
         self.assertTrue(receipt.acknowledged_chunks == receipt.total_chunks)
         self.assertEqual(1, peak_active)
         self.assertEqual(list(range(1, receipt.total_chunks + 1)), sent)
+        metrics = aggregate_delivery_metrics(self.journal._events())
+        self.assertGreater(metrics["backpressure_wait_ms"], 0)
+        self.assertEqual(receipt.peak_in_flight_bytes, metrics["peak_in_flight_bytes"])
 
 
 if __name__ == "__main__":

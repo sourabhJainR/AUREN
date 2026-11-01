@@ -12,6 +12,7 @@ from typing import Any, Mapping
 
 from .runtime_recovery import RuntimeExecutionGuard
 from .progress_journal import ProgressJournal
+from .response_delivery_metrics import aggregate_delivery_metrics
 from .execution_controller import (
     ExecutionController,
     LeaseLostError,
@@ -376,6 +377,7 @@ class ResponseDeliverySupervisor:
         }
         capacity = self.capacity_snapshot()
         shared_capacity = self.shared_capacity_snapshot()
+        measurements = aggregate_delivery_metrics(delivery_events)
         return {
             "capacity": capacity,
             "shared_capacity": shared_capacity,
@@ -388,6 +390,7 @@ class ResponseDeliverySupervisor:
             "acknowledged_chunks": len(ack_rows),
             "unknown_outcomes": len(unknown_rows),
             "receiver_acknowledged_deliveries": len(completed_receipts),
+            "measurements": measurements,
             "integrity": {
                 "unknown_outcomes_block_replay": True,
                 "completion_requires_receiver_ack": True,
