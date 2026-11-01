@@ -2386,3 +2386,36 @@ def test_shared_work_key_recovers_canonical_task_id_after_preinsert_crash(tmp_pa
     )
     assert recovered.id == canonical_id
     assert controller.task(canonical_id).state == "pending"
+
+
+def test_existing_task_identity_reconciliation_is_idempotent_and_blocks_other_roots(tmp_path: Path):
+    import pytest
+
+    root_a = tmp_path / "root-a"
+    legacy = ExecutionController(root_a)
+    legacy.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    original = legacy.submit(
+        "tests.durable_handler", {"id": "legacy-task"},
+        goal="existing work before shared admission", work_key="deployment:legacy:task",
+    )
+
+    coordinator = _FakeDeploymentAdmissionCoordinator()
+    upgraded = ExecutionController(
+        root_a, deployment_admission_coordinator=coordinator,
+        deployment_instance_id="runtime-a",
+    )
+    first = upgraded.reconcile_deployment_work_key_identities()
+    second = upgraded.reconcile_deployment_work_key_identities()
+    assert first == {"reconciled": 1, "task_ids": (original.id,)}
+    assert second == first
+
+    other = ExecutionController(
+        tmp_path / "root-b", deployment_admission_coordinator=coordinator,
+        deployment_instance_id="runtime-b",
+    )
+    other.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    with pytest.raises(RuntimeError, match="owned by another runtime"):
+        other.submit(
+            "tests.durable_handler", {"id": "legacy-task"},
+            goal="existing work before shared admission", work_key="deployment:legacy:task",
+        )
