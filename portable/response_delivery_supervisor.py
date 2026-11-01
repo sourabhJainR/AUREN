@@ -156,6 +156,19 @@ class ResponseDeliverySupervisor:
                 "SELECT task_id,response_sha256,artifact_sha256,budget_id FROM deliveries WHERE response_id=? AND delivery_id=?",
                 (response_id, delivery_id),
             ).fetchone()
+            # A supplied budget ID always denotes a durable checkpoint, even
+            # for an idempotent delivery lookup. Validate before returning an
+            # existing task or dispatching a new one.
+            if budget_id is not None and execution_guard is None:
+                existing_budget = db.execute(
+                    "SELECT snapshot_json FROM delivery_budgets WHERE budget_id=?",
+                    (budget_id,),
+                ).fetchone()
+                if existing_budget is None:
+                    raise FileNotFoundError(
+                        "shared delivery budget checkpoint is unavailable; cannot resume by ID alone"
+                    )
+                RuntimeExecutionGuard.resume(json.loads(existing_budget[0]))
             if row:
                 if row[1] != digest:
                     raise ValueError("delivery identity is already bound to a different response digest")
@@ -168,21 +181,6 @@ class ResponseDeliverySupervisor:
                 if task is None:
                     raise RuntimeError("delivery registry references a missing supervisor task")
                 return task_id
-            # A caller that supplies only a budget ID is asking to resume an
-            # existing crew budget. Prove that checkpoint exists and is readable
-            # before creating a task; never manufacture a fresh budget under an
-            # externally supplied identity.
-            if budget_id is not None and execution_guard is None:
-                existing_budget = db.execute(
-                    "SELECT snapshot_json FROM delivery_budgets WHERE budget_id=?",
-                    (budget_id,),
-                ).fetchone()
-                if existing_budget is None:
-                    raise FileNotFoundError(
-                        "shared delivery budget checkpoint is unavailable; cannot resume by ID alone"
-                    )
-                RuntimeExecutionGuard.resume(json.loads(existing_budget[0]))
-
             work_key = f"dashboard-response:{response_id}:{delivery_id}"
             task = self.controller.submit(
                 _HANDLER,
