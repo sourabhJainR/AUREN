@@ -173,6 +173,8 @@ class ExecutionController:
         agent_assignment_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
         workflow_profile_path: str | Path | None = None,
         max_pending_tasks: int | None = None,
+        deployment_admission_coordinator: Any | None = None,
+        deployment_instance_id: str | None = None,
     ) -> None:
         if max_pending_tasks is not None and (
             type(max_pending_tasks) is not int or not 1 <= max_pending_tasks <= 100000
@@ -181,6 +183,14 @@ class ExecutionController:
         if provider_resume_authorizer is not None and not callable(provider_resume_authorizer):
             raise TypeError("provider_resume_authorizer must be callable")
         self._provider_resume_authorizer = provider_resume_authorizer
+        if deployment_admission_coordinator is not None and (
+            not isinstance(deployment_instance_id, str) or not deployment_instance_id.strip()
+        ):
+            raise ValueError("deployment_instance_id is required when shared pending-task admission is enabled")
+        self._deployment_admission_coordinator = deployment_admission_coordinator
+        self._deployment_instance_id = (
+            deployment_instance_id.strip() if isinstance(deployment_instance_id, str) else None
+        )
         if agent_assignment_verifier is not None and not callable(agent_assignment_verifier):
             raise TypeError("agent_assignment_verifier must be callable")
         # Host-owned verifier is injected by trusted bootstrap and re-used after restart.
@@ -1731,6 +1741,7 @@ class ExecutionController:
             raise RuntimeError("provider clarification is not in a resolvable state")
         if self.company.open_clarifications(work_unit_id):
             raise RuntimeError("other open clarifications must be resolved before resuming the task")
+        self._reserve_deployment_pending_for_requeue(task_id)
         with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             cursor = db.execute(
                 "UPDATE tasks SET state='pending',updated_at=?,heartbeat_at=NULL,lease_until=NULL,"
@@ -1819,6 +1830,11 @@ class ExecutionController:
                     "approval_id": approval_id, "status": approval_status,
                     "checkpoint": checkpoint, "checkpoint_digest": checkpoint_digest,
                 }
+                if next_state == "pending":
+                    try:
+                        self._reserve_deployment_pending_for_requeue(str(task_id))
+                    except QueueAdmissionRejected:
+                        continue
                 cursor = db.execute(
                     "UPDATE tasks SET state=?,payload=?,updated_at=?,heartbeat_at=NULL,lease_until=NULL,"
                     "lease_token=NULL WHERE id=? AND state=? AND lease_generation=?",
@@ -1956,6 +1972,8 @@ class ExecutionController:
                 "status": status,
                 "checkpoint": dict(pending.checkpoint),
             }
+            if next_state == "pending":
+                self._reserve_deployment_pending_for_requeue(task.id)
             cursor = db.execute(
                 "UPDATE tasks SET state=?,payload=?,updated_at=?,heartbeat_at=NULL,lease_until=NULL,"
                 "lease_token=NULL WHERE id=? AND state='running' AND lease_token=? AND lease_generation=?",
@@ -2020,6 +2038,7 @@ class ExecutionController:
                 db.rollback()
                 raise InvalidApprovalTransition(f"task is {row[1]}, not waiting for this approval")
             payload["auren_approval_resume"] = {**dict(checkpoint), "status": "approved"}
+            self._reserve_deployment_pending_for_requeue(task_id)
             cursor = db.execute(
                 "UPDATE tasks SET state='pending',payload=?,updated_at=?,heartbeat_at=NULL,lease_until=NULL,"
                 "lease_token=NULL WHERE id=? AND state='waiting_approval'",
@@ -2052,6 +2071,35 @@ class ExecutionController:
         return CIRepairWatchdog(self, recovery_ledger).stale_tasks(
             stale_after_seconds=stale_after_seconds, now=now,
         )
+
+    def _acquire_deployment_pending_slot(self, task_id: str) -> Any | None:
+        """Acquire the shared pending-task slot; no local fallback is allowed."""
+        coordinator = self._deployment_admission_coordinator
+        if coordinator is None:
+            return None
+        return coordinator.acquire(
+            "durable_pending_tasks",
+            f"{self._deployment_instance_id}:{task_id}",
+            task_id,
+            capacity=self.max_pending_tasks,
+            lease_seconds=86400,
+        )
+
+    def _release_deployment_pending_slot(self, lease: Any | None) -> None:
+        if lease is not None and self._deployment_admission_coordinator is not None:
+            released = self._deployment_admission_coordinator.release(lease)
+            if released is not True:
+                raise RuntimeError(
+                    "shared pending-task lease release was not confirmed; dispatch must remain blocked"
+                )
+
+    def _reserve_deployment_pending_for_requeue(self, task_id: str) -> None:
+        if self._deployment_admission_coordinator is None:
+            return
+        lease = self._acquire_deployment_pending_slot(task_id)
+        if lease is None:
+            active = self._deployment_admission_coordinator.active_count("durable_pending_tasks")
+            raise QueueAdmissionRejected(active, self.max_pending_tasks)
 
     def submit(
         self,
@@ -2170,6 +2218,7 @@ class ExecutionController:
         # insertion. A committed task is then repaired/verified in the projection stores.
         task: DurableTask
         created = False
+        pending_admission_lease: Any | None = None
         with closing(sqlite3.connect(self.db_path, timeout=10)) as db:
             db.execute("BEGIN IMMEDIATE")
             try:
@@ -2231,11 +2280,16 @@ class ExecutionController:
                     if pending_count >= self.max_pending_tasks:
                         # This check shares the BEGIN IMMEDIATE transaction with task
                         # insertion and runs before AutonomousCompany.start(), so
-                        # concurrent processes cannot overfill the queue or leave an
-                        # orphan work unit when admission is rejected.
+                        # concurrent processes cannot overfill the local queue.
                         raise QueueAdmissionRejected(pending_count, self.max_pending_tasks)
+                    task_id = uuid4().hex
+                    if self._deployment_admission_coordinator is not None:
+                        pending_admission_lease = self._acquire_deployment_pending_slot(task_id)
+                        if pending_admission_lease is None:
+                            active = self._deployment_admission_coordinator.active_count("durable_pending_tasks")
+                            raise QueueAdmissionRejected(active, self.max_pending_tasks)
                     work = self.company.start(goal_text, work_key=stable_work_key)
-                    task = DurableTask(uuid4().hex, handler, payload_copy, "pending", 0, work.id, deadline_at=requested_deadline_at)
+                    task = DurableTask(task_id, handler, payload_copy, "pending", 0, work.id, deadline_at=requested_deadline_at)
                     now = _now()
                     db.execute(
                         "INSERT INTO tasks(id,handler,payload,state,attempts,work_unit_id,created_at,updated_at,"
@@ -2251,6 +2305,13 @@ class ExecutionController:
             except BaseException:
                 if db.in_transaction:
                     db.rollback()
+                if pending_admission_lease is not None:
+                    try:
+                        self._release_deployment_pending_slot(pending_admission_lease)
+                    except Exception:
+                        # The shared lease has a bounded expiry. Preserve the
+                        # original submission error; a leaked slot fails closed.
+                        pass
                 raise
 
         if not self._ensure_submission_event(task):
@@ -2330,6 +2391,7 @@ class ExecutionController:
         # Claim under a write lock so two controllers cannot both observe
         # "pending" and execute the same side-effecting handler. Each claim
         # increments a fencing generation and receives a fresh unguessable token.
+        pending_admission_lease: Any | None = None
         with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
@@ -2339,6 +2401,10 @@ class ExecutionController:
             ).fetchone()
             if not row or row[3] in {"completed", "failed", "cancelled"}:
                 return None
+            if row[3] == "pending" and self._deployment_admission_coordinator is not None:
+                pending_admission_lease = self._acquire_deployment_pending_slot(task_id)
+                if pending_admission_lease is None:
+                    return None
             now_dt = datetime.now(timezone.utc)
             now = now_dt.isoformat()
             if row[3] == "running":
@@ -2364,6 +2430,26 @@ class ExecutionController:
                 (attempts, now, now, lease, generation, token, task_id, int(row[7] or 0)),
             )
             if cursor.rowcount != 1:
+                if pending_admission_lease is not None:
+                    try:
+                        self._release_deployment_pending_slot(pending_admission_lease)
+                    except Exception:
+                        # A bounded orphan lease is safer than an unowned dispatch.
+                        pass
+                return None
+        if pending_admission_lease is not None:
+            try:
+                self._release_deployment_pending_slot(pending_admission_lease)
+            except Exception:
+                # Do not start the handler while shared pending ownership is
+                # uncertain. Restore the durable row to pending; the bounded
+                # shared lease can be reacquired or will expire safely.
+                with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
+                    db.execute(
+                        "UPDATE tasks SET state='pending',updated_at=?,heartbeat_at=NULL,lease_until=NULL,lease_token=NULL "
+                        "WHERE id=? AND state='running' AND lease_token=? AND lease_generation=?",
+                        (_now(), task_id, token, generation),
+                    )
                 return None
         task = DurableTask(
             row[0], row[1], json.loads(row[2]), "running", attempts, row[5],
@@ -2715,6 +2801,10 @@ class ExecutionController:
                 ).fetchone()
                 if not row:
                     continue
+                try:
+                    self._reserve_deployment_pending_for_requeue(task_id)
+                except QueueAdmissionRejected:
+                    continue
                 cursor = db.execute(
                     "UPDATE tasks SET state='pending',updated_at=?,next_retry_at=NULL,quota_reason=NULL "
                     "WHERE id=? AND state='waiting_quota' AND next_retry_at IS NOT NULL AND next_retry_at<=?",
@@ -2743,6 +2833,7 @@ class ExecutionController:
             ).fetchone()
             if not row:
                 return False
+            self._reserve_deployment_pending_for_requeue(task_id)
             cursor = db.execute(
                 "UPDATE tasks SET state='pending',updated_at=?,next_retry_at=NULL,quota_reason=NULL,"
                 "quota_blocked=0,quota_attempts=0 WHERE id=? AND state='blocked_quota'", (now, task_id),
@@ -3608,6 +3699,10 @@ class ExecutionController:
                     return
                 if heartbeat_time.tzinfo is None or heartbeat_time > cutoff:
                     return
+            try:
+                self._reserve_deployment_pending_for_requeue(task_id)
+            except QueueAdmissionRejected:
+                return
             cursor = db.execute(
                 "UPDATE tasks SET state='pending',updated_at=?,lease_until=NULL "
                 "WHERE id=? AND state='running'",
