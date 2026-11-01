@@ -95,6 +95,31 @@ unknown and must not be replayed automatically. File output is staged in the tar
 directory and committed atomically; existing files require explicit `--overwrite`.
 Atomic MCP JSON-RPC frames remain subject to their frame limit and are never split.
 
+
+## Delivery telemetry and privacy
+
+The supervisor projects delivery measurements into the Session Control Center from the
+existing progress journal. The measurement record contains only:
+- total UTF-8 bytes and chunk count;
+- largest in-flight chunk size observed at the receiver boundary;
+- elapsed offer-to-ack wait for HTTP pull delivery, and synchronous receiver wait for
+  direct transport delivery;
+- worker re-admissions after the initial start, used as the resume count;
+- bounded failure categories such as `shared_budget_exhausted`,
+  `receiver_exception`, or `acknowledgement_rejected`;
+- the SHA-256 completion digest after the receiver's final acknowledgement.
+
+No response text, prompt, tool output, credential, or exception message is stored in
+these metrics. Completion digests are evidence references, not content. Metrics events
+do not change task completion state; only the existing durable acknowledgement,
+artifact verification, and supervisor finalization gates can do that.
+
+The local baseline/candidate benchmark runs five paired iterations over the same
+299,008-byte payload and reports integrity, completion, latency, peak memory, chunk
+count, recovery cursor, replay behavior, and transported-byte cost proxy. Provider
+spend is reported as not measured because the local benchmark has no metered provider.
+These results are descriptive and are not a release or capability-promotion gate.
+
 ## Boundaries and rollback
 
 This module is a deterministic transport primitive. It does not prove that a
