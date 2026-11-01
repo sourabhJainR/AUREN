@@ -1,6 +1,7 @@
 import unittest
 
-from portable.orchestration import Node, NodeKind\nfrom portable.state_graph import GraphAgentTeam, StateGraph, build_crew_plan, default_crew_definitions
+from portable.orchestration import Node, NodeKind
+from portable.state_graph import GraphAgentTeam, StateGraph, build_crew_plan, default_crew_definitions
 
 
 class SoftwareTeamPersonaTests(unittest.TestCase):
