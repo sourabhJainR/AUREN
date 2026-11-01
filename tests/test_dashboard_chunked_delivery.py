@@ -538,3 +538,33 @@ def test_host_boundary_deadline_expires_parent_without_receiver_ack(monkeypatch,
         assert status == 409
     finally:
         _stop_server(server, thread)
+
+
+def test_session_delivery_metrics_report_durable_acknowledgements(monkeypatch, tmp_path):
+    result = SimpleNamespace(
+        provider="test", model="fixture", success=True, attempts=1, latency_ms=1.0,
+        resource_usage={}, fallback_reason=None, result={"answer": "metrics-" * 4000}, error=None,
+    )
+    server, thread = _start_server(monkeypatch, tmp_path, result)
+    try:
+        status, _, manifest = _request(
+            server, "POST", "/api/route", {"task": "delivery metrics"},
+            headers={"Accept": dashboard_server.CHUNKED_RESPONSE_ACCEPT},
+        )
+        assert status == 202
+        status, _, chunk = _request(server, "GET", manifest["next"])
+        assert status == 200
+        ack = {
+            "chunk_index": chunk["chunk_index"], "chunk_sha256": chunk["chunk_sha256"],
+            "response_sha256": manifest["response_sha256"],
+            "total_chunks": manifest["total_chunks"],
+        }
+        status, _, _ = _request(server, "POST", manifest["ack"], ack)
+        assert status == 200
+        metrics = server.RequestHandlerClass.delivery_supervisor.metrics_snapshot()
+        assert metrics["acknowledged_chunks"] == 1
+        assert metrics["running_tasks"] >= 1
+        assert metrics["capacity"]["worker_limit"] == 8
+        assert metrics["integrity"]["unknown_outcomes_block_replay"] is True
+    finally:
+        _stop_server(server, thread)
