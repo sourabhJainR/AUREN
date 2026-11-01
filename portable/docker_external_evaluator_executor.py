@@ -207,6 +207,8 @@ class DockerExternalEvaluatorExecutor:
         return evidence
 
     def launch(self, command: Any, environment: dict[str, str]) -> _ContainerProcess:
+        if self.production_ready is not True or self.evidence is None or not self.evidence.passed:
+            raise ContainerIsolationError("verify_policy() must pass before production execution")
         # Re-probe on every launch. A previously verified daemon/image is not
         # durable evidence that the current runtime still enforces the policy.
         self.verify_policy()
