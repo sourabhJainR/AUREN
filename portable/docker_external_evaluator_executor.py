@@ -47,10 +47,13 @@ class _ContainerProcess:
         self._process = subprocess.Popen(
             argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL, shell=False, close_fds=True,
+            start_new_session=(os.name == "posix"),
         )
         self.stdin = self._process.stdin
         self.stdout = self._process.stdout
+        self.pid = self._process.pid
         self.returncode: int | None = None
+        self.termination_error: str | None = None
         self._lock = threading.Lock()
 
     def wait(self, timeout: float | None = None) -> int:
@@ -63,29 +66,68 @@ class _ContainerProcess:
             if self._process.poll() is not None:
                 self.returncode = self._process.returncode
 
-    def kill(self) -> None:
-        # Kill the container first: killing only the Docker CLI can orphan work.
+    def terminate_isolated(self) -> None:
+        """Stop the container, reconcile its removal, then stop the attached client.
+
+        The gateway calls this method on timeout or output-limit breach. Killing
+        only the Docker CLI is not sufficient because the evaluator container
+        may continue running after the client exits.
+        """
+        errors: list[str] = []
         try:
-            subprocess.run(
+            killed = subprocess.run(
                 [self.runtime, "kill", self.name], stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 timeout=5, check=False, shell=False, close_fds=True,
             )
+            if killed.returncode != 0:
+                state = subprocess.run(
+                    [self.runtime, "inspect", "--format", "{{.State.Running}}", self.name],
+                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL, timeout=5, check=False,
+                    shell=False, close_fds=True, text=True,
+                )
+                if state.returncode != 0 or state.stdout.strip().lower() == "true":
+                    errors.append("container termination could not be confirmed")
         except (OSError, subprocess.TimeoutExpired):
-            pass
+            errors.append("container termination request failed")
         try:
-            self._process.kill()
-        except OSError:
-            pass
-        try:
-            subprocess.run(
+            removed = subprocess.run(
                 [self.runtime, "rm", "--force", self.name], stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 timeout=5, check=False, shell=False, close_fds=True,
             )
+            if removed.returncode != 0:
+                exists = subprocess.run(
+                    [self.runtime, "inspect", self.name], stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    timeout=5, check=False, shell=False, close_fds=True,
+                )
+                if exists.returncode == 0:
+                    errors.append("container cleanup failed and container still exists")
         except (OSError, subprocess.TimeoutExpired):
-            # Caller must treat cleanup uncertainty as a failure.
-            pass
+            errors.append("container cleanup could not be verified")
+        try:
+            if os.name == "posix":
+                import signal
+                os.killpg(self._process.pid, signal.SIGKILL)
+            else:
+                self._process.kill()
+        except (ProcessLookupError, PermissionError, OSError):
+            try:
+                self._process.kill()
+            except (ProcessLookupError, OSError):
+                pass
+        try:
+            self._process.wait(timeout=5)
+        except (subprocess.TimeoutExpired, OSError):
+            errors.append("Docker client process did not stop within the bounded wait")
+        self.returncode = self._process.returncode
+        self.termination_error = "; ".join(errors) if errors else None
+
+    def kill(self) -> None:
+        """Compatibility alias; cleanup status is exposed through termination_error."""
+        self.terminate_isolated()
 
     def poll(self) -> int | None:
         self.returncode = self._process.poll()
