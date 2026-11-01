@@ -170,8 +170,17 @@ class ResponseDeliverySupervisor:
                 )
             elif execution_guard is not None:
                 persisted = json.loads(existing_budget[0])
-                if persisted.get("digest") != snapshot.get("digest"):
+                old_charges = persisted.get("delivery_charges", {})
+                new_charges = snapshot.get("delivery_charges", {})
+                if (
+                    persisted.get("max_delivery_bytes") != snapshot.get("max_delivery_bytes")
+                    or any(new_charges.get(key) != value for key, value in old_charges.items())
+                ):
                     raise ValueError("shared crew budget does not match its durable checkpoint")
+                db.execute(
+                    "UPDATE delivery_budgets SET snapshot_json=?,updated_at=CURRENT_TIMESTAMP WHERE budget_id=?",
+                    (json.dumps(snapshot, sort_keys=True, separators=(",", ":")), resolved_budget_id),
+                )
             db.execute(
                 "INSERT INTO deliveries(response_id,delivery_id,task_id,response_sha256,budget_id) VALUES(?,?,?,?,?)",
                 (response_id, delivery_id, task.id, digest, resolved_budget_id),
@@ -200,8 +209,20 @@ class ResponseDeliverySupervisor:
             if guard is None:
                 guard = RuntimeExecutionGuard.resume(persisted)
                 self._execution_guards[budget_id] = guard
-            elif guard.snapshot().get("digest") != persisted.get("digest"):
-                raise RuntimeError("in-memory crew budget diverged from its durable checkpoint")
+            else:
+                live_snapshot = guard.snapshot()
+                persisted_charges = persisted.get("delivery_charges", {})
+                live_charges = live_snapshot.get("delivery_charges", {})
+                if (
+                    live_snapshot.get("max_delivery_bytes") != persisted.get("max_delivery_bytes")
+                    or any(live_charges.get(key) != value for key, value in persisted_charges.items())
+                ):
+                    raise RuntimeError("in-memory crew budget diverged from its durable checkpoint")
+                if live_charges != persisted_charges:
+                    db.execute(
+                        "UPDATE delivery_budgets SET snapshot_json=?,updated_at=CURRENT_TIMESTAMP WHERE budget_id=?",
+                        (json.dumps(live_snapshot, sort_keys=True, separators=(",", ":")), budget_id),
+                    )
             previous_charge = guard.snapshot().get("delivery_charges", {}).get(operation_key)
             if previous_charge is not None:
                 if previous_charge != amount:
