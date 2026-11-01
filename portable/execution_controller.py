@@ -2260,6 +2260,24 @@ class ExecutionController:
                         raise WorkKeyConflict(
                             "work_key already belongs to a different handler, payload, or goal; deadline policy must also match"
                         )
+                    if self._deployment_admission_coordinator is not None:
+                        claim_work_key = getattr(
+                            self._deployment_admission_coordinator, "claim_work_key", None
+                        )
+                        if not callable(claim_work_key):
+                            raise RuntimeError(
+                                "shared admission coordinator does not support durable work-key identity"
+                            )
+                        identity = claim_work_key(
+                            stable_work_key,
+                            intent_digest,
+                            self._deployment_instance_id,
+                            existing[0],
+                        )
+                        if identity.task_id != existing[0]:
+                            raise WorkKeyConflict(
+                                "local task ID does not match the deployment's canonical work-key identity"
+                            )
                     task = DurableTask(
                         existing[0], existing[1], json.loads(existing[2]), existing[3],
                         int(existing[4]), existing[5], int(existing[6] or 0), existing[7], existing[9],
