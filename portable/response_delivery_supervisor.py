@@ -400,13 +400,19 @@ class ResponseDeliverySupervisor:
             current = self.controller.task(task_id)
             if current is None:
                 return False
-            if current.state != "pending":
-                return current.state == "running"
-            if not thread.is_alive():
+            if current.state == "running":
+                if not thread.is_alive():
+                    return False
+                ProgressJournal(self.journal_path).record(
+                    task_id, "response_delivery_worker_admitted", state="running",
+                    stage="response-delivery",
+                    message="supervisor worker acquired the durable delivery lease",
+                )
+                return True
+            if current.state != "pending" or not thread.is_alive():
                 return False
             time.sleep(0.01)
-        current = self.controller.task(task_id)
-        return current is not None and current.state == "running"
+        return False
 
     def _run(self, key: tuple[str, str], task_id: str) -> None:
         try:
