@@ -72,7 +72,9 @@ class TrustedPlanDispatchRoot:
         controller._trusted_plan_dispatch_required = True
         controller._trusted_plan_dispatch_token = self._token
 
-    def _budget_binding(self, run_id: str, task_id: str, handler: str) -> dict[str, str]:
+    def _budget_binding(
+        self, run_id: str, task_id: str, handler: str,
+    ) -> tuple[dict[str, str], float | None]:
         resolved = self.budget_resolver(run_id, task_id, handler)
         if not isinstance(resolved, Mapping):
             raise PermissionError("trusted supervisor did not resolve a shared budget")
@@ -95,11 +97,20 @@ class TrustedPlanDispatchRoot:
         )
         if not live_checkpoint_digest:
             raise PermissionError("live supervisor budget checkpoint is invalid")
-        return {
+        remaining_seconds = snapshot.get("remaining_seconds")
+        if remaining_seconds is not None:
+            if (
+                isinstance(remaining_seconds, bool)
+                or not isinstance(remaining_seconds, (int, float))
+                or remaining_seconds <= 0
+            ):
+                raise PermissionError("canonical supervisor deadline is exhausted or invalid")
+            remaining_seconds = float(remaining_seconds)
+        return ({
             "budget_id": budget_id.strip(),
             "checkpoint_digest": checkpoint_digest,
             "policy_digest": policy_digest,
-        }
+        }, remaining_seconds)
 
     def _approval_binding(
         self, run_id: str, task_id: str, handler: str, packet: EngineeringContextPacket,
@@ -230,7 +241,23 @@ class TrustedPlanDispatchRoot:
         if payload is not None and not isinstance(payload, Mapping):
             raise ValueError("dispatch payload must be a mapping")
         safe_payload = dict(payload or {})
-        budget = self._budget_binding(run_id, task_id, handler)
+        budget, remaining_seconds = self._budget_binding(run_id, task_id, handler)
+        if deadline_seconds is not None:
+            if (
+                isinstance(deadline_seconds, bool)
+                or not isinstance(deadline_seconds, (int, float))
+                or deadline_seconds <= 0
+                or deadline_seconds > 86400
+            ):
+                raise ValueError("deadline_seconds must be finite, positive, and at most one day")
+            deadline_seconds = float(deadline_seconds)
+        if remaining_seconds is not None:
+            # A caller may shorten the supervisor deadline, never extend it.
+            bounded_deadline = min(remaining_seconds, 86400.0)
+            deadline_seconds = (
+                bounded_deadline if deadline_seconds is None
+                else min(deadline_seconds, bounded_deadline)
+            )
         approval = self._approval_binding(run_id, task_id, handler, packet)
         return EngineeringPlanDispatch(
             store=self.store, controller=self.controller, recovery_bridge=self.recovery_bridge,
