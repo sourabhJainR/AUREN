@@ -96,14 +96,19 @@ def deliver_response(
     receiver_wait_ms = 0.0
 
     def record_metrics(*, failure_reason: str | None = None, completion_digest: str | None = None) -> None:
-        record_delivery_metrics(
-            journal, task_id, manifest.response_id,
-            total_bytes=manifest.total_bytes, total_chunks=manifest.total_chunks,
-            peak_in_flight_bytes=peak_in_flight,
-            backpressure_wait_ms=receiver_wait_ms,
-            resumed_from_chunk=acknowledged,
-            failure_reason=failure_reason, completion_digest=completion_digest,
-        )
+        # Telemetry is advisory. It must never replace a delivery result,
+        # acknowledgement, or typed unknown-outcome fence.
+        try:
+            record_delivery_metrics(
+                journal, task_id, manifest.response_id,
+                total_bytes=manifest.total_bytes, total_chunks=manifest.total_chunks,
+                peak_in_flight_bytes=peak_in_flight,
+                backpressure_wait_ms=receiver_wait_ms,
+                resumed_from_chunk=acknowledged,
+                failure_reason=failure_reason, completion_digest=completion_digest,
+            )
+        except Exception:
+            return
 
     for chunk in chunks_after(chunks, acknowledged):
         if is_cancelled is not None and is_cancelled():
