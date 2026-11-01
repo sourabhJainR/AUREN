@@ -150,8 +150,9 @@ class _Handler(BaseHTTPRequestHandler):
             body.decode("utf-8"), max_chunk_bytes=MAX_DELIVERY_CHUNK_BYTES,
         )
         task_id = self.delivery_supervisor.create(
-            response_id, delivery_id, stored.artifact.digest,
+            response_id, delivery_id, response_id,
             deadline_seconds=getattr(self, "delivery_deadline_seconds", 600.0),
+            artifact_digest=stored.artifact.digest,
             execution_guard=getattr(self, "delivery_execution_guard", None),
             budget_id=getattr(self, "delivery_budget_id", None),
         )
