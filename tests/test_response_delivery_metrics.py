@@ -26,6 +26,7 @@ class ResponseDeliveryMetricsTests(unittest.TestCase):
                 peak_in_flight_bytes=4096, backpressure_wait_ms=24.5,
                 resumed_from_chunk=1, completion_digest=digest,
             )
+            journal.record("task-2", "started", state="running", stage="execution")
             record_delivery_metrics(
                 journal, "task-2", "b" * 64,
                 total_bytes=500, total_chunks=1,
