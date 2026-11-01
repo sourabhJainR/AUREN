@@ -65,6 +65,7 @@ class _Handler(BaseHTTPRequestHandler):
     response_repository = None
     progress_journal = None
     delivery_supervisor = None
+    delivery_metrics_failures = 0
 
     def _send(self, status, body, content_type, *, extra_headers=None):
         self.send_response(status)
@@ -148,6 +149,18 @@ class _Handler(BaseHTTPRequestHandler):
             raise RuntimeError("trusted supervisor delivery integration is unavailable")
         return cls.delivery_supervisor.task_id(response_id, delivery_id)
 
+    def _record_delivery_metric(self, recorder, *args, **kwargs):
+        """Keep advisory telemetry failures outside the delivery contract."""
+        try:
+            recorder(*args, **kwargs)
+        except Exception:
+            cls = type(self)
+            cls.delivery_metrics_failures = min(
+                1_000_000, int(getattr(cls, "delivery_metrics_failures", 0)) + 1,
+            )
+            return False
+        return True
+
     def _ensure_delivery_manifest_metrics(self, task_id, manifest):
         for row in self.progress_journal._events():
             if row.get("task_id") != task_id or row.get("event") != "response_delivery_metrics":
@@ -158,7 +171,8 @@ class _Handler(BaseHTTPRequestHandler):
                 continue
             if isinstance(recorded, dict) and recorded.get("response_id") == manifest.sha256:
                 return
-        record_delivery_metrics(
+        self._record_delivery_metric(
+            record_delivery_metrics,
             self.progress_journal, task_id, manifest.sha256,
             total_bytes=manifest.total_bytes, total_chunks=manifest.total_chunks,
             peak_in_flight_bytes=0, backpressure_wait_ms=0.0,
@@ -333,7 +347,8 @@ class _Handler(BaseHTTPRequestHandler):
                     "acknowledged_index": acknowledged,
                 })
                 return
-            record_chunk_offer(
+            self._record_delivery_metric(
+                record_chunk_offer,
                 self.progress_journal, task_id, response_id,
                 chunk_index=chunk.index, chunk_sha256=chunk.sha256,
                 chunk_bytes=chunk.utf8_bytes, total_bytes=manifest.total_bytes,
@@ -425,7 +440,8 @@ class _Handler(BaseHTTPRequestHandler):
                     response_sha256=manifest.sha256,
                 )
                 if index == acknowledged + 1:
-                    record_chunk_ack_measurement(
+                    self._record_delivery_metric(
+                        record_chunk_ack_measurement,
                         self.progress_journal, task_id, response_id,
                         chunk_index=index, chunk_sha256=chunk.sha256,
                         chunk_bytes=chunk.utf8_bytes,
@@ -462,7 +478,8 @@ class _Handler(BaseHTTPRequestHandler):
                     evidence_ref="sha256:" + manifest.sha256,
                     expected_sequence=snapshot.get("sequence"),
                 )
-            record_delivery_metrics(
+            self._record_delivery_metric(
+                record_delivery_metrics,
                 self.progress_journal, task_id, manifest.sha256,
                 total_bytes=manifest.total_bytes, total_chunks=manifest.total_chunks,
                 peak_in_flight_bytes=max((chunk.utf8_bytes for chunk in chunks), default=0),
