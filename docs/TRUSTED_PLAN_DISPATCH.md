@@ -8,7 +8,7 @@ Create the canonical ExecutionController, EngineeringPlanStore, EngineeringPlanR
 
 The host must provide two trusted resolver callbacks:
 
-- budget_resolver(run_id, plan_task_id, handler) returns the live supervisor-owned RuntimeExecutionGuard, a stable budget ID, and the policy digest. It must retrieve the guard from the canonical supervisor checkpoint/ledger, not construct a fresh budget and not read budget claims from worker payloads.
+- budget_resolver(run_id, plan_task_id, handler) returns the live supervisor-owned RuntimeExecutionGuard, a stable budget ID, the immutable admission checkpoint digest, and the policy digest. The checkpoint digest must be read from the canonical supervisor budget ledger and remain stable for idempotent replay after budget charges; the live guard snapshot is separately checked for cancellation/deadline validity. Do not construct a fresh budget or read budget claims from worker payloads.
 - approval_resolver(run_id, plan_task_id, handler) returns the durable approval ID and the exact ActionRequest for that plan action. It must resolve using host-owned task identity and policy, not agent-supplied approver, scope, approval ID, or payload metadata.
 
 Example host flow:
@@ -29,7 +29,7 @@ Example host flow:
         payload=task_payload,
     )
 
-The approval checkpoint must also bind the exact plan run ID, plan task ID, plan digest, run revision, and source revision from the immutable EngineeringContextPacket. The root checks the live budget checkpoint digest, cancellation/deadline state, approval status, current artifact/evidence/policy digests, audit-chain integrity, required approval count and separation of duties. It derives the approval binding from the canonical durable record and vote-event chain. This digest is content-bound audit evidence, not a detached cryptographic signature.
+The approval checkpoint must also bind the exact plan run ID, plan task ID, plan digest, run revision, and source revision from the immutable EngineeringContextPacket. The root checks the live guard snapshot, binds the immutable supervisor admission checkpoint digest, and checks cancellation/deadline state, approval status, current artifact/evidence/policy digests, audit-chain integrity, required approval count and separation of duties. It derives the approval binding from the canonical durable record and vote-event chain. This digest is content-bound audit evidence, not a detached cryptographic signature.
 
 After root registration, direct calls to EngineeringPlanDispatch.dispatch() and the legacy ExecutionController.dispatch_engineering_plan_task() path fail closed. The AdaptiveRuntime and SDK facade also refuse dispatch until configured.
 
