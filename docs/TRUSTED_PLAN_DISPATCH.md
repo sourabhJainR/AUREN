@@ -29,7 +29,7 @@ Example host flow:
         payload=task_payload,
     )
 
-The root checks the live budget checkpoint digest, cancellation/deadline state, approval status, current artifact/evidence/policy digests, audit-chain integrity, required approval count and separation of duties. It derives the approval binding from the canonical durable record and vote-event chain. This digest is content-bound audit evidence, not a detached cryptographic signature.
+The approval checkpoint must also bind the exact plan run ID, plan task ID, plan digest, run revision, and source revision from the immutable EngineeringContextPacket. The root checks the live budget checkpoint digest, cancellation/deadline state, approval status, current artifact/evidence/policy digests, audit-chain integrity, required approval count and separation of duties. It derives the approval binding from the canonical durable record and vote-event chain. This digest is content-bound audit evidence, not a detached cryptographic signature.
 
 After root registration, direct calls to EngineeringPlanDispatch.dispatch() and the legacy ExecutionController.dispatch_engineering_plan_task() path fail closed. The AdaptiveRuntime and SDK facade also refuse dispatch until configured.
 
@@ -43,6 +43,6 @@ After root registration, direct calls to EngineeringPlanDispatch.dispatch() and 
 
 ## Validation and rollback
 
-tests/test_trusted_plan_dispatch.py covers approved/pending/changed-context cases, cancelled budgets, direct-dispatch bypass, and the AdaptiveRuntime bootstrap path. Existing tests/test_execution_controller_cancellation.py covers supervisor-to-graph-to-crew-to-model-router cancellation and absolute-deadline propagation. Existing crew handoff tests cover independent review receipts and rejection.
+tests/test_trusted_plan_dispatch.py covers approved/pending/changed-context cases, exact plan-task/revision binding, cancelled budgets, direct-dispatch bypass, and the AdaptiveRuntime bootstrap path. Existing tests/test_execution_controller_cancellation.py covers supervisor-to-graph-to-crew-to-model-router cancellation and absolute-deadline propagation. Existing crew handoff tests cover independent review receipts and rejection.
 
 Rollback by reverting the root module, the dispatch token fence, AdaptiveRuntime/SDK integration, and the focused tests together. Retain existing task, plan, approval and recovery databases; no durable rows are rewritten or deleted.
