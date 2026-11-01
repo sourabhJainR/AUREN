@@ -16,13 +16,15 @@ from tests.test_engineering_plan_dispatch import prepared
 
 
 class TrustedPlanDispatchRootTests(unittest.TestCase):
-    def _approval(self, controller, *, context, plan_task_id="implement"):
+    def _approval(self, controller, *, context, plan_task_id="implement", clock=None):
+        approval_now = clock() if clock is not None else datetime.now(timezone.utc)
         store = DurableApprovalStore(
             controller,
             approver_authorizer=lambda approver, role, scope, roles: (
                 approver == "manager-1" and role in roles and scope == "repo:write"
             ),
             context_provider=lambda request: dict(context),
+            clock=clock,
         )
         request = ActionRequest(
             run_id="approval-run", action_id="publish-change", actor="agent:implementer",
@@ -44,7 +46,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                 "run_revision": self.packet.run_revision,
                 "source_revision": self.packet.source_revision,
             },
-            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+            expires_at=approval_now + timedelta(hours=1),
         )
         store.decide(
             record.approval_id, "approve", approver_id="manager-1",
@@ -246,6 +248,24 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         with self.assertRaisesRegex(PermissionError, "exact plan task revision"):
             root.dispatch(
                 run_id=self.plan.run_id, task_id="implement", dispatch_key="wrong-task-approval",
+                handler="dispatch-test", packet=self.packet,
+            )
+        with sqlite3.connect(self.controller.db_path) as db:
+            self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
+
+
+
+    def test_approved_but_expired_record_is_rejected(self):
+        old_now = datetime.now(timezone.utc) - timedelta(hours=2)
+        approvals, request, record = self._approval(
+            self.controller, context=self.context, clock=lambda: old_now,
+        )
+        self.assertEqual("approved", record.status)
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        root = self._root(self.controller, approvals, request, record, guard, context=self.context)
+        with self.assertRaisesRegex(PermissionError, "expired"):
+            root.dispatch(
+                run_id=self.plan.run_id, task_id="implement", dispatch_key="expired-approval",
                 handler="dispatch-test", packet=self.packet,
             )
         with sqlite3.connect(self.controller.db_path) as db:
