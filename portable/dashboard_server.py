@@ -243,9 +243,11 @@ class _Handler(BaseHTTPRequestHandler):
                         "total_chunks": manifest.total_chunks,
                     })
                     return
+                durable_state = snapshot.get("state", "unknown")
                 self._send_delivery_json(409, {
                     "error": "delivery is not runnable; reconcile its durable state before resuming",
-                    "state": terminal_state,
+                    "state": durable_state if durable_state != "running" else terminal_state,
+                    "supervisor_state": terminal_state,
                 })
                 return
             if all_acknowledged:
