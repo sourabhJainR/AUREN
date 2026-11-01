@@ -19,6 +19,10 @@ from .execution_controller import ExecutionController
 from .response_delivery_supervisor import ResponseDeliverySupervisor
 from .response_delivery import assemble_response
 from .response_delivery_artifacts import ResponseArtifactRepository
+from .response_delivery_metrics import (
+    record_chunk_ack_measurement, record_chunk_offer,
+    record_delivery_failure, record_delivery_metrics,
+)
 from .runtime_recovery import RuntimeExecutionGuard
 
 MAX_API_RESPONSE_BYTES = 4_000_000
@@ -61,6 +65,7 @@ class _Handler(BaseHTTPRequestHandler):
     response_repository = None
     progress_journal = None
     delivery_supervisor = None
+    delivery_metrics_failures = 0
 
     def _send(self, status, body, content_type, *, extra_headers=None):
         self.send_response(status)
@@ -144,6 +149,45 @@ class _Handler(BaseHTTPRequestHandler):
             raise RuntimeError("trusted supervisor delivery integration is unavailable")
         return cls.delivery_supervisor.task_id(response_id, delivery_id)
 
+    def _record_delivery_metric(self, recorder, *args, **kwargs):
+        """Keep advisory telemetry failures outside the delivery contract."""
+        try:
+            recorder(*args, **kwargs)
+        except Exception:
+            cls = type(self)
+            cls.delivery_metrics_failures = min(
+                1_000_000, int(getattr(cls, "delivery_metrics_failures", 0)) + 1,
+            )
+            return False
+        return True
+
+    def _ensure_delivery_manifest_metrics(self, task_id, manifest):
+        for row in self.progress_journal._events():
+            if row.get("task_id") != task_id or row.get("event") != "response_delivery_metrics":
+                continue
+            try:
+                recorded = json.loads(str(row.get("message", "")))
+            except (TypeError, ValueError):
+                continue
+            if isinstance(recorded, dict) and recorded.get("response_id") == manifest.sha256:
+                return
+        self._record_delivery_metric(
+            record_delivery_metrics,
+            self.progress_journal, task_id, manifest.sha256,
+            total_bytes=manifest.total_bytes, total_chunks=manifest.total_chunks,
+            peak_in_flight_bytes=0, backpressure_wait_ms=0.0,
+            resumed_from_chunk=0,
+        )
+
+    def _record_delivery_failure(self, task_id, response_id, reason):
+        try:
+            record_delivery_failure(self.progress_journal, task_id, response_id, reason)
+        except Exception:
+            # Metrics must never weaken acknowledgement fencing or mask the
+            # primary transport error. The failure remains visible in task state.
+            return False
+        return True
+
     def _persist_response_artifact(self, response_id, delivery_id, body):
         if self.response_repository is None or self.progress_journal is None:
             raise RuntimeError("canonical response artifact repository is unavailable")
@@ -161,6 +205,7 @@ class _Handler(BaseHTTPRequestHandler):
             task_id, response_id=response_id, artifact_sha256=stored.artifact.digest,
         )
         self.delivery_supervisor.start(task_id, artifact_verified=True)
+        self._ensure_delivery_manifest_metrics(task_id, stored.manifest)
         return stored
 
     def _load_delivery(self, response_id, delivery_id, *, resume=False):
@@ -173,6 +218,7 @@ class _Handler(BaseHTTPRequestHandler):
         if artifact_digest is None:
             raise FileNotFoundError("response artifact is unavailable")
         stored = self.response_repository.load(response_id, artifact_digest)
+        self._ensure_delivery_manifest_metrics(task_id, stored.manifest)
         # Reads and acknowledgements must never revive blocked or stale work.
         # A fresh running journal plus an expired durable lease is the restart
         # recovery case; a pending task is safe to admit normally.
@@ -272,6 +318,7 @@ class _Handler(BaseHTTPRequestHandler):
                         "total_chunks": manifest.total_chunks,
                     })
                     return
+                self._record_delivery_failure(task_id, response_id, "delivery_not_runnable")
                 durable_state = snapshot.get("state", "unknown")
                 self._send_delivery_json(409, {
                     "error": "delivery is not runnable; reconcile its durable state before resuming",
@@ -294,11 +341,19 @@ class _Handler(BaseHTTPRequestHandler):
             if not self.delivery_supervisor.consume_delivery_bytes(
                 task_id, chunk.utf8_bytes, operation_key=operation_key,
             ):
+                self._record_delivery_failure(task_id, response_id, "shared_budget_exhausted")
                 self._send_delivery_json(429, {
                     "error": "shared crew delivery byte budget exhausted; delivery remains pending",
                     "acknowledged_index": acknowledged,
                 })
                 return
+            self._record_delivery_metric(
+                record_chunk_offer,
+                self.progress_journal, task_id, response_id,
+                chunk_index=chunk.index, chunk_sha256=chunk.sha256,
+                chunk_bytes=chunk.utf8_bytes, total_bytes=manifest.total_bytes,
+                total_chunks=manifest.total_chunks,
+            )
             self._send_delivery_json(200, {
                 "response_id": response_id,
                 "response_sha256": manifest.sha256,
@@ -309,10 +364,16 @@ class _Handler(BaseHTTPRequestHandler):
                 "utf8_bytes": chunk.utf8_bytes,
             })
         except FileNotFoundError:
+            if "task_id" in locals():
+                self._record_delivery_failure(task_id, response_id, "artifact_not_found")
             self._send_delivery_json(404, {"error": "response artifact not found"})
         except (ValueError, TypeError, json.JSONDecodeError):
+            if "task_id" in locals():
+                self._record_delivery_failure(task_id, response_id, "invalid_delivery_request")
             self._send_delivery_json(400, {"error": "invalid delivery request"})
         except Exception:
+            if "task_id" in locals():
+                self._record_delivery_failure(task_id, response_id, "delivery_state_unavailable")
             self._send_delivery_json(503, {"error": "response delivery state unavailable; automatic replay is blocked"})
 
     def _handle_delivery_post(self, path):
@@ -344,6 +405,8 @@ class _Handler(BaseHTTPRequestHandler):
                 raise ValueError("response chunk count mismatch")
             if action == "cancel":
                 accepted = self.delivery_supervisor.cancel(task_id)
+                if accepted:
+                    self._record_delivery_failure(task_id, response_id, "cancelled")
                 self._send_delivery_json(202 if accepted else 409, {
                     "cancellation_requested": accepted,
                     "state": self.delivery_supervisor.state(task_id),
@@ -376,6 +439,13 @@ class _Handler(BaseHTTPRequestHandler):
                     acknowledged_index=index, total_chunks=manifest.total_chunks,
                     response_sha256=manifest.sha256,
                 )
+                if index == acknowledged + 1:
+                    self._record_delivery_metric(
+                        record_chunk_ack_measurement,
+                        self.progress_journal, task_id, response_id,
+                        chunk_index=index, chunk_sha256=chunk.sha256,
+                        chunk_bytes=chunk.utf8_bytes,
+                    )
                 self._send_delivery_json(200, {
                     "acknowledged": True, "response_id": response_id, "delivery_id": delivery_id,
                     "acknowledged_index": index, "chunk_sha256": chunk.sha256,
@@ -408,6 +478,14 @@ class _Handler(BaseHTTPRequestHandler):
                     evidence_ref="sha256:" + manifest.sha256,
                     expected_sequence=snapshot.get("sequence"),
                 )
+            self._record_delivery_metric(
+                record_delivery_metrics,
+                self.progress_journal, task_id, manifest.sha256,
+                total_bytes=manifest.total_bytes, total_chunks=manifest.total_chunks,
+                peak_in_flight_bytes=max((chunk.utf8_bytes for chunk in chunks), default=0),
+                backpressure_wait_ms=0.0, resumed_from_chunk=0,
+                completion_digest=manifest.sha256,
+            )
             self._send_delivery_json(202, {
                 "completed": self.delivery_supervisor.state(task_id) == "completed",
                 "accepted": True, "response_id": response_id, "delivery_id": delivery_id,
@@ -416,10 +494,16 @@ class _Handler(BaseHTTPRequestHandler):
                 "total_chunks": manifest.total_chunks,
             })
         except (ValueError, TypeError, json.JSONDecodeError):
+            if "task_id" in locals():
+                self._record_delivery_failure(task_id, response_id, "acknowledgement_rejected")
             self._send_delivery_json(409, {"error": "delivery acknowledgement rejected"})
         except FileNotFoundError:
+            if "task_id" in locals():
+                self._record_delivery_failure(task_id, response_id, "artifact_not_found")
             self._send_delivery_json(404, {"error": "response artifact not found"})
         except Exception:
+            if "task_id" in locals():
+                self._record_delivery_failure(task_id, response_id, "delivery_state_unavailable")
             self._send_delivery_json(503, {"error": "delivery state unavailable; completion is not confirmed"})
 
 

@@ -103,6 +103,12 @@ class ControlCenterApiTests(unittest.TestCase):
             "unknown_outcomes", "unknown_outcomes_block_replay",
         ):
             self.assertIn(field, script)
+        for field in (
+            "measurements", "measured_deliveries", "total_bytes", "total_chunks",
+            "peak_in_flight_bytes", "backpressure_wait_ms", "resume_count",
+            "failure_reasons", "completion_digests",
+        ):
+            self.assertIn(field, script)
         self.assertIn("Telemetry unavailable", script)
         self.assertIn("Integrity gates active", script)
         self.assertIn('source.className = "pill warning"', script)

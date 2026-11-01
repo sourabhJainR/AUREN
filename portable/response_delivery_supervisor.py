@@ -12,6 +12,7 @@ from typing import Any, Mapping
 
 from .runtime_recovery import RuntimeExecutionGuard
 from .progress_journal import ProgressJournal
+from .response_delivery_metrics import aggregate_delivery_metrics
 from .execution_controller import (
     ExecutionController,
     LeaseLostError,
@@ -366,7 +367,7 @@ class ResponseDeliverySupervisor:
         delivery_events = [
             row for row in events
             if str(row.get("task_id", "")).strip()
-            and str(row.get("stage", "")).startswith("response-delivery:")
+            and (str(row.get("stage", "")).startswith("response-delivery:") or row.get("stage") == "response-delivery")
         ]
         ack_rows = [row for row in delivery_events if row.get("event") == "response_chunk_acknowledged"]
         unknown_rows = [row for row in delivery_events if row.get("event") == "response_chunk_outcome_unknown"]
@@ -376,6 +377,7 @@ class ResponseDeliverySupervisor:
         }
         capacity = self.capacity_snapshot()
         shared_capacity = self.shared_capacity_snapshot()
+        measurements = aggregate_delivery_metrics(events)
         return {
             "capacity": capacity,
             "shared_capacity": shared_capacity,
@@ -388,6 +390,7 @@ class ResponseDeliverySupervisor:
             "acknowledged_chunks": len(ack_rows),
             "unknown_outcomes": len(unknown_rows),
             "receiver_acknowledged_deliveries": len(completed_receipts),
+            "measurements": measurements,
             "integrity": {
                 "unknown_outcomes_block_replay": True,
                 "completion_requires_receiver_ack": True,
