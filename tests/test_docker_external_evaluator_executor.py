@@ -93,6 +93,17 @@ class DockerExternalEvaluatorExecutorTests(unittest.TestCase):
         with self.assertRaisesRegex(ContainerIsolationError, "verify_policy"):
             executor.launch(type("Command", (), {"argv": ("python", "eval.py")})(), {})
 
+    def test_launch_reprobes_previously_verified_policy_before_execution(self):
+        executor = DockerExternalEvaluatorExecutor.__new__(DockerExternalEvaluatorExecutor)
+        executor.production_ready = True
+        executor.evidence = type("Evidence", (), {"passed": True})()
+        def failed_reprobe():
+            executor.production_ready = False
+            executor.evidence = None
+        executor.verify_policy = failed_reprobe
+        with self.assertRaisesRegex(ContainerIsolationError, "verify_policy"):
+            executor.launch(type("Command", (), {"argv": ("python", "eval.py")})(), {})
+
 
 if __name__ == "__main__":
     unittest.main()
