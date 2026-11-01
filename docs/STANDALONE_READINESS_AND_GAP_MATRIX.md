@@ -234,7 +234,8 @@ The result is a controlled local comparison, not a production performance guaran
 - [x] First lab experiment compared shared context with isolated persona context using a deterministic fixture: 27 vs 19 context fields (29.6% fewer), unchanged 100% acceptance/evidence coverage, and no QA exposure to implementer self-assessment. See [EXPERIMENT_RESULTS.md](https://github.com/sourabhJainR/firstTestproj/blob/main/EXPERIMENT_RESULTS.md).
 - [x] Lab evaluator requires independently reviewed holdouts, cross-domain coverage, and bounded confidence calibration before research promotion eligibility. Development-only success cannot pass the promotion gate.
 - [ ] Real provider/model adapters, metered provider cost, token/memory measurements, sealed holdouts, broad transfer, and external independent evaluation remain outstanding. The deterministic experiment does not demonstrate model-level SI gains or AGI.
-- [ ] Host bootstrap must register the six new persona adapters with approved planner/model and tool-scope mappings. The catalogue and adapter factory are implemented; production credentials and operator-owned registration are not fabricated or enabled by default.
+- [x] GraphAgentTeam exposes the six new personas and a complete, fail-closed `register_software_team_personas()` path; tests cover successful registration and partial-registration rejection.
+- [ ] Production host bootstrap must supply approved planner/model and per-persona tool-scope mappings. Production credentials and authority are not fabricated or enabled by default.
 
 ### Roadmap reconciliation
 
