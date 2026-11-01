@@ -83,8 +83,13 @@ def await_receiver_acknowledgement(payload: Mapping[str, Any]) -> dict[str, Any]
 class ResponseDeliverySupervisor:
     """Binds generated delivery identities to durable ExecutionController tasks."""
 
-    def __init__(self, controller: ExecutionController, journal_path: str | Path):
+    def __init__(self, controller: ExecutionController, journal_path: str | Path, *, admission_coordinator: Any | None = None, deployment_host_id: str | None = None):
         self.controller = controller
+        if admission_coordinator is not None and (not isinstance(deployment_host_id, str) or not deployment_host_id.strip()):
+            raise ValueError("deployment_host_id is required when shared admission is enabled")
+        self.admission_coordinator = admission_coordinator
+        self.deployment_host_id = deployment_host_id.strip() if isinstance(deployment_host_id, str) else None
+        self._deployment_leases: dict[str, Any] = {}
         self.journal_path = Path(journal_path).expanduser().resolve()
         self.registry_path = controller.db_path.parent / "response_delivery_registry.sqlite3"
         self.registry_path.parent.mkdir(parents=True, exist_ok=True)
@@ -303,7 +308,7 @@ class ResponseDeliverySupervisor:
         return datetime.now(timezone.utc)
 
     def _acquire_worker_slot(self, task_id: str) -> str | None:
-        """Atomically reserve a host-wide worker slot across processes sharing the registry."""
+        """Reserve local capacity, then deployment-wide capacity when configured."""
         now = self._utc_now()
         now_text = now.isoformat(timespec="microseconds")
         lease_until = (now + timedelta(seconds=WORKER_SLOT_LEASE_SECONDS)).isoformat(timespec="microseconds")
@@ -323,9 +328,36 @@ class ResponseDeliverySupervisor:
                 "INSERT INTO delivery_worker_slots(task_id,owner_token,lease_until) VALUES(?,?,?)",
                 (task_id, owner_token, lease_until),
             )
-            return owner_token
+        if self.admission_coordinator is not None:
+            try:
+                lease = self.admission_coordinator.acquire(
+                    "response_delivery_workers", f"{self.deployment_host_id}:{task_id}", task_id,
+                    capacity=MAX_ACTIVE_DELIVERY_WORKERS, lease_seconds=WORKER_SLOT_LEASE_SECONDS,
+                )
+                if lease is None:
+                    with sqlite3.connect(self.registry_path, timeout=10) as db:
+                        db.execute(
+                            "DELETE FROM delivery_worker_slots WHERE task_id=? AND owner_token=?",
+                            (task_id, owner_token),
+                        )
+                    return None
+                self._deployment_leases[task_id] = lease
+            except Exception:
+                # A failed shared authority must not leave a local reservation
+                # that could be mistaken for successful deployment admission.
+                with sqlite3.connect(self.registry_path, timeout=10) as db:
+                    db.execute(
+                        "DELETE FROM delivery_worker_slots WHERE task_id=? AND owner_token=?",
+                        (task_id, owner_token),
+                    )
+                raise
+        return owner_token
 
     def _renew_worker_slot(self, task_id: str, owner_token: str) -> bool:
+        if self.admission_coordinator is not None:
+            lease = self._deployment_leases.get(task_id)
+            if lease is None or not self.admission_coordinator.renew(lease, lease_seconds=WORKER_SLOT_LEASE_SECONDS):
+                return False
         now = self._utc_now()
         lease_until = (now + timedelta(seconds=WORKER_SLOT_LEASE_SECONDS)).isoformat(timespec="microseconds")
         with sqlite3.connect(self.registry_path, timeout=10) as db:
@@ -337,11 +369,19 @@ class ResponseDeliverySupervisor:
             return cursor.rowcount == 1
 
     def _release_worker_slot(self, task_id: str, owner_token: str) -> None:
-        with sqlite3.connect(self.registry_path, timeout=10) as db:
-            db.execute(
-                "DELETE FROM delivery_worker_slots WHERE task_id=? AND owner_token=?",
-                (task_id, owner_token),
-            )
+        try:
+            if self.admission_coordinator is not None:
+                lease = self._deployment_leases.pop(task_id, None)
+                if lease is not None:
+                    self.admission_coordinator.release(lease)
+        finally:
+            # Always free this process's local slot. If the shared release is
+            # uncertain, its bounded lease expires and remains fail-closed.
+            with sqlite3.connect(self.registry_path, timeout=10) as db:
+                db.execute(
+                    "DELETE FROM delivery_worker_slots WHERE task_id=? AND owner_token=?",
+                    (task_id, owner_token),
+                )
 
     def shared_capacity_snapshot(self) -> dict[str, int | bool]:
         now_text = self._utc_now().isoformat(timespec="microseconds")

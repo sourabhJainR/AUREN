@@ -4,6 +4,10 @@ on:
   pull_request:
     paths:
       - "portable/postgres_attestation_replay_registry.py"
+      - "portable/postgres_admission_coordinator.py"
+      - "portable/response_delivery_supervisor.py"
+      - "tests/test_postgres_admission_coordinator.py"
+      - "tests/test_response_delivery_supervisor_capacity.py"
       - "portable/attestation_freshness.py"
       - "tests/test_postgres_attestation_replay_registry.py"
       - ".github/workflows/postgres-attestation-replay.yml"
@@ -55,3 +59,7 @@ jobs:
         run: python -m pip install --disable-pip-version-check "psycopg[binary]>=3.2,<4"
       - name: Exercise shared-store replay, race, restart and unknown-commit recovery
         run: python -m unittest tests.test_postgres_attestation_replay_registry -v
+      - name: Exercise deployment-wide admission and delivery capacity
+        run: |
+          python -m unittest tests.test_postgres_admission_coordinator -v
+          python -m unittest tests.test_response_delivery_supervisor_capacity -v
