@@ -103,6 +103,40 @@ class AgentOrgRuntimeTests(unittest.TestCase):
         with self.assertRaises(AgentAssignmentDenied):
             authorize_agent_assignment(**base)
 
+    def test_only_roles_with_explicit_delegation_authority_can_assign_scoped_tasks(self):
+        calls = []
+        args = dict(
+            action_class="manage_shared_budgets",
+            scope=["portable/runtime.py"],
+            authorizer=lambda request: calls.append(dict(request)) or True,
+            registry_path=REGISTRY,
+        )
+        # CTO-01 is the configured parent of EM-ENG-01, but its role is
+        # limited to technical direction and verification requests. It cannot
+        # create worker assignments through the manager dispatch API.
+        with self.assertRaisesRegex(AgentAssignmentDenied, "not authorized to delegate"):
+            authorize_agent_assignment(
+                role_id="EM-ENG-01", manager_id="CTO-01", **args
+            )
+        # CEO-01 is the configured parent of CTO-01, but portfolio priority
+        # does not grant task-dispatch authority.
+        with self.assertRaisesRegex(AgentAssignmentDenied, "not authorized to delegate"):
+            authorize_agent_assignment(
+                role_id="CTO-01", manager_id="CEO-01",
+                action_class="request_verification", **{
+                    key: value for key, value in args.items() if key != "action_class"
+                }
+            )
+        self.assertEqual(calls, [], "unauthorized managers must be rejected before host authorization")
+
+    def test_external_reporting_entity_cannot_act_as_assigning_manager(self):
+        with self.assertRaisesRegex(AgentAssignmentDenied, "must be an organization role"):
+            authorize_agent_assignment(
+                role_id="CEO-01", manager_id="stakeholders_and_investors",
+                action_class="prioritize_work", scope=["portfolio"],
+                authorizer=lambda _request: True, registry_path=REGISTRY,
+            )
+
     def test_host_authorizer_must_return_literal_true_and_exceptions_fail_closed(self):
         args = dict(
             role_id="BE-01", manager_id="EM-ENG-01", action_class="edit_assigned_paths",
