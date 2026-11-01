@@ -39,12 +39,13 @@ _CREW_ADAPTERS: dict[str, Any] = {}
 def register_crew_adapters(adapters: dict[str, Any], *, replace: bool = False) -> None:
     """Register trusted proposal-only adapters during runtime bootstrap."""
     from portable.state_graph import default_crew_definitions
+    from portable.crew_adapters import SOFTWARE_TEAM_PERSONA_IDS
 
     if not isinstance(adapters, dict):
         raise TypeError("crew adapters must be a mapping")
     if type(replace) is not bool:
         raise ValueError("replace must be a boolean")
-    allowed_ids = {crew.crew_id for crew in default_crew_definitions()}
+    allowed_ids = {crew.crew_id for crew in default_crew_definitions()} | set(SOFTWARE_TEAM_PERSONA_IDS)
     for crew_id, adapter in adapters.items():
         if crew_id not in allowed_ids:
             raise ValueError(f"unknown crew id: {crew_id}")
@@ -134,6 +135,62 @@ def register_supervised_provider_backed_crew_adapters(
         **configuration,
         progress_journal=journal,
     )
+
+
+def register_software_team_persona_adapters(
+    *,
+    provider_invokers: Mapping[str, Callable[[str, int], str]],
+    provider_ids: Mapping[str, str],
+    provider_versions: Mapping[str, str],
+    tools,
+    allowed_tools_by_persona: Mapping[str, Sequence[str]],
+    finalizers: Mapping[str, Callable[[Mapping[str, Any]], Mapping[str, Any]]] | None = None,
+    timeout_seconds_by_persona: Mapping[str, int] | None = None,
+    max_response_chars: int = 100_000,
+    max_tool_calls: int = 4,
+    progress_callbacks_by_persona: Mapping[str, Callable[[Mapping[str, Any]], None]] | None = None,
+    replace: bool = False,
+) -> dict[str, Any]:
+    """Register host-configured provider adapters for all six company personas.
+
+    No provider or credential is auto-discovered. A host must supply every
+    provider identity/version, bounded invoker, and read-only tool scope before
+    any persona is registered. Registration is all-or-nothing.
+    """
+    from portable.crew_adapters import build_provider_backed_software_team_persona_adapters
+
+    adapters = build_provider_backed_software_team_persona_adapters(
+        provider_invokers=provider_invokers,
+        provider_ids=provider_ids,
+        provider_versions=provider_versions,
+        tools=tools,
+        allowed_tools_by_persona=allowed_tools_by_persona,
+        finalizers=finalizers,
+        timeout_seconds_by_persona=timeout_seconds_by_persona,
+        max_response_chars=max_response_chars,
+        max_tool_calls=max_tool_calls,
+        progress_callbacks_by_persona=progress_callbacks_by_persona,
+    )
+    register_crew_adapters(adapters, replace=replace)
+    return adapters
+
+
+def register_supervised_software_team_persona_adapters(
+    controller: Any, **configuration: Any
+) -> dict[str, Any]:
+    """Register all six personas with the controller-owned progress journal."""
+    from portable.progress_journal import ProgressJournal
+    from portable.crew_adapters import SOFTWARE_TEAM_PERSONA_IDS
+
+    journal = getattr(controller, "progress_journal", None)
+    if not isinstance(journal, ProgressJournal):
+        raise TypeError("controller must expose its canonical ProgressJournal")
+    if "progress_callbacks_by_persona" in configuration:
+        raise ValueError("supervised registration owns persona progress wiring")
+    configuration["progress_callbacks_by_persona"] = {
+        persona_id: journal.record_provider_event for persona_id in SOFTWARE_TEAM_PERSONA_IDS
+    }
+    return register_software_team_persona_adapters(**configuration)
 
 def _requires_crew_contract(route: dict[str, Any], phase: str) -> bool:
     if phase not in {"poc", "debug", "execute", "repair", "review"}:
