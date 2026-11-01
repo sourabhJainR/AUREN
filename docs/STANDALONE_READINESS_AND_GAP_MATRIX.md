@@ -430,3 +430,45 @@ Additional operational gaps:
 - No staging migration or rollback rehearsal has been claimed.
 
 **Readiness decision:** AUREN now has the core response-delivery paths, cross-process worker admission, explicit shared-budget host injection, software-company personas, and live delivery observability. It is not yet production-ready as an autonomous engineering company and has not demonstrated AGI. Keep #696, #692, #694, #809, #534 and the independent Arena/isolation gates open until their specific evidence is independently reviewed. Revert each implementation PR as a unit if regression evidence requires rollback.
+
+
+## Current-main evidence and capability radar — 2026-11-01
+
+### Exact repository snapshot
+
+- Main SHA: `1d6534d4ea533fe034a4258a131e8a03b9bc4b98`.
+- Current-main check-runs: 25 terminal; 23 succeeded, two skipped, zero failed, zero pending. The skipped hardening and durable-runtime checks remain skipped, not passed.
+- All six post-merge push workflows succeeded: Agent Capability Runtime, Architecture Integrity, AI Harness Check, Production AI Harness Hardening, Runtime Resilience Matrix and AUREN Portable Bundle.
+- Portable bundle source commit is the exact main SHA and version is 1.0.6. Bundle artifact SHA-256: `bbec2aae1993fddfa0e6c9c36537398ff59048c55e5c3e87f10cc78ccc7460ff`; checksum artifact SHA-256: `20a27e5dcc6adc0fb953356a9b90a0e1d4f39b3881123ca34d9ddf3fc3dede3b`; embedded ZIP SHA-256: `7ba4719e83ffb30fcd5daed75e072d4bc64d5a041e89e78c6d96d38f405734fa`. All 524 manifest entries match their sizes and digests. The only expected generated entry outside the manifest is `payload/PORTABLE_BUNDLE.txt`. The manifest declares `target_repository_mutation=false`.
+- PR #1183 remains open for trusted budget/approval resolution at the composition root; its observed head was `e0db3a6699d44c912f290f143874fd3ec6570d7c`. PR #1184 contains the radar refresh; its observed head was `992be8fbd6d8b90e848a97f5526ecb62708aeced`. Both exact-head workflow sets were queued/running at this snapshot. Do not merge either PR until every applicable check is terminal and successful.
+- The active main ruleset exposes deletion and non-fast-forward protections only. No required-status-check rule was visible; the branch-protection endpoint returned 403 to the integration. Repository-owner confirmation of required checks is still needed.
+- No local checkout/runtime was available, so no local tests or process-level fault-injection results are claimed.
+
+### #692 and #694 integration evidence inspected
+
+Current main already contains the canonical integration coverage requested for these lanes:
+
+| Requirement | Existing regression coverage |
+|---|---|
+| Stable durable identity and duplicate submit | `tests/test_engineering_plan_recovery.py::test_learning_delivery_share_identity_and_reconcile_split_write_after_restart`; `tests/test_auren_runtime_worker.py::test_worker_cli_binds_stable_work_key_to_durable_controller_lifecycle` |
+| Evidence-gated learning | Verified learning checkpoint, manifest/plan digest binding, verification evidence, and no adoption when cancelled, expired or evaluator is missing in `tests/test_engineering_plan_recovery.py` |
+| Cross-store split-write reconciliation | Injected plan-store/recovery-ledger failure, explicit reconciliation, process-death and terminal-receipt crash tests in `tests/test_engineering_plan_recovery.py` |
+| Fresh-process restart/resume and no replay | Restarted plan bridge and ExecutionController reusing the same work key and task ID; interrupted provider-charge and recovery tests in `tests/test_adaptive_runtime_recovery_integration.py` |
+| Cancellation and absolute deadline | GraphAgentTeam and model-router propagation tests in `tests/test_execution_controller_cancellation.py`; delivery cannot complete on cancel/deadline/missing evaluator in `tests/test_engineering_plan_recovery.py` |
+| Dashboard derived from durable state | `tests/test_engineering_dashboard.py` checks canonical plan status, stale journal suppression, corrupt or conflicting stores as unknown, and missing terminal journal as unknown rather than success |
+
+These tests establish repository contracts. They do not prove provider-side idempotency, production parity, external evaluator independence, sealed-holdout custody or long-duration deployment behavior. Keep #692 and #694 open for those external gates.
+
+### External capability radar decision
+
+The 2026-11-01 refresh adds WeaveBench and AgentHorizon for long-horizon GUI/CLI/code evaluation; Agent Workflow Optimization and WorkflowGen for dynamic workflow experiments; NVIDIA OpenShell and OpenAI sandbox guidance for host-enforced boundaries; ORACLE, ParetoBandit and EvoRoute for model routing/lifecycle; ServiceNow AI Passport for delegated agent identity and revocation; and Co-Scientist/MechHypoBench for scientific hypothesis validation.
+
+These are comparison inputs only. Reuse TaskPlan, StateGraph, ExecutionController, Guard, RuntimeExecutionGuard, LearningSteward, evidence graph and Arena. No duplicate orchestrator or external runtime dependency. Do not enable candidate routing or extensions by default without paired measured value, independent evaluation and rollback.
+
+### Still blocked
+
+- **#534:** no operator-controlled staging migration, fresh-process resume, rollback or post-cutover reconciliation receipts are attached and independently checked. Preserve both state roots.
+- **Production isolation:** no independent host/kernel/network/secret isolation audit.
+- **Evaluator independence:** no separately controlled evaluator identity, sealed holdout custody or signed external campaign receipt.
+- **Scientific discovery:** no independent domain replication or expert-scored AUREN campaign.
+- **AGI/SI:** no claim is supported by internal CI, product announcements or these research benchmarks.
