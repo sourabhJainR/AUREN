@@ -69,6 +69,7 @@ class TrustedPlanDispatchRoot:
         self.budget_resolver = budget_resolver
         self.approval_resolver = approval_resolver
         self._token = object()
+        controller._trusted_plan_dispatch_required = True
         controller._trusted_plan_dispatch_token = self._token
 
     def _budget_binding(self, run_id: str, task_id: str, handler: str) -> dict[str, str]:
