@@ -304,6 +304,7 @@ def test_blocked_delivery_cannot_accept_late_ack_or_complete(monkeypatch, tmp_pa
             task_id, "delivery_reconciliation_required", state="blocked",
             stage="reconciliation", message="operator reconciliation required",
         )
+        assert journal.snapshot(task_id)["reported_state"] == "blocked"
         status, _, _ = _request(server, "POST", manifest["ack"], ack)
         assert status == 409
         status, _, blocked_offer = _request(server, "GET", manifest["next"])
@@ -383,6 +384,7 @@ def test_stale_delivery_cannot_accept_ack_or_complete(monkeypatch, tmp_path):
             message="stale delivery fixture",
             timestamp="2026-10-30T00:00:00+00:00",
         )
+        assert journal.snapshot(task_id)["state"] == "stale"
         status, _, rejected = _request(server, "POST", manifest["ack"], ack)
         assert status == 503
         assert "completion is not confirmed" in rejected["error"] or "delivery state unavailable" in rejected["error"]
