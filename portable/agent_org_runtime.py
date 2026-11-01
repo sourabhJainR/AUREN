@@ -165,6 +165,14 @@ def authorize_agent_assignment(
         raise AgentAssignmentDenied("unknown agent role")
     if role["reports_to"] != manager_id.strip():
         raise AgentAssignmentDenied("assigning manager is not the role's configured reporting parent")
+    manager_role = next(
+        (item for item in registry["roles"] if item["id"] == manager_id.strip()),
+        None,
+    )
+    if manager_role is None:
+        raise AgentAssignmentDenied("assigning manager must be an organization role")
+    if "assign_scoped_tasks" not in manager_role["allowed_action_classes"]:
+        raise AgentAssignmentDenied("assigning manager role is not authorized to delegate scoped tasks")
     if action_class.strip() not in role["allowed_action_classes"]:
         raise AgentAssignmentDenied("action class is not permitted by the role contract")
 
