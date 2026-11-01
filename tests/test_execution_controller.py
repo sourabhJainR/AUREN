@@ -2213,3 +2213,43 @@ class WorkerTaskStateProjectionTests(unittest.TestCase):
                 "AUREN:issue-696:continuous-engineering",
                 payload["stable_work_key"],
             )
+
+
+class PostgreSQLSharedPendingAdmissionIntegrationTests(unittest.TestCase):
+    @unittest.skipUnless(os.environ.get("AUREN_TEST_POSTGRES_DSN"), "real PostgreSQL service is not configured")
+    def test_real_postgres_admission_across_separate_controller_roots(self):
+        import psycopg
+        from portable.postgres_admission_coordinator import PostgreSQLAdmissionCoordinator
+
+        dsn = os.environ["AUREN_TEST_POSTGRES_DSN"]
+        namespace = "controller-" + __import__("uuid").uuid4().hex
+        coordinator = PostgreSQLAdmissionCoordinator(
+            lambda: psycopg.connect(dsn),
+            namespace=namespace,
+            policy_version="pending-v1",
+            provision=True,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            first = ExecutionController(
+                Path(directory) / "root-a",
+                max_pending_tasks=1,
+                deployment_admission_coordinator=coordinator,
+                deployment_instance_id="runtime-a",
+            )
+            second = ExecutionController(
+                Path(directory) / "root-b",
+                max_pending_tasks=1,
+                deployment_admission_coordinator=coordinator,
+                deployment_instance_id="runtime-b",
+            )
+            first.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+            second.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+            task = first.submit("tests.durable_handler", {"id": "a"}, work_key="pg:a")
+            self.assertEqual(1, coordinator.active_count("durable_pending_tasks"))
+            with self.assertRaises(QueueAdmissionRejected):
+                second.submit("tests.durable_handler", {"id": "b"}, work_key="pg:b")
+            first.run_once(task.id)
+            self.assertEqual(0, coordinator.active_count("durable_pending_tasks"))
+            accepted = second.submit("tests.durable_handler", {"id": "b"}, work_key="pg:b")
+            self.assertEqual("pending", accepted.state)
+            self.assertEqual(1, coordinator.active_count("durable_pending_tasks"))
