@@ -2687,15 +2687,21 @@ class ExecutionController:
             return
         from .engineering_plan_recovery import EngineeringPlanCheckpointMismatch
 
+        if not isinstance(metadata, Mapping):
+            raise EngineeringPlanCheckpointMismatch("dispatch metadata is malformed")
+        trusted_binding_fields = {
+            "deadline_policy_seconds", "shared_budget_binding", "approval_evidence",
+        }
         if (
-            getattr(self, "_trusted_plan_dispatch_required", False)
+            (
+                getattr(self, "_trusted_plan_dispatch_required", False)
+                or bool(trusted_binding_fields.intersection(metadata))
+            )
             and getattr(self, "_trusted_plan_dispatch_token", None) is None
         ):
             raise EngineeringPlanCheckpointMismatch(
                 "trusted plan dispatch root is not configured in this worker; refusing task execution"
             )
-        if not isinstance(metadata, Mapping):
-            raise EngineeringPlanCheckpointMismatch("dispatch metadata is malformed")
         required = {
             "run_id", "task_id", "plan_digest", "run_revision", "source_revision",
             "packet_digest", "handler", "payload_digest", "dispatch_key",
