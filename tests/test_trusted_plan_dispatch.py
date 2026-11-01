@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import sqlite3
 import tempfile
@@ -10,6 +11,7 @@ from portable.action_governance import ActionRequest
 from portable.durable_approval import DurableApprovalStore
 from portable.engineering_plan_dispatch import EngineeringPlanDispatch
 from portable.execution_controller import ExecutionController
+from portable.engineering_plan_recovery import EngineeringPlanCheckpointMismatch
 from portable.runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
 from portable.trusted_plan_dispatch import TrustedPlanDispatchRoot
 from tests.test_engineering_plan_dispatch import prepared
@@ -271,6 +273,30 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         with sqlite3.connect(self.controller.db_path) as db:
             self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
 
+
+    def test_trusted_binding_is_revalidated_at_controller_preflight(self):
+        approvals, request, record = self._approval(self.controller, context=self.context)
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        root = self._root(self.controller, approvals, request, record, guard, context=self.context)
+        task = root.dispatch(
+            run_id=self.plan.run_id, task_id="implement", dispatch_key="trusted-preflight",
+            handler="dispatch-test", packet=self.packet, payload={"change": "small"},
+        )
+
+        # The real controller preflight must reproduce the root's full binding,
+        # including the durable budget and approval receipts.
+        self.controller._verify_engineering_plan_dispatch_checkpoint(task)
+
+        tampered_payload = dict(task.payload)
+        tampered_metadata = dict(tampered_payload["auren_dispatch"])
+        tampered_budget = dict(tampered_metadata["shared_budget_binding"])
+        tampered_budget["policy_digest"] = "b" * 64
+        tampered_metadata["shared_budget_binding"] = tampered_budget
+        tampered_payload["auren_dispatch"] = tampered_metadata
+        with self.assertRaisesRegex(EngineeringPlanCheckpointMismatch, "binding"):
+            self.controller._verify_engineering_plan_dispatch_checkpoint(
+                replace(task, payload=tampered_payload)
+            )
 
 
 if __name__ == "__main__":
