@@ -21,6 +21,24 @@ class AdmissionPolicyConflict(RuntimeError):
     """Hosts disagree on the deployment namespace or capacity policy."""
 
 
+class DuplicateWorkKeySubmission(RuntimeError):
+    """A work key is already owned by another runtime in this deployment."""
+
+
+class WorkKeyIntentConflict(RuntimeError):
+    """A deployment work key was reused for a different immutable intent."""
+
+
+@dataclass(frozen=True)
+class WorkKeyIdentity:
+    namespace: str
+    work_key: str
+    intent_digest: str
+    owner: str
+    task_id: str
+    created_at: Any
+
+
 @dataclass(frozen=True)
 class AdmissionLease:
     namespace: str
@@ -92,6 +110,18 @@ class PostgreSQLAdmissionCoordinator:
                         resource TEXT NOT NULL,
                         generation BIGINT NOT NULL,
                         PRIMARY KEY(namespace, resource)
+                    )
+                """)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS auren_work_key_identities (
+                        namespace TEXT NOT NULL,
+                        work_key TEXT NOT NULL,
+                        intent_digest TEXT NOT NULL,
+                        owner TEXT NOT NULL,
+                        task_id TEXT NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY(namespace, work_key),
+                        UNIQUE(namespace, task_id)
                     )
                 """)
                 cursor.execute("""
@@ -237,6 +267,71 @@ class PostgreSQLAdmissionCoordinator:
         finally:
             connection.close()
 
+    def claim_work_key(
+        self, work_key: str, intent_digest: str, owner: str, task_id: str
+    ) -> WorkKeyIdentity:
+        """Atomically bind one deployment work key to one immutable task identity.
+
+        The identity is permanent: it is not a capacity lease and must not expire.
+        A retry by the same stable runtime owner with the same digest recovers the
+        original task ID, including after a crash before local SQLite insertion.
+        Other owners are rejected rather than creating a second local task.
+        """
+        work_key = self._text("work_key", work_key, 256)
+        intent_digest = self._text("intent_digest", intent_digest, 128)
+        owner = self._text("owner", owner)
+        task_id = self._text("task_id", task_id, 128)
+        if len(intent_digest) != 64 or any(ch not in "0123456789abcdef" for ch in intent_digest):
+            raise ValueError("intent_digest must be a lowercase SHA-256 hex digest")
+        connection = self._connect()
+        try:
+            cursor = connection.cursor()
+            try:
+                cursor.execute(
+                    "SELECT policy_version FROM auren_admission_policy WHERE namespace=%s",
+                    (self.namespace,),
+                )
+                policy = cursor.fetchone()
+                if policy is None or policy[0] != self.policy_version:
+                    raise AdmissionPolicyConflict("shared admission policy is missing or mismatched")
+                lock_key = "work-key:" + hashlib.sha256(work_key.encode("utf-8")).hexdigest()
+                self._lock(cursor, lock_key)
+                cursor.execute(
+                    "INSERT INTO auren_work_key_identities(namespace,work_key,intent_digest,owner,task_id) "
+                    "VALUES(%s,%s,%s,%s,%s) ON CONFLICT(namespace,work_key) DO NOTHING",
+                    (self.namespace, work_key, intent_digest, owner, task_id),
+                )
+                cursor.execute(
+                    "SELECT intent_digest,owner,task_id,created_at FROM auren_work_key_identities "
+                    "WHERE namespace=%s AND work_key=%s",
+                    (self.namespace, work_key),
+                )
+                row = cursor.fetchone()
+                if row is None:
+                    raise AdmissionCoordinatorUnavailable("work-key identity could not be read after claim")
+                if row[0] != intent_digest:
+                    raise WorkKeyIntentConflict(
+                        "work_key is already bound to a different immutable task intent"
+                    )
+                if row[1] != owner:
+                    raise DuplicateWorkKeySubmission(
+                        f"work_key is already owned by runtime {row[1]!r}; canonical task_id={row[2]}"
+                    )
+                connection.commit()
+                return WorkKeyIdentity(self.namespace, work_key, row[0], row[1], row[2], row[3])
+            finally:
+                cursor.close()
+        except (AdmissionPolicyConflict, DuplicateWorkKeySubmission, WorkKeyIntentConflict, ValueError):
+            connection.rollback()
+            raise
+        except Exception as exc:
+            connection.rollback()
+            raise AdmissionCoordinatorUnavailable(
+                "shared work-key identity claim failed; submission must fail closed"
+            ) from exc
+        finally:
+            connection.close()
+
     def renew(self, lease: AdmissionLease, *, lease_seconds: int = 30) -> bool:
         if type(lease_seconds) is not int or not 1 <= lease_seconds <= 86400:
             raise ValueError("lease_seconds must be an integer between 1 and 86400")
@@ -304,5 +399,6 @@ class PostgreSQLAdmissionCoordinator:
 
 __all__ = [
     "AdmissionCoordinatorUnavailable", "AdmissionPolicyConflict",
-    "AdmissionLease", "PostgreSQLAdmissionCoordinator",
+    "AdmissionLease", "WorkKeyIdentity", "DuplicateWorkKeySubmission",
+    "WorkKeyIntentConflict", "PostgreSQLAdmissionCoordinator",
 ]
