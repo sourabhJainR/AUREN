@@ -88,7 +88,8 @@ class PostgreSQLAdmissionCoordinatorTests(unittest.TestCase):
         coordinator = self._coordinator()
         resource = "policy-" + uuid4().hex
         self.assertIsNotNone(coordinator.acquire(resource, "host-a:one", "one", capacity=2))
-        with self.assertRaises(Exception):
+        from portable.postgres_admission_coordinator import AdmissionPolicyConflict
+        with self.assertRaises(AdmissionPolicyConflict):
             coordinator.acquire(resource, "host-b:two", "two", capacity=3)
 
     @unittest.skipUnless(os.environ.get("AUREN_TEST_POSTGRES_DSN"), "real PostgreSQL service is not configured")
