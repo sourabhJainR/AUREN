@@ -650,7 +650,7 @@
   "radar_refresh": {
     "reviewed_at": "2026-11-01",
     "baseline_main_sha": "1d6534d4ea533fe034a4258a131e8a03b9bc4b98",
-    "status": "candidate signals only; research refreshed through 2026-11-01. Current main is 1d6534d4ea533fe034a4258a131e8a03b9bc4b98; 23 check-runs succeeded, 2 were skipped, none failed or remained pending. All six post-merge push workflows succeeded. Portable bundle and checksum artifacts were downloaded and verified against GitHub metadata and the 524-entry manifest. One open PR (#1183) remains under exact-head CI. Deployment and independent-evaluation gates remain blocked.",
+    "status": "candidate signals only; research refreshed through 2026-11-01. Current main is 1d6534d4ea533fe034a4258a131e8a03b9bc4b98; 23 check-runs succeeded, 2 were skipped, none failed or remained pending. All six post-merge push workflows succeeded. Portable bundle and checksum artifacts were downloaded and verified against GitHub metadata and the 524-entry manifest. Two open PRs (#1183 P0 runtime integration and #1184 radar documentation) remain under exact-head CI. Deployment and independent-evaluation gates remain blocked.",
     "policy": "External announcements and benchmark reports are leads, not proof of equivalent AUREN capability. Reuse the canonical supervisor, TaskPlan, StateGraph, ExecutionController, Guard, ProgressJournal, LearningSteward and Arena. No duplicate orchestrator or external runtime dependency. Keep adapters opt-in; no default pack promotion without paired measured value, independent evaluation and rollback. Discovery never grants authority.",
     "status_vocabulary": {
       "implementation": "Code path exists; does not imply tests or deployment.",
@@ -1081,15 +1081,23 @@
     "repository_observation": {
       "reviewed_at": "2026-11-01",
       "main_sha": "1d6534d4ea533fe034a4258a131e8a03b9bc4b98",
-      "open_pr_count": 1,
+      "open_pr_count": 2,
       "open_prs": [
         {
           "number": 1183,
-          "title": "Resolve canonical budget and approval records at the trusted dispatch root",
+          "title": "Resolve canonical budgets and approvals at trusted dispatch root",
           "head_branch": "feat/trusted-plan-dispatch-composition-root-v2",
-          "head_sha": "983a407b46baf27fee90b3b5cbb22045104f6365",
+          "head_sha": "e0db3a6699d44c912f290f143874fd3ec6570d7c",
           "base_sha": "1d6534d4ea533fe034a4258a131e8a03b9bc4b98",
-          "status": "open; exact-head workflows pending/in progress at observation"
+          "status": "open; exact-head workflows queued/in progress at 2026-11-01T14:23Z"
+        },
+        {
+          "number": 1184,
+          "title": "Refresh AI/SI capability radar with November evidence",
+          "head_branch": "docs/ai-si-radar-2026-11-01",
+          "head_sha": "992be8fbd6d8b90e848a97f5526ecb62708aeced",
+          "base_sha": "1d6534d4ea533fe034a4258a131e8a03b9bc4b98",
+          "status": "open; exact-head workflows queued at 2026-11-01T14:23Z"
         }
       ],
       "current_main_check_runs": {
