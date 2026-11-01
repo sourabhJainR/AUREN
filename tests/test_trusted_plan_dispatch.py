@@ -180,7 +180,8 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                 controller=self.controller, store=self.plan_store,
                 recovery_bridge=self.recovery_bridge, approval_store=approvals,
                 budget_resolver=lambda run_id, task_id, handler: {
-                    "budget_id": "crew:team-a:run-1", "guard": guard, "policy_digest": "a" * 64,
+                    "budget_id": "crew:team-a:run-1", "guard": guard,
+                    "checkpoint_digest": guard.snapshot()["digest"], "policy_digest": "a" * 64,
                 },
                 approval_resolver=lambda run_id, task_id, handler: {
                     "approval_id": record.approval_id, "request": request,
@@ -355,6 +356,28 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             )
         with sqlite3.connect(self.controller.db_path) as db:
             self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
+
+
+
+    def test_replay_uses_immutable_admission_digest_after_shared_budget_is_charged(self):
+        approvals, request, record = self._approval(self.controller, context=self.context)
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        root = self._root(self.controller, approvals, request, record, guard, context=self.context)
+        first = root.dispatch(
+            run_id=self.plan.run_id, task_id="implement", dispatch_key="stable-budget-replay",
+            handler="dispatch-test", packet=self.packet,
+        )
+        admission_digest = first.payload["auren_dispatch"]["shared_budget_binding"]["checkpoint_digest"]
+        self.assertTrue(guard.charge_attempt("specialist:implementation"))
+        replay = root.dispatch(
+            run_id=self.plan.run_id, task_id="implement", dispatch_key="stable-budget-replay",
+            handler="dispatch-test", packet=self.packet,
+        )
+        self.assertEqual(first.id, replay.id)
+        self.assertEqual(
+            admission_digest, replay.payload["auren_dispatch"]["shared_budget_binding"]["checkpoint_digest"],
+        )
+        self.assertEqual(1, guard.attempts_used)
 
 
 
