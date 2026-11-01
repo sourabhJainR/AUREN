@@ -1,4 +1,4 @@
-"""Integration regressions for bounded acknowledged response transport."""
+"""Integration regressions for acknowledged transport and telemetry isolation."""
 import tempfile
 import unittest
 from pathlib import Path
