@@ -28,11 +28,11 @@ def _sqlite_integrity(root: Path) -> list[dict[str, Any]]:
         try:
             uri = path.resolve().as_uri() + "?mode=ro"
             with sqlite3.connect(uri, uri=True, timeout=2) as db:
-                rows = [str(row[0]) for row in db.execute("PRAGMA quick_check").fetchall()]
+                rows = [str(row[0]) for row in db.execute("PRAGMA integrity_check").fetchall()]
             reports.append({
                 "path": path.relative_to(root).as_posix(),
                 "status": "passed" if rows == ["ok"] else "failed",
-                "quick_check": rows,
+                "integrity_check": rows,
             })
         except Exception as exc:
             reports.append({
