@@ -5,7 +5,6 @@ from datetime import datetime, timedelta, timezone
 import sqlite3
 import tempfile
 import unittest
-from unittest.mock import patch
 from pathlib import Path
 
 from portable.action_governance import ActionRequest
@@ -274,19 +273,14 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         record = approvals.get(pending_record.approval_id)
         self.assertEqual("approved", record.status)
 
-        class FutureDateTime(datetime):
-            @classmethod
-            def now(cls, tz=None):
-                return datetime.now(tz) + timedelta(hours=2)
-
+        approvals.clock = lambda: datetime.now(timezone.utc) + timedelta(hours=2)
         guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
         root = self._root(self.controller, approvals, request, record, guard, context=self.context)
-        with patch("portable.trusted_plan_dispatch.datetime", FutureDateTime):
-            with self.assertRaisesRegex(PermissionError, "expired"):
-                root.dispatch(
-                    run_id=self.plan.run_id, task_id="implement", dispatch_key="expired-approval",
-                    handler="dispatch-test", packet=self.packet,
-                )
+        with self.assertRaisesRegex(PermissionError, "expired"):
+            root.dispatch(
+                run_id=self.plan.run_id, task_id="implement", dispatch_key="expired-approval",
+                handler="dispatch-test", packet=self.packet,
+            )
         with sqlite3.connect(self.controller.db_path) as db:
             self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
 
@@ -336,9 +330,9 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
 
 
     def test_consequential_handler_without_canonical_approval_is_blocked(self):
-        self.controller.register_handler(
-            "consequential-test", dispatch_test_handler, execution_class="consequential",
-        )
+        # Exercise the root's consequential gate without registering an
+        # operator-owned deployment handler or inventing a promotion policy.
+        self.controller._handler_execution_class = lambda handler: "consequential"
         approvals = DurableApprovalStore(self.controller, context_provider=lambda request: dict(self.context))
         guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
         root = TrustedPlanDispatchRoot(
@@ -353,7 +347,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         with self.assertRaisesRegex(PermissionError, "requires a canonical durable approval"):
             root.dispatch(
                 run_id=self.plan.run_id, task_id="implement", dispatch_key="missing-approval",
-                handler="consequential-test", packet=self.packet,
+                handler="dispatch-test", packet=self.packet,
             )
         with sqlite3.connect(self.controller.db_path) as db:
             self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
