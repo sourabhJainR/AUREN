@@ -364,7 +364,7 @@ No local test run is claimed because this session has GitHub source/CI access bu
 - PR [#1166](https://github.com/sourabhJainR/AUREN/pull/1166) is merged at `81906e3eca59e9903b6056a5493abd736cc62309`; all six post-merge workflows passed. It enforces the eight-worker quota across processes sharing the same registry database with renewable leases and crash expiry.
 - PR [#1169](https://github.com/sourabhJainR/AUREN/pull/1169) adds a real nine-process contention regression and makes pytest execute the capacity suite. An initial explicit pytest run found two fake-thread tests that no longer matched the durable lease contract; those tests were rewritten to exercise slot admission directly. The latest exact-head CI is pending. Do not merge until the new pytest step and all required workflows pass.
 - The local paired benchmark shows unchanged bytes/chunk count and complete integrity/recovery. Latency is small and variable; provider monetary cost remains unknown. The consistent traced-memory reduction is a local-harness observation, not a production guarantee.
-- The separate [AUREN Capability Lab](https://github.com/sourabhJainR/firstTestproj) main SHA `a56a715cad72b241489a35bdf1aa1bb1412456a5` passed CI. Its deterministic persona-context experiment is a workflow-contract result, not model-level SI or AGI evidence.
+- The separate [AUREN Capability Lab](https://github.com/sourabhJainR/firstTestproj) main SHA `5c7d9402dcf8eacee5fcc22f1f6c7a31271f9f5f` passed CI. Its deterministic persona-context experiment is a workflow-contract result, not model-level SI or AGI evidence.
 
 
 
