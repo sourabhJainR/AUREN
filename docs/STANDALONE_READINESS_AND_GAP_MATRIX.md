@@ -316,3 +316,19 @@ Five paired iterations, 299,008-byte payload, Python 3.12.15 / Linux:
 | Chunks | 74 | 74 | 0 |
 
 All baseline and candidate iterations preserved integrity and completed. Recovery resumed after two acknowledged chunks and did not replay them. Monetary provider cost is not measured. The repeated runs show a consistent reduction in peak traced memory, while latency differences remain small and environment-sensitive. No production performance claim is made.
+
+
+### Benchmark variability check on software-team integration head — 2026-11-01
+
+Artifact: [run 41266198581](https://github.com/sourabhJainR/AUREN/actions/runs/41266198581), candidate revision `619588d13967c205ff5c77aadbd6c48e704cc674`.
+
+Five paired iterations, 299,008-byte payload, Python 3.12.15 / Linux:
+
+| Measure | Baseline | Candidate | Difference |
+|---|---:|---:|---:|
+| Latency | 183.868 ms | 190.066 ms | +6.198 ms |
+| Peak traced memory | 3,262,528 B | 2,181,992 B | -1,080,536 B |
+| Transported bytes | 299,008 B | 299,008 B | 0 B |
+| Chunks | 74 | 74 | 0 |
+
+Integrity and completion passed all iterations; recovery resumed from chunk 2 without replay. This run is slower on latency while retaining the same peak-memory reduction and byte count. Across repeats, latency moves in both directions; no reliable latency improvement is established. The memory result is stable in this harness, but still requires production receiver validation. Provider monetary cost remains unmeasured.
