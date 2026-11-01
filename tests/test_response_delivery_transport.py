@@ -161,3 +161,32 @@ if __name__ == "__main__":
                 execution_guard=RuntimeExecutionGuard(),
                 consume_shared_budget=lambda size: True,
             )
+
+
+    def test_slow_receiver_applies_backpressure_without_parallel_chunk_sends(self):
+        import threading
+        import time
+        self.start_task("task-slow")
+        active = 0
+        peak_active = 0
+        sent = []
+        lock = threading.Lock()
+
+        def slow_receiver(chunk):
+            nonlocal active, peak_active
+            with lock:
+                active += 1
+                peak_active = max(peak_active, active)
+            time.sleep(0.01)
+            sent.append(chunk.index)
+            with lock:
+                active -= 1
+            return self.ack(chunk)
+
+        receipt = deliver_response(
+            "slow payload " * 100, "task-slow",
+            receiver=slow_receiver, journal=self.journal, max_chunk_bytes=40,
+        )
+        self.assertTrue(receipt.acknowledged_chunks == receipt.total_chunks)
+        self.assertEqual(1, peak_active)
+        self.assertEqual(list(range(1, receipt.total_chunks + 1)), sent)
