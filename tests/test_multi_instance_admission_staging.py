@@ -13,6 +13,7 @@ import os
 import platform
 import subprocess
 import tempfile
+import sqlite3
 import time
 import unittest
 from datetime import datetime, timezone
@@ -312,11 +313,15 @@ class MultiInstanceAdmissionStagingTests(unittest.TestCase):
                         "tests.test_execution_controller.durable_handler",
                         {"id": name}, goal=name, work_key="staging:" + name,
                     )
-                self.assertEqual(0, blocked.pending_count())
+                with sqlite3.connect(blocked.db_path) as local_db:
+                    local_pending = local_db.execute(
+                        "SELECT COUNT(*) FROM tasks WHERE state='pending'"
+                    ).fetchone()[0]
+                self.assertEqual(0, local_pending)
                 evidence["scenarios"].append({
                     "name": name, "result": "passed",
                     "failure_closed_before_local_insert": True,
-                    "local_pending_count": blocked.pending_count(),
+                    "local_pending_count": local_pending,
                 })
 
             # Rollback rehearsal: a separate runtime root with coordinator
