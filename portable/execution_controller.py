@@ -2704,19 +2704,6 @@ class ExecutionController:
             )
         run_id = metadata.get("run_id")
         plan, run = bridge.load_verified(run_id)
-        trusted_binding_fields = {
-            "deadline_policy_seconds", "shared_budget_binding", "approval_evidence",
-        }
-        if (
-            (
-                getattr(self, "_trusted_plan_dispatch_required", False)
-                or bool(trusted_binding_fields.intersection(metadata))
-            )
-            and getattr(self, "_trusted_plan_dispatch_token", None) is None
-        ):
-            raise EngineeringPlanCheckpointMismatch(
-                "trusted plan dispatch root is not configured in this worker; refusing task execution"
-            )
         if (
             plan.digest != metadata.get("plan_digest")
             or plan.source_revision != metadata.get("source_revision")
@@ -2818,6 +2805,24 @@ class ExecutionController:
         ):
             raise EngineeringPlanCheckpointMismatch(
                 "queued dispatch payload or binding digest is invalid"
+            )
+
+        # Validate the canonical checkpoint, intent, and immutable payload before
+        # reporting a missing host composition root. This keeps restart diagnostics
+        # precise while still fencing every otherwise-valid task before its handler
+        # can run. No worker-provided metadata can satisfy this host-owned token.
+        trusted_binding_fields = {
+            "deadline_policy_seconds", "shared_budget_binding", "approval_evidence",
+        }
+        if (
+            (
+                getattr(self, "_trusted_plan_dispatch_required", False)
+                or bool(trusted_binding_fields.intersection(metadata))
+            )
+            and getattr(self, "_trusted_plan_dispatch_token", None) is None
+        ):
+            raise EngineeringPlanCheckpointMismatch(
+                "trusted plan dispatch root is not configured in this worker; refusing task execution"
             )
 
     def _invoke_consequential_with_ledger(self, task: DurableTask, handler: Handler) -> Any:
