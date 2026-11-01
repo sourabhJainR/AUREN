@@ -16,7 +16,7 @@ from tests.test_engineering_plan_dispatch import prepared
 
 
 class TrustedPlanDispatchRootTests(unittest.TestCase):
-    def _approval(self, controller, *, context):
+    def _approval(self, controller, *, context, plan_task_id="implement"):
         store = DurableApprovalStore(
             controller,
             approver_authorizer=lambda approver, role, scope, roles: (
@@ -39,7 +39,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             scope="repo:write",
             checkpoint={
                 "plan_run_id": self.plan.run_id,
-                "plan_task_id": "implement",
+                "plan_task_id": plan_task_id,
                 "plan_digest": self.plan.digest,
                 "run_revision": self.packet.run_revision,
                 "source_revision": self.packet.source_revision,
@@ -234,6 +234,22 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             )
             self.assertIs(runtime.trusted_plan_dispatch_root, root)
             self.assertIsNotNone(runtime.execution_controller._trusted_plan_dispatch_token)
+
+
+
+    def test_approval_for_another_plan_task_cannot_be_reused(self):
+        approvals, request, record = self._approval(
+            self.controller, context=self.context, plan_task_id="review",
+        )
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        root = self._root(self.controller, approvals, request, record, guard, context=self.context)
+        with self.assertRaisesRegex(PermissionError, "exact plan task revision"):
+            root.dispatch(
+                run_id=self.plan.run_id, task_id="implement", dispatch_key="wrong-task-approval",
+                handler="dispatch-test", packet=self.packet,
+            )
+        with sqlite3.connect(self.controller.db_path) as db:
+            self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
 
 
 
