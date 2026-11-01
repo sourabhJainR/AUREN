@@ -3414,10 +3414,14 @@ class ExecutionController:
             )
         if cursor.rowcount != 1:
             raise LeaseLostError("task lease was lost; stale worker cannot renew it")
-        self._record_progress(
-            task.id, "heartbeat", state="running", stage="execution",
-            message="Worker lease renewed; completion is not implied.",
-        )
+        # Receiver-acknowledged response delivery has its own journal state.
+        # A generic lease heartbeat must not overwrite blocked/stale/terminal
+        # delivery evidence with a misleading running projection.
+        if not str(task.work_key or "").startswith("dashboard-response:"):
+            self._record_progress(
+                task.id, "heartbeat", state="running", stage="execution",
+                message="Worker lease renewed; completion is not implied.",
+            )
 
     def detect_stale(self, stale_after_seconds: int = 900) -> list[DurableTask]:
         cutoff = (datetime.now(timezone.utc) - timedelta(seconds=max(1, stale_after_seconds))).isoformat()
