@@ -114,11 +114,25 @@ these metrics. Completion digests are evidence references, not content. Metrics 
 do not change task completion state; only the existing durable acknowledgement,
 artifact verification, and supervisor finalization gates can do that.
 
+
 The local baseline/candidate benchmark runs five paired iterations over the same
-299,008-byte payload and reports integrity, completion, latency, peak memory, chunk
-count, recovery cursor, replay behavior, and transported-byte cost proxy. Provider
-spend is reported as not measured because the local benchmark has no metered provider.
-These results are descriptive and are not a release or capability-promotion gate.
+299,008-byte payload. Latest run: [workflow 41275927868](https://github.com/sourabhJainR/AUREN/actions/runs/41275927868).
+
+| Measure | Baseline | Candidate | Change |
+|---|---:|---:|---:|
+| Median latency | 194.365 ms | 192.191 ms | -2.174 ms (-1.12%) |
+| Median peak memory | 3,262,528 bytes | 2,182,192 bytes | -1,080,336 bytes (-33.1%) |
+| Transported bytes | 299,008 | 299,008 | No change |
+| Chunks | 74 | 74 | No change |
+| Integrity | Pass in all runs | Pass in all runs | Preserved |
+| Completion | All complete | All complete | Preserved |
+
+The recovery experiment interrupted after two acknowledged chunks, resumed from
+chunk 2, delivered the remaining 72 chunks, and observed no replay of acknowledged
+chunks. Provider spend is reported as not measured because the local benchmark has
+no metered provider; transported bytes are the cost proxy. Environment: Python
+3.12.15 on Linux x86_64, five iterations. These results are descriptive and are not
+a release or capability-promotion gate.
 
 ## Boundaries and rollback
 
