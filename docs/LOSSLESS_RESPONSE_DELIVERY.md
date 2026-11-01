@@ -62,10 +62,11 @@ after a worker exits. The delivery status response exposes process-local and sha
 worker capacity. Process-local saturation-event counts reset on restart and are
 operational telemetry, not an audit ledger.
 
-The quota is global only for processes using the same registry database. It does not
-bound the number of durable pending tasks, coordinate separate registry databases,
-or replace deployment-level admission controls. Persistent queue admission limits,
-multi-host deployment validation, and operator-tested recovery remain separate gates.
+The worker-slot quota is global only for processes using the same registry database.
+It does not itself bound durable pending tasks; the canonical controller's persistent
+queue admission policy is described in the next section. Neither layer coordinates
+separate controller/registry databases or replaces deployment-level admission controls.
+Multi-host deployment validation and operator-tested recovery remain separate gates.
 
 ## Persistent pending-queue admission
 
@@ -220,3 +221,35 @@ MCP stdio remains an atomic JSON-RPC frame and is not chunked. The chunked HTTP 
 legacy clients retain atomic JSON with the existing 4 MB cap. A 16 MB total cap and 12 KB chunks
 bound host memory and transfer units. If the client cannot durably store chunks or verify the final
 digest, it must stop without posting completion.
+
+## Host-path disposition inventory — 2026-11-02
+
+The following is the verified repository-level disposition. "Integrated" means the
+named host path has an implementation and boundary tests; it does not imply that
+every deployment has enabled or independently audited it.
+
+| Host path | Disposition | Current contract and evidence | Remaining boundary |
+|---|---|---|---|
+| Dashboard HTTP `POST /api/route` with `Accept: application/vnd.auren.chunked+json` | Integrated | Immutable response artifact, bounded pull chunks, receiver-confirmed contiguous acknowledgements, status/reconnect, final digest verification, durable delivery task and shared-budget injection. Covered by `tests/test_dashboard_chunked_delivery.py`. | Client storage durability is asserted by the client protocol; the server cannot inspect client storage. Deployment/network fault-injection remains separate. |
+| Dashboard HTTP legacy atomic JSON response | Intentionally unsupported for chunking | Retains its bounded atomic response and existing byte cap. It does not advertise acknowledgement or resume. | Callers needing large output must explicitly negotiate the chunked protocol. |
+| CLI `auren deliver` stdin/stdout | Intentionally unsupported for resumable chunking | Prevalidates total bytes; complete stdout writes return a digest receipt; partial writes return an unknown outcome and are not retried. Covered by `tests/test_response_delivery_sinks.py`, including subprocess tests. | No receiver acknowledgement exists on a generic stdout pipe, so replay/resume cannot be claimed. |
+| CLI `auren deliver` file output | Intentionally unsupported for resumable chunking | Same-directory staging and atomic commit; no implicit overwrite; digest receipt. Covered by sink and subprocess tests. | Atomic file replacement is the completion contract; no remote receiver cursor is available. |
+| MCP stdio JSON-RPC | Intentionally unsupported for chunking | Each protocol frame remains atomic and byte-bounded. Oversized frames fail closed; process cleanup remains part of the MCP boundary. | Never split JSON-RPC frames. A future MCP chunk protocol would require explicit peer capability negotiation and a separate protocol contract. |
+| `portable.response_delivery_transport.deliver_response` | Reusable primitive only; not yet integrated into a production host call site | Synchronous receiver call provides one-chunk backpressure; digest-bound acknowledgements are journaled; restart resumes after the last acknowledged chunk; ambiguous outcomes block replay; shared guard and cancellation/deadline checks are supported. Covered by `tests/test_response_delivery_transport.py` and `benchmarks/response_delivery_comparison.py`. | Default-branch call-site search found references in tests and the benchmark, but no production runtime caller. Wire it into a real host adapter before claiming end-to-end integration. |
+| Content-addressed response artifacts | Integrated for dashboard chunk delivery | The dashboard stages immutable manifest/chunk artifacts and validates them on reload before serving chunks. | This is not a general-purpose persistence hook for every test, evaluator, provider or tool output. |
+| Provider/model results, tool outputs, test reports and evaluator reports outside the dashboard route | Blocked / not yet proven as end-to-end host integrations | Existing runtime code may retain or pass these values internally, but the repository evidence inspected for this inventory does not establish a receiver-acknowledged delivery boundary for every such path. | Each concrete host call site needs an owner, a supported receiver contract, byte bounds, cancellation/deadline/shared-budget propagation, durable ack/resume where supported, and boundary tests. Until then, do not describe these paths as integrated. |
+| Chat/UI final response delivery outside AUREN's own HTTP dashboard | Blocked / host-controlled | AUREN cannot infer delivery acknowledgement or resume support from a platform response API that does not expose those capabilities. | Treat platform delivery as unconfirmed unless the host supplies a verifiable receipt/cursor. Do not claim that AUREN controls or extends platform response limits. |
+
+### Closure rule for #1140
+
+The dashboard, CLI and MCP dispositions above are explicit. The opt-in transport
+adapter is reusable but does not satisfy automatic integration of every provider,
+tool, test and evaluator output. Keep #1140 open until those concrete call sites are
+enumerated and each is either integrated with real boundary tests or deliberately
+marked unsupported with a named owner and reason. Do not close the issue based only
+on helper tests or this inventory.
+
+Regression and rollback: preserve the atomic CLI/file behavior, MCP frame rejection,
+dashboard acknowledgement fencing and byte caps. Any future adapter rollback must
+remove its host wiring and tests together while retaining the fail-closed bounds and
+existing durable task/acknowledgement records.

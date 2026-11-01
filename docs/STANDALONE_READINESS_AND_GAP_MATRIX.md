@@ -352,7 +352,7 @@ Integrity and completion passed all iterations; recovery resumed from chunk 2 wi
 - The merged delivery work covers shared crew-budget charging before HTTP chunk offers, idempotent acknowledged-chunk charging, slow-receiver backpressure, disconnect/unknown-outcome blocking, restart/resume, bounded worker saturation, CLI/stdout and atomic file delivery, MCP oversized atomic-frame rejection/cleanup, and durable Session Control Center metrics.
 - Paired local benchmark results preserve integrity and recovery and show a repeatable reduction in traced peak memory in this harness. Latency varies in both directions. Monetary provider cost is not measured; transported bytes are a proxy only. Do not claim a production latency or cost improvement.
 - PR [#1166](https://github.com/sourabhJainR/AUREN/pull/1166) adds a SQLite-backed renewable worker-slot lease to enforce the eight-worker limit across processes that share the same registry database. It also adds crash-expiry and owner-fenced release tests. Exact-head CI is pending.
-- The cross-process quota does not cap the number of durable pending tasks and does not coordinate distinct registry databases. Persistent queue admission limits and deployment-wide multi-host testing remain open.
+- The eight-worker quota is scoped to processes sharing one delivery registry. Durable pending tasks are separately capped per shared ExecutionController database by a persisted admission policy (default 256); neither SQLite policy coordinates distinct roots/databases. Deployment-wide multi-host admission and operator testing remain open.
 - Remaining #696 gates include real host bootstrap configuration for software-team persona/model/tool scopes; externally controlled evaluator and sealed holdout custody; independent OS-level isolation audit; operator-controlled #534 migration/rollback rehearsal; real provider idempotency and ambiguous-outcome reconciliation; and verified required-check enforcement by a repository owner/admin.
 
 No local test run is claimed because this session has GitHub source/CI access but no AUREN checkout. Close the remaining gates only with exact-revision CI, operator receipts, or independently verifiable external evidence. Repository CI is not evidence of AGI or production autonomy.
@@ -424,7 +424,7 @@ These tests establish workflow contracts with deterministic fixtures. They do no
 
 Additional operational gaps:
 - The eight-worker quota applies only to processes sharing the same registry database. Distinct registries and deployment-wide multi-host coordination remain unproven.
-- The durable pending queue is not yet bounded by a global admission quota.
+- The durable pending queue has a persisted per-ExecutionController-database cap (default 256), enforced transactionally across processes sharing that database. A deployment-wide quota across distinct roots/databases is not yet enforced.
 - Real provider-side-effect ambiguity and cross-adapter idempotency still need production receipts.
 - Required-check enforcement must be verified by a repository owner/admin; CI results alone do not prove the branch rules are configured correctly.
 - No staging migration or rollback rehearsal has been claimed.
