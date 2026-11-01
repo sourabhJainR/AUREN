@@ -46,7 +46,8 @@
 
 ### P0 — Evaluator and isolation trust boundary
 
-- [x] Repository contracts define separate isolation and evaluator attestations and fail-closed receipt checks.
+- [x] Repository contracts define separate isolation and evaluator attestations and fail-closed receipt checks. The production `ExternalEvaluatorGateway` rejects test-only verifier mode unless explicitly opted in and requires both a trusted custody-verification boundary and a `production_ready` OS isolation adapter.
+- [ ] Supply and independently validate a production OS isolation adapter for the evaluator gateway. The existing Docker Arena runner has network disabled, no host mounts, read-only root, non-root UID/GID, dropped capabilities, no-new-privileges, and CPU/memory/PID limits, but it is not yet wired as a production evaluator gateway adapter.
 - [ ] Bind production probe execution to a trusted launcher that enforces workspace/process/container isolation, egress restrictions, and no inherited secrets.
 - [ ] Use an independently controlled evaluator, sealed corpus custody, external signer/key roots, expiry/revocation checks, and tamper-evident artifact lineage.
 - [ ] Run adversarial tests for workspace escape, secret access, network access, evaluator manipulation, holdout exposure, and uncertain adoption/rollback.
@@ -351,7 +352,7 @@ Integrity and completion passed all iterations; recovery resumed from chunk 2 wi
 - PR [#1165](https://github.com/sourabhJainR/AUREN/pull/1165) is merged at `357d60af09f1be486e0950de727077454efceac1`. All nine exact-head workflows passed. On the merge SHA, seven inspected push workflows passed; the Runtime Resilience Matrix is still running. The post-merge check set is not fully terminal until that run finishes.
 - The merged delivery work covers shared crew-budget charging before HTTP chunk offers, idempotent acknowledged-chunk charging, slow-receiver backpressure, disconnect/unknown-outcome blocking, restart/resume, bounded worker saturation, CLI/stdout and atomic file delivery, MCP oversized atomic-frame rejection/cleanup, and durable Session Control Center metrics.
 - Paired local benchmark results preserve integrity and recovery and show a repeatable reduction in traced peak memory in this harness. Latency varies in both directions. Monetary provider cost is not measured; transported bytes are a proxy only. Do not claim a production latency or cost improvement.
-- PR [#1166](https://github.com/sourabhJainR/AUREN/pull/1166) adds a SQLite-backed renewable worker-slot lease to enforce the eight-worker limit across processes that share the same registry database. It also adds crash-expiry and owner-fenced release tests. Exact-head CI is pending.
+- PR [#1166](https://github.com/sourabhJainR/AUREN/pull/1166) merged at `81906e3eca59e9903b6056a5493abd736cc62309`; all six post-merge workflows passed. It adds SQLite-backed renewable worker-slot leases, crash expiry, and owner-fenced release across processes sharing one registry database.
 - The eight-worker quota is scoped to processes sharing one delivery registry. Durable pending tasks are separately capped per shared ExecutionController database by a persisted admission policy (default 256); neither SQLite policy coordinates distinct roots/databases. Deployment-wide multi-host admission and operator testing remain open.
 - Remaining #696 gates include real host bootstrap configuration for software-team persona/model/tool scopes; externally controlled evaluator and sealed holdout custody; independent OS-level isolation audit; operator-controlled #534 migration/rollback rehearsal; real provider idempotency and ambiguous-outcome reconciliation; and verified required-check enforcement by a repository owner/admin.
 
