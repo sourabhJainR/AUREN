@@ -356,21 +356,23 @@ The merged delivery scope includes the shared crew delivery-byte budget and rest
 
 **Measurement interpretation:** repeated local paired runs show lower peak traced memory (about 1.08 MB in the 299,008-byte fixture) and identical transported bytes. Latency varies in both directions across repeats; do not claim a reliable speedup. Monetary provider cost is unknown because the benchmark does not call a metered provider. These results do not establish production receiver performance or multi-host capacity.
 
-### Software-team host bootstrap — active PR
+### Software-team host bootstrap — merged
 
-PR [#1167](https://github.com/sourabhJainR/AUREN/pull/1167) wires all six leadership, engineering-manager, architecture, research/evaluation, and release personas into the real `.ai-harness/runtime` bootstrap. The host must supply complete provider invokers, provider IDs and pinned versions, plus per-persona read-only tool scopes. The supervised registration helper binds lifecycle events to the controller-owned ProgressJournal. Incomplete mappings fail before registry mutation; adapters remain proposal-only.
+PR [#1167](https://github.com/sourabhJainR/AUREN/pull/1167) merged at `f53880d25b60f9ce38e216053fdee6043af58ef0`. It wires all six leadership, engineering-manager, architecture, research/evaluation, and release personas into the real `.ai-harness/runtime` bootstrap. The host supplies provider invokers, provider IDs and pinned versions, and per-persona read-only tool scopes. The supervised registration helper binds lifecycle events to the controller-owned ProgressJournal. Incomplete mappings fail before registry mutation; adapters remain proposal-only. Production provider credentials and approved tool scopes still require host verification.
 
-The exact-head check set for #1167 is the merge gate. Its branch has been refreshed onto the new main revision after the older overlapping #1166 PR merged. Passing repository tests will prove the registration contract, not that production hosts have supplied valid provider credentials, approved tool scopes, or operational policy.
+### Cross-process response-delivery admission — merged
 
-### Parallel response-delivery admission work
+PR [#1166](https://github.com/sourabhJainR/AUREN/pull/1166) merged at `81906e3eca59e9903b6056a5493abd736cc62309`. It adds an atomic SQLite worker-slot quota shared by processes using the same registry database, with five-second heartbeat renewal, 30-second lease expiry, owner-fenced release, and cancellation on lost lease. All six post-merge workflows passed. The deployment still needs real multi-host validation, and the durable pending queue remains unbounded by this worker quota.
 
-PR [#1166](https://github.com/sourabhJainR/AUREN/pull/1166) adds cross-process response-delivery worker quota enforcement. It is separate from the merged in-process worker cap and must pass its own exact-head checks before merge. Until then, do not describe the deployment-wide worker quota as complete.
+### OS-process contention proof — active PR
+
+PR [#1170](https://github.com/sourabhJainR/AUREN/pull/1170) adds a nine-process contention test and converts the quota tests to discoverable `unittest.TestCase` cases. The earlier pytest run found two obsolete fake-thread tests; they were replaced with direct durable-slot tests. Exact-head CI must pass before merge.
 
 ### Roadmap status
 
 | Roadmap gate | Current status | Remaining evidence |
 |---|---|---|
-| #696 unified runtime, learning, delivery, dashboard | Delivery foundation merged; #1167 host persona bootstrap and #1166 cross-process admission are under review | Merge exact-head green PRs; verify host-configured provider dispatch; reconcile dashboard after real multi-session restart; independent evaluation and production isolation |
+| #696 unified runtime, learning, delivery, dashboard | Delivery foundation, host persona bootstrap (#1167), and shared cross-process worker admission (#1166) merged; OS-process contention test #1170 in review | Merge #1170 after exact-head CI; verify production host provider/tool configuration; persistent pending-queue admission; multi-host restart; independent evaluation and production isolation |
 | #692 recursive harness learning | Capability Lab and deterministic baseline/candidate contracts exist | Metered provider/model runs, causal attribution, sealed holdouts, broad cross-domain transfer, independent Arena custody |
 | #694 spec-driven persistent planning | Plan, graph, architect and manager contracts exist | Durable plan evolution and approval handoff, dependency mutation, fresh-context resume, contradiction/staleness and restart tests |
 | #809 durable human approval and resumable side effects | Repository-side approval and delivery contracts exist | Real host approval boundary, provider-native idempotency/history lookup, restart, cancellation, timeout and final-ack evidence |
@@ -378,3 +380,18 @@ PR [#1166](https://github.com/sourabhJainR/AUREN/pull/1166) adds cross-process r
 | Independent Arena / isolation | Not production-ready | External custody, independently controlled evaluator, adversarial holdouts, OS-level isolation audit and signed attestation |
 
 **Readiness decision:** repository implementation and CI are improving, but production readiness and general intelligence are not established. Keep external evaluation, sealed holdout custody, production isolation, staging migration/rollback, and provider monetary cost marked blocked or unmeasured until their own evidence exists. The independent [firstTestproj Capability Lab](https://github.com/sourabhJainR/firstTestproj) remains a research/test dependency only, not an AUREN runtime dependency. No AGI claim is supported.
+
+
+## Benchmark evidence refresh — 2026-11-01
+
+Paired artifact [run 41266288196](https://github.com/sourabhJainR/AUREN/actions/runs/41266288196), five iterations, Python 3.12.15/Linux, 299,008-byte payload:
+
+| Measure | Baseline | Candidate | Difference |
+|---|---:|---:|---:|
+| Median latency | 279.032 ms | 277.653 ms | -1.379 ms |
+| Peak traced memory | 3,262,528 B | 2,181,992 B | -1,080,536 B |
+| Transported bytes | 299,008 B | 299,008 B | 0 B |
+| Chunks | 74 | 74 | 0 |
+
+Integrity and completion passed all iterations. Recovery resumed from chunk 2 without replay. Across repeats, latency moves in both directions; no reliable latency improvement is established. Peak traced memory is lower in this harness, but production receiver validation remains required. Provider monetary cost is not measured; transported bytes are only a proxy. Do not present this as a production cost saving.
+
