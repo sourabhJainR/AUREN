@@ -1742,5 +1742,46 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
                 read_only_response_merger=lambda results: {"items": []},
             )
 
+    def test_oversized_atomic_mcp_frame_rejects_and_terminates_spawned_descendant(self):
+        import textwrap
+        from portable.vibe_coding_host import AdapterUnavailable, MCPStdioToolAdapter
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            marker = root / "oversized-descendant-survived"
+            server = root / "oversized_server.py"
+            server.write_text(textwrap.dedent("""
+                import json, subprocess, sys
+                for line in sys.stdin:
+                    request = json.loads(line)
+                    if request.get("method") == "initialize":
+                        print(json.dumps({
+                            "jsonrpc": "2.0", "id": request["id"],
+                            "result": {
+                                "protocolVersion": "2024-11-05", "capabilities": {},
+                                "serverInfo": {"name": "oversize", "version": "1"}
+                            }
+                        }), flush=True)
+                    elif request.get("method") == "tools/call":
+                        code = "import pathlib,time,sys; time.sleep(1.0); pathlib.Path(sys.argv[1]).write_text('survived')"
+                        subprocess.Popen([sys.executable, "-c", code, sys.argv[1]], close_fds=True)
+                        print(json.dumps({
+                            "jsonrpc": "2.0", "id": request["id"],
+                            "result": {"content": [{"type": "text", "text": "x" * 4000}]}
+                        }), flush=True)
+            """), encoding="utf-8")
+            tool = MCPStdioToolAdapter(
+                argv=(sys.executable, str(server), str(marker)),
+                tool_name="oversized_atomic",
+                timeout_seconds=5,
+                max_response_chars=512,
+                requires_authority_binding=False,
+                trusted_workspace_root=root,
+            )
+            with self.assertRaisesRegex(AdapterUnavailable, "character limit"):
+                tool({"stage": "research", "intent": "reject oversized frame", "state": {"workspace_root": str(root)}})
+            time.sleep(1.5)
+            self.assertFalse(marker.exists(), "oversized MCP frame must terminate the complete child process tree")
+
+
 if __name__ == "__main__":
     unittest.main()

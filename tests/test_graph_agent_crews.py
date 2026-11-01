@@ -68,7 +68,7 @@ class GraphAgentCrewTests(unittest.TestCase):
         team, _graph = self.make_team(lambda _state: "ok")
         personas = team.required_personas("frontend UI, SQL database, C# .NET, security permissions")
         self.assertEqual(personas, (
-            "pm", "security_privacy", "dba", "frontend", "backend", "dotnet", "reviewer", "enduser"
+            "pm", "security_privacy", "dba", "frontend", "manager", "backend", "dotnet", "reviewer", "enduser"
         ))
 
     def test_plan_guardrails_and_dispatch_are_scoped_to_graph_execution(self):

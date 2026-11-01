@@ -615,6 +615,62 @@ SPECIALIST_CREW_IDS = (
 )
 
 
+SOFTWARE_TEAM_PERSONA_IDS = (
+    "ceo_sponsor",
+    "cto_sponsor",
+    "engineering_manager",
+    "release_operations",
+    "research_evaluation",
+    "solution_architect",
+)
+
+
+def build_software_team_persona_adapters(
+    *,
+    planners: Mapping[str, Callable[[Mapping[str, Any]], Mapping[str, Any]]],
+    tools: ApprovedToolRegistry,
+    allowed_tools_by_persona: Mapping[str, Sequence[str]],
+    finalizers: Mapping[str, Callable[[Mapping[str, Any]], Mapping[str, Any]]] | None = None,
+    max_tool_calls: int = 4,
+    implementation_versions: Mapping[str, str] | None = None,
+) -> dict[str, ApprovedToolCrewAdapter]:
+    """Build the six leadership/research/architecture adapters with explicit tool scopes.
+
+    This is separate from the eight core specialist adapters so existing provider
+    integrations remain compatible. Returned adapters are proposals only; the
+    supervisor retains execution, approval, merge, promotion, and release authority.
+    """
+    if not isinstance(tools, ApprovedToolRegistry):
+        raise TypeError("tools must be an ApprovedToolRegistry")
+    finalizers = {} if finalizers is None else finalizers
+    implementation_versions = {} if implementation_versions is None else implementation_versions
+    for name, mapping in (
+        ("planners", planners), ("allowed_tools_by_persona", allowed_tools_by_persona),
+        ("finalizers", finalizers), ("implementation_versions", implementation_versions),
+    ):
+        if not isinstance(mapping, Mapping):
+            raise TypeError(f"{name} must be a mapping")
+        unknown = set(mapping) - set(SOFTWARE_TEAM_PERSONA_IDS)
+        if unknown:
+            raise ValueError(f"{name} contains unknown persona IDs: " + ", ".join(sorted(unknown)))
+    missing_planners = set(SOFTWARE_TEAM_PERSONA_IDS) - set(planners)
+    missing_scopes = set(SOFTWARE_TEAM_PERSONA_IDS) - set(allowed_tools_by_persona)
+    if missing_planners:
+        raise ValueError("missing software-team persona planners: " + ", ".join(sorted(missing_planners)))
+    if missing_scopes:
+        raise ValueError("missing software-team persona tool scopes: " + ", ".join(sorted(missing_scopes)))
+    return {
+        persona_id: ApprovedToolCrewAdapter(
+            persona_id, planners[persona_id], tools,
+            allowed_tools=allowed_tools_by_persona[persona_id],
+            finalizer=finalizers.get(persona_id),
+            max_tool_calls=max_tool_calls,
+            implementation_version=implementation_versions.get(persona_id, "unversioned"),
+        )
+        for persona_id in SOFTWARE_TEAM_PERSONA_IDS
+    }
+
+
 def build_specialist_crew_adapters(
     *,
     planners: Mapping[str, Callable[[Mapping[str, Any]], Mapping[str, Any]]],

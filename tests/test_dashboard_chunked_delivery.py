@@ -56,10 +56,12 @@ def _request(server, method, path, payload=None, *, headers=None):
     return status, response_headers, decoded
 
 
-def _stop_server(server, thread):
+def _stop_server(server, thread, *, preserve_workers=False):
     server.shutdown()
     server.server_close()
     thread.join(timeout=3)
+    if not preserve_workers:
+        server.RequestHandlerClass.delivery_supervisor.shutdown(wait_seconds=2.0)
 
 
 def test_chunked_route_supports_acknowledged_resume_after_server_restart(monkeypatch, tmp_path):
@@ -74,7 +76,7 @@ def test_chunked_route_supports_acknowledged_resume_after_server_restart(monkeyp
             server, "POST", "/api/route", {"task": "build multi-ticker evidence brief"},
             headers={"Accept": dashboard_server.CHUNKED_RESPONSE_ACCEPT},
         )
-        assert status == 202
+        assert status == 202, (status, manifest)
         assert headers["X-AUREN-Delivery-Mode"] == "chunked-pull-v1"
         assert headers["X-AUREN-Chunk-Ack"] == "receiver-confirmed"
         assert manifest["delivery_mode"] == "chunked-pull-v1"
@@ -117,7 +119,7 @@ def test_chunked_route_supports_acknowledged_resume_after_server_restart(monkeyp
         status, _, duplicate = _request(server, "POST", manifest["ack"], first_ack)
         assert status == 200 and duplicate["acknowledged_index"] == 1
     finally:
-        _stop_server(server, thread)
+        _stop_server(server, thread, preserve_workers=True)
 
     # Simulate an abrupt host exit. The next host may reclaim only after the
     # durable worker lease and heartbeat are expired.
@@ -138,7 +140,7 @@ def test_chunked_route_supports_acknowledged_resume_after_server_restart(monkeyp
         parts = [first_text]
         while True:
             status, _, chunk = _request(server, "GET", manifest["next"])
-            assert status == 200
+            assert status == 200, (status, chunk)
             if chunk.get("all_chunks_acknowledged"):
                 break
             assert chunk["chunk_index"] == len(parts) + 1
@@ -195,7 +197,7 @@ def test_chunked_ack_rejects_gaps_and_wrong_manifest(monkeypatch, tmp_path):
             server, "POST", "/api/route", {"task": "test"},
             headers={"Accept": dashboard_server.CHUNKED_RESPONSE_ACCEPT},
         )
-        assert status == 202
+        assert status == 202, (status, manifest)
         gap = {
             "chunk_index": 2, "chunk_sha256": "0" * 64,
             "response_sha256": manifest["response_sha256"],
@@ -262,7 +264,7 @@ def test_identical_response_bodies_use_independent_receiver_cursors(monkeypatch,
         assert first["delivery_id"] != second["delivery_id"]
 
         status, _, chunk = _request(server, "GET", first["next"])
-        assert status == 200 and chunk["chunk_index"] == 1
+        assert status == 200, chunk and chunk["chunk_index"] == 1
         ack = {
             "chunk_index": 1, "chunk_sha256": chunk["chunk_sha256"],
             "response_sha256": first["response_sha256"],
@@ -304,6 +306,7 @@ def test_blocked_delivery_cannot_accept_late_ack_or_complete(monkeypatch, tmp_pa
             task_id, "delivery_reconciliation_required", state="blocked",
             stage="reconciliation", message="operator reconciliation required",
         )
+        assert journal.snapshot(task_id)["reported_state"] == "blocked"
         status, _, _ = _request(server, "POST", manifest["ack"], ack)
         assert status == 409
         status, _, blocked_offer = _request(server, "GET", manifest["next"])
@@ -383,6 +386,7 @@ def test_stale_delivery_cannot_accept_ack_or_complete(monkeypatch, tmp_path):
             message="stale delivery fixture",
             timestamp="2026-10-30T00:00:00+00:00",
         )
+        assert journal.snapshot(task_id)["state"] == "stale"
         status, _, rejected = _request(server, "POST", manifest["ack"], ack)
         assert status == 503
         assert "completion is not confirmed" in rejected["error"] or "delivery state unavailable" in rejected["error"]
@@ -536,5 +540,99 @@ def test_host_boundary_deadline_expires_parent_without_receiver_ack(monkeypatch,
         assert state == "failed"
         status, _, _ = _request(server, "GET", manifest["next"])
         assert status == 409
+    finally:
+        _stop_server(server, thread)
+
+
+def test_session_delivery_metrics_report_durable_acknowledgements(monkeypatch, tmp_path):
+    result = SimpleNamespace(
+        provider="test", model="fixture", success=True, attempts=1, latency_ms=1.0,
+        resource_usage={}, fallback_reason=None, result={"answer": "metrics-" * 4000}, error=None,
+    )
+    server, thread = _start_server(monkeypatch, tmp_path, result)
+    try:
+        status, _, manifest = _request(
+            server, "POST", "/api/route", {"task": "delivery metrics"},
+            headers={"Accept": dashboard_server.CHUNKED_RESPONSE_ACCEPT},
+        )
+        assert status == 202
+        status, _, chunk = _request(server, "GET", manifest["next"])
+        assert status == 200
+        ack = {
+            "chunk_index": chunk["chunk_index"], "chunk_sha256": chunk["chunk_sha256"],
+            "response_sha256": manifest["response_sha256"],
+            "total_chunks": manifest["total_chunks"],
+        }
+        status, _, _ = _request(server, "POST", manifest["ack"], ack)
+        assert status == 200
+        metrics = server.RequestHandlerClass.delivery_supervisor.metrics_snapshot()
+        assert metrics["acknowledged_chunks"] == 1
+        assert metrics["running_tasks"] >= 1
+        assert metrics["capacity"]["worker_limit"] == 8
+        assert metrics["integrity"]["unknown_outcomes_block_replay"] is True
+
+        # Session Control Center APIs expose the same delivery counters, not a
+        # separately reconstructed UI-only approximation.
+        status, _, sessions = _request(server, "GET", "/api/sessions?limit=10")
+        assert status == 200, sessions
+        assert sessions["delivery_metrics"]["acknowledged_chunks"] == 1
+        status, _, center = _request(server, "GET", "/api/control-center")
+        assert status == 200, center
+        assert center["delivery_metrics"]["acknowledged_chunks"] == 1
+    finally:
+        _stop_server(server, thread)
+
+
+
+def test_http_delivery_charges_one_shared_crew_budget_across_deliveries_and_restart(monkeypatch, tmp_path):
+    from portable.runtime_recovery import RuntimeExecutionGuard
+
+    answer = "crew-budget-output-" * 5000
+    result = SimpleNamespace(
+        provider="test", model="fixture", success=True, attempts=1, latency_ms=1.0,
+        resource_usage={}, fallback_reason=None, result={"answer": answer}, error=None,
+    )
+    server, thread = _start_server(monkeypatch, tmp_path, result)
+    guard = RuntimeExecutionGuard(max_delivery_bytes=dashboard_server.MAX_DELIVERY_CHUNK_BYTES)
+    server.RequestHandlerClass.delivery_execution_guard = guard
+    server.RequestHandlerClass.delivery_budget_id = "crew-budget-regression"
+    try:
+        headers = {"Accept": dashboard_server.CHUNKED_RESPONSE_ACCEPT}
+        status, _, first = _request(server, "POST", "/api/route", {"task": "crew budget one"}, headers=headers)
+        assert status == 202
+        status, _, chunk = _request(server, "GET", first["next"])
+        assert status == 200
+        assert chunk["utf8_bytes"] <= dashboard_server.MAX_DELIVERY_CHUNK_BYTES
+        assert guard.delivery_bytes_used == chunk["utf8_bytes"]
+
+        # Re-reading an unacknowledged chunk is idempotent: it does not consume
+        # budget twice and the same bytes remain available for receiver retry.
+        status, _, repeated = _request(server, "GET", first["next"])
+        assert status == 200, (status, repeated)
+        assert repeated["chunk_sha256"] == chunk["chunk_sha256"]
+        assert guard.delivery_bytes_used == chunk["utf8_bytes"]
+
+        status, _, second = _request(server, "POST", "/api/route", {"task": "crew budget two"}, headers=headers)
+        assert status == 202
+        status, _, blocked = _request(server, "GET", second["next"])
+        assert status == 429
+        assert "shared crew delivery byte budget exhausted" in blocked["error"]
+        assert server.RequestHandlerClass.delivery_supervisor.delivery_budget_snapshot(
+            server.RequestHandlerClass._delivery_task_id(second["response_id"], second["delivery_id"])
+        )["delivery_bytes_used"] == chunk["utf8_bytes"]
+    finally:
+        _stop_server(server, thread, preserve_workers=True)
+
+    # A new host restores the same crew budget ledger. A repeated offer remains
+    # idempotent; a different delivery cannot spend the exhausted budget again.
+    server, thread = _start_server(monkeypatch, tmp_path, None)
+    server.RequestHandlerClass.delivery_budget_id = "crew-budget-regression"
+    try:
+        status, _, repeated = _request(server, "GET", first["next"])
+        assert status == 200
+        assert repeated["chunk_sha256"] == chunk["chunk_sha256"]
+        status, _, blocked = _request(server, "GET", second["next"])
+        assert status == 429
+        assert "shared crew delivery byte budget exhausted" in blocked["error"]
     finally:
         _stop_server(server, thread)

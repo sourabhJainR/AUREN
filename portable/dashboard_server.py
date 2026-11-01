@@ -150,26 +150,37 @@ class _Handler(BaseHTTPRequestHandler):
             body.decode("utf-8"), max_chunk_bytes=MAX_DELIVERY_CHUNK_BYTES,
         )
         task_id = self.delivery_supervisor.create(
-            response_id, delivery_id, stored.artifact.digest,
+            response_id, delivery_id, response_id,
             deadline_seconds=getattr(self, "delivery_deadline_seconds", 600.0),
+            artifact_digest=stored.artifact.digest,
+            execution_guard=getattr(self, "delivery_execution_guard", None),
+            budget_id=getattr(self, "delivery_budget_id", None),
         )
         self.progress_journal.record_response_artifact(
             task_id, response_id=response_id, artifact_sha256=stored.artifact.digest,
         )
-        self.delivery_supervisor.start(task_id)
+        self.delivery_supervisor.start(task_id, artifact_verified=True)
         return stored
 
-    def _load_delivery(self, response_id, delivery_id):
+    def _load_delivery(self, response_id, delivery_id, *, resume=False):
         if not re.fullmatch(r"[0-9a-f]{64}", response_id):
             raise ValueError("invalid response identity")
         if self.response_repository is None or self.progress_journal is None:
             raise RuntimeError("durable response delivery is not configured")
         task_id = self._delivery_task_id(response_id, delivery_id)
-        self.delivery_supervisor.start(task_id)
         artifact_digest = self.progress_journal.response_artifact_reference(task_id, response_id)
         if artifact_digest is None:
             raise FileNotFoundError("response artifact is unavailable")
-        return self.response_repository.load(response_id, artifact_digest)
+        stored = self.response_repository.load(response_id, artifact_digest)
+        # Reads and acknowledgements must never revive blocked or stale work.
+        # A fresh running journal plus an expired durable lease is the restart
+        # recovery case; a pending task is safe to admit normally.
+        journal_state = self.progress_journal.snapshot(task_id)
+        controller_task = self.delivery_supervisor.controller.task(task_id)
+        if resume and journal_state.get("state") == "running" and journal_state.get("reported_state") == "running":
+            if controller_task is not None and controller_task.state in {"pending", "running"}:
+                self.delivery_supervisor.start(task_id, artifact_verified=True)
+        return stored
 
     def _delivery_checkpoint(self, response_id, delivery_id):
         return self.progress_journal.response_delivery_checkpoint(
@@ -183,7 +194,17 @@ class _Handler(BaseHTTPRequestHandler):
             return
         response_id, delivery_id, action = match.groups()
         try:
-            stored = self._load_delivery(response_id, delivery_id)
+            task_id = self._delivery_task_id(response_id, delivery_id)
+            # Verify the immutable artifact before reporting lifecycle state so
+            # corruption is never hidden behind a blocked/cancelled task response.
+            stored = self._load_delivery(response_id, delivery_id, resume=(action == "next"))
+            initial_snapshot = self.progress_journal.snapshot(task_id)
+            if action == "next" and initial_snapshot.get("state") not in {"running", "recovering", "queued"}:
+                self._send_delivery_json(409, {
+                    "error": "delivery is not runnable; reconcile its durable state before resuming",
+                    "state": initial_snapshot.get("state", "unknown"),
+                })
+                return
             manifest, chunks = stored.manifest, stored.chunks
             checkpoint = self._delivery_checkpoint(response_id, delivery_id)
             acknowledged = checkpoint["acknowledged_index"]
@@ -192,8 +213,41 @@ class _Handler(BaseHTTPRequestHandler):
             snapshot = self.progress_journal.snapshot(
                 self._delivery_task_id(response_id, delivery_id),
             )
-            terminal_state = self.delivery_supervisor.state(self._delivery_task_id(response_id, delivery_id))
+            task_id = self._delivery_task_id(response_id, delivery_id)
+            terminal_state = self.delivery_supervisor.state(task_id)
+            if action == "next" and terminal_state == "pending":
+                # A fenced old worker may need a short interval to exit before
+                # the replacement acquires the durable lease.
+                deadline = time.monotonic() + 2.0
+                while time.monotonic() < deadline and terminal_state == "pending":
+                    time.sleep(0.02)
+                    terminal_state = self.delivery_supervisor.state(task_id)
+            if (
+                action == "next" and terminal_state == "running"
+                and snapshot.get("state") in {"recovering", "queued"}
+            ):
+                self.progress_journal.record_reconciliation(
+                    task_id, state="running", stage="response-delivery-recovery",
+                    message="durable worker lease is active; progress projection reconciled after restart",
+                    expected_sequence=int(snapshot.get("sequence", 0)),
+                )
+                snapshot = self.progress_journal.snapshot(task_id)
             all_acknowledged = acknowledged == manifest.total_chunks
+            if (
+                action == "status" and terminal_state == "completed"
+                and all_acknowledged and snapshot.get("reported_state") == "running"
+            ):
+                self.progress_journal.record(
+                    self._delivery_task_id(response_id, delivery_id),
+                    "response_delivery_supervisor_completed", state="completed",
+                    stage="response-delivery-finalization",
+                    message="supervisor completed after verified receiver acknowledgement",
+                    evidence_ref="sha256:" + manifest.sha256,
+                    expected_sequence=snapshot.get("sequence"),
+                )
+                snapshot = self.progress_journal.snapshot(
+                    self._delivery_task_id(response_id, delivery_id),
+                )
             if action == "status":
                 self._send_delivery_json(200, {
                     "response_id": response_id,
@@ -208,7 +262,7 @@ class _Handler(BaseHTTPRequestHandler):
                     "capacity": self.delivery_supervisor.capacity_snapshot(),
                 })
                 return
-            if snapshot.get("state") != "running":
+            if snapshot.get("state") != "running" or terminal_state != "running":
                 if terminal_state == "completed" and all_acknowledged:
                     self._send_delivery_json(200, {
                         "response_id": response_id, "delivery_id": delivery_id,
@@ -217,9 +271,11 @@ class _Handler(BaseHTTPRequestHandler):
                         "total_chunks": manifest.total_chunks,
                     })
                     return
+                durable_state = snapshot.get("state", "unknown")
                 self._send_delivery_json(409, {
                     "error": "delivery is not runnable; reconcile its durable state before resuming",
-                    "state": terminal_state,
+                    "state": durable_state if durable_state != "running" else terminal_state,
+                    "supervisor_state": terminal_state,
                 })
                 return
             if all_acknowledged:
@@ -232,6 +288,16 @@ class _Handler(BaseHTTPRequestHandler):
                 })
                 return
             chunk = chunks[acknowledged]
+            task_id = self._delivery_task_id(response_id, delivery_id)
+            operation_key = f"delivery:{task_id}:{manifest.sha256}:{chunk.index}:{chunk.sha256}"
+            if not self.delivery_supervisor.consume_delivery_bytes(
+                task_id, chunk.utf8_bytes, operation_key=operation_key,
+            ):
+                self._send_delivery_json(429, {
+                    "error": "shared crew delivery byte budget exhausted; delivery remains pending",
+                    "acknowledged_index": acknowledged,
+                })
+                return
             self._send_delivery_json(200, {
                 "response_id": response_id,
                 "response_sha256": manifest.sha256,
@@ -256,6 +322,16 @@ class _Handler(BaseHTTPRequestHandler):
         response_id, delivery_id, action = match.groups()
         try:
             payload = self._read_json_request(max_bytes=16_384)
+            task_id = self._delivery_task_id(response_id, delivery_id)
+            pre_snapshot = self.progress_journal.snapshot(task_id)
+            if action in {"ack", "complete"}:
+                reported = pre_snapshot.get("reported_state", pre_snapshot.get("state"))
+                if pre_snapshot.get("state") == "stale":
+                    raise RuntimeError("stale delivery requires explicit reconciliation before acknowledgement")
+                if reported not in {"running", "completed"}:
+                    if action == "complete":
+                        raise RuntimeError("blocked delivery cannot be completed")
+                    raise ValueError("delivery is not running")
             stored = self._load_delivery(response_id, delivery_id)
             manifest, chunks = stored.manifest, stored.chunks
             checkpoint = self._delivery_checkpoint(response_id, delivery_id)
@@ -265,7 +341,6 @@ class _Handler(BaseHTTPRequestHandler):
             supplied_total = payload.get("total_chunks")
             if isinstance(supplied_total, bool) or not isinstance(supplied_total, int) or supplied_total != manifest.total_chunks:
                 raise ValueError("response chunk count mismatch")
-            task_id = self._delivery_task_id(response_id, delivery_id)
             if action == "cancel":
                 accepted = self.delivery_supervisor.cancel(task_id)
                 self._send_delivery_json(202 if accepted else 409, {
@@ -284,6 +359,9 @@ class _Handler(BaseHTTPRequestHandler):
                 if index not in {acknowledged, acknowledged + 1}:
                     raise ValueError("acknowledgements must be contiguous")
                 snapshot = self.progress_journal.snapshot(task_id)
+                supervisor_state = self.delivery_supervisor.state(task_id)
+                if supervisor_state != "running":
+                    raise RuntimeError("delivery supervisor is not running; reconcile before acknowledging")
                 state = snapshot.get("reported_state", snapshot.get("state"))
                 if state == "completed":
                     if index != acknowledged or acknowledged != manifest.total_chunks:
@@ -438,9 +516,14 @@ class _Handler(BaseHTTPRequestHandler):
                 limit = int(query.get("limit", ["50"])[0])
                 search = query.get("q", [""])[0]
                 status = query.get("status", ["all"])[0]
-                payload = self.control_center.session_snapshot(
-                    offset=offset, limit=limit, query=search, status=status,
-                )
+                if self.control_center is None:
+                    payload = {"sessions": self.progress_journal.list_snapshots(), "offset": offset, "limit": limit}
+                else:
+                    payload = self.control_center.session_snapshot(
+                        offset=offset, limit=limit, query=search, status=status,
+                    )
+                if self.delivery_supervisor is not None:
+                    payload["delivery_metrics"] = self.delivery_supervisor.metrics_snapshot()
                 self._send_api_json(200, payload)
             except (TypeError, ValueError):
                 self._send(400, b'{"error":"invalid session pagination bounds"}', "application/json; charset=utf-8")
@@ -459,8 +542,13 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/control-center":
             try:
-                snapshot = self.control_center.snapshot()
-                snapshot["models"] = LocalModelDiscovery().discover()
+                if self.control_center is None:
+                    snapshot = {"sessions": self.progress_journal.list_snapshots(), "models": []}
+                else:
+                    snapshot = self.control_center.snapshot()
+                    snapshot["models"] = LocalModelDiscovery().discover()
+                if self.delivery_supervisor is not None:
+                    snapshot["delivery_metrics"] = self.delivery_supervisor.metrics_snapshot()
                 self._send_api_json(200, snapshot)
             except Exception:
                 # Keep the local console responsive; report a bounded error without internals.

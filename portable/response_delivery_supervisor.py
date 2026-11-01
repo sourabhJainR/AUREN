@@ -8,6 +8,8 @@ import time
 from pathlib import Path
 from typing import Any, Mapping
 
+from .runtime_recovery import RuntimeExecutionGuard
+from .progress_journal import ProgressJournal
 from .execution_controller import (
     ExecutionController,
     LeaseLostError,
@@ -81,13 +83,37 @@ class ResponseDeliverySupervisor:
         self.journal_path = Path(journal_path).expanduser().resolve()
         self.registry_path = controller.db_path.parent / "response_delivery_registry.sqlite3"
         self.registry_path.parent.mkdir(parents=True, exist_ok=True)
+        self._budget_lock = threading.RLock()
+        self._execution_guards: dict[str, RuntimeExecutionGuard] = {}
         with sqlite3.connect(self.registry_path) as db:
             db.execute(
                 "CREATE TABLE IF NOT EXISTS deliveries ("
                 "response_id TEXT NOT NULL, delivery_id TEXT NOT NULL, task_id TEXT NOT NULL UNIQUE, "
-                "response_sha256 TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                "response_sha256 TEXT NOT NULL, artifact_sha256 TEXT, budget_id TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
                 "PRIMARY KEY(response_id, delivery_id))"
             )
+            columns = {row[1] for row in db.execute("PRAGMA table_info(deliveries)")}
+            if "budget_id" not in columns:
+                db.execute("ALTER TABLE deliveries ADD COLUMN budget_id TEXT")
+            if "artifact_sha256" not in columns:
+                db.execute("ALTER TABLE deliveries ADD COLUMN artifact_sha256 TEXT")
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS delivery_budgets ("
+                "budget_id TEXT PRIMARY KEY, snapshot_json TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+            )
+            legacy = db.execute(
+                "SELECT task_id FROM deliveries WHERE budget_id IS NULL OR budget_id=''"
+            ).fetchall()
+            for (legacy_task_id,) in legacy:
+                legacy_budget_id = f"delivery:{legacy_task_id}"
+                db.execute(
+                    "INSERT OR IGNORE INTO delivery_budgets(budget_id,snapshot_json) VALUES(?,?)",
+                    (legacy_budget_id, json.dumps(RuntimeExecutionGuard().snapshot(), sort_keys=True, separators=(",", ":"))),
+                )
+                db.execute(
+                    "UPDATE deliveries SET budget_id=? WHERE task_id=?",
+                    (legacy_budget_id, legacy_task_id),
+                )
         try:
             self.controller._load_handler(_HANDLER)
         except KeyError:
@@ -95,18 +121,35 @@ class ResponseDeliverySupervisor:
                 _HANDLER, await_receiver_acknowledgement, execution_class="read_only",
             )
 
-    def create(self, response_id: str, delivery_id: str, digest: str, *, deadline_seconds: float = 600.0) -> str:
+    def create(
+        self, response_id: str, delivery_id: str, digest: str, *, deadline_seconds: float = 600.0,
+        execution_guard: RuntimeExecutionGuard | None = None, budget_id: str | None = None,
+        artifact_digest: str | None = None,
+    ) -> str:
         if response_id != digest or len(digest) != 64:
             raise ValueError("response identity must equal its SHA-256 digest")
+        if execution_guard is not None and not isinstance(execution_guard, RuntimeExecutionGuard):
+            raise TypeError("execution_guard must be a RuntimeExecutionGuard")
+        if budget_id is not None and (not isinstance(budget_id, str) or not budget_id.strip()):
+            raise ValueError("budget_id must be a non-empty string")
+        if artifact_digest is not None and (
+            not isinstance(artifact_digest, str) or len(artifact_digest) != 64
+            or any(ch not in "0123456789abcdef" for ch in artifact_digest)
+        ):
+            raise ValueError("artifact_digest must be a lowercase SHA-256 digest")
         with sqlite3.connect(self.registry_path, timeout=10) as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
-                "SELECT task_id,response_sha256 FROM deliveries WHERE response_id=? AND delivery_id=?",
+                "SELECT task_id,response_sha256,artifact_sha256,budget_id FROM deliveries WHERE response_id=? AND delivery_id=?",
                 (response_id, delivery_id),
             ).fetchone()
             if row:
                 if row[1] != digest:
                     raise ValueError("delivery identity is already bound to a different response digest")
+                if artifact_digest is not None and row[2] not in (None, artifact_digest):
+                    raise ValueError("delivery identity is already bound to a different artifact digest")
+                if budget_id is not None and row[3] not in (None, budget_id):
+                    raise ValueError("delivery identity is already bound to a different crew budget")
                 task_id = str(row[0])
                 task = self.controller.task(task_id)
                 if task is None:
@@ -128,11 +171,93 @@ class ResponseDeliverySupervisor:
                 work_key=work_key,
                 deadline_seconds=deadline_seconds,
             )
+            resolved_budget_id = budget_id or f"delivery:{task.id}"
+            snapshot = execution_guard.snapshot() if execution_guard is not None else RuntimeExecutionGuard().snapshot()
+            existing_budget = db.execute(
+                "SELECT snapshot_json FROM delivery_budgets WHERE budget_id=?", (resolved_budget_id,),
+            ).fetchone()
+            if existing_budget is None:
+                db.execute(
+                    "INSERT INTO delivery_budgets(budget_id,snapshot_json) VALUES(?,?)",
+                    (resolved_budget_id, json.dumps(snapshot, sort_keys=True, separators=(",", ":"))),
+                )
+            elif execution_guard is not None:
+                persisted = json.loads(existing_budget[0])
+                old_charges = persisted.get("delivery_charges", {})
+                new_charges = snapshot.get("delivery_charges", {})
+                if (
+                    persisted.get("max_delivery_bytes") != snapshot.get("max_delivery_bytes")
+                    or any(new_charges.get(key) != value for key, value in old_charges.items())
+                ):
+                    raise ValueError("shared crew budget does not match its durable checkpoint")
+                db.execute(
+                    "UPDATE delivery_budgets SET snapshot_json=?,updated_at=CURRENT_TIMESTAMP WHERE budget_id=?",
+                    (json.dumps(snapshot, sort_keys=True, separators=(",", ":")), resolved_budget_id),
+                )
             db.execute(
-                "INSERT INTO deliveries(response_id,delivery_id,task_id,response_sha256) VALUES(?,?,?,?)",
-                (response_id, delivery_id, task.id, digest),
+                "INSERT INTO deliveries(response_id,delivery_id,task_id,response_sha256,artifact_sha256,budget_id) VALUES(?,?,?,?,?,?)",
+                (response_id, delivery_id, task.id, digest, artifact_digest or digest, resolved_budget_id),
             )
+            if execution_guard is not None:
+                self._execution_guards[resolved_budget_id] = execution_guard
             return task.id
+
+    def consume_delivery_bytes(self, task_id: str, amount: int, *, operation_key: str) -> bool:
+        """Charge a response chunk to the durable shared crew budget before sending it."""
+        with self._budget_lock, sqlite3.connect(self.registry_path, timeout=10) as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT budget_id FROM deliveries WHERE task_id=?", (task_id,),
+            ).fetchone()
+            if row is None or not row[0]:
+                raise RuntimeError("delivery task has no durable budget binding")
+            budget_id = str(row[0])
+            budget = db.execute(
+                "SELECT snapshot_json FROM delivery_budgets WHERE budget_id=?", (budget_id,),
+            ).fetchone()
+            if budget is None:
+                raise RuntimeError("shared delivery budget checkpoint is unavailable")
+            guard = self._execution_guards.get(budget_id)
+            persisted = json.loads(budget[0])
+            if guard is None:
+                guard = RuntimeExecutionGuard.resume(persisted)
+                self._execution_guards[budget_id] = guard
+            else:
+                live_snapshot = guard.snapshot()
+                persisted_charges = persisted.get("delivery_charges", {})
+                live_charges = live_snapshot.get("delivery_charges", {})
+                if (
+                    live_snapshot.get("max_delivery_bytes") != persisted.get("max_delivery_bytes")
+                    or any(live_charges.get(key) != value for key, value in persisted_charges.items())
+                ):
+                    raise RuntimeError("in-memory crew budget diverged from its durable checkpoint")
+                if live_charges != persisted_charges:
+                    db.execute(
+                        "UPDATE delivery_budgets SET snapshot_json=?,updated_at=CURRENT_TIMESTAMP WHERE budget_id=?",
+                        (json.dumps(live_snapshot, sort_keys=True, separators=(",", ":")), budget_id),
+                    )
+            previous_charge = guard.snapshot().get("delivery_charges", {}).get(operation_key)
+            if previous_charge is not None:
+                if previous_charge != amount:
+                    raise ValueError("delivery operation key was reused with a different byte charge")
+                return True
+            charged = guard.consume_delivery_bytes(amount, operation_key=operation_key)
+            if charged:
+                db.execute(
+                    "UPDATE delivery_budgets SET snapshot_json=?,updated_at=CURRENT_TIMESTAMP WHERE budget_id=?",
+                    (json.dumps(guard.snapshot(), sort_keys=True, separators=(",", ":")), budget_id),
+                )
+            return charged
+
+    def delivery_budget_snapshot(self, task_id: str) -> dict[str, Any]:
+        with sqlite3.connect(self.registry_path) as db:
+            row = db.execute(
+                "SELECT b.snapshot_json FROM deliveries d JOIN delivery_budgets b ON b.budget_id=d.budget_id WHERE d.task_id=?",
+                (task_id,),
+            ).fetchone()
+        if row is None:
+            raise FileNotFoundError("delivery budget checkpoint is unavailable")
+        return json.loads(row[0])
 
     def task_id(self, response_id: str, delivery_id: str) -> str:
         with sqlite3.connect(self.registry_path) as db:
@@ -159,7 +284,47 @@ class ResponseDeliverySupervisor:
                 "saturation_events": _SATURATION_COUNT,
             }
 
-    def start(self, task_id: str) -> bool:
+    def metrics_snapshot(self) -> dict[str, Any]:
+        """Expose delivery queue, integrity and lifecycle metrics from durable state."""
+        states: dict[str, int] = {}
+        with sqlite3.connect(self.controller.db_path) as db:
+            rows = db.execute(
+                "SELECT state,COUNT(*) FROM tasks WHERE work_key LIKE 'dashboard-response:%' GROUP BY state"
+            ).fetchall()
+            states = {str(state): int(count) for state, count in rows}
+        events = ProgressJournal(self.journal_path)._events()
+        delivery_events = [
+            row for row in events
+            if str(row.get("task_id", "")).strip()
+            and str(row.get("stage", "")).startswith("response-delivery:")
+        ]
+        ack_rows = [row for row in delivery_events if row.get("event") == "response_chunk_acknowledged"]
+        unknown_rows = [row for row in delivery_events if row.get("event") == "response_chunk_outcome_unknown"]
+        completed_receipts = {
+            row.get("task_id") for row in delivery_events
+            if row.get("event") == "response_delivery_receiver_acknowledged"
+        }
+        capacity = self.capacity_snapshot()
+        return {
+            "capacity": capacity,
+            "tasks_by_state": states,
+            "pending_tasks": states.get("pending", 0),
+            "running_tasks": states.get("running", 0),
+            "completed_tasks": states.get("completed", 0),
+            "failed_tasks": states.get("failed", 0),
+            "cancelled_tasks": states.get("cancelled", 0),
+            "acknowledged_chunks": len(ack_rows),
+            "unknown_outcomes": len(unknown_rows),
+            "receiver_acknowledged_deliveries": len(completed_receipts),
+            "integrity": {
+                "unknown_outcomes_block_replay": True,
+                "completion_requires_receiver_ack": True,
+                "atomic_protocols_are_not_chunked": True,
+            },
+            "source": "execution_controller_and_progress_journal",
+        }
+
+    def start(self, task_id: str, *, artifact_verified: bool = False) -> bool:
         """Start a pending delivery only when a bounded worker slot is available.
 
         Saturation leaves the durable task pending. A later host poll may retry;
@@ -169,8 +334,11 @@ class ResponseDeliverySupervisor:
         task = self.controller.task(task_id)
         if task is None:
             raise FileNotFoundError("supervisor delivery task is unavailable")
+        if type(artifact_verified) is not bool:
+            raise TypeError("artifact_verified must be a boolean")
         if task.state == "running":
-            # Reclaim only after both the lease and heartbeat are stale.
+            # Reclaim only after both the lease and heartbeat are stale and the
+            # host has reloaded and verified the immutable response artifact.
             with sqlite3.connect(self.controller.db_path) as db:
                 row = db.execute("SELECT lease_until FROM tasks WHERE id=?", (task_id,)).fetchone()
             if row and row[0]:
@@ -181,19 +349,39 @@ class ResponseDeliverySupervisor:
                     return False
                 if lease.tzinfo is None or lease > datetime.now(timezone.utc):
                     return False
+            if not artifact_verified:
+                return False
             self.controller.recover_stale(
                 task_id, reason="delivery host restarted; prior worker lease expired",
                 stale_after_seconds=1,
             )
             task = self.controller.task(task_id)
+            if task is not None and task.state == "pending":
+                journal = ProgressJournal(self.journal_path)
+                checkpoint = journal.snapshot(task_id)
+                if checkpoint.get("state") != "running":
+                    journal.record_reconciliation(
+                        task_id, state="running", stage="response-delivery-recovery",
+                        message="immutable artifact and acknowledged cursor reloaded; supervisor resumed delivery",
+                        expected_sequence=int(checkpoint.get("sequence", 0)),
+                    )
         if task is None or task.state != "pending":
             return False
 
         key = (str(self.controller.db_path), task_id)
         with _THREADS_LOCK:
             active = _THREADS.get(key)
+        if active is not None and active.is_alive():
+            # A reclaimed task may still have an old in-process worker unwinding
+            # after its lease was revoked. Let that worker observe LeaseLostError
+            # and exit before starting the replacement worker.
+            active.join(timeout=2.0)
+            if active.is_alive():
+                return False
+        with _THREADS_LOCK:
+            active = _THREADS.get(key)
             if active is not None and active.is_alive():
-                return True
+                return False
             active_count = sum(1 for thread in _THREADS.values() if thread.is_alive())
             if active_count >= MAX_ACTIVE_DELIVERY_WORKERS:
                 _SATURATION_COUNT += 1
@@ -204,11 +392,35 @@ class ResponseDeliverySupervisor:
             )
             _THREADS[key] = thread
             thread.start()
-            return True
+        # Wait briefly for the durable controller to acquire the new lease.
+        # Returning success while the task is still pending makes the HTTP host
+        # appear runnable even though no worker has started.
+        admission_deadline = time.monotonic() + 1.0
+        while time.monotonic() < admission_deadline:
+            current = self.controller.task(task_id)
+            if current is None:
+                return False
+            if current.state == "running":
+                if not thread.is_alive():
+                    return False
+                ProgressJournal(self.journal_path).record(
+                    task_id, "response_delivery_worker_admitted", state="running",
+                    stage="response-delivery",
+                    message="supervisor worker acquired the durable delivery lease",
+                )
+                return True
+            if current.state != "pending" or not thread.is_alive():
+                return False
+            time.sleep(0.01)
+        return False
 
     def _run(self, key: tuple[str, str], task_id: str) -> None:
         try:
             self.controller.run_once(task_id)
+        except LeaseLostError:
+            # Expected when a replacement supervisor has fenced this worker.
+            # The new lease owner is responsible for continuing the task.
+            pass
         finally:
             with _THREADS_LOCK:
                 _THREADS.pop(key, None)
@@ -219,3 +431,29 @@ class ResponseDeliverySupervisor:
 
     def cancel(self, task_id: str, *, reason: str = "receiver delivery cancelled") -> bool:
         return self.controller.request_cancellation(task_id, reason=reason)
+
+    def shutdown(self, *, wait_seconds: float = 2.0) -> None:
+        """Request cancellation of this host's active delivery tasks and join workers."""
+        with sqlite3.connect(self.controller.db_path) as db:
+            rows = db.execute(
+                "SELECT id FROM tasks WHERE work_key LIKE 'dashboard-response:%' AND state IN ('pending','running')"
+            ).fetchall()
+        for (task_id,) in rows:
+            try:
+                self.controller.request_cancellation(str(task_id), reason="delivery host shutdown")
+            except Exception:
+                # Preserve the durable task state; failed cancellation remains
+                # visible to restart reconciliation rather than being hidden.
+                continue
+        deadline = time.monotonic() + max(0.0, wait_seconds)
+        key_prefix = str(self.controller.db_path)
+        while time.monotonic() < deadline:
+            with _THREADS_LOCK:
+                workers = [
+                    thread for (db_path, _task_id), thread in _THREADS.items()
+                    if db_path == key_prefix and thread.is_alive()
+                ]
+            if not workers:
+                break
+            for worker in workers:
+                worker.join(timeout=min(0.05, max(0.0, deadline - time.monotonic())))

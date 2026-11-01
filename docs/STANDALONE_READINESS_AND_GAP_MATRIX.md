@@ -176,3 +176,159 @@ This snapshot does not prove deployment readiness, independent evaluation, seale
 - The living radar refresh is tracked in [PR #1143](https://github.com/sourabhJainR/AUREN/pull/1143); exact-head checks must pass before merge.
 
 No local test run is claimed for this review because no AUREN checkout/runtime is available. The evidence above comes from repository source inspection, GitHub CI and downloaded artifact verification. This snapshot does not prove deployment readiness, independent evaluation, sealed-holdout custody, production isolation or AGI/SI. A documentation rollback is a revert of this change; no runtime behavior or product version is changed.
+
+## Response-delivery completion update — 2026-11-01
+
+**Implementation branch:** feat/issue-696-delivery-completion (exact-head CI pending at review time).
+**Baseline main before this change:** 40bd0bd98a68ddabfad74aeca26b2a5a84ef2b1b.
+
+- [x] Extend the shared RuntimeExecutionGuard with a checkpointable UTF-8 delivery-byte ledger and idempotent operation keys; wire the acknowledged response transport to the same guard instance.
+- [x] Add slow-receiver backpressure, disconnect/unknown-outcome, acknowledged restart/resume, and bounded-worker queue-saturation regressions. Existing HTTP integration tests also exercise stale lease recovery, cancellation, deadline, and duplicate acknowledgement.
+- [x] Add CLI stdin/stdout and file output contracts. Oversized input is rejected before output; file output is atomically committed; partial stdout writes are explicitly unknown, not reported complete.
+- [x] Add an MCP regression that sends an oversized atomic JSON-RPC frame while a descendant is running and verifies the process tree is terminated. MCP framing remains atomic; no frame truncation or response chunking is introduced.
+- [x] Expose durable delivery metrics through Session Control Center session and control-center APIs.
+- [x] Add a paired baseline/candidate benchmark and CI artifact workflow for integrity, recovery, latency, peak traced memory and transported-byte cost proxy.
+- [ ] Inspect exact-head CI and benchmark artifact. No benchmark values are asserted in this source-only review.
+- [ ] Provider monetary cost remains unmeasured without a metered provider; production receiver latency/memory and deployment-wide queue saturation require a staged workload.
+- [ ] Complete cross-process/global worker quota, persistent queue admission policy, independent production isolation, external evaluator/holdout custody, required-check enforcement and staging rollback rehearsal as separate deployment gates.
+
+The implementation status above is source/test intent, not a passing-CI claim. Keep the product version unchanged. Revert the PR as a unit if required; do not remove the existing byte caps, digest-bound acknowledgement, unknown-outcome block, or atomic MCP frame rejection.
+
+
+### Response-delivery benchmark evidence — 2026-11-01
+
+**Baseline:** `40bd0bd98a68ddabfad74aeca26b2a5a84ef2b1b`.
+**Candidate PR head:** `3d0cfa9ff6ecfbdfb3f163a26855c58af80356f1`.
+**Benchmark merge revision:** `8b6cf7a0e4fc13821b129adaf9415bb2bfb8323c`.
+**Artifact:** [Response delivery benchmark run 41263044268](https://github.com/sourabhJainR/AUREN/actions/runs/41263044268), artifact `response-delivery-benchmark-8b6cf7a0e4fc13821b129adaf9415bb2bfb8323c`.
+
+Five paired iterations on Python 3.12.15 / Ubuntu runner, 299,008 UTF-8 payload bytes:
+
+| Measure | Baseline | Candidate | Difference |
+|---|---:|---:|---:|
+| Median latency | 159.463 ms | 156.201 ms | -3.262 ms |
+| Peak traced memory | 3,262,528 B | 2,181,992 B | -1,080,536 B |
+| Transported bytes | 299,008 B | 299,008 B | 0 B |
+| Chunks | 74 | 74 | 0 |
+
+- [x] All baseline and candidate iterations preserved integrity and completed delivery.
+- [x] Interrupted recovery resumed after two acknowledged chunks, completed the response, and did not replay acknowledged chunks.
+- [x] The benchmark artifact is published and retained by Actions.
+- [ ] Monetary provider cost remains unmeasured because this local benchmark has no metered provider. Transported bytes are only a cost proxy.
+- [ ] Production receiver latency/memory, concurrent multi-host queue behavior, and operator-controlled staging rollback remain external deployment evidence.
+
+The result is a controlled local comparison, not a production performance guarantee or a promotion decision. Exact-head PR CI remains the merge gate.
+
+
+
+## Software-team and capability-lab update — 2026-11-01
+
+**AUREN branch:** `feat/issue-696-delivery-completion`; PR [#1165](https://github.com/sourabhJainR/AUREN/pull/1165). Latest exact-head CI must pass before merge. The delivery integration test suite exposed lifecycle/recovery regressions; these are being corrected on the branch and are not waived.
+
+- [x] Product positioning and About/README now describe AUREN as a supervised operating system for an AI engineering company.
+- [x] Canonical graph crew definitions include solution architect, engineering manager, research/evaluation, release/operations, CTO sponsor, and CEO sponsor personas.
+- [x] `build_software_team_persona_adapters` creates proposal-only adapters for these six roles with explicit per-persona read-only tool scopes. This is additive to the existing eight core specialist adapters.
+- [x] Persona contract and adapter tests are included in the portable-bundle CI test list.
+- [x] The role model documents reporting flow, independent QA/security, manager acceptance, stakeholder evidence, and explicit human approval boundaries.
+- [x] Independent private research repository [firstTestproj](https://github.com/sourabhJainR/firstTestproj) is initialized as the AUREN Capability Lab. Its latest CI run [41264707461](https://github.com/sourabhJainR/firstTestproj/actions/runs/41264707461) passed.
+- [x] First lab experiment compared shared context with isolated persona context using a deterministic fixture: 27 vs 19 context fields (29.6% fewer), unchanged 100% acceptance/evidence coverage, and no QA exposure to implementer self-assessment. See [EXPERIMENT_RESULTS.md](https://github.com/sourabhJainR/firstTestproj/blob/main/EXPERIMENT_RESULTS.md).
+- [x] Lab evaluator requires independently reviewed holdouts, cross-domain coverage, and bounded confidence calibration before research promotion eligibility. Development-only success cannot pass the promotion gate.
+- [ ] Real provider/model adapters, metered provider cost, token/memory measurements, sealed holdouts, broad transfer, and external independent evaluation remain outstanding. The deterministic experiment does not demonstrate model-level SI gains or AGI.
+- [x] GraphAgentTeam exposes the six new personas and a complete, fail-closed `register_software_team_personas()` path; tests cover successful registration and partial-registration rejection.
+- [ ] Production host bootstrap must supply approved planner/model and per-persona tool-scope mappings. Production credentials and authority are not fabricated or enabled by default.
+
+### Roadmap reconciliation
+
+| Gate | Current status | Remaining proof |
+|---|---|---|
+| #696 unified runtime, learning, delivery, dashboard | In progress; PR #1165 | Exact-head CI, merge/main verification, host persona registration, complete delivery lifecycle evidence |
+| #692 recursive harness learning | Research/evaluation foundation added | Causal attribution, pinned baselines, sealed holdouts, transfer, independent Arena custody |
+| #694 spec-driven persistent planning | Engineering-manager and architect contracts added | Durable plan evolution, dependency updates, fresh-context resume, contradiction and staleness tests |
+| #809 durable human approval and resumable side effects | Not closed by this change | Real host approval boundary, restart, cancellation, timeout, idempotency and final-ack tests |
+| #534 migration and rollback | Blocked | Operator-controlled staging migration, fresh-process resume, rollback and post-cutover reconciliation receipts |
+| Independent Arena / isolation | Not production-ready | External custody, repeatability, adversarial holdouts, OS-level isolation audit and signed attestation |
+
+**Readiness decision:** the repository now has a more explicit software-company team model and an independent capability experiment harness. It is not a production-ready autonomous engineering company, and it has not demonstrated AGI. Do not promote the new persona adapters to production or close the remaining roadmap gates until the evidence above is attached and independently reviewed. Product version remains unchanged. Rollback is a revert of the relevant PR; the separate lab has no runtime dependency on AUREN.
+
+
+### Refreshed delivery benchmark — exact candidate revision `81bc9d74ba64a5531d90690db3c8139842011c7f`
+
+Artifact: [Response delivery benchmark run 41264913663](https://github.com/sourabhJainR/AUREN/actions/runs/41264913663), artifact `response-delivery-benchmark-81bc9d74ba64a5531d90690db3c8139842011c7f`.
+
+Five paired iterations on Python 3.12.15 / Linux runner, 299,008 UTF-8 payload bytes:
+
+| Measure | Baseline | Candidate | Difference |
+|---|---:|---:|---:|
+| Latency | 173.865 ms | 168.394 ms | -5.471 ms |
+| Peak traced memory | 3,262,528 B | 2,181,992 B | -1,080,536 B |
+| Transported bytes | 299,008 B | 299,008 B | 0 B |
+| Chunks | 74 | 74 | 0 |
+
+Both baseline and candidate passed integrity and completion in all iterations. Recovery resumed after two acknowledged chunks, completed the response, and did not replay acknowledged chunks. Provider monetary cost remains unknown; transported bytes are only a proxy. These local measurements do not establish production latency, multi-host contention, or deployment readiness.
+
+
+### Additional benchmark repeat — 2026-11-01
+
+Artifact: [Response delivery benchmark run 41265374509](https://github.com/sourabhJainR/AUREN/actions/runs/41265374509), candidate revision `0e83780125ed9059ea3470b1c85d861ac0be9256`.
+
+Five paired iterations, same 299,008-byte payload and Python 3.12.15 / Linux runner:
+
+| Measure | Baseline | Candidate | Difference |
+|---|---:|---:|---:|
+| Latency | 282.188 ms | 283.269 ms | +1.081 ms |
+| Peak traced memory | 3,262,528 B | 2,181,992 B | -1,080,536 B |
+| Transported bytes | 299,008 B | 299,008 B | 0 B |
+| Chunks | 74 | 74 | 0 |
+
+Integrity and completion passed all five iterations; recovery resumed from chunk 2 with no replay of acknowledged chunks. This repeat does **not** show a latency improvement; the candidate was 1.081 ms slower in this run. The stable observed benefit is lower peak traced memory, with identical transported bytes. Provider monetary cost remains unknown. Treat latency as environment-sensitive and do not claim a general speedup from these small local runs.
+
+
+### Latest delivery evidence and CI — 2026-11-01
+
+**Exact branch head:** `95156a49cd5e182e017d2d44ab9a313f9430b20c`.  
+**Portable bundle and live delivery integration:** [run 41265759848](https://github.com/sourabhJainR/AUREN/actions/runs/41265759848) — passed deterministic contracts, live dashboard delivery integration tests, host entrypoint compilation, canonical bundle verification, checksum, and exact source pin.
+
+**Latest paired benchmark:** [run 41265759849](https://github.com/sourabhJainR/AUREN/actions/runs/41265759849), artifact candidate revision `ce754e39064450e9d6092ec710d5145c47160a78`.
+
+Five paired iterations on Python 3.12.15 / Linux, 299,008-byte payload:
+
+| Measure | Baseline | Candidate | Difference |
+|---|---:|---:|---:|
+| Latency | 285.335 ms | 282.141 ms | -3.194 ms |
+| Peak traced memory | 3,262,528 B | 2,181,992 B | -1,080,536 B |
+| Transported bytes | 299,008 B | 299,008 B | 0 B |
+| Chunks | 74 | 74 | 0 |
+
+Both variants preserved integrity and completed all iterations. Recovery resumed from chunk 2 without replaying acknowledged chunks. Provider USD cost remains unmeasured; transported bytes are a proxy only. The other PR-level required workflows and branch policy must still pass before merge. The latest bundle success is not a substitute for the complete exact-head check set.
+
+
+### Final paired benchmark for current software-team integration head — 2026-11-01
+
+Artifact: [run 41266093867](https://github.com/sourabhJainR/AUREN/actions/runs/41266093867), candidate revision `cf18e34c47e2e6fa3c8c3ec1acdbd61b37b6bc54`.
+
+Five paired iterations, 299,008-byte payload, Python 3.12.15 / Linux:
+
+| Measure | Baseline | Candidate | Difference |
+|---|---:|---:|---:|
+| Latency | 169.443 ms | 168.294 ms | -1.149 ms |
+| Peak traced memory | 3,262,528 B | 2,181,992 B | -1,080,536 B |
+| Transported bytes | 299,008 B | 299,008 B | 0 B |
+| Chunks | 74 | 74 | 0 |
+
+All baseline and candidate iterations preserved integrity and completed. Recovery resumed after two acknowledged chunks and did not replay them. Monetary provider cost is not measured. The repeated runs show a consistent reduction in peak traced memory, while latency differences remain small and environment-sensitive. No production performance claim is made.
+
+
+### Benchmark variability check on software-team integration head — 2026-11-01
+
+Artifact: [run 41266198581](https://github.com/sourabhJainR/AUREN/actions/runs/41266198581), candidate revision `619588d13967c205ff5c77aadbd6c48e704cc674`.
+
+Five paired iterations, 299,008-byte payload, Python 3.12.15 / Linux:
+
+| Measure | Baseline | Candidate | Difference |
+|---|---:|---:|---:|
+| Latency | 183.868 ms | 190.066 ms | +6.198 ms |
+| Peak traced memory | 3,262,528 B | 2,181,992 B | -1,080,536 B |
+| Transported bytes | 299,008 B | 299,008 B | 0 B |
+| Chunks | 74 | 74 | 0 |
+
+Integrity and completion passed all iterations; recovery resumed from chunk 2 without replay. This run is slower on latency while retaining the same peak-memory reduction and byte count. Across repeats, latency moves in both directions; no reliable latency improvement is established. The memory result is stable in this harness, but still requires production receiver validation. Provider monetary cost remains unmeasured.

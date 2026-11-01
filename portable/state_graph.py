@@ -14,7 +14,7 @@ from typing import Any, Callable, Mapping
 from .bounded_crew_dispatch import BoundedCrewDispatcher
 
 from .orchestration import Graph, Node, NodeKind, NodeStatus, OrchestrationRun, Orchestrator, RunStatus
-from .crew_adapters import CrewHandoff, GraphHandoffController, TaskRetryBudget, rollback_readiness
+from .crew_adapters import CrewHandoff, GraphHandoffController, TaskRetryBudget, SOFTWARE_TEAM_PERSONA_IDS, rollback_readiness
 from .runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
 from .agency_observability import Tracer
 
@@ -210,6 +210,55 @@ def _default_crews() -> tuple[CrewDefinition, ...]:
             ("review_workflow", "exercise_acceptance_cases", "report_blockers"),
             ("critical journey is executable", "recovery path is understandable", "acceptance gaps are recorded"),
             ("product_pm",), True,
+        ),
+        CrewDefinition(
+            "solution_architect", "Solution architecture", ("architect", "architecture", "system design", "technical design", "design review", "adr", "refactor"),
+            "Own system decomposition, interface contracts, non-functional requirements, trade-offs, and architecture decisions. Do not implement or approve your own design.",
+            ("architecture proposal", "interface contracts", "dependency graph", "architecture decision record", "risk register"),
+            ("inspect_system", "decompose_goal", "propose_architecture", "define_contracts", "identify_risks"),
+            ("interfaces and ownership are explicit", "dependencies form an acyclic plan or have bounded cycle handling", "failure and recovery behavior are designed", "security and operability are reviewed"),
+            ("backend_api", "frontend_ui", "database_schema", "qa_reviewer", "security_privacy"),
+        ),
+        CrewDefinition(
+            "engineering_manager", "Engineering management and delivery coordination", ("engineering manager", "delivery plan", "project execution", "implementation plan", "coordinate team", "workstream", "milestone"),
+            "Coordinate the software team graph: assign bounded work to specialist personas, manage dependencies and shared budgets, track deadlines and blockers, and escalate decisions. You cannot self-approve, merge, promote, or bypass independent gates.",
+            ("work breakdown", "owner and dependency map", "shared budget allocation", "deadline and escalation plan", "delivery status summary"),
+            ("decompose_work", "assign_specialists", "coordinate_dependencies", "monitor_budget", "escalate_blockers", "propose_delivery_readiness"),
+            ("every work unit has an owner and acceptance criteria", "parallel work respects dependencies and shared budgets", "blocked work is escalated", "final acknowledgement waits for independent QA and security evidence"),
+            ("solution_architect", "backend_api", "frontend_ui", "qa_reviewer", "security_privacy", "release_operations"),
+            True,
+        ),
+        CrewDefinition(
+            "research_evaluation", "Research and capability evaluation", ("research", "experiment", "benchmark", "holdout", "transfer", "capability", "reasoning", "learning", "si", "agi", "model evaluation"),
+            "Design reproducible baseline/candidate experiments, track model and adapter identity, evaluate uncertainty and cross-domain transfer, and report limitations. Never infer general intelligence from narrow benchmark success.",
+            ("experiment protocol", "pinned baseline", "candidate results", "holdout report", "calibration and uncertainty summary", "cost/latency/memory measurements"),
+            ("design_experiment", "compare_candidates", "evaluate_holdouts", "measure_transfer", "report_uncertainty"),
+            ("baseline and candidate use the same conditions", "holdouts are independent", "unknown metrics remain unknown", "promotion recommendation cites evidence and limitations"),
+            ("engineering_manager", "qa_reviewer", "security_privacy"),
+        ),
+        CrewDefinition(
+            "release_operations", "Release engineering and operations", ("release", "deploy", "deployment", "production", "rollback", "migration", "runbook", "operations", "observability", "session control center"),
+            "Own release readiness, packaging, operational telemetry, migration rehearsal, incident response, and rollback evidence. Production changes remain subject to explicit operator authority.",
+            ("release checklist", "deployment plan", "observability dashboard", "rollback procedure", "staging rehearsal evidence"),
+            ("prepare_release", "verify_artifacts", "check_observability", "rehearse_rollback", "report_operational_risk"),
+            ("required CI and policy gates pass", "runtime health and session telemetry are available", "migration and rollback are rehearsed", "operator authority is explicit"),
+            ("engineering_manager", "qa_reviewer", "security_privacy"),
+        ),
+        CrewDefinition(
+            "cto_sponsor", "CTO technical leadership", ("cto", "technical strategy", "technology strategy", "architecture strategy", "technical roadmap", "platform direction"),
+            "Set technical direction, resolve architecture trade-offs, review system-wide risk, and provide evidence-backed technical decisions. This role advises and escalates; it does not bypass supervisor controls.",
+            ("technical strategy", "architecture decision", "risk and investment trade-offs"),
+            ("set_technical_direction", "review_architecture", "resolve_tradeoffs", "escalate_risk"),
+            ("decisions state assumptions and trade-offs", "architecture changes cite technical evidence", "risk acceptance is explicit and authorized"),
+            ("solution_architect", "engineering_manager", "research_evaluation"),
+        ),
+        CrewDefinition(
+            "ceo_sponsor", "CEO and stakeholder outcomes", ("ceo", "business strategy", "stakeholder", "investor", "board", "business outcome", "portfolio priority"),
+            "Translate stakeholder and business outcomes into priorities, measurable outcomes, and decision requests. Do not direct low-level implementation or grant execution authority.",
+            ("business outcome", "priority and success measures", "stakeholder status and decision requests"),
+            ("clarify_business_outcome", "prioritize_initiatives", "review_outcomes", "report_material_risks"),
+            ("outcomes are measurable", "risks and unknowns are disclosed", "stakeholder reports link to verified evidence"),
+            ("engineering_manager", "cto_sponsor", "research_evaluation"),
         ),
     )
 
@@ -771,6 +820,28 @@ class GraphAgentTeam:
             raise ValueError("agent name is required")
         self.agents[name] = agent
 
+    def register_software_team_personas(self, adapters: Mapping[str, Any]) -> tuple[str, ...]:
+        """Register the complete, explicitly configured leadership/research persona set."""
+        if not isinstance(adapters, Mapping):
+            raise TypeError("software-team persona adapters must be a mapping")
+        expected = set(SOFTWARE_TEAM_PERSONA_IDS)
+        supplied = set(adapters)
+        if supplied != expected:
+            missing = sorted(expected - supplied)
+            unknown = sorted(supplied - expected)
+            raise ValueError(
+                "software-team persona registration must be complete; "
+                f"missing={missing}, unknown={unknown}"
+            )
+        for persona_id in SOFTWARE_TEAM_PERSONA_IDS:
+            adapter = adapters[persona_id]
+            if getattr(adapter, "crew_id", None) != persona_id or not callable(getattr(adapter, "propose", None)):
+                raise TypeError(f"persona adapter {persona_id} must expose a matching crew_id and propose()")
+            if persona_id in self.agents:
+                raise ValueError(f"persona agent {persona_id} is already registered")
+        self.agents.update(adapters)
+        return SOFTWARE_TEAM_PERSONA_IDS
+
     def add_crew(self, crew: CrewDefinition) -> None:
         if not isinstance(crew, CrewDefinition):
             raise TypeError("crew must be a CrewDefinition")
@@ -792,7 +863,17 @@ class GraphAgentTeam:
 
     def required_personas(self, goal: str) -> tuple[str, ...]:
         selected = {item.crew_id for item in self.plan_crews(goal).assignments}
-        personas = ["pm", "backend", "reviewer", "enduser"]
+        personas = ["pm", "manager", "backend", "reviewer", "enduser"]
+        if "solution_architect" in selected:
+            personas.insert(personas.index("backend"), "architect")
+        if "research_evaluation" in selected:
+            personas.append("research_evaluation")
+        if "release_operations" in selected:
+            personas.append("release_operations")
+        if "cto_sponsor" in selected:
+            personas.append("cto")
+        if "ceo_sponsor" in selected:
+            personas.append("ceo")
         if "frontend_ui" in selected:
             personas.insert(1, "frontend")
         if "database_schema" in selected:

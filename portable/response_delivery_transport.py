@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import time
-from typing import Callable, Mapping, Protocol
+from typing import Any, Callable, Mapping, Protocol
 
 from portable.response_delivery import ResponseChunk, chunk_response, chunks_after
 from portable.progress_journal import ProgressJournal
@@ -49,6 +49,7 @@ def deliver_response(
     deadline_monotonic: float | None = None,
     is_cancelled: Callable[[], bool] | None = None,
     consume_shared_budget: Callable[[int], bool] | None = None,
+    execution_guard: Any | None = None,
 ) -> DeliveryReceipt:
     """Deliver losslessly with one-chunk backpressure and durable ack checkpoints.
 
@@ -61,6 +62,10 @@ def deliver_response(
         raise ValueError("task_id must be non-empty")
     if not isinstance(text, str):
         raise TypeError("response text must be a string")
+    if consume_shared_budget is not None and execution_guard is not None:
+        raise ValueError("provide either the shared execution guard or a legacy budget callback, not both")
+    if execution_guard is not None and not callable(getattr(execution_guard, "consume_delivery_bytes", None)):
+        raise TypeError("execution_guard must expose consume_delivery_bytes")
     if type(max_total_bytes) is not int or max_total_bytes < 0:
         raise ValueError("max_total_bytes must be a non-negative integer")
     total_bytes = len(text.encode("utf-8"))
@@ -93,7 +98,12 @@ def deliver_response(
             raise DeliveryBlocked("delivery cancelled before next chunk")
         if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
             raise DeliveryBlocked("delivery deadline reached before next chunk")
-        if consume_shared_budget is not None and not consume_shared_budget(chunk.utf8_bytes):
+        if execution_guard is not None:
+            execution_guard.check()
+            operation_key = f"delivery:{task_id}:{manifest.response_id}:{chunk.index}:{chunk.sha256}"
+            if not execution_guard.consume_delivery_bytes(chunk.utf8_bytes, operation_key=operation_key):
+                raise DeliveryBlocked("shared crew delivery byte budget exhausted or this chunk was already charged")
+        elif consume_shared_budget is not None and not consume_shared_budget(chunk.utf8_bytes):
             raise DeliveryBlocked("shared crew byte budget exhausted before next chunk")
 
         peak_in_flight = max(peak_in_flight, chunk.utf8_bytes)

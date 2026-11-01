@@ -1,0 +1,36 @@
+name: Response delivery benchmark
+
+on:
+  pull_request:
+    paths:
+      - "portable/response_delivery*.py"
+      - "portable/runtime_recovery.py"
+      - "benchmarks/response_delivery_comparison.py"
+      - ".github/workflows/response-delivery-benchmark.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  paired-benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run paired baseline/candidate measurements
+        env:
+          PYTHONPATH: .
+          AUREN_BENCHMARK_BASELINE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: python benchmarks/response_delivery_comparison.py --iterations 5 --output response-delivery-benchmark.json
+      - name: Publish benchmark evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: response-delivery-benchmark-${{ github.sha }}
+          path: response-delivery-benchmark.json
+          if-no-files-found: error
+          retention-days: 30

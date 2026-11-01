@@ -57,7 +57,8 @@ class RuntimeExecutionGuard:
 
     def __init__(self, *, max_steps: int = 200, max_attempts: int = 12,
                  deadline_seconds: float | None = None, repeated_failure_limit: int = 2,
-                 cancellation_event: Event | None = None) -> None:
+                 cancellation_event: Event | None = None,
+                 max_delivery_bytes: int = 8_000_000) -> None:
         if type(max_steps) is not int or max_steps < 1:
             raise ValueError("max_steps must be a positive integer")
         if type(max_attempts) is not int or max_attempts < 1:
@@ -71,7 +72,11 @@ class RuntimeExecutionGuard:
             raise ValueError("deadline_seconds must be a finite positive number")
         if type(repeated_failure_limit) is not int or repeated_failure_limit < 1:
             raise ValueError("repeated_failure_limit must be a positive integer")
+        if type(max_delivery_bytes) is not int or max_delivery_bytes < 0:
+            raise ValueError("max_delivery_bytes must be a non-negative integer")
         self.max_steps, self.max_attempts = max_steps, max_attempts
+        self.max_delivery_bytes = max_delivery_bytes
+        self._delivery_charges: dict[str, int] = {}
         self.repeated_failure_limit = repeated_failure_limit
         self._deadline = time.monotonic() + deadline_seconds if deadline_seconds is not None else None
         self._steps = self._attempts = 0
@@ -139,6 +144,33 @@ class RuntimeExecutionGuard:
             self._attempts += 1
             return True
 
+    @property
+    def delivery_bytes_used(self) -> int:
+        with self._lock:
+            return sum(self._delivery_charges.values())
+
+    def consume_delivery_bytes(self, amount: int, *, operation_key: str) -> bool:
+        """Charge output bytes once against the shared task/crew budget.
+
+        A repeated operation key is not charged twice and is not authorized to
+        resend. This is deliberately fail-closed after an uncertain send.
+        """
+        if type(amount) is not int or amount < 0:
+            raise ValueError("delivery byte charge must be a non-negative integer")
+        if not isinstance(operation_key, str) or not operation_key.strip():
+            raise ValueError("delivery operation key is required")
+        with self._lock:
+            self._check_locked()
+            previous = self._delivery_charges.get(operation_key)
+            if previous is not None:
+                if previous != amount:
+                    raise ValueError("delivery operation key was reused with a different byte charge")
+                return False
+            if sum(self._delivery_charges.values()) + amount > self.max_delivery_bytes:
+                return False
+            self._delivery_charges[operation_key] = amount
+            return True
+
     def check(self) -> None:
         with self._lock:
             self._check_locked()
@@ -172,6 +204,9 @@ class RuntimeExecutionGuard:
                 "schema_version": self.SCHEMA_VERSION,
                 "max_steps": self.max_steps, "steps_used": self._steps,
                 "max_attempts": self.max_attempts, "attempts_used": self._attempts,
+                "max_delivery_bytes": self.max_delivery_bytes,
+                "delivery_bytes_used": sum(self._delivery_charges.values()),
+                "delivery_charges": dict(sorted(self._delivery_charges.items())),
                 "remaining_seconds": remaining,
                 "deadline_unix": time.time() + remaining if remaining is not None else None,
                 "charged_operations": sorted(self._charged),
@@ -223,14 +258,27 @@ class RuntimeExecutionGuard:
             raise ValueError("attempt count does not match charged operation ledger")
         if not isinstance(failures, Mapping) or any(not isinstance(k, str) or type(v) is not int or v < 0 for k, v in failures.items()):
             raise ValueError("invalid failure-cycle ledger")
+        max_delivery_bytes = snapshot.get("max_delivery_bytes", 8_000_000)
+        delivery_charges = snapshot.get("delivery_charges", {})
+        delivery_used = snapshot.get("delivery_bytes_used", 0)
+        if type(max_delivery_bytes) is not int or max_delivery_bytes < 0:
+            raise ValueError("invalid delivery byte budget checkpoint")
+        if not isinstance(delivery_charges, Mapping) or any(
+            not isinstance(k, str) or not k.strip() or type(v) is not int or v < 0
+            for k, v in delivery_charges.items()
+        ):
+            raise ValueError("invalid delivery byte charge ledger")
+        if type(delivery_used) is not int or delivery_used != sum(delivery_charges.values()) or delivery_used > max_delivery_bytes:
+            raise ValueError("delivery byte charge total does not match its ledger")
         cancelled, reason = snapshot.get("cancelled"), snapshot.get("cancellation_reason")
         if type(cancelled) is not bool or (reason is not None and not isinstance(reason, str)):
             raise ValueError("invalid cancellation checkpoint")
         guard = cls(max_steps=max_steps, max_attempts=max_attempts,
                     deadline_seconds=remaining if remaining is not None and remaining > 0 else None,
-                    cancellation_event=cancellation_event)
+                    cancellation_event=cancellation_event, max_delivery_bytes=max_delivery_bytes)
         guard._steps, guard._attempts = steps, attempts
         guard._charged, guard._failures = set(charged), dict(failures)
+        guard._delivery_charges = dict(delivery_charges)
         guard._reason = reason
         if cancelled or (remaining is not None and remaining <= 0):
             guard._reason = reason or "task deadline exhausted before resume"

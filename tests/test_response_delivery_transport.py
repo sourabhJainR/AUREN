@@ -125,5 +125,70 @@ class ResponseDeliveryTransportTests(unittest.TestCase):
         self.assertEqual(calls, [])
 
 
+
+
+    def test_transport_consumes_the_same_checkpointed_crew_budget(self):
+        from portable.runtime_recovery import RuntimeExecutionGuard
+        self.start_task("task-shared")
+        guard = RuntimeExecutionGuard(max_delivery_bytes=65)
+        sent = []
+        with self.assertRaises(DeliveryBlocked):
+            deliver_response(
+                "task-shared", "x" * 200,
+                receiver=lambda chunk: (sent.append(chunk.index), self.ack(chunk))[1],
+                journal=self.journal, max_chunk_bytes=40, execution_guard=guard,
+            )
+        self.assertEqual([1], sent)
+        self.assertEqual(40, guard.delivery_bytes_used)
+        resumed_guard = RuntimeExecutionGuard.resume(guard.snapshot())
+        with self.assertRaises(DeliveryBlocked):
+            deliver_response(
+                "task-shared", "x" * 200,
+                receiver=lambda chunk: sent.append(chunk.index),
+                journal=self.journal, max_chunk_bytes=40, execution_guard=resumed_guard,
+            )
+        self.assertEqual([1], sent)
+
+    def test_transport_rejects_two_budget_owners(self):
+        from portable.runtime_recovery import RuntimeExecutionGuard
+        self.start_task("task-budget-owner")
+        with self.assertRaisesRegex(ValueError, "either the shared execution guard"):
+            deliver_response(
+                "task-budget-owner", "payload",
+                receiver=lambda chunk: self.ack(chunk), journal=self.journal,
+                execution_guard=RuntimeExecutionGuard(),
+                consume_shared_budget=lambda size: True,
+            )
+
+
+    def test_slow_receiver_applies_backpressure_without_parallel_chunk_sends(self):
+        import threading
+        import time
+        self.start_task("task-slow")
+        active = 0
+        peak_active = 0
+        sent = []
+        lock = threading.Lock()
+
+        def slow_receiver(chunk):
+            nonlocal active, peak_active
+            with lock:
+                active += 1
+                peak_active = max(peak_active, active)
+            time.sleep(0.01)
+            sent.append(chunk.index)
+            with lock:
+                active -= 1
+            return self.ack(chunk)
+
+        receipt = deliver_response(
+            "task-slow", "slow payload " * 100,
+            receiver=slow_receiver, journal=self.journal, max_chunk_bytes=40,
+        )
+        self.assertTrue(receipt.acknowledged_chunks == receipt.total_chunks)
+        self.assertEqual(1, peak_active)
+        self.assertEqual(list(range(1, receipt.total_chunks + 1)), sent)
+
+
 if __name__ == "__main__":
     unittest.main()
