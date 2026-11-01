@@ -125,8 +125,6 @@ class ResponseDeliveryTransportTests(unittest.TestCase):
         self.assertEqual(calls, [])
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
     def test_transport_consumes_the_same_checkpointed_crew_budget(self):
@@ -190,3 +188,7 @@ if __name__ == "__main__":
         self.assertTrue(receipt.acknowledged_chunks == receipt.total_chunks)
         self.assertEqual(1, peak_active)
         self.assertEqual(list(range(1, receipt.total_chunks + 1)), sent)
+
+
+if __name__ == "__main__":
+    unittest.main()
