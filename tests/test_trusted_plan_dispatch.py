@@ -376,5 +376,43 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
 
 
 
+    def test_approval_expiry_row_cannot_be_extended_outside_the_audit_chain(self):
+        approvals, request, pending_record = self._approval(
+            self.controller, context=self.context,
+        )
+        record = approvals.get(pending_record.approval_id)
+        with sqlite3.connect(self.controller.db_path) as db:
+            db.execute(
+                "UPDATE durable_approvals SET expires_at=? WHERE approval_id=?",
+                ((datetime.now(timezone.utc) + timedelta(days=30)).isoformat(), record.approval_id),
+            )
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        root = self._root(self.controller, approvals, request, record, guard, context=self.context)
+        with self.assertRaisesRegex(PermissionError, "immutable request event"):
+            root.dispatch(
+                run_id=self.plan.run_id, task_id="implement", dispatch_key="tampered-expiry",
+                handler="dispatch-test", packet=self.packet,
+            )
+
+    def test_approval_state_row_cannot_diverge_from_audit_chain(self):
+        approvals, request, pending_record = self._approval(
+            self.controller, context=self.context,
+        )
+        record = approvals.get(pending_record.approval_id)
+        with sqlite3.connect(self.controller.db_path) as db:
+            db.execute(
+                "UPDATE durable_approvals SET version=version+1 WHERE approval_id=?",
+                (record.approval_id,),
+            )
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        root = self._root(self.controller, approvals, request, record, guard, context=self.context)
+        with self.assertRaisesRegex(PermissionError, "append-only audit chain"):
+            root.dispatch(
+                run_id=self.plan.run_id, task_id="implement", dispatch_key="tampered-state",
+                handler="dispatch-test", packet=self.packet,
+            )
+
+
+
 if __name__ == "__main__":
     unittest.main()
