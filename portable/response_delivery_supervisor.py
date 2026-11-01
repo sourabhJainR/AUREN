@@ -504,10 +504,22 @@ class ResponseDeliverySupervisor:
                 try:
                     if not self._renew_worker_slot(task_id, owner_token):
                         heartbeat_lost.set()
+                        try:
+                            self.controller.request_cancellation(
+                                task_id, reason="response delivery lost its shared worker-slot lease",
+                            )
+                        except Exception:
+                            pass
                         return
                 except Exception:
                     # Do not silently assume the shared slot is still owned.
                     heartbeat_lost.set()
+                    try:
+                        self.controller.request_cancellation(
+                            task_id, reason="response delivery could not renew its shared worker-slot lease",
+                        )
+                    except Exception:
+                        pass
                     return
 
         heartbeat = threading.Thread(
@@ -527,9 +539,11 @@ class ResponseDeliverySupervisor:
             heartbeat_stop.set()
             if heartbeat.is_alive():
                 heartbeat.join(timeout=1.0)
-            self._release_worker_slot(task_id, owner_token)
-            with _THREADS_LOCK:
-                _THREADS.pop(key, None)
+            try:
+                self._release_worker_slot(task_id, owner_token)
+            finally:
+                with _THREADS_LOCK:
+                    _THREADS.pop(key, None)
 
     def state(self, task_id: str) -> str:
         task = self.controller.task(task_id)
