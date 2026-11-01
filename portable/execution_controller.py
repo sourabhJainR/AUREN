@@ -2754,6 +2754,48 @@ class ExecutionController:
             "handler": task.handler,
             "payload_digest": payload_digest,
         }
+        # New dispatch intents also bind the host-resolved budget and approval
+        # receipts. Recompute that exact shape at worker preflight so a trusted-root
+        # dispatch is not rejected before its handler starts. Preserve the historical
+        # digest shape for older intents that predate these optional fields.
+        extension_fields = {
+            "deadline_policy_seconds", "shared_budget_binding", "approval_evidence",
+        }
+        present_extension_fields = extension_fields.intersection(metadata)
+        if present_extension_fields and present_extension_fields != extension_fields:
+            raise EngineeringPlanCheckpointMismatch(
+                "queued dispatch has an incomplete budget/approval binding"
+            )
+        if present_extension_fields:
+            deadline_policy_seconds = metadata.get("deadline_policy_seconds")
+            if deadline_policy_seconds is not None:
+                if (
+                    isinstance(deadline_policy_seconds, bool)
+                    or not isinstance(deadline_policy_seconds, (int, float))
+                    or not math.isfinite(deadline_policy_seconds)
+                    or not 0 < deadline_policy_seconds <= 86400
+                ):
+                    raise EngineeringPlanCheckpointMismatch(
+                        "queued dispatch deadline binding is invalid"
+                    )
+                deadline_policy_seconds = float(deadline_policy_seconds)
+            from .engineering_plan_dispatch import EngineeringPlanDispatch
+            try:
+                shared_budget_binding = EngineeringPlanDispatch._normalize_budget_binding(
+                    metadata.get("shared_budget_binding")
+                )
+                approval_evidence = EngineeringPlanDispatch._normalize_approval_evidence(
+                    metadata.get("approval_evidence")
+                )
+            except (TypeError, ValueError) as exc:
+                raise EngineeringPlanCheckpointMismatch(
+                    "queued dispatch budget or approval binding is invalid"
+                ) from exc
+            binding.update({
+                "deadline_policy_seconds": deadline_policy_seconds,
+                "shared_budget_binding": shared_budget_binding,
+                "approval_evidence": approval_evidence,
+            })
         binding_digest = hashlib.sha256(
             json.dumps(binding, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
         ).hexdigest()
