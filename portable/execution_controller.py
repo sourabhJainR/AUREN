@@ -1830,6 +1830,11 @@ class ExecutionController:
                     "approval_id": approval_id, "status": approval_status,
                     "checkpoint": checkpoint, "checkpoint_digest": checkpoint_digest,
                 }
+                if next_state == "pending":
+                    try:
+                        self._reserve_deployment_pending_for_requeue(str(task_id))
+                    except QueueAdmissionRejected:
+                        continue
                 cursor = db.execute(
                     "UPDATE tasks SET state=?,payload=?,updated_at=?,heartbeat_at=NULL,lease_until=NULL,"
                     "lease_token=NULL WHERE id=? AND state=? AND lease_generation=?",
@@ -1967,6 +1972,8 @@ class ExecutionController:
                 "status": status,
                 "checkpoint": dict(pending.checkpoint),
             }
+            if next_state == "pending":
+                self._reserve_deployment_pending_for_requeue(task.id)
             cursor = db.execute(
                 "UPDATE tasks SET state=?,payload=?,updated_at=?,heartbeat_at=NULL,lease_until=NULL,"
                 "lease_token=NULL WHERE id=? AND state='running' AND lease_token=? AND lease_generation=?",
@@ -2816,6 +2823,7 @@ class ExecutionController:
             ).fetchone()
             if not row:
                 return False
+            self._reserve_deployment_pending_for_requeue(task_id)
             cursor = db.execute(
                 "UPDATE tasks SET state='pending',updated_at=?,next_retry_at=NULL,quota_reason=NULL,"
                 "quota_blocked=0,quota_attempts=0 WHERE id=? AND state='blocked_quota'", (now, task_id),
