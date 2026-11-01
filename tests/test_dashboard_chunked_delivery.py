@@ -668,27 +668,31 @@ def test_dashboard_telemetry_failures_do_not_change_ack_or_completion(monkeypatc
             headers={"Accept": dashboard_server.CHUNKED_RESPONSE_ACCEPT},
         )
         assert status == 202
-        status, _, chunk = _request(server, "GET", manifest["next"])
-        assert status == 200
-        ack = {
-            "chunk_index": chunk["chunk_index"],
-            "chunk_sha256": chunk["chunk_sha256"],
-            "response_sha256": manifest["response_sha256"],
-            "total_chunks": manifest["total_chunks"],
-        }
         task_id = server.RequestHandlerClass._delivery_task_id(
             manifest["response_id"], manifest["delivery_id"],
         )
-        with patch.object(
-            dashboard_server, "record_chunk_ack_measurement",
-            side_effect=OSError("metrics store unavailable"),
-        ):
-            status, _, ack_result = _request(server, "POST", manifest["ack"], ack)
-        assert status == 200 and ack_result["acknowledged_index"] == 1
+        for expected_index in range(1, manifest["total_chunks"] + 1):
+            status, _, chunk = _request(server, "GET", manifest["next"])
+            assert status == 200 and chunk["chunk_index"] == expected_index
+            ack = {
+                "chunk_index": chunk["chunk_index"],
+                "chunk_sha256": chunk["chunk_sha256"],
+                "response_sha256": manifest["response_sha256"],
+                "total_chunks": manifest["total_chunks"],
+            }
+            if expected_index == 1:
+                with patch.object(
+                    dashboard_server, "record_chunk_ack_measurement",
+                    side_effect=OSError("metrics store unavailable"),
+                ):
+                    status, _, ack_result = _request(server, "POST", manifest["ack"], ack)
+            else:
+                status, _, ack_result = _request(server, "POST", manifest["ack"], ack)
+            assert status == 200 and ack_result["acknowledged_index"] == expected_index
         checkpoint = server.RequestHandlerClass.progress_journal.response_delivery_checkpoint(
             task_id, manifest["response_id"],
         )
-        assert checkpoint["acknowledged_index"] == 1
+        assert checkpoint["acknowledged_index"] == manifest["total_chunks"]
 
         complete = {
             "response_sha256": manifest["response_sha256"],
