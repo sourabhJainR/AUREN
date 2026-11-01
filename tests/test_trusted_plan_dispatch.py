@@ -148,13 +148,13 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                 run_id=self.plan.run_id, task_id="implement", dispatch_key="pending-approval",
                 handler="dispatch-test", packet=self.packet,
             )
-        self.assertEqual(0, len(self.controller.list_tasks()))
+        with sqlite3.connect(self.controller.db_path) as db:
+            self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
 
     def test_cancelled_canonical_guard_blocks_dispatch(self):
         approvals, request, record = self._approval(self.controller, context=self.context)
         guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
         guard.cancel("operator cancelled")
-        self._root(self.controller, approvals, request, record, guard, context=self.context)
         with self.assertRaises(ExecutionBudgetExceeded):
             TrustedPlanDispatchRoot(
                 controller=self.controller, store=self.plan_store,
