@@ -49,6 +49,25 @@ names, and capacity values. The first claim pins each resource's capacity in
 the shared resource-policy table; a later host with a different value is
 rejected rather than silently changing the limit.
 
+## Runtime wiring
+
+Construct the coordinator once from the host's secret-managed PostgreSQL
+connection. Inject it into both the controller and delivery supervisor. The
+instance ID must be stable for the lifetime of one runtime root and unique
+across roots:
+
+```python
+controller = ExecutionController(
+    root,
+    deployment_admission_coordinator=coordinator,
+    deployment_instance_id="runtime-root-01",
+)
+```
+
+A restarted process for that same root must use the same instance ID. A second
+root must use a different ID. The local pending-task limit remains active; all
+participating roots must also agree on the shared PostgreSQL resource capacity.
+
 ## Delivery supervisor wiring
 
 Inject the coordinator and a stable operator-assigned host identity:
