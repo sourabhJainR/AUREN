@@ -21,3 +21,38 @@ Signature verification authenticates bytes under a trusted key; it does not esta
 ## Verification boundaries
 
 Unit and CI tests establish local code behavior only. A live migration rehearsal, independent evaluator operation, sealed-corpus custody, and independently audited sandbox remain distinct production activities. Do not fabricate their receipts or infer them from test fixtures.
+
+
+## Docker external evaluator gateway wiring
+
+The production gateway accepts an explicitly verified isolation executor through
+its `isolated_executor` constructor argument. The Docker adapter is not selected
+implicitly and never enables the gateway by itself. A host bootstrap can wire it
+only after loading an operator-managed Ed25519 custody trust registry and
+verifying the pinned evaluator image policy:
+
+```python
+from portable.docker_external_evaluator_executor import DockerExternalEvaluatorExecutor
+from portable.external_evaluator_gateway import ExternalEvaluatorGateway
+
+executor = DockerExternalEvaluatorExecutor(
+    image="sha256:PINNED_IMAGE_DIGEST",
+)
+executor.verify_policy()
+
+gateway = ExternalEvaluatorGateway(
+    boundary=trusted_sealed_arena_boundary,
+    replay_ledger=shared_replay_ledger,
+    isolated_executor=executor,
+)
+```
+
+The host must supply `trusted_sealed_arena_boundary` backed by an independently
+controlled custody trust root and a replay ledger whose deployment scope matches
+the campaign. The adapter rechecks the Docker isolation probe on every launch.
+The gateway enforces request/output limits, deadline, receipt validation and
+cleanup status. Missing trust material, a failed probe, Docker outage, or
+unconfirmed termination blocks acceptance. This code path proves adapter
+compatibility; it does not prove independent operator custody, a sealed holdout,
+a separately administered signer, or protection from a compromised host kernel
+or Docker daemon. Those remain external acceptance gates for issue #404.
