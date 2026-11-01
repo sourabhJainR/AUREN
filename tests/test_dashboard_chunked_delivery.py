@@ -566,5 +566,14 @@ def test_session_delivery_metrics_report_durable_acknowledgements(monkeypatch, t
         assert metrics["running_tasks"] >= 1
         assert metrics["capacity"]["worker_limit"] == 8
         assert metrics["integrity"]["unknown_outcomes_block_replay"] is True
+
+        # Session Control Center APIs expose the same delivery counters, not a
+        # separately reconstructed UI-only approximation.
+        status, _, sessions = _request(server, "GET", "/api/sessions?limit=10")
+        assert status == 200
+        assert sessions["delivery_metrics"]["acknowledged_chunks"] == 1
+        status, _, center = _request(server, "GET", "/api/control-center")
+        assert status == 200
+        assert center["delivery_metrics"]["acknowledged_chunks"] == 1
     finally:
         _stop_server(server, thread)
