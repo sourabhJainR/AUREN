@@ -528,12 +528,48 @@ def _run_guard_policy(args: list[str]) -> int:
         return 2
 
 
+
+def _run_delivery(args: list[str]) -> int:
+    """Deliver a bounded payload to stdout or an atomically committed file."""
+    parser = argparse.ArgumentParser(prog="auren deliver", description="Deliver a bounded response without truncation.")
+    parser.add_argument("--input", default="-", help="input file, or - for stdin")
+    parser.add_argument("--output", default="-", help="output file, or - for stdout")
+    parser.add_argument("--max-bytes", type=int, default=8_000_000)
+    parser.add_argument("--overwrite", action="store_true", help="atomically replace an existing file")
+    options = parser.parse_args(args)
+    if options.max_bytes < 0:
+        parser.error("--max-bytes must be non-negative")
+    from portable.response_delivery_sinks import deliver_file, deliver_stdout
+    try:
+        if options.input == "-":
+            payload = sys.stdin.buffer.read(options.max_bytes + 1)
+        else:
+            with Path(options.input).expanduser().open("rb") as source:
+                payload = source.read(options.max_bytes + 1)
+        if len(payload) > options.max_bytes:
+            raise ValueError("input exceeds configured byte budget; no output was written")
+        if options.output == "-":
+            receipt = deliver_stdout(payload, stream=sys.stdout.buffer, max_bytes=options.max_bytes)
+            print(json.dumps(receipt, sort_keys=True), file=sys.stderr)
+        else:
+            receipt = deliver_file(
+                payload, options.output, max_bytes=options.max_bytes, overwrite=options.overwrite,
+            )
+            print(json.dumps(receipt, indent=2, sort_keys=True))
+        return 0
+    except (OSError, ValueError, RuntimeError) as exc:
+        print(f"delivery blocked: {exc}", file=sys.stderr)
+        return 2
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if len(args) == 1 and Path(args[0]).suffix.lower() == ".zip":
         args = ["install", *args, "--skill", "auto"]
     elif args and args[0] in {"install", "update"} and not _has_flag(args, "--skill"):
         args = [*args, "--skill", "auto"]
+    if args and args[0] == "deliver":
+        return _run_delivery(args[1:])
     if args and args[0] == "dashboard":
         return _run_dashboard(args[1:])
     if args and args[0] == "workflow-profile":
