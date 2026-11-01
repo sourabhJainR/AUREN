@@ -45,6 +45,41 @@
       metric("Durable tasks", c.tasks ?? "—", "Supervisor journal records")
     ].join("");
   }
+
+  function renderDeliveryMetrics(data) {
+    const d = data.delivery_metrics;
+    const target = byId("delivery-metrics");
+    const source = byId("delivery-metrics-source");
+    if (!d || typeof d !== "object") {
+      target.innerHTML = '<div class="empty">Delivery telemetry is unavailable. This is not a zero-work or healthy-state signal.</div>';
+      source.textContent = "Telemetry unavailable";
+      source.className = "pill warning";
+      return;
+    }
+    const local = d.capacity || {};
+    const shared = d.shared_capacity || {};
+    const integrity = d.integrity || {};
+    const cards = [
+      metric("Active workers", local.active_workers ?? "—", "This host process"),
+      metric("Shared active", shared.active_workers ?? "—", "Across processes sharing the registry"),
+      metric("Worker slots", shared.available_workers ?? "—", "Shared slots available"),
+      metric("Pending deliveries", d.pending_tasks ?? "—", "Durable queue; not dropped"),
+      metric("Running deliveries", d.running_tasks ?? "—", "Supervisor-owned workers"),
+      metric("Completed deliveries", d.completed_tasks ?? "—", "Controller terminal state"),
+      metric("Acknowledged chunks", d.acknowledged_chunks ?? "—", "Receiver-confirmed chunks"),
+      metric("Receiver completions", d.receiver_acknowledged_deliveries ?? "—", "Whole-response acknowledgement"),
+      metric("Unknown outcomes", d.unknown_outcomes ?? "—", "Requires reconciliation; never replayed"),
+      metric("Failed / cancelled", (Number(d.failed_tasks || 0) + Number(d.cancelled_tasks || 0)), "Failed " + (d.failed_tasks ?? 0) + " · cancelled " + (d.cancelled_tasks ?? 0))
+    ];
+    target.innerHTML = cards.join("");
+    const integrityOk = integrity.unknown_outcomes_block_replay === true &&
+      integrity.completion_requires_receiver_ack === true &&
+      integrity.atomic_protocols_are_not_chunked === true;
+    source.textContent = (d.source || "Unknown source") + " · " +
+      (shared.saturated ? "Shared worker pool saturated" : "Shared worker pool available") +
+      " · " + (integrityOk ? "Integrity gates active" : "Integrity policy unknown");
+    source.className = "pill" + (shared.saturated || !integrityOk || Number(d.unknown_outcomes || 0) > 0 ? " warning" : "");
+  }
   function sessionCard(row) {
     const status = row.status || "unknown";
     const completed = (row.completed_batches || []).length;
@@ -94,6 +129,7 @@
     const data = state.snapshot;
     if (!data) return;
     renderMetrics(data);
+    renderDeliveryMetrics(data);
     const sessions = data.sessions || [];
     byId("session-count").textContent = (data.pagination?.total ?? sessions.length) + " matching sessions";
     const page = data.pagination || {offset:0,limit:state.limit,total:(data.sessions || []).length,has_more:false};

@@ -91,5 +91,23 @@ class ControlCenterApiTests(unittest.TestCase):
         self.assertIn("Canonical memory unavailable", html)
         self.assertIn('value="unverified"', html)
 
+    def test_session_control_center_renders_delivery_supervisor_metrics(self):
+        root = Path(__file__).resolve().parents[1] / "dashboard"
+        html = (root / "index.html").read_text(encoding="utf-8")
+        script = (root / "assets" / "sessions.js").read_text(encoding="utf-8")
+        self.assertIn('id="delivery-metrics"', html)
+        self.assertIn('id="delivery-metrics-source"', html)
+        for field in (
+            "active_workers", "shared_capacity", "pending_tasks", "running_tasks",
+            "acknowledged_chunks", "receiver_acknowledged_deliveries",
+            "unknown_outcomes", "unknown_outcomes_block_replay",
+        ):
+            self.assertIn(field, script)
+        self.assertIn("Telemetry unavailable", script)
+        self.assertIn("Integrity gates active", script)
+        self.assertIn('source.className = "pill warning"', script)
+        css = (root / "assets" / "styles.css").read_text(encoding="utf-8")
+        self.assertIn(".pill.warning", css)
+
 if __name__ == "__main__":
     unittest.main()
