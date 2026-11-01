@@ -74,7 +74,7 @@ def test_chunked_route_supports_acknowledged_resume_after_server_restart(monkeyp
             server, "POST", "/api/route", {"task": "build multi-ticker evidence brief"},
             headers={"Accept": dashboard_server.CHUNKED_RESPONSE_ACCEPT},
         )
-        assert status == 202
+        assert status == 202, (status, manifest)
         assert headers["X-AUREN-Delivery-Mode"] == "chunked-pull-v1"
         assert headers["X-AUREN-Chunk-Ack"] == "receiver-confirmed"
         assert manifest["delivery_mode"] == "chunked-pull-v1"
@@ -195,7 +195,7 @@ def test_chunked_ack_rejects_gaps_and_wrong_manifest(monkeypatch, tmp_path):
             server, "POST", "/api/route", {"task": "test"},
             headers={"Accept": dashboard_server.CHUNKED_RESPONSE_ACCEPT},
         )
-        assert status == 202
+        assert status == 202, (status, manifest)
         gap = {
             "chunk_index": 2, "chunk_sha256": "0" * 64,
             "response_sha256": manifest["response_sha256"],
