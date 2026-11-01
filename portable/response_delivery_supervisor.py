@@ -367,7 +367,7 @@ class ResponseDeliverySupervisor:
         delivery_events = [
             row for row in events
             if str(row.get("task_id", "")).strip()
-            and str(row.get("stage", "")).startswith("response-delivery:")
+            and (str(row.get("stage", "")).startswith("response-delivery:") or row.get("stage") == "response-delivery")
         ]
         ack_rows = [row for row in delivery_events if row.get("event") == "response_chunk_acknowledged"]
         unknown_rows = [row for row in delivery_events if row.get("event") == "response_chunk_outcome_unknown"]
