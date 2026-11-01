@@ -166,6 +166,8 @@ def main() -> int:
         "git_sha": subprocess.run(
             ["git", "rev-parse", "HEAD"], capture_output=True, text=True,
         ).stdout.strip(),
+        "github_actions_run_id": os.environ.get("GITHUB_RUN_ID"),
+        "github_actions_run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
     }
     target = Path(os.environ.get(
         "AUREN_CONTAINER_STAGING_REPORT_PATH",
