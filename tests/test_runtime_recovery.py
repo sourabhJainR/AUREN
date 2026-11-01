@@ -179,3 +179,21 @@ class RuntimeExecutionGuardTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_shared_delivery_byte_budget_is_checkpointed_and_idempotent(self):
+        guard = RuntimeExecutionGuard(max_delivery_bytes=100)
+        self.assertTrue(guard.consume_delivery_bytes(40, operation_key="response:chunk:1"))
+        self.assertFalse(guard.consume_delivery_bytes(40, operation_key="response:chunk:1"))
+        self.assertEqual(40, guard.delivery_bytes_used)
+        resumed = RuntimeExecutionGuard.resume(guard.snapshot())
+        self.assertEqual(40, resumed.delivery_bytes_used)
+        self.assertTrue(resumed.consume_delivery_bytes(60, operation_key="response:chunk:2"))
+        self.assertFalse(resumed.consume_delivery_bytes(1, operation_key="response:chunk:3"))
+        self.assertEqual(100, resumed.delivery_bytes_used)
+
+    def test_shared_delivery_budget_rejects_conflicting_charge_key(self):
+        guard = RuntimeExecutionGuard(max_delivery_bytes=100)
+        self.assertTrue(guard.consume_delivery_bytes(40, operation_key="response:chunk:1"))
+        with self.assertRaisesRegex(ValueError, "different byte charge"):
+            guard.consume_delivery_bytes(41, operation_key="response:chunk:1")
