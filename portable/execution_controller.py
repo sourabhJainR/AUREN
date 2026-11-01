@@ -1576,6 +1576,7 @@ class ExecutionController:
         payload: Mapping[str, Any] | None = None,
         goal: str | None = None,
         recovery_bridge: Any | None = None,
+        deadline_seconds: float | None = None,
     ) -> DurableTask:
         """Dispatch one plan task through the same durable queue this controller owns.
 
@@ -1596,6 +1597,7 @@ class ExecutionController:
             packet=packet,
             payload=payload,
             goal=goal,
+            deadline_seconds=deadline_seconds,
         )
 
     def register_provider_operation_adapter(self, handler_name: str, adapter: Any) -> None:

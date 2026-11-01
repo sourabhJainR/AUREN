@@ -92,6 +92,55 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
             self.assertEqual(run.revision, first.payload["auren_dispatch"]["run_revision"])
             self.assertEqual(packet.packet_digest, first.payload["auren_dispatch"]["packet_digest"])
 
+    def test_deadline_policy_is_persisted_and_replay_bound(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            plan, run, packet, _, store, controller, bridge = prepared(tmp)
+            first = controller.dispatch_engineering_plan_task(
+                store=store, run_id=plan.run_id, task_id="implement",
+                dispatch_key="dispatch-deadline", handler="dispatch-test",
+                packet=packet, recovery_bridge=bridge.recovery_bridge,
+                deadline_seconds=30,
+            )
+            self.assertIsNotNone(first.deadline_at)
+            self.assertEqual(30.0, first.payload["auren_dispatch"]["deadline_policy_seconds"])
+            self.assertEqual(first.deadline_at, first.payload["auren_dispatch"]["deadline_at"])
+            with sqlite3.connect(controller.db_path) as db:
+                row = db.execute(
+                    "SELECT deadline_at,deadline_seconds FROM tasks WHERE id=?", (first.id,)
+                ).fetchone()
+            self.assertEqual(first.deadline_at, row[0])
+            self.assertEqual(30.0, row[1])
+
+            replayed = bridge.dispatch(
+                run_id=plan.run_id, task_id="implement", dispatch_key="dispatch-deadline",
+                handler="dispatch-test", packet=packet, deadline_seconds=30,
+            )
+            self.assertEqual(first.id, replayed.id)
+            self.assertEqual(first.deadline_at, replayed.deadline_at)
+            with self.assertRaises(DispatchConflict):
+                bridge.dispatch(
+                    run_id=plan.run_id, task_id="implement", dispatch_key="dispatch-deadline",
+                    handler="dispatch-test", packet=packet, deadline_seconds=31,
+                )
+            with self.assertRaises(DispatchConflict):
+                bridge.dispatch(
+                    run_id=plan.run_id, task_id="implement", dispatch_key="dispatch-deadline",
+                    handler="dispatch-test", packet=packet,
+                )
+
+    def test_invalid_plan_dispatch_deadlines_are_rejected_before_queue_insertion(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            plan, run, packet, _, store, controller, bridge = prepared(tmp)
+            for value in (0, -1, 86401, float("inf"), True):
+                with self.subTest(deadline_seconds=value), self.assertRaises(ValueError):
+                    bridge.dispatch(
+                        run_id=plan.run_id, task_id="implement",
+                        dispatch_key=f"invalid-deadline-{value}", handler="dispatch-test",
+                        packet=packet, deadline_seconds=value,
+                    )
+            with sqlite3.connect(controller.db_path) as db:
+                self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
+
     def test_controller_dispatch_fails_closed_when_canonical_checkpoint_is_missing(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             plan, run, packet, _, store, controller, _ = prepared(tmp)
