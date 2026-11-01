@@ -364,5 +364,69 @@ No local test run is claimed because this session has GitHub source/CI access bu
 - PR [#1166](https://github.com/sourabhJainR/AUREN/pull/1166) is merged at `81906e3eca59e9903b6056a5493abd736cc62309`; all six post-merge workflows passed. It enforces the eight-worker quota across processes sharing the same registry database with renewable leases and crash expiry.
 - PR [#1169](https://github.com/sourabhJainR/AUREN/pull/1169) adds a real nine-process contention regression and makes pytest execute the capacity suite. An initial explicit pytest run found two fake-thread tests that no longer matched the durable lease contract; those tests were rewritten to exercise slot admission directly. The latest exact-head CI is pending. Do not merge until the new pytest step and all required workflows pass.
 - The local paired benchmark shows unchanged bytes/chunk count and complete integrity/recovery. Latency is small and variable; provider monetary cost remains unknown. The consistent traced-memory reduction is a local-harness observation, not a production guarantee.
-- The separate [AUREN Capability Lab](https://github.com/sourabhJainR/firstTestproj) main SHA `a56a715cad72b241489a35bdf1aa1bb1412456a5` passed CI. Its deterministic persona-context experiment is a workflow-contract result, not model-level SI or AGI evidence.
+- The separate [AUREN Capability Lab](https://github.com/sourabhJainR/firstTestproj) main SHA `5c7d9402dcf8eacee5fcc22f1f6c7a31271f9f5f` passed CI. Its deterministic persona-context experiment is a workflow-contract result, not model-level SI or AGI evidence.
 
+
+
+## Current delivery, software-team and #696 reconciliation — 2026-11-01
+
+### Merged implementation
+
+| PR | Verified result |
+|---|---|
+| #1165 | Supervisor-owned response delivery, shared-budget charging, CLI/stdout, atomic file output, MCP atomic-frame rejection and cleanup |
+| #1166 | Renewable SQLite worker-slot leases; eight concurrent workers across processes sharing one registry; crash expiry and owner-fenced release |
+| #1167 | Real host registration for CEO, CTO, engineering manager, architect, research/evaluation and release/operations personas with explicit provider and tool-scope contracts |
+| #1169 | Discoverable regression tests with nine competing OS processes against the eight-slot quota |
+| #1170 | Live Session Control Center delivery-health panel |
+| #1172 | Dashboard host accepts the exact caller-owned `RuntimeExecutionGuard` plus stable budget ID; host can resume a previously persisted budget |
+
+### In progress
+
+- **#1175 — durable delivery telemetry:** records total bytes/chunks, peak in-flight chunk bytes, receiver/backpressure wait, worker resumes, safe failure categories and completion digests. The Session Control Center renders these measurements. Exact-head CI is running; do not treat the PR as merged.
+- **#1176 — fail-closed budget resume:** rejects a supplied budget ID when its durable checkpoint is missing or unreadable, before task dispatch. This closes the risk of silently creating a new budget under an existing external identity. Exact-head CI and review remain required.
+- **#1174 — readiness documentation:** this PR refreshes the project description and this matrix against the latest merged baseline.
+
+### Latest paired baseline-versus-candidate evidence
+
+Artifact: [benchmark run 41275927868](https://github.com/sourabhJainR/AUREN/actions/runs/41275927868), five paired iterations, baseline `98730d8c9323bc1090c83fd23c1470586d882ba3`, candidate `2d3f8e6a886562a22ce84c7d93cbf55f24142c6f`, Python 3.12.15 / Linux, 299,008-byte payload.
+
+| Measure | Baseline | Candidate | Difference |
+|---|---:|---:|---:|
+| Median latency | 194.365 ms | 192.191 ms | -2.174 ms (-1.12%) |
+| Median peak traced memory | 3,262,528 B | 2,182,192 B | -1,080,336 B (-33.1%) |
+| Transported bytes | 299,008 B | 299,008 B | No change |
+| Chunks | 74 | 74 | No change |
+| Integrity / completion | All pass | All pass | Preserved |
+
+Recovery interrupted after two acknowledged chunks, resumed from chunk 2, delivered the remaining 72 chunks, and did not replay acknowledged chunks. Provider monetary cost is not measured; transported bytes are a proxy only. These are local harness results, not production performance guarantees.
+
+### Independent SI capability lab
+
+The separate [firstTestproj Capability Lab](https://github.com/sourabhJainR/firstTestproj) is at main SHA `5c7d9402dcf8eacee5fcc22f1f6c7a31271f9f5f`; its offline CI passed. It now tests:
+- shared-context baseline versus isolated persona context;
+- independent QA without implementer self-assessment exposure;
+- task-scoped memory that admits only reviewed evidence to architect, research, implementation and manager roles;
+- fresh-context QA and security review, excluding unreviewed and cross-task memories.
+
+These tests establish workflow contracts with deterministic fixtures. They do not establish a model-level SI gain or AGI. Real model/provider adapters, metered provider cost, sealed external holdouts and broad cross-domain transfer remain outstanding.
+
+### Remaining #696 roadmap gates
+
+| Gate | Current status | Evidence still required |
+|---|---|---|
+| #696 unified runtime, learning, delivery and dashboard | In progress; core delivery, host personas and dashboard UI merged; telemetry and fail-closed budget resume under review | Final exact-head CI, production host configuration, full end-to-end lifecycle and external readiness evidence |
+| #692 recursive harness learning | Independent lab and reviewed-memory routing implemented | Causal attribution, real model adapters, pinned baselines, sealed holdouts, transfer and independent Arena custody |
+| #694 spec-driven persistent planning | Architect/manager personas and task-scoped evidence context implemented | Durable plan evolution, dependency changes, fresh-context resume, contradiction and staleness tests |
+| #809 durable human approval and resumable side effects | Not closed | Real host approval boundary; provider idempotency; restart, cancellation, deadline, timeout and final-ack proof |
+| #534 migration and rollback | Blocked | Operator-controlled staging migration, fresh-process recovery, rollback and post-cutover reconciliation receipts |
+| Independent Arena / OS isolation | Not production-ready | External custody, repeatable adversarial holdouts, OS-level isolation audit and signed attestation |
+
+Additional operational gaps:
+- The eight-worker quota applies only to processes sharing the same registry database. Distinct registries and deployment-wide multi-host coordination remain unproven.
+- The durable pending queue is not yet bounded by a global admission quota.
+- Real provider-side-effect ambiguity and cross-adapter idempotency still need production receipts.
+- Required-check enforcement must be verified by a repository owner/admin; CI results alone do not prove the branch rules are configured correctly.
+- No staging migration or rollback rehearsal has been claimed.
+
+**Readiness decision:** AUREN now has the core response-delivery paths, cross-process worker admission, explicit shared-budget host injection, software-company personas, and live delivery observability. It is not yet production-ready as an autonomous engineering company and has not demonstrated AGI. Keep #696, #692, #694, #809, #534 and the independent Arena/isolation gates open until their specific evidence is independently reviewed. Revert each implementation PR as a unit if regression evidence requires rollback.
