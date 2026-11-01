@@ -2326,13 +2326,18 @@ def test_shared_work_key_rejects_changed_intent_and_requires_stable_key(tmp_path
         tmp_path / "root-a", deployment_admission_coordinator=coordinator,
         deployment_instance_id="runtime-a",
     )
-    first.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    second = ExecutionController(
+        tmp_path / "root-b", deployment_admission_coordinator=coordinator,
+        deployment_instance_id="runtime-b",
+    )
+    for controller in (first, second):
+        controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
     first.submit(
         "tests.durable_handler", {"id": "original"},
         goal="original goal", work_key="deployment:immutable:intent",
     )
     with pytest.raises(RuntimeError, match="different immutable intent"):
-        first.submit(
+        second.submit(
             "tests.durable_handler", {"id": "changed"},
             goal="original goal", work_key="deployment:immutable:intent",
         )
