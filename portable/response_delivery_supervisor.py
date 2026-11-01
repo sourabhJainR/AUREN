@@ -23,9 +23,16 @@ _HANDLER = "portable.response_delivery.await_receiver"
 MAX_ACTIVE_DELIVERY_WORKERS = 8
 WORKER_SLOT_LEASE_SECONDS = 30
 WORKER_SLOT_HEARTBEAT_SECONDS = 5
+MAX_PENDING_DELIVERY_TASKS = 256
+QUEUE_RESERVATION_LEASE_SECONDS = 300
 _THREADS: dict[tuple[str, str], threading.Thread] = {}
 _THREADS_LOCK = threading.Lock()
 _SATURATION_COUNT = 0
+
+
+class DeliveryQueueSaturatedError(RuntimeError):
+    """Raised before staging or submitting work when the durable queue is full."""
+
 
 
 def await_receiver_acknowledgement(payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -82,7 +89,13 @@ def await_receiver_acknowledgement(payload: Mapping[str, Any]) -> dict[str, Any]
 class ResponseDeliverySupervisor:
     """Binds generated delivery identities to durable ExecutionController tasks."""
 
-    def __init__(self, controller: ExecutionController, journal_path: str | Path):
+    def __init__(
+        self, controller: ExecutionController, journal_path: str | Path, *,
+        max_pending_tasks: int = MAX_PENDING_DELIVERY_TASKS,
+    ):
+        if type(max_pending_tasks) is not int or not 1 <= max_pending_tasks <= 100_000:
+            raise ValueError("max_pending_tasks must be an integer between 1 and 100000")
+        self.max_pending_tasks = max_pending_tasks
         self.controller = controller
         self.journal_path = Path(journal_path).expanduser().resolve()
         self.registry_path = controller.db_path.parent / "response_delivery_registry.sqlite3"
@@ -114,6 +127,15 @@ class ResponseDeliverySupervisor:
                 "CREATE INDEX IF NOT EXISTS idx_delivery_worker_slots_lease "
                 "ON delivery_worker_slots(lease_until)"
             )
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS delivery_queue_reservations ("
+                "reservation_id TEXT PRIMARY KEY, work_key TEXT NOT NULL UNIQUE, "
+                "lease_until TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+            )
+            db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_delivery_queue_reservations_lease "
+                "ON delivery_queue_reservations(lease_until)"
+            )
             legacy = db.execute(
                 "SELECT task_id FROM deliveries WHERE budget_id IS NULL OR budget_id=''"
             ).fetchall()
@@ -134,10 +156,56 @@ class ResponseDeliverySupervisor:
                 _HANDLER, await_receiver_acknowledgement, execution_class="read_only",
             )
 
+    def reserve_queue_slot(self, response_id: str, delivery_id: str) -> str:
+        """Reserve one durable pending-queue position before staging a response artifact."""
+        if not isinstance(response_id, str) or not response_id or not isinstance(delivery_id, str) or not delivery_id:
+            raise ValueError("response_id and delivery_id are required for queue admission")
+        work_key = f"dashboard-response:{response_id}:{delivery_id}"
+        now = self._utc_now()
+        now_text = now.isoformat(timespec="microseconds")
+        lease_until = (now + timedelta(seconds=QUEUE_RESERVATION_LEASE_SECONDS)).isoformat(timespec="microseconds")
+        reservation_id = uuid.uuid4().hex
+        with sqlite3.connect(self.registry_path, timeout=10) as db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute(
+                "DELETE FROM delivery_queue_reservations WHERE lease_until<=?", (now_text,),
+            )
+            existing = db.execute(
+                "SELECT task_id FROM deliveries WHERE response_id=? AND delivery_id=?",
+                (response_id, delivery_id),
+            ).fetchone()
+            if existing is not None:
+                raise ValueError("delivery identity is already registered")
+            pending = int(db.execute(
+                "SELECT COUNT(*) FROM delivery_queue_reservations"
+            ).fetchone()[0])
+            with sqlite3.connect(self.controller.db_path, timeout=10) as tasks_db:
+                pending_tasks = int(tasks_db.execute(
+                    "SELECT COUNT(*) FROM tasks WHERE work_key LIKE 'dashboard-response:%' AND state='pending'"
+                ).fetchone()[0])
+            if pending_tasks + pending >= self.max_pending_tasks:
+                raise DeliveryQueueSaturatedError(
+                    f"response delivery queue is full ({self.max_pending_tasks} pending/reserved tasks)"
+                )
+            db.execute(
+                "INSERT INTO delivery_queue_reservations(reservation_id,work_key,lease_until) VALUES(?,?,?)",
+                (reservation_id, work_key, lease_until),
+            )
+        return reservation_id
+
+    def release_queue_reservation(self, reservation_id: str) -> None:
+        if not isinstance(reservation_id, str) or not reservation_id:
+            return
+        with sqlite3.connect(self.registry_path, timeout=10) as db:
+            db.execute(
+                "DELETE FROM delivery_queue_reservations WHERE reservation_id=?",
+                (reservation_id,),
+            )
+
     def create(
         self, response_id: str, delivery_id: str, digest: str, *, deadline_seconds: float = 600.0,
         execution_guard: RuntimeExecutionGuard | None = None, budget_id: str | None = None,
-        artifact_digest: str | None = None,
+        artifact_digest: str | None = None, queue_reservation_id: str | None = None,
     ) -> str:
         if response_id != digest or len(digest) != 64:
             raise ValueError("response identity must equal its SHA-256 digest")
@@ -150,70 +218,92 @@ class ResponseDeliverySupervisor:
             or any(ch not in "0123456789abcdef" for ch in artifact_digest)
         ):
             raise ValueError("artifact_digest must be a lowercase SHA-256 digest")
-        with sqlite3.connect(self.registry_path, timeout=10) as db:
-            db.execute("BEGIN IMMEDIATE")
-            row = db.execute(
-                "SELECT task_id,response_sha256,artifact_sha256,budget_id FROM deliveries WHERE response_id=? AND delivery_id=?",
-                (response_id, delivery_id),
-            ).fetchone()
-            if row:
-                if row[1] != digest:
-                    raise ValueError("delivery identity is already bound to a different response digest")
-                if artifact_digest is not None and row[2] not in (None, artifact_digest):
-                    raise ValueError("delivery identity is already bound to a different artifact digest")
-                if budget_id is not None and row[3] not in (None, budget_id):
-                    raise ValueError("delivery identity is already bound to a different crew budget")
-                task_id = str(row[0])
-                task = self.controller.task(task_id)
-                if task is None:
-                    raise RuntimeError("delivery registry references a missing supervisor task")
-                return task_id
-            work_key = f"dashboard-response:{response_id}:{delivery_id}"
-            task = self.controller.submit(
-                _HANDLER,
-                {
-                    "task_id": None,
-                    "controller_db_path": str(self.controller.db_path),
-                    "work_key": work_key,
-                    "response_id": response_id,
-                    "delivery_id": delivery_id,
-                    "response_sha256": digest,
-                    "journal_path": str(self.journal_path),
-                },
-                goal="deliver immutable response and await receiver acknowledgement",
-                work_key=work_key,
-                deadline_seconds=deadline_seconds,
-            )
-            resolved_budget_id = budget_id or f"delivery:{task.id}"
-            snapshot = execution_guard.snapshot() if execution_guard is not None else RuntimeExecutionGuard().snapshot()
-            existing_budget = db.execute(
-                "SELECT snapshot_json FROM delivery_budgets WHERE budget_id=?", (resolved_budget_id,),
-            ).fetchone()
-            if existing_budget is None:
-                db.execute(
-                    "INSERT INTO delivery_budgets(budget_id,snapshot_json) VALUES(?,?)",
-                    (resolved_budget_id, json.dumps(snapshot, sort_keys=True, separators=(",", ":"))),
+        owned_reservation = queue_reservation_id is None
+        reservation_id = queue_reservation_id or self.reserve_queue_slot(response_id, delivery_id)
+        work_key = f"dashboard-response:{response_id}:{delivery_id}"
+        try:
+            with sqlite3.connect(self.registry_path, timeout=10) as db:
+                db.execute("BEGIN IMMEDIATE")
+                row = db.execute(
+                    "SELECT task_id,response_sha256,artifact_sha256,budget_id FROM deliveries WHERE response_id=? AND delivery_id=?",
+                    (response_id, delivery_id),
+                ).fetchone()
+                if row:
+                    if row[1] != digest:
+                        raise ValueError("delivery identity is already bound to a different response digest")
+                    if artifact_digest is not None and row[2] not in (None, artifact_digest):
+                        raise ValueError("delivery identity is already bound to a different artifact digest")
+                    if budget_id is not None and row[3] not in (None, budget_id):
+                        raise ValueError("delivery identity is already bound to a different crew budget")
+                    task_id = str(row[0])
+                    task = self.controller.task(task_id)
+                    if task is None:
+                        raise RuntimeError("delivery registry references a missing supervisor task")
+                    db.execute(
+                        "DELETE FROM delivery_queue_reservations WHERE reservation_id=?",
+                        (reservation_id,),
+                    )
+                    return task_id
+                reservation = db.execute(
+                    "SELECT work_key,lease_until FROM delivery_queue_reservations WHERE reservation_id=?",
+                    (reservation_id,),
+                ).fetchone()
+                if reservation is None or reservation[0] != work_key:
+                    raise DeliveryQueueSaturatedError("delivery queue reservation is missing or belongs to another task")
+                if str(reservation[1]) <= self._utc_now().isoformat(timespec="microseconds"):
+                    raise DeliveryQueueSaturatedError("delivery queue reservation expired before task submission")
+                task = self.controller.submit(
+                    _HANDLER,
+                    {
+                        "task_id": None,
+                        "controller_db_path": str(self.controller.db_path),
+                        "work_key": work_key,
+                        "response_id": response_id,
+                        "delivery_id": delivery_id,
+                        "response_sha256": digest,
+                        "journal_path": str(self.journal_path),
+                    },
+                    goal="deliver immutable response and await receiver acknowledgement",
+                    work_key=work_key,
+                    deadline_seconds=deadline_seconds,
                 )
-            elif execution_guard is not None:
-                persisted = json.loads(existing_budget[0])
-                old_charges = persisted.get("delivery_charges", {})
-                new_charges = snapshot.get("delivery_charges", {})
-                if (
-                    persisted.get("max_delivery_bytes") != snapshot.get("max_delivery_bytes")
-                    or any(new_charges.get(key) != value for key, value in old_charges.items())
-                ):
-                    raise ValueError("shared crew budget does not match its durable checkpoint")
+                resolved_budget_id = budget_id or f"delivery:{task.id}"
+                snapshot = execution_guard.snapshot() if execution_guard is not None else RuntimeExecutionGuard().snapshot()
+                existing_budget = db.execute(
+                    "SELECT snapshot_json FROM delivery_budgets WHERE budget_id=?", (resolved_budget_id,),
+                ).fetchone()
+                if existing_budget is None:
+                    db.execute(
+                        "INSERT INTO delivery_budgets(budget_id,snapshot_json) VALUES(?,?)",
+                        (resolved_budget_id, json.dumps(snapshot, sort_keys=True, separators=(",", ":"))),
+                    )
+                elif execution_guard is not None:
+                    persisted = json.loads(existing_budget[0])
+                    old_charges = persisted.get("delivery_charges", {})
+                    new_charges = snapshot.get("delivery_charges", {})
+                    if (
+                        persisted.get("max_delivery_bytes") != snapshot.get("max_delivery_bytes")
+                        or any(new_charges.get(key) != value for key, value in old_charges.items())
+                    ):
+                        raise ValueError("shared crew budget does not match its durable checkpoint")
+                    db.execute(
+                        "UPDATE delivery_budgets SET snapshot_json=?,updated_at=CURRENT_TIMESTAMP WHERE budget_id=?",
+                        (json.dumps(snapshot, sort_keys=True, separators=(",", ":")), resolved_budget_id),
+                    )
                 db.execute(
-                    "UPDATE delivery_budgets SET snapshot_json=?,updated_at=CURRENT_TIMESTAMP WHERE budget_id=?",
-                    (json.dumps(snapshot, sort_keys=True, separators=(",", ":")), resolved_budget_id),
+                    "INSERT INTO deliveries(response_id,delivery_id,task_id,response_sha256,artifact_sha256,budget_id) VALUES(?,?,?,?,?,?)",
+                    (response_id, delivery_id, task.id, digest, artifact_digest or digest, resolved_budget_id),
                 )
-            db.execute(
-                "INSERT INTO deliveries(response_id,delivery_id,task_id,response_sha256,artifact_sha256,budget_id) VALUES(?,?,?,?,?,?)",
-                (response_id, delivery_id, task.id, digest, artifact_digest or digest, resolved_budget_id),
-            )
-            if execution_guard is not None:
-                self._execution_guards[resolved_budget_id] = execution_guard
-            return task.id
+                if execution_guard is not None:
+                    self._execution_guards[resolved_budget_id] = execution_guard
+                db.execute(
+                    "DELETE FROM delivery_queue_reservations WHERE reservation_id=?",
+                    (reservation_id,),
+                )
+                return task.id
+        finally:
+            if owned_reservation:
+                self.release_queue_reservation(reservation_id)
 
     def consume_delivery_bytes(self, task_id: str, amount: int, *, operation_key: str) -> bool:
         """Charge a response chunk to the durable shared crew budget before sending it."""
