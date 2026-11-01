@@ -23,6 +23,7 @@ jobs:
           python-version: "3.12"
       - name: Run paired baseline/candidate measurements
         env:
+          PYTHONPATH: .
           AUREN_BENCHMARK_BASELINE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
           GITHUB_SHA: ${{ github.sha }}
         run: python benchmarks/response_delivery_comparison.py --iterations 5 --output response-delivery-benchmark.json
