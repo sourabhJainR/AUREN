@@ -407,3 +407,29 @@ class ResponseDeliverySupervisor:
 
     def cancel(self, task_id: str, *, reason: str = "receiver delivery cancelled") -> bool:
         return self.controller.request_cancellation(task_id, reason=reason)
+
+    def shutdown(self, *, wait_seconds: float = 2.0) -> None:
+        """Request cancellation of this host's active delivery tasks and join workers."""
+        with sqlite3.connect(self.controller.db_path) as db:
+            rows = db.execute(
+                "SELECT id FROM tasks WHERE work_key LIKE 'dashboard-response:%' AND state IN ('pending','running')"
+            ).fetchall()
+        for (task_id,) in rows:
+            try:
+                self.controller.request_cancellation(str(task_id), reason="delivery host shutdown")
+            except Exception:
+                # Preserve the durable task state; failed cancellation remains
+                # visible to restart reconciliation rather than being hidden.
+                continue
+        deadline = time.monotonic() + max(0.0, wait_seconds)
+        key_prefix = str(self.controller.db_path)
+        while time.monotonic() < deadline:
+            with _THREADS_LOCK:
+                workers = [
+                    thread for (db_path, _task_id), thread in _THREADS.items()
+                    if db_path == key_prefix and thread.is_alive()
+                ]
+            if not workers:
+                break
+            for worker in workers:
+                worker.join(timeout=min(0.05, max(0.0, deadline - time.monotonic())))
