@@ -58,6 +58,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         return store, request, record
 
     def _root(self, controller, store, request, record, guard, *, context):
+        admission_checkpoint_digest = guard.snapshot()["digest"]
         return TrustedPlanDispatchRoot(
             controller=controller,
             store=self.plan_store,
@@ -65,7 +66,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             approval_store=store,
             budget_resolver=lambda run_id, task_id, handler: {
                 "budget_id": "crew:team-a:run-1", "guard": guard,
-                "policy_digest": "a" * 64,
+                "checkpoint_digest": admission_checkpoint_digest, "policy_digest": "a" * 64,
             },
             approval_resolver=lambda run_id, task_id, handler: {
                 "approval_id": record.approval_id, "request": request,
@@ -157,7 +158,8 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             controller=self.controller, store=self.plan_store,
             recovery_bridge=self.recovery_bridge, approval_store=store,
             budget_resolver=lambda run_id, task_id, handler: {
-                "budget_id": "crew:team-a:run-1", "guard": guard, "policy_digest": "a" * 64,
+                "budget_id": "crew:team-a:run-1", "guard": guard,
+                "checkpoint_digest": guard.snapshot()["digest"], "policy_digest": "a" * 64,
             },
             approval_resolver=lambda run_id, task_id, handler: {"approval_id": record.approval_id, "request": request},
         )
