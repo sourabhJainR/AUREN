@@ -7,16 +7,20 @@ provides atomic lease claims against one shared PostgreSQL database. It is
 intended for hosts that use separate AUREN state roots. It does not treat a
 shared SQLite file or a per-host registry as a deployment coordinator.
 
-The first integration uses the coordinator for response-delivery worker slots.
-The existing SQLite registry remains a second, local safety limit. The shared
-coordinator is opt-in; when configured, an unavailable or mismatched shared
-authority raises an error and delivery admission fails closed.
+The coordinator is integrated with response-delivery worker slots and, in the
+follow-up pending-task integration, durable task submission and requeue paths.
+The local SQLite limits remain active as a second safety layer. Shared admission
+is opt-in; when configured, an unavailable or mismatched shared authority
+fails closed.
 
-**Important limitation:** durable pending-task admission in
-`ExecutionController.submit()` is still scoped to each controller SQLite
-database. Do not describe total pending-task capacity as deployment-wide yet.
-The coordinator module is a foundation for that follow-up, not proof that
-every admission path is globally coordinated.
+Pending-task leases use the durable task ID as the operation identity and a
+stable operator-assigned instance ID plus task ID as the owner. The owner ID
+must remain unchanged across restarts of that runtime root. A pending lease is
+bounded to 24 hours. Before dispatch, the controller must reacquire/confirm the
+lease; if it has expired and capacity is unavailable, the task stays queued and
+is not executed. Requeue paths reserve capacity before returning a task to
+`pending`. A stale lease can consume capacity until release or expiry, which is
+safe but may temporarily reduce throughput.
 
 ## Provisioning
 
@@ -90,6 +94,9 @@ skew, coordinator partitions, policy mismatch, restart, and owner fencing.
 Then perform a staging test across at least two distinct runtime roots and
 hosts.
 
-Pending-task queue admission, cross-host task identity/idempotency, and its
-crash-reconciliation protocol remain separate required work. Do not close
-#1193 until those paths are integrated and staging evidence is attached.
+Pending-task leases are currently tied to each durable task ID; they do not
+provide cross-root deduplication for equal work keys. Expired or uncertain
+claims can temporarily consume capacity until bounded expiry. The staging
+rehearsal must cover process death before and after task insertion, restart,
+requeue, and coordinator outage. Do not close #1193 until those cases and
+multi-host staging evidence are reviewed.
