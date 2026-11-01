@@ -48,18 +48,24 @@ it preserves the original text exactly and provides end-to-end integrity checks.
 
 ## Bounded host worker admission
 
-The HTTP delivery supervisor admits at most eight active delivery workers per host
-process. A saturated host leaves additional durable delivery tasks pending; it does
-not fail, discard, replay, or mark them complete. A later status/next poll can retry
-admission after a worker exits. The delivery status response exposes active workers,
-the configured worker limit, available slots, saturation state, and an in-process
-saturation-event count. The counter is operational telemetry and resets when the
-host process restarts; it is not an audit ledger.
+The HTTP delivery supervisor admits at most eight active delivery workers
+across processes that share the same response-delivery registry database. Admission
+uses a SQLite transaction and a renewable 30-second worker-slot lease. A worker
+refreshes its lease every five seconds and releases the slot on normal exit. A host
+crash leaves only a time-bounded slot; a later process can reclaim it after expiry.
+The controller's own task lease still fences stale workers and prevents a second
+worker from silently taking over an active task.
 
-This bounds concurrent delivery work, while each pull request remains synchronous
-and offers at most one chunk at a time. It does not claim a bounded number of durable
-pending tasks or a global cross-process worker quota. Hosts that need those stronger
-limits must enforce them at their deployment admission boundary.
+A saturated host leaves additional durable delivery tasks pending; it does not fail,
+discard, replay, or mark them complete. A later status/next poll can retry admission
+after a worker exits. The delivery status response exposes process-local and shared
+worker capacity. Process-local saturation-event counts reset on restart and are
+operational telemetry, not an audit ledger.
+
+The quota is global only for processes using the same registry database. It does not
+bound the number of durable pending tasks, coordinate separate registry databases,
+or replace deployment-level admission controls. Persistent queue admission limits,
+multi-host deployment validation, and operator-tested recovery remain separate gates.
 
 ## Shared crew budget and host sinks
 

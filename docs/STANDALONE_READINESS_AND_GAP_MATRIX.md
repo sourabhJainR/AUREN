@@ -332,3 +332,15 @@ Five paired iterations, 299,008-byte payload, Python 3.12.15 / Linux:
 | Chunks | 74 | 74 | 0 |
 
 Integrity and completion passed all iterations; recovery resumed from chunk 2 without replay. This run is slower on latency while retaining the same peak-memory reduction and byte count. Across repeats, latency moves in both directions; no reliable latency improvement is established. The memory result is stable in this harness, but still requires production receiver validation. Provider monetary cost remains unmeasured.
+
+
+## Delivery completion and admission follow-up — 2026-11-01
+
+- PR [#1165](https://github.com/sourabhJainR/AUREN/pull/1165) is merged at `357d60af09f1be486e0950de727077454efceac1`. All nine exact-head workflows passed. On the merge SHA, seven inspected push workflows passed; the Runtime Resilience Matrix is still running. The post-merge check set is not fully terminal until that run finishes.
+- The merged delivery work covers shared crew-budget charging before HTTP chunk offers, idempotent acknowledged-chunk charging, slow-receiver backpressure, disconnect/unknown-outcome blocking, restart/resume, bounded worker saturation, CLI/stdout and atomic file delivery, MCP oversized atomic-frame rejection/cleanup, and durable Session Control Center metrics.
+- Paired local benchmark results preserve integrity and recovery and show a repeatable reduction in traced peak memory in this harness. Latency varies in both directions. Monetary provider cost is not measured; transported bytes are a proxy only. Do not claim a production latency or cost improvement.
+- PR [#1166](https://github.com/sourabhJainR/AUREN/pull/1166) adds a SQLite-backed renewable worker-slot lease to enforce the eight-worker limit across processes that share the same registry database. It also adds crash-expiry and owner-fenced release tests. Exact-head CI is pending.
+- The cross-process quota does not cap the number of durable pending tasks and does not coordinate distinct registry databases. Persistent queue admission limits and deployment-wide multi-host testing remain open.
+- Remaining #696 gates include real host bootstrap configuration for software-team persona/model/tool scopes; externally controlled evaluator and sealed holdout custody; independent OS-level isolation audit; operator-controlled #534 migration/rollback rehearsal; real provider idempotency and ambiguous-outcome reconciliation; and verified required-check enforcement by a repository owner/admin.
+
+No local test run is claimed because this session has GitHub source/CI access but no AUREN checkout. Close the remaining gates only with exact-revision CI, operator receipts, or independently verifiable external evidence. Repository CI is not evidence of AGI or production autonomy.
