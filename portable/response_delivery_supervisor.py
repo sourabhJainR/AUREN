@@ -392,7 +392,21 @@ class ResponseDeliverySupervisor:
             )
             _THREADS[key] = thread
             thread.start()
-            return True
+        # Wait briefly for the durable controller to acquire the new lease.
+        # Returning success while the task is still pending makes the HTTP host
+        # appear runnable even though no worker has started.
+        admission_deadline = time.monotonic() + 1.0
+        while time.monotonic() < admission_deadline:
+            current = self.controller.task(task_id)
+            if current is None:
+                return False
+            if current.state != "pending":
+                return current.state == "running"
+            if not thread.is_alive():
+                return False
+            time.sleep(0.01)
+        current = self.controller.task(task_id)
+        return current is not None and current.state == "running"
 
     def _run(self, key: tuple[str, str], task_id: str) -> None:
         try:
