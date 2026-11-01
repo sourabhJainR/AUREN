@@ -114,6 +114,15 @@ class ResponseDeliveryMetricsTests(unittest.TestCase):
             journal = ProgressJournal(root / "progress.jsonl")
             journal.record("task-1", "started", state="running")
             digest = "d" * 64
+            journal.record_response_chunk_ack(
+                "task-1", response_id=digest, acknowledged_index=1,
+                total_chunks=2, response_sha256=digest,
+            )
+            journal.record(
+                "task-1", "response_delivery_receiver_acknowledged", state="running",
+                stage="response-delivery", message="receiver digest verified",
+                evidence_ref="sha256:" + digest,
+            )
             record_delivery_metrics(
                 journal, "task-1", digest,
                 total_bytes=2048, total_chunks=2,
@@ -128,6 +137,8 @@ class ResponseDeliveryMetricsTests(unittest.TestCase):
             self.assertEqual(15.0, metrics["measurements"]["backpressure_wait_ms"])
             self.assertEqual(1, metrics["measurements"]["resume_count"])
             self.assertEqual([digest], metrics["measurements"]["completion_digests"])
+            self.assertEqual(1, metrics["acknowledged_chunks"])
+            self.assertEqual(1, metrics["receiver_acknowledged_deliveries"])
 
     def test_metrics_reject_mismatched_completion_digest(self):
         with tempfile.TemporaryDirectory() as temp:
