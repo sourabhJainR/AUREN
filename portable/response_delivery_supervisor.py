@@ -377,7 +377,7 @@ class ResponseDeliverySupervisor:
         }
         capacity = self.capacity_snapshot()
         shared_capacity = self.shared_capacity_snapshot()
-        measurements = aggregate_delivery_metrics(journal_events)
+        measurements = aggregate_delivery_metrics(events)
         return {
             "capacity": capacity,
             "shared_capacity": shared_capacity,
