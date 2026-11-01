@@ -11,6 +11,7 @@ on:
       - "tests/test_response_delivery_supervisor_capacity.py"
       - "tests/test_execution_controller.py"
       - "tests/test_multi_instance_admission_staging.py"
+      - "scripts/staging/**"
       - "portable/attestation_freshness.py"
       - "tests/test_postgres_attestation_replay_registry.py"
       - ".github/workflows/postgres-attestation-replay.yml"
@@ -81,10 +82,14 @@ jobs:
         env:
           AUREN_STAGING_REPORT_PATH: artifacts/multi-instance-admission-staging.json
         run: python -m unittest tests.test_multi_instance_admission_staging -v
+      - name: Run container-isolated three-instance host simulation
+        env:
+          AUREN_CONTAINER_STAGING_REPORT_PATH: artifacts/containerized-multi-host-simulation.json
+        run: python scripts/staging/run_containerized_multi_host_simulation.py
       - name: Upload multi-instance staging evidence
         if: always()
         uses: actions/upload-artifact@v6
         with:
           name: auren-multi-instance-admission-staging
-          path: artifacts/multi-instance-admission-staging.json
+          path: artifacts/*.json
           if-no-files-found: warn
