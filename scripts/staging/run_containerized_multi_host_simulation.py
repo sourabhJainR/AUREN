@@ -14,9 +14,15 @@ from uuid import uuid4
 
 
 def run(args, *, capture=True, timeout=120):
-    return subprocess.run(
-        args, check=True, text=True, capture_output=capture, timeout=timeout,
-    )
+    try:
+        return subprocess.run(
+            args, check=True, text=True, capture_output=capture, timeout=timeout,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(
+            f"command failed ({exc.returncode}): {args!r}; "
+            f"stdout={exc.stdout!r}; stderr={exc.stderr!r}"
+        ) from exc
 
 
 def main() -> int:
