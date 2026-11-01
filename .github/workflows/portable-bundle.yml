@@ -72,7 +72,9 @@ jobs:
             tests.test_portable_auren tests.test_standalone_bundle_smoke tests.test_auren_sdk tests.test_task_planner tests.test_impact_analysis \
             tests.test_bidirectional_install tests.test_contract_alignment tests.test_graph_agent_team \
             tests.test_engineering_design_guard tests.test_state_graph_hardening \
-            tests.test_execution_contract tests.test_evidence_contract tests.test_adaptive_planning_evidence tests.test_execution_strategy_learning tests.test_skill_group_evidence tests.test_vibe_coding tests.test_vibe_coding_adapters tests.test_vibe_coding_host \\\n            tests.test_runtime_recovery tests.test_response_delivery tests.test_response_delivery_transport tests.test_response_delivery_sinks \\\n            tests.test_response_delivery_supervisor_capacity tests.test_dashboard_chunked_delivery tests.test_response_delivery_benchmark -v
+            tests.test_execution_contract tests.test_evidence_contract tests.test_adaptive_planning_evidence tests.test_execution_strategy_learning tests.test_skill_group_evidence tests.test_vibe_coding tests.test_vibe_coding_adapters tests.test_vibe_coding_host \
+            tests.test_runtime_recovery tests.test_response_delivery tests.test_response_delivery_transport tests.test_response_delivery_sinks \
+            tests.test_response_delivery_supervisor_capacity tests.test_dashboard_chunked_delivery tests.test_response_delivery_benchmark -v
       - name: Compile host integration entrypoints
         run: python -m py_compile portable/vibe_coding_host.py scripts/run_vibe_coding_project.py
       - name: Read AUREN version
