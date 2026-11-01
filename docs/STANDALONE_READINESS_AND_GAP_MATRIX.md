@@ -176,3 +176,20 @@ This snapshot does not prove deployment readiness, independent evaluation, seale
 - The living radar refresh is tracked in [PR #1143](https://github.com/sourabhJainR/AUREN/pull/1143); exact-head checks must pass before merge.
 
 No local test run is claimed for this review because no AUREN checkout/runtime is available. The evidence above comes from repository source inspection, GitHub CI and downloaded artifact verification. This snapshot does not prove deployment readiness, independent evaluation, sealed-holdout custody, production isolation or AGI/SI. A documentation rollback is a revert of this change; no runtime behavior or product version is changed.
+
+## Response-delivery completion update — 2026-11-01
+
+**Implementation branch:** feat/issue-696-delivery-completion (exact-head CI pending at review time).
+**Baseline main before this change:** 40bd0bd98a68ddabfad74aeca26b2a5a84ef2b1b.
+
+- [x] Extend the shared RuntimeExecutionGuard with a checkpointable UTF-8 delivery-byte ledger and idempotent operation keys; wire the acknowledged response transport to the same guard instance.
+- [x] Add slow-receiver backpressure, disconnect/unknown-outcome, acknowledged restart/resume, and bounded-worker queue-saturation regressions. Existing HTTP integration tests also exercise stale lease recovery, cancellation, deadline, and duplicate acknowledgement.
+- [x] Add CLI stdin/stdout and file output contracts. Oversized input is rejected before output; file output is atomically committed; partial stdout writes are explicitly unknown, not reported complete.
+- [x] Add an MCP regression that sends an oversized atomic JSON-RPC frame while a descendant is running and verifies the process tree is terminated. MCP framing remains atomic; no frame truncation or response chunking is introduced.
+- [x] Expose durable delivery metrics through Session Control Center session and control-center APIs.
+- [x] Add a paired baseline/candidate benchmark and CI artifact workflow for integrity, recovery, latency, peak traced memory and transported-byte cost proxy.
+- [ ] Inspect exact-head CI and benchmark artifact. No benchmark values are asserted in this source-only review.
+- [ ] Provider monetary cost remains unmeasured without a metered provider; production receiver latency/memory and deployment-wide queue saturation require a staged workload.
+- [ ] Complete cross-process/global worker quota, persistent queue admission policy, independent production isolation, external evaluator/holdout custody, required-check enforcement and staging rollback rehearsal as separate deployment gates.
+
+The implementation status above is source/test intent, not a passing-CI claim. Keep the product version unchanged. Revert the PR as a unit if required; do not remove the existing byte caps, digest-bound acknowledgement, unknown-outcome block, or atomic MCP frame rejection.
