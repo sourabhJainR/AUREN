@@ -284,6 +284,40 @@ class MultiInstanceAdmissionStagingTests(unittest.TestCase):
                 "generation_increased": renewed.generation > first_lease.generation,
             })
 
+            # A stale running task must reserve shared capacity before it
+            # returns to pending. Exercise the real controller recovery path.
+            requeue_root = str(base / "state-requeue")
+            requeue_owner = "staging-requeue-owner"
+            requeue_controller, _ = _runtime(
+                dsn, namespace, policy, requeue_root, requeue_owner,
+            )
+            requeue_task = requeue_controller.submit(
+                "tests.test_execution_controller.durable_handler",
+                {"id": "stale-requeue"}, goal="stale requeue rehearsal",
+                work_key="staging:requeue:stale-task",
+            )
+            stale_time = datetime.now(timezone.utc).replace(microsecond=0)
+            stale_iso = (stale_time.replace(year=stale_time.year - 1)).isoformat()
+            import sqlite3
+            with sqlite3.connect(requeue_controller.db_path) as local_db:
+                local_db.execute(
+                    "UPDATE tasks SET state='running',heartbeat_at=?,lease_until=? WHERE id=?",
+                    (stale_iso, stale_iso, requeue_task.id),
+                )
+            requeue_controller.recover_stale(
+                requeue_task.id, reason="multi-instance staging stale-worker injection",
+                stale_after_seconds=1,
+            )
+            recovered_state = requeue_controller.task(requeue_task.id).state
+            self.assertEqual("pending", recovered_state)
+            evidence["scenarios"].append({
+                "name": "stale-task-requeue-reserves-shared-capacity",
+                "result": "passed",
+                "task_id": requeue_task.id,
+                "recovered_state": recovered_state,
+                "shared_active_pending_leases": coordinator.active_count("durable_pending_tasks"),
+            })
+
             # Policy mismatch and coordinator outage must block before a local
             # task is persisted.
             for name, bad_coordinator, expected in (
