@@ -184,7 +184,7 @@ if __name__ == "__main__":
             return self.ack(chunk)
 
         receipt = deliver_response(
-            "slow payload " * 100, "task-slow",
+            "task-slow", "slow payload " * 100,
             receiver=slow_receiver, journal=self.journal, max_chunk_bytes=40,
         )
         self.assertTrue(receipt.acknowledged_chunks == receipt.total_chunks)
