@@ -114,6 +114,34 @@ owners, digests, or task IDs must be resolved by an operator, not overwritten.
    change, then retain the local SQLite cap. Do not drop PostgreSQL tables
    while any host may still use them.
 
+## Reproducible multi-instance staging simulation
+
+Run the service-backed three-instance rehearsal in CI or against an operator
+provided disposable PostgreSQL database:
+
+```bash
+python -m unittest tests.test_multi_instance_admission_staging -v
+```
+
+The rehearsal starts three independent AUREN controller processes. Each process
+has its own SQLite state root and unique stable runtime ID; all connect to one
+PostgreSQL namespace. It races the same work key and records the single winner
+and duplicate rejections. It also injects process death after the permanent
+identity commit but before local insertion, process death after local insertion,
+restart with the same owner, stale-task requeue, lease expiry/fencing,
+coordinator outage, policy mismatch, and a local-only rollback-path check.
+A machine-readable JSON report records timestamps, process IDs, runtime IDs,
+task IDs, outcomes, runner identity and the tested boundary. CI retains this
+report as the `auren-multi-instance-admission-staging` artifact.
+
+This is stronger than a same-process/two-directory unit test, but it is still
+a simulation: all three processes run on one CI runner and share its network
+namespace. It does not prove physical host isolation, independent host
+credentials, real network partitions, DNS/service discovery, host reboot,
+secret rotation, database failover, or an operator-controlled production
+rollback. The evidence report must state these limits; do not mark the
+independent two-host acceptance gate complete from this rehearsal alone.
+
 ## Evidence still required
 
 The repository now includes service-backed PostgreSQL tests for permanent
