@@ -390,6 +390,8 @@ class _Handler(BaseHTTPRequestHandler):
                 raise ValueError("response chunk count mismatch")
             if action == "cancel":
                 accepted = self.delivery_supervisor.cancel(task_id)
+                if accepted:
+                    self._record_delivery_failure(task_id, response_id, "cancelled")
                 self._send_delivery_json(202 if accepted else 409, {
                     "cancellation_requested": accepted,
                     "state": self.delivery_supervisor.state(task_id),
@@ -422,6 +424,12 @@ class _Handler(BaseHTTPRequestHandler):
                     acknowledged_index=index, total_chunks=manifest.total_chunks,
                     response_sha256=manifest.sha256,
                 )
+                if index == acknowledged + 1:
+                    record_chunk_ack_measurement(
+                        self.progress_journal, task_id, response_id,
+                        chunk_index=index, chunk_sha256=chunk.sha256,
+                        chunk_bytes=chunk.utf8_bytes,
+                    )
                 self._send_delivery_json(200, {
                     "acknowledged": True, "response_id": response_id, "delivery_id": delivery_id,
                     "acknowledged_index": index, "chunk_sha256": chunk.sha256,
@@ -454,6 +462,13 @@ class _Handler(BaseHTTPRequestHandler):
                     evidence_ref="sha256:" + manifest.sha256,
                     expected_sequence=snapshot.get("sequence"),
                 )
+            record_delivery_metrics(
+                self.progress_journal, task_id, manifest.sha256,
+                total_bytes=manifest.total_bytes, total_chunks=manifest.total_chunks,
+                peak_in_flight_bytes=max((chunk.utf8_bytes for chunk in chunks), default=0),
+                backpressure_wait_ms=0.0, resumed_from_chunk=0,
+                completion_digest=manifest.sha256,
+            )
             self._send_delivery_json(202, {
                 "completed": self.delivery_supervisor.state(task_id) == "completed",
                 "accepted": True, "response_id": response_id, "delivery_id": delivery_id,
@@ -462,10 +477,16 @@ class _Handler(BaseHTTPRequestHandler):
                 "total_chunks": manifest.total_chunks,
             })
         except (ValueError, TypeError, json.JSONDecodeError):
+            if "task_id" in locals():
+                self._record_delivery_failure(task_id, response_id, "acknowledgement_rejected")
             self._send_delivery_json(409, {"error": "delivery acknowledgement rejected"})
         except FileNotFoundError:
+            if "task_id" in locals():
+                self._record_delivery_failure(task_id, response_id, "artifact_not_found")
             self._send_delivery_json(404, {"error": "response artifact not found"})
         except Exception:
+            if "task_id" in locals():
+                self._record_delivery_failure(task_id, response_id, "delivery_state_unavailable")
             self._send_delivery_json(503, {"error": "delivery state unavailable; completion is not confirmed"})
 
 
