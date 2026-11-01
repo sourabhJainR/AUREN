@@ -159,6 +159,15 @@ class PostgreSQLAdmissionCoordinator:
             raise ValueError(f"{name} must be a non-empty string of at most {maximum} characters")
         return value.strip()
 
+    def _connect_runtime(self, operation: str) -> Any:
+        """Normalize connection-establishment failures into a fail-closed result."""
+        try:
+            return self._connect()
+        except Exception as exc:
+            raise AdmissionCoordinatorUnavailable(
+                f"shared admission {operation} cannot connect; operation must fail closed"
+            ) from exc
+
     def _lock(self, cursor: Any, resource: str) -> None:
         # Hashing is stable across hosts; collisions only serialize unrelated
         # admission operations and cannot weaken the capacity invariant.
@@ -181,7 +190,7 @@ class PostgreSQLAdmissionCoordinator:
             raise ValueError("capacity must be an integer between 1 and 100000")
         if type(lease_seconds) is not int or not 1 <= lease_seconds <= 86400:
             raise ValueError("lease_seconds must be an integer between 1 and 86400")
-        connection = self._connect()
+        connection = self._connect_runtime("lease acquisition")
         try:
             cursor = connection.cursor()
             try:
@@ -283,7 +292,7 @@ class PostgreSQLAdmissionCoordinator:
         task_id = self._text("task_id", task_id, 128)
         if len(intent_digest) != 64 or any(ch not in "0123456789abcdef" for ch in intent_digest):
             raise ValueError("intent_digest must be a lowercase SHA-256 hex digest")
-        connection = self._connect()
+        connection = self._connect_runtime("work-key identity claim")
         try:
             cursor = connection.cursor()
             try:
@@ -335,7 +344,7 @@ class PostgreSQLAdmissionCoordinator:
     def renew(self, lease: AdmissionLease, *, lease_seconds: int = 30) -> bool:
         if type(lease_seconds) is not int or not 1 <= lease_seconds <= 86400:
             raise ValueError("lease_seconds must be an integer between 1 and 86400")
-        connection = self._connect()
+        connection = self._connect_runtime("lease renewal")
         try:
             cursor = connection.cursor()
             try:
@@ -357,7 +366,7 @@ class PostgreSQLAdmissionCoordinator:
             connection.close()
 
     def release(self, lease: AdmissionLease) -> bool:
-        connection = self._connect()
+        connection = self._connect_runtime("lease release")
         try:
             cursor = connection.cursor()
             try:
@@ -379,7 +388,7 @@ class PostgreSQLAdmissionCoordinator:
 
     def active_count(self, resource: str) -> int:
         resource = self._text("resource", resource, 128)
-        connection = self._connect()
+        connection = self._connect_runtime("admission status read")
         try:
             cursor = connection.cursor()
             try:
