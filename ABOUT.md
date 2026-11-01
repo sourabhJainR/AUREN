@@ -1,6 +1,6 @@
 # About AUREN
 
-**AUREN — Autonomous Unified Reasoning & Engineering Network** is a provider-neutral AI engineering and orchestration system for software development. It coordinates work through explicit intent, repository context, bounded planning and execution, specialist proposals, verification, review, durable evidence, and guarded learning.
+**AUREN — Autonomous Unified Reasoning & Engineering Network** is a provider-neutral operating system for an AI engineering company. It coordinates CEO/CTO direction, engineering management, architecture, backend and frontend implementation, independent QA, security/reliability, research/evaluation, and release operations through a supervised graph/crew runtime. Work is planned against explicit acceptance criteria, bounded by shared budgets and authority, verified independently, recorded as durable evidence, and improved through controlled experiments. Its long-term direction is stronger software-engineering intelligence (SI) and broader general-purpose capability, with progress measured through independent transfer and safety evaluation rather than self-declared AGI claims.
 
 AUREN's goal is not to make an agent run indefinitely or to treat model output as authority. It is to make engineering work more inspectable, recoverable, and testable while limiting side effects to the authority and scope granted.
 
@@ -14,6 +14,10 @@ AUREN's goal is not to make an agent run indefinitely or to treat model output a
 - **Guard** — security, authority, verification, promotion, canary, and rollback controls.
 
 These are ownership and trust boundaries, not a requirement to split AUREN into heavyweight services. The current implementation and each domain's canonical ownership are described in [Current Architecture](docs/ARCHITECTURE_CURRENT.md).
+
+## Software team and capability research
+
+See the [Software Team Operating Model](docs/SOFTWARE_TEAM_OPERATING_MODEL.md) for persona responsibilities, manager-to-leadership reporting, independent verification, and final-acknowledgement rules. New SI and broader capability experiments are developed in the independent [AUREN Capability Lab](https://github.com/sourabhJainR/firstTestproj); it is not a runtime dependency of AUREN.
 
 ## Before implementation
 
