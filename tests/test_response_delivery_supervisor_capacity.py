@@ -38,6 +38,35 @@ def _process_slot_contender(db_path, acquired_queue, release_event):
         delivery._release_worker_slot(task_id, token)
 
 
+class _FakeAdmissionCoordinator:
+    def __init__(self):
+        self.leases = {}
+        self.fail = False
+        self.calls = []
+
+    def acquire(self, resource, owner, operation_id, *, capacity, lease_seconds):
+        self.calls.append(("acquire", resource, owner, operation_id, capacity, lease_seconds))
+        if self.fail:
+            raise RuntimeError("coordinator unavailable")
+        if len(self.leases) >= capacity or operation_id in self.leases:
+            return None
+        lease = SimpleNamespace(resource=resource, owner=owner, operation_id=operation_id,
+                                token="fenced-" + operation_id, generation=1)
+        self.leases[operation_id] = lease
+        return lease
+
+    def renew(self, lease, *, lease_seconds):
+        self.calls.append(("renew", lease.operation_id, lease_seconds))
+        return self.leases.get(lease.operation_id) == lease
+
+    def release(self, lease):
+        self.calls.append(("release", lease.operation_id))
+        if self.leases.get(lease.operation_id) != lease:
+            return False
+        del self.leases[lease.operation_id]
+        return True
+
+
 class ResponseDeliverySupervisorCapacityTests(unittest.TestCase):
     def setUp(self):
         self._temp = tempfile.TemporaryDirectory()
@@ -142,6 +171,38 @@ class ResponseDeliverySupervisorCapacityTests(unittest.TestCase):
                     process.terminate()
                     process.join(timeout=2)
         self.assertTrue(all(process.exitcode == 0 for process in processes))
+
+    def test_shared_coordinator_is_required_and_renews_and_releases_fenced_lease(self):
+        coordinator = _FakeAdmissionCoordinator()
+        delivery = supervisor_module.ResponseDeliverySupervisor(
+            _Controller(self.root / "execution.sqlite3"), self.root / "progress.jsonl",
+            admission_coordinator=coordinator, deployment_host_id="host-a",
+        )
+        token = delivery._acquire_worker_slot("task-shared")
+        self.assertIsNotNone(token)
+        self.assertEqual(len(coordinator.leases), 1)
+        self.assertTrue(delivery._renew_worker_slot("task-shared", token))
+        delivery._release_worker_slot("task-shared", token)
+        self.assertEqual(coordinator.leases, {})
+        self.assertEqual([call[0] for call in coordinator.calls], ["acquire", "renew", "release"])
+
+    def test_shared_coordinator_outage_fails_closed_without_local_fallback(self):
+        coordinator = _FakeAdmissionCoordinator()
+        coordinator.fail = True
+        delivery = supervisor_module.ResponseDeliverySupervisor(
+            _Controller(self.root / "execution.sqlite3"), self.root / "progress.jsonl",
+            admission_coordinator=coordinator, deployment_host_id="host-a",
+        )
+        with self.assertRaises(RuntimeError):
+            delivery._acquire_worker_slot("task-outage")
+        self.assertEqual(delivery.shared_capacity_snapshot()["active_workers"], 0)
+
+    def test_shared_admission_requires_stable_host_identity(self):
+        with self.assertRaises(ValueError):
+            supervisor_module.ResponseDeliverySupervisor(
+                _Controller(self.root / "execution.sqlite3"), self.root / "progress.jsonl",
+                admission_coordinator=_FakeAdmissionCoordinator(),
+            )
 
     def test_duplicate_worker_slot_claim_does_not_allocate_a_second_slot(self):
         delivery = self._supervisor()
