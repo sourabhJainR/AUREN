@@ -115,7 +115,14 @@ class TrustedPlanDispatchRoot:
             expires_at = datetime.fromisoformat(record.expires_at)
         except (TypeError, ValueError) as exc:
             raise PermissionError("durable approval expiry is invalid") from exc
-        if expires_at.tzinfo is None or expires_at <= datetime.now(timezone.utc):
+        try:
+            current_time = self.approval_store.clock()
+            if not isinstance(current_time, datetime) or current_time.tzinfo is None:
+                raise ValueError("approval store clock must return an aware datetime")
+            current_time = current_time.astimezone(timezone.utc)
+        except Exception as exc:
+            raise PermissionError("durable approval clock could not be verified") from exc
+        if expires_at.tzinfo is None or expires_at.astimezone(timezone.utc) <= current_time:
             raise PermissionError("durable approval is expired")
         if request.task_id != record.task_id or request.fingerprint() != record.request_fingerprint:
             raise PermissionError("durable approval is not bound to the resolved operation")
