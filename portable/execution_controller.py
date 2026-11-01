@@ -2306,9 +2306,17 @@ class ExecutionController:
                             raise RuntimeError(
                                 "shared admission coordinator does not support durable work-key identity"
                             )
+                        stored_intent_digest = existing[8]
+                        if (
+                            not isinstance(stored_intent_digest, str)
+                            or not re.fullmatch(r"[0-9a-f]{64}", stored_intent_digest)
+                        ):
+                            raise WorkKeyConflict(
+                                "existing local task has no valid immutable intent digest"
+                            )
                         identity = claim_work_key(
                             stable_work_key,
-                            intent_digest,
+                            stored_intent_digest,
                             self._deployment_instance_id,
                             existing[0],
                         )
