@@ -10,6 +10,43 @@ This is an acceptance gate, not a unit-test substitute. Do not close issue #534 
 - Confirm the destination is a new path. Never point it inside the legacy root or at a path containing state that must be retained.
 - Keep the legacy root and backup read-only to the candidate runtime where feasible. Do not delete them as part of this exercise.
 
+## Machine-readable file and SQLite evidence
+
+The repository includes `portable.state_migration_rehearsal` to produce a JSON
+record for the file-copy portion of this runbook. Use the exact candidate and
+last-known-good revisions and a named operator identifier:
+
+```bash
+python -m portable.state_migration_rehearsal \
+  --source /absolute/path/to/legacy-state \
+  --destination /absolute/path/to/candidate-state \
+  --operator-id staging-operator-id \
+  --candidate-revision CANDIDATE_FULL_GIT_SHA \
+  --last-known-good-revision LAST_KNOWN_GOOD_FULL_GIT_SHA \
+  --mode dry-run \
+  --report migration-dry-run.json
+
+python -m portable.state_migration_rehearsal \
+  --source /absolute/path/to/legacy-state \
+  --destination /absolute/path/to/candidate-state \
+  --operator-id staging-operator-id \
+  --candidate-revision CANDIDATE_FULL_GIT_SHA \
+  --last-known-good-revision LAST_KNOWN_GOOD_FULL_GIT_SHA \
+  --mode apply \
+  --report migration-apply.json
+```
+
+The apply report checks the source/destination manifest, counts, and runs
+`PRAGMA integrity_check` against every discovered SQLite database. A missing
+SQLite database, corrupt database, manifest mismatch, or source mutation blocks
+the file-copy verification. Preserve both JSON reports with the staging record.
+
+This helper intentionally reports `completion_claim_permitted: false`. It does
+not start the candidate runtime, verify session/checkpoint resume, change the
+active state-root configuration, execute rollback, or reconcile post-cutover
+writes. Complete those operator steps below; do not infer them from a green
+helper result.
+
 ## 1. Dry-run and baseline evidence
 
 Run from the repository root in the same Python environment as the candidate runtime:
