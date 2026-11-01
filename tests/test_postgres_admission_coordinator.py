@@ -84,6 +84,42 @@ class PostgreSQLAdmissionCoordinatorTests(unittest.TestCase):
         self.assertTrue(coordinator.release(replacement))
 
     @unittest.skipUnless(os.environ.get("AUREN_TEST_POSTGRES_DSN"), "real PostgreSQL service is not configured")
+    def test_durable_work_key_identity_recovers_and_rejects_cross_root_duplicates(self):
+        from portable.postgres_admission_coordinator import (
+            DuplicateWorkKeySubmission, WorkKeyIntentConflict,
+        )
+
+        coordinator = self._coordinator()
+        key = "work-" + uuid4().hex
+        digest = __import__("hashlib").sha256(b"immutable-intent").hexdigest()
+        first = coordinator.claim_work_key(key, digest, "runtime-a", "task-canonical")
+        replay = coordinator.claim_work_key(key, digest, "runtime-a", "task-retry")
+        self.assertEqual(first.task_id, replay.task_id)
+        self.assertEqual("task-canonical", replay.task_id)
+        with self.assertRaises(DuplicateWorkKeySubmission):
+            coordinator.claim_work_key(key, digest, "runtime-b", "task-duplicate")
+        other_digest = __import__("hashlib").sha256(b"different-intent").hexdigest()
+        with self.assertRaises(WorkKeyIntentConflict):
+            coordinator.claim_work_key(key, other_digest, "runtime-a", "task-mutated")
+
+    @unittest.skipUnless(os.environ.get("AUREN_TEST_POSTGRES_DSN"), "real PostgreSQL service is not configured")
+    def test_work_key_identity_is_permanent_and_namespace_scoped(self):
+        coordinator = self._coordinator()
+        key = "permanent-" + uuid4().hex
+        digest = __import__("hashlib").sha256(b"intent").hexdigest()
+        identity = coordinator.claim_work_key(key, digest, "runtime-a", "task-a")
+        self.assertEqual("task-a", identity.task_id)
+        # Capacity leases may expire; a canonical task identity must not.
+        with __import__("psycopg").connect(self.dsn) as connection:
+            connection.execute(
+                "UPDATE auren_admission_leases SET expires_at=CURRENT_TIMESTAMP - INTERVAL '1 day' "
+                "WHERE namespace=%s AND operation_id=%s",
+                (self.namespace, "task-a"),
+            )
+        replay = coordinator.claim_work_key(key, digest, "runtime-a", "task-b")
+        self.assertEqual("task-a", replay.task_id)
+
+    @unittest.skipUnless(os.environ.get("AUREN_TEST_POSTGRES_DSN"), "real PostgreSQL service is not configured")
     def test_capacity_policy_mismatch_fails_closed(self):
         coordinator = self._coordinator()
         resource = "policy-" + uuid4().hex
