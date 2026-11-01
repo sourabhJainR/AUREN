@@ -168,6 +168,49 @@ class ExternalEvaluatorGatewayTests(unittest.TestCase):
                 ExternalEvaluatorCommand((sys.executable, "-c", script), timeout_seconds=0.05),
             )
 
+    def test_timeout_reap_wait_is_bounded_when_executor_does_not_exit(self) -> None:
+        import io
+        import subprocess
+
+        class StuckProcess:
+            def __init__(self):
+                self.stdin = io.BytesIO()
+                self.stdout = io.BytesIO()
+                self.returncode = None
+                self.wait_timeouts = []
+                self.termination_requested = False
+                self.termination_error = None
+
+            def wait(self, timeout=None):
+                self.wait_timeouts.append(timeout)
+                raise subprocess.TimeoutExpired(["isolated-evaluator"], timeout)
+
+            def terminate_isolated(self):
+                self.termination_requested = True
+
+        process = StuckProcess()
+
+        class Executor:
+            production_ready = True
+
+            def launch(self, _command, _environment):
+                return process
+
+        gateway = ExternalEvaluatorGateway(
+            SealedArenaBoundary(lambda _value: True),
+            self.ledger,
+            allow_test_verifier=True,
+            isolated_executor=Executor(),
+        )
+        with self.assertRaisesRegex(RuntimeError, "bounded termination wait"):
+            gateway.evaluate(
+                self.request,
+                ExternalEvaluatorCommand(("isolated-evaluator",), timeout_seconds=0.01),
+            )
+        self.assertTrue(process.termination_requested)
+        self.assertEqual(len(process.wait_timeouts), 2)
+        self.assertEqual(process.wait_timeouts[1], 5.0)
+
 
     @unittest.skipUnless(os.name == "posix", "process-group termination is POSIX-specific")
     def test_timeout_kills_evaluator_descendants(self) -> None:

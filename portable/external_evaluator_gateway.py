@@ -206,12 +206,19 @@ class ExternalEvaluatorGateway:
         reader.start()
         writer.start()
         timed_out = False
+        termination_unconfirmed = False
         try:
             process.wait(timeout=command.timeout_seconds)
         except subprocess.TimeoutExpired:
             timed_out = True
             _kill_evaluator_process_tree(process)
-            process.wait()
+            try:
+                # Never let a failed termination request turn into an unbounded
+                # supervisor wait. Container adapters also report their own
+                # cleanup uncertainty through termination_error.
+                process.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                termination_unconfirmed = True
 
         writer.join(timeout=1.0)
         reader.join(timeout=35.0)
@@ -223,6 +230,8 @@ class ExternalEvaluatorGateway:
             raise RuntimeError(f"external evaluator isolation cleanup failed closed: {termination_error}")
         if output_limit_exceeded.is_set():
             raise ValueError("external evaluator receipt exceeds output budget")
+        if termination_unconfirmed:
+            raise RuntimeError("external evaluator did not exit after the bounded termination wait")
         if timed_out:
             raise RuntimeError("external evaluator timed out")
         if reader.is_alive():
