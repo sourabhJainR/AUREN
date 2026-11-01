@@ -577,3 +577,58 @@ def test_session_delivery_metrics_report_durable_acknowledgements(monkeypatch, t
         assert center["delivery_metrics"]["acknowledged_chunks"] == 1
     finally:
         _stop_server(server, thread)
+
+
+
+def test_http_delivery_charges_one_shared_crew_budget_across_deliveries_and_restart(monkeypatch, tmp_path):
+    from portable.runtime_recovery import RuntimeExecutionGuard
+
+    answer = "crew-budget-output-" * 5000
+    result = SimpleNamespace(
+        provider="test", model="fixture", success=True, attempts=1, latency_ms=1.0,
+        resource_usage={}, fallback_reason=None, result={"answer": answer}, error=None,
+    )
+    server, thread = _start_server(monkeypatch, tmp_path, result)
+    guard = RuntimeExecutionGuard(max_delivery_bytes=dashboard_server.MAX_DELIVERY_CHUNK_BYTES)
+    server.RequestHandlerClass.delivery_execution_guard = guard
+    server.RequestHandlerClass.delivery_budget_id = "crew-budget-regression"
+    try:
+        headers = {"Accept": dashboard_server.CHUNKED_RESPONSE_ACCEPT}
+        status, _, first = _request(server, "POST", "/api/route", {"task": "crew budget one"}, headers=headers)
+        assert status == 202
+        status, _, chunk = _request(server, "GET", first["next"])
+        assert status == 200
+        assert chunk["utf8_bytes"] <= dashboard_server.MAX_DELIVERY_CHUNK_BYTES
+        assert guard.delivery_bytes_used == chunk["utf8_bytes"]
+
+        # Re-reading an unacknowledged chunk is idempotent: it does not consume
+        # budget twice and the same bytes remain available for receiver retry.
+        status, _, repeated = _request(server, "GET", first["next"])
+        assert status == 200
+        assert repeated["chunk_sha256"] == chunk["chunk_sha256"]
+        assert guard.delivery_bytes_used == chunk["utf8_bytes"]
+
+        status, _, second = _request(server, "POST", "/api/route", {"task": "crew budget two"}, headers=headers)
+        assert status == 202
+        status, _, blocked = _request(server, "GET", second["next"])
+        assert status == 429
+        assert "shared crew delivery byte budget exhausted" in blocked["error"]
+        assert server.RequestHandlerClass.delivery_supervisor.delivery_budget_snapshot(
+            server.RequestHandlerClass._delivery_task_id(second["response_id"], second["delivery_id"])
+        )["delivery_bytes_used"] == chunk["utf8_bytes"]
+    finally:
+        _stop_server(server, thread)
+
+    # A new host restores the same crew budget ledger. A repeated offer remains
+    # idempotent; a different delivery cannot spend the exhausted budget again.
+    server, thread = _start_server(monkeypatch, tmp_path, None)
+    server.RequestHandlerClass.delivery_budget_id = "crew-budget-regression"
+    try:
+        status, _, repeated = _request(server, "GET", first["next"])
+        assert status == 200
+        assert repeated["chunk_sha256"] == chunk["chunk_sha256"]
+        status, _, blocked = _request(server, "GET", second["next"])
+        assert status == 429
+        assert "shared crew delivery byte budget exhausted" in blocked["error"]
+    finally:
+        _stop_server(server, thread)
