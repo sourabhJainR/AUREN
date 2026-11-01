@@ -98,6 +98,19 @@ class ResponseDeliverySupervisor:
                 "CREATE TABLE IF NOT EXISTS delivery_budgets ("
                 "budget_id TEXT PRIMARY KEY, snapshot_json TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
             )
+            legacy = db.execute(
+                "SELECT task_id FROM deliveries WHERE budget_id IS NULL OR budget_id=''"
+            ).fetchall()
+            for (legacy_task_id,) in legacy:
+                legacy_budget_id = f"delivery:{legacy_task_id}"
+                db.execute(
+                    "INSERT OR IGNORE INTO delivery_budgets(budget_id,snapshot_json) VALUES(?,?)",
+                    (legacy_budget_id, json.dumps(RuntimeExecutionGuard().snapshot(), sort_keys=True, separators=(",", ":"))),
+                )
+                db.execute(
+                    "UPDATE deliveries SET budget_id=? WHERE task_id=?",
+                    (legacy_budget_id, legacy_task_id),
+                )
         try:
             self.controller._load_handler(_HANDLER)
         except KeyError:
@@ -189,6 +202,11 @@ class ResponseDeliverySupervisor:
                 self._execution_guards[budget_id] = guard
             elif guard.snapshot().get("digest") != persisted.get("digest"):
                 raise RuntimeError("in-memory crew budget diverged from its durable checkpoint")
+            previous_charge = guard.snapshot().get("delivery_charges", {}).get(operation_key)
+            if previous_charge is not None:
+                if previous_charge != amount:
+                    raise ValueError("delivery operation key was reused with a different byte charge")
+                return True
             charged = guard.consume_delivery_bytes(amount, operation_key=operation_key)
             if charged:
                 db.execute(
