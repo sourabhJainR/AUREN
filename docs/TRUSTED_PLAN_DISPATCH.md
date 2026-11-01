@@ -46,3 +46,5 @@ After root registration, direct calls to EngineeringPlanDispatch.dispatch() and 
 tests/test_trusted_plan_dispatch.py covers approved/pending/changed-context cases, exact plan-task/revision binding, cancelled budgets, direct-dispatch bypass, and the AdaptiveRuntime bootstrap path. Existing tests/test_execution_controller_cancellation.py covers supervisor-to-graph-to-crew-to-model-router cancellation and absolute-deadline propagation. Existing crew handoff tests cover independent review receipts and rejection.
 
 Rollback by reverting the root module, the dispatch token fence, AdaptiveRuntime/SDK integration, and the focused tests together. Retain existing task, plan, approval and recovery databases; no durable rows are rewritten or deleted.
+
+Host bootstrap must install the root before any engineering-plan worker can be scheduled. A missing resolver, stale checkpoint, invalid approval chain, or absent approval blocks dispatch before queue insertion.
