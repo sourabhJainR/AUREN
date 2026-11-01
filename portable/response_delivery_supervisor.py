@@ -88,12 +88,14 @@ class ResponseDeliverySupervisor:
             db.execute(
                 "CREATE TABLE IF NOT EXISTS deliveries ("
                 "response_id TEXT NOT NULL, delivery_id TEXT NOT NULL, task_id TEXT NOT NULL UNIQUE, "
-                "response_sha256 TEXT NOT NULL, budget_id TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                "response_sha256 TEXT NOT NULL, artifact_sha256 TEXT, budget_id TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
                 "PRIMARY KEY(response_id, delivery_id))"
             )
             columns = {row[1] for row in db.execute("PRAGMA table_info(deliveries)")}
             if "budget_id" not in columns:
                 db.execute("ALTER TABLE deliveries ADD COLUMN budget_id TEXT")
+            if "artifact_sha256" not in columns:
+                db.execute("ALTER TABLE deliveries ADD COLUMN artifact_sha256 TEXT")
             db.execute(
                 "CREATE TABLE IF NOT EXISTS delivery_budgets ("
                 "budget_id TEXT PRIMARY KEY, snapshot_json TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
@@ -121,6 +123,7 @@ class ResponseDeliverySupervisor:
     def create(
         self, response_id: str, delivery_id: str, digest: str, *, deadline_seconds: float = 600.0,
         execution_guard: RuntimeExecutionGuard | None = None, budget_id: str | None = None,
+        artifact_digest: str | None = None,
     ) -> str:
         if response_id != digest or len(digest) != 64:
             raise ValueError("response identity must equal its SHA-256 digest")
@@ -128,15 +131,24 @@ class ResponseDeliverySupervisor:
             raise TypeError("execution_guard must be a RuntimeExecutionGuard")
         if budget_id is not None and (not isinstance(budget_id, str) or not budget_id.strip()):
             raise ValueError("budget_id must be a non-empty string")
+        if artifact_digest is not None and (
+            not isinstance(artifact_digest, str) or len(artifact_digest) != 64
+            or any(ch not in "0123456789abcdef" for ch in artifact_digest)
+        ):
+            raise ValueError("artifact_digest must be a lowercase SHA-256 digest")
         with sqlite3.connect(self.registry_path, timeout=10) as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
-                "SELECT task_id,response_sha256 FROM deliveries WHERE response_id=? AND delivery_id=?",
+                "SELECT task_id,response_sha256,artifact_sha256,budget_id FROM deliveries WHERE response_id=? AND delivery_id=?",
                 (response_id, delivery_id),
             ).fetchone()
             if row:
                 if row[1] != digest:
                     raise ValueError("delivery identity is already bound to a different response digest")
+                if artifact_digest is not None and row[2] not in (None, artifact_digest):
+                    raise ValueError("delivery identity is already bound to a different artifact digest")
+                if budget_id is not None and row[3] not in (None, budget_id):
+                    raise ValueError("delivery identity is already bound to a different crew budget")
                 task_id = str(row[0])
                 task = self.controller.task(task_id)
                 if task is None:
@@ -182,8 +194,8 @@ class ResponseDeliverySupervisor:
                     (json.dumps(snapshot, sort_keys=True, separators=(",", ":")), resolved_budget_id),
                 )
             db.execute(
-                "INSERT INTO deliveries(response_id,delivery_id,task_id,response_sha256,budget_id) VALUES(?,?,?,?,?)",
-                (response_id, delivery_id, task.id, digest, resolved_budget_id),
+                "INSERT INTO deliveries(response_id,delivery_id,task_id,response_sha256,artifact_sha256,budget_id) VALUES(?,?,?,?,?,?)",
+                (response_id, delivery_id, task.id, digest, artifact_digest or digest, resolved_budget_id),
             )
             if execution_guard is not None:
                 self._execution_guards[resolved_budget_id] = execution_guard
