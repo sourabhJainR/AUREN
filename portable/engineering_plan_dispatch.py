@@ -212,7 +212,8 @@ class EngineeringPlanDispatch:
         payload is rejected rather than silently replayed.
         """
         trusted_token = getattr(self.controller, "_trusted_plan_dispatch_token", None)
-        if trusted_token is not None and _trusted_root_token is not trusted_token:
+        root_required = getattr(self.controller, "_trusted_plan_dispatch_required", False)
+        if (root_required and trusted_token is None) or (trusted_token is not None and _trusted_root_token is not trusted_token):
             raise PermissionError(
                 "trusted plan dispatch composition root is configured; caller-supplied bindings are not accepted"
             )
