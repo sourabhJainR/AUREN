@@ -67,6 +67,34 @@ bound the number of durable pending tasks, coordinate separate registry database
 or replace deployment-level admission controls. Persistent queue admission limits,
 multi-host deployment validation, and operator-tested recovery remain separate gates.
 
+## Persistent pending-queue admission
+
+The canonical `ExecutionController` persists one versioned admission policy in
+`.auren/execution.sqlite3`. A new controller database defaults to at most 256
+pending tasks. An operator may choose a different limit when the database is first
+created; later processes must use the persisted value. A mismatched, missing or
+corrupt policy fails closed for new submissions.
+
+The controller checks the durable `pending` row count under the same SQLite
+`BEGIN IMMEDIATE` transaction that inserts the task. The check runs after stable
+work-key lookup but before `AutonomousCompany.start()`. Concurrent processes sharing
+the controller database cannot overfill the queue or create an orphan work unit
+when admission is rejected. `QueueAdmissionRejected` reports the observed count
+and limit. It does not delete, fail, replay or mark existing pending tasks complete.
+A duplicate submission with the same immutable work key and intent returns the
+existing task even when the queue is full.
+
+`queue_admission_snapshot()` exposes the persisted limit, durable pending count,
+available slots and task-state counts for operator views. The limit applies only to
+processes sharing the same controller database. Separate roots/databases and
+multi-host deployments are not coordinated by this SQLite policy; they still need
+a host-level admission gateway and staged contention/recovery tests.
+
+Rollback reverts the admission check as one code change but retains every task row
+and the versioned policy row. Do not delete or reset pending work during rollback.
+Keep any deployment-edge admission limit in place until the last-known-good
+controller is restored and queue occupancy is reconciled.
+
 ## Shared crew budget and host sinks
 
 The acknowledged transport accepts the same `RuntimeExecutionGuard` instance used by

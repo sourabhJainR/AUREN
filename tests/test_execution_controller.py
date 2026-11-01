@@ -12,7 +12,12 @@ import subprocess
 from threading import Event
 import sys
 
-from portable.execution_controller import ExecutionController, WorkKeyConflict
+from portable.execution_controller import (
+    ExecutionController,
+    QueueAdmissionPolicyConflict,
+    QueueAdmissionRejected,
+    WorkKeyConflict,
+)
 
 
 def durable_handler(payload):
@@ -26,6 +31,31 @@ def durable_marker_handler(payload):
 
 
 
+
+
+def _submit_pending_queue_candidate(root, work_key, ready_queue, release_event, result_queue):
+    try:
+        controller = ExecutionController(root)
+        controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    except BaseException as exc:
+        ready_queue.put("failed:" + repr(exc))
+        return
+    ready_queue.put("ready")
+    if not release_event.wait(20):
+        result_queue.put(("error", "submission release timed out"))
+        return
+    try:
+        task = controller.submit(
+            "tests.durable_handler",
+            {"id": work_key},
+            goal="bounded queue admission regression",
+            work_key=work_key,
+        )
+        result_queue.put(("accepted", task.id))
+    except QueueAdmissionRejected as exc:
+        result_queue.put(("rejected", exc.pending_count, exc.limit))
+    except BaseException as exc:
+        result_queue.put(("error", repr(exc)))
 
 
 def _crash_after_terminal_receipt_before_evidence(root: str, task_id: str) -> None:
@@ -415,6 +445,138 @@ def test_submit_rejects_stable_work_key_reuse_for_different_intent(tmp_path: Pat
         assert "different handler, payload, or goal" in str(exc)
     else:
         raise AssertionError("stable work key reuse with changed intent must fail closed")
+
+
+def test_pending_queue_admission_is_persistent_and_rejects_before_work_unit_creation(tmp_path: Path):
+    controller = ExecutionController(tmp_path, max_pending_tasks=1)
+    controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    first = controller.submit(
+        "tests.durable_handler", {"id": "first"}, goal="first pending task", work_key="queue:first",
+    )
+    with controller.company._db() as db:
+        before_units = int(db.execute("SELECT COUNT(*) FROM work_units").fetchone()[0])
+
+    try:
+        controller.submit(
+            "tests.durable_handler", {"id": "rejected"}, goal="second pending task", work_key="queue:second",
+        )
+    except QueueAdmissionRejected as exc:
+        assert exc.pending_count == 1
+        assert exc.limit == 1
+    else:
+        raise AssertionError("a new task must be rejected when the persistent pending queue is full")
+
+    with sqlite3.connect(controller.db_path) as db:
+        assert db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 1
+        assert db.execute("SELECT COUNT(*) FROM tasks WHERE state='pending'").fetchone()[0] == 1
+    with controller.company._db() as db:
+        assert db.execute("SELECT COUNT(*) FROM work_units").fetchone()[0] == before_units
+    assert controller.task(first.id).state == "pending"
+    assert controller.queue_admission_snapshot() == {
+        "scope": "execution_controller_database",
+        "policy_version": "v1",
+        "pending_tasks": 1,
+        "pending_limit": 1,
+        "available_slots": 0,
+        "saturated": True,
+        "task_state_counts": {"pending": 1},
+    }
+
+
+def test_duplicate_work_key_replay_is_allowed_when_pending_queue_is_full(tmp_path: Path):
+    controller = ExecutionController(tmp_path, max_pending_tasks=1)
+    controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    payload = {"id": "same-intent"}
+    first = controller.submit(
+        "tests.durable_handler", payload, goal="same task", work_key="queue:stable-replay",
+    )
+    replay = controller.submit(
+        "tests.durable_handler", payload, goal="same task", work_key="queue:stable-replay",
+    )
+    assert replay.id == first.id
+    assert replay.work_unit_id == first.work_unit_id
+    assert controller.queue_admission_snapshot()["pending_tasks"] == 1
+
+
+def test_pending_queue_policy_survives_restart_and_rejects_mismatched_configuration(tmp_path: Path):
+    controller = ExecutionController(tmp_path, max_pending_tasks=2)
+    controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    controller.submit(
+        "tests.durable_handler", {"id": "persisted"}, goal="persist queue policy", work_key="queue:persisted",
+    )
+    restarted = ExecutionController(tmp_path)
+    snapshot = restarted.queue_admission_snapshot()
+    assert snapshot["pending_limit"] == 2
+    assert snapshot["pending_tasks"] == 1
+    try:
+        ExecutionController(tmp_path, max_pending_tasks=3)
+    except QueueAdmissionPolicyConflict as exc:
+        assert "differs from the persisted" in str(exc)
+    else:
+        raise AssertionError("a process with a different queue policy must fail closed")
+
+
+def test_changed_persisted_queue_policy_blocks_new_admission(tmp_path: Path):
+    controller = ExecutionController(tmp_path, max_pending_tasks=2)
+    controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    with sqlite3.connect(controller.db_path) as db:
+        db.execute("UPDATE queue_admission_policy SET max_pending_tasks=1 WHERE singleton=1")
+    try:
+        controller.submit(
+            "tests.durable_handler", {"id": "policy-conflict"}, goal="policy conflict", work_key="queue:conflict",
+        )
+    except QueueAdmissionPolicyConflict as exc:
+        assert "changed or is corrupt" in str(exc)
+    else:
+        raise AssertionError("a changed persisted queue policy must block new admission")
+    with sqlite3.connect(controller.db_path) as db:
+        assert db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
+
+
+def test_concurrent_processes_cannot_overfill_persisted_pending_queue(tmp_path: Path):
+    controller = ExecutionController(tmp_path, max_pending_tasks=2)
+    controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    del controller
+
+    context = multiprocessing.get_context("spawn")
+    ready_queue = context.Queue()
+    result_queue = context.Queue()
+    release_event = context.Event()
+    work_keys = [f"queue:process:{index}" for index in range(5)]
+    processes = [
+        context.Process(
+            target=_submit_pending_queue_candidate,
+            args=(str(tmp_path), key, ready_queue, release_event, result_queue),
+        )
+        for key in work_keys
+    ]
+    for process in processes:
+        process.start()
+    try:
+        readiness = [ready_queue.get(timeout=30) for _ in processes]
+        assert readiness == ["ready"] * len(processes), readiness
+        release_event.set()
+        results = [result_queue.get(timeout=30) for _ in processes]
+    finally:
+        release_event.set()
+        for process in processes:
+            process.join(timeout=20)
+            if process.is_alive():
+                process.terminate()
+                process.join(timeout=3)
+    assert all(process.exitcode == 0 for process in processes)
+    assert sum(result[0] == "accepted" for result in results) == 2, results
+    assert sum(result[0] == "rejected" for result in results) == 3, results
+    assert not any(result[0] == "error" for result in results), results
+
+    restarted = ExecutionController(tmp_path)
+    snapshot = restarted.queue_admission_snapshot()
+    assert snapshot["pending_limit"] == 2
+    assert snapshot["pending_tasks"] == 2
+    with sqlite3.connect(restarted.db_path) as db:
+        assert db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 2
+    with restarted.company._db() as db:
+        assert db.execute("SELECT COUNT(*) FROM work_units").fetchone()[0] == 2
 
 
 def test_submit_recovers_same_work_unit_after_crash_before_task_insert(tmp_path: Path):

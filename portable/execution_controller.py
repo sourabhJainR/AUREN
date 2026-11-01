@@ -44,6 +44,8 @@ Handler = Callable[[Mapping[str, Any]], Any]
 
 # Naming is a fail-closed safety net, not a substitute for operator-owned
 # registration policy or repository branch protection.
+DEFAULT_MAX_PENDING_TASKS = 256
+QUEUE_ADMISSION_POLICY_VERSION = "v1"
 _PROMOTION_HANDLER_TOKENS = frozenset({"promote", "promotion", "promoter", "merge", "merger", "release", "deploy", "deployment", "publish"})
 _EXACT_HEAD_CI_HANDLER_TOKENS = frozenset({"merge", "merger", "release", "deploy", "deployment", "publish"})
 
@@ -132,6 +134,21 @@ class WorkKeyConflict(ValueError):
     """A stable work key was reused for a different task intent."""
 
 
+class QueueAdmissionRejected(RuntimeError):
+    """A new durable task was rejected because the persistent pending queue is full."""
+
+    def __init__(self, pending_count: int, limit: int):
+        self.pending_count = pending_count
+        self.limit = limit
+        super().__init__(
+            f"durable pending queue is full ({pending_count}/{limit}); retry after pending work drains"
+        )
+
+
+class QueueAdmissionPolicyConflict(RuntimeError):
+    """The persisted queue-admission policy is missing, corrupt, or mismatched."""
+
+
 class LeaseLostError(RuntimeError):
     """Raised when a stale worker attempts to renew or finalize a task lease."""
 
@@ -155,7 +172,12 @@ class ExecutionController:
         provider_resume_authorizer: Callable[[str, str, str, str], bool] | None = None,
         agent_assignment_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
         workflow_profile_path: str | Path | None = None,
+        max_pending_tasks: int | None = None,
     ) -> None:
+        if max_pending_tasks is not None and (
+            type(max_pending_tasks) is not int or not 1 <= max_pending_tasks <= 100000
+        ):
+            raise ValueError("max_pending_tasks must be an integer between 1 and 100000")
         if provider_resume_authorizer is not None and not callable(provider_resume_authorizer):
             raise TypeError("provider_resume_authorizer must be callable")
         self._provider_resume_authorizer = provider_resume_authorizer
@@ -204,6 +226,11 @@ class ExecutionController:
               envelope_json TEXT NOT NULL,
               envelope_digest TEXT NOT NULL,
               updated_at TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS queue_admission_policy(
+              singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+              policy_version TEXT NOT NULL,
+              max_pending_tasks INTEGER NOT NULL,
+              updated_at TEXT NOT NULL);
             """)
             handler_columns = {row[1] for row in db.execute("PRAGMA table_info(handlers)").fetchall()}
             if "ci_gate_policy_json" not in handler_columns:
@@ -246,6 +273,37 @@ class ExecutionController:
                 "CREATE UNIQUE INDEX IF NOT EXISTS tasks_work_key_unique "
                 "ON tasks(work_key) WHERE work_key IS NOT NULL AND work_key <> ''"
             )
+            # Persist the queue bound in the same database that owns task admission.
+            # Every process sharing this controller DB therefore enforces one policy.
+            db.commit()
+            db.execute("BEGIN IMMEDIATE")
+            queue_policy = db.execute(
+                "SELECT policy_version,max_pending_tasks FROM queue_admission_policy WHERE singleton=1"
+            ).fetchone()
+            if queue_policy is None:
+                pending_limit = max_pending_tasks or DEFAULT_MAX_PENDING_TASKS
+                db.execute(
+                    "INSERT INTO queue_admission_policy(singleton,policy_version,max_pending_tasks,updated_at) "
+                    "VALUES(1,?,?,?)",
+                    (QUEUE_ADMISSION_POLICY_VERSION, pending_limit, _now()),
+                )
+            else:
+                policy_version, persisted_limit = queue_policy
+                if (
+                    policy_version != QUEUE_ADMISSION_POLICY_VERSION
+                    or type(persisted_limit) is not int
+                    or not 1 <= persisted_limit <= 100000
+                ):
+                    raise QueueAdmissionPolicyConflict(
+                        "persisted queue-admission policy is invalid; new task admission is blocked"
+                    )
+                if max_pending_tasks is not None and max_pending_tasks != persisted_limit:
+                    raise QueueAdmissionPolicyConflict(
+                        "configured pending-task limit differs from the persisted controller policy"
+                    )
+                pending_limit = persisted_limit
+            db.commit()
+            self.max_pending_tasks = pending_limit
         self.evidence_ledger = CanonicalEvidenceLedger(
             self.root / ".auren" / "canonical-evidence.sqlite3"
         )
@@ -2155,6 +2213,27 @@ class ExecutionController:
                     )
                     db.commit()
                 else:
+                    policy = db.execute(
+                        "SELECT policy_version,max_pending_tasks FROM queue_admission_policy WHERE singleton=1"
+                    ).fetchone()
+                    if (
+                        policy is None
+                        or policy[0] != QUEUE_ADMISSION_POLICY_VERSION
+                        or type(policy[1]) is not int
+                        or policy[1] != self.max_pending_tasks
+                    ):
+                        raise QueueAdmissionPolicyConflict(
+                            "persisted queue-admission policy changed or is corrupt; new task admission is blocked"
+                        )
+                    pending_count = int(db.execute(
+                        "SELECT COUNT(*) FROM tasks WHERE state='pending'"
+                    ).fetchone()[0])
+                    if pending_count >= self.max_pending_tasks:
+                        # This check shares the BEGIN IMMEDIATE transaction with task
+                        # insertion and runs before AutonomousCompany.start(), so
+                        # concurrent processes cannot overfill the queue or leave an
+                        # orphan work unit when admission is rejected.
+                        raise QueueAdmissionRejected(pending_count, self.max_pending_tasks)
                     work = self.company.start(goal_text, work_key=stable_work_key)
                     task = DurableTask(uuid4().hex, handler, payload_copy, "pending", 0, work.id, deadline_at=requested_deadline_at)
                     now = _now()
@@ -3736,6 +3815,39 @@ class ExecutionController:
                 (task_id,),
             ).fetchone()
         return DurableTask(row[0], row[1], json.loads(row[2]), row[3], int(row[4]), row[5], deadline_at=row[6]) if row else None
+
+    def queue_admission_snapshot(self) -> dict[str, Any]:
+        """Return the persisted pending-queue policy and current durable occupancy."""
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            policy = db.execute(
+                "SELECT policy_version,max_pending_tasks FROM queue_admission_policy WHERE singleton=1"
+            ).fetchone()
+            if (
+                policy is None
+                or policy[0] != QUEUE_ADMISSION_POLICY_VERSION
+                or type(policy[1]) is not int
+                or policy[1] != self.max_pending_tasks
+            ):
+                raise QueueAdmissionPolicyConflict(
+                    "persisted queue-admission policy changed or is corrupt"
+                )
+            counts = {
+                str(state): int(count)
+                for state, count in db.execute(
+                    "SELECT state,COUNT(*) FROM tasks GROUP BY state"
+                ).fetchall()
+            }
+        pending = counts.get("pending", 0)
+        return {
+            "scope": "execution_controller_database",
+            "policy_version": QUEUE_ADMISSION_POLICY_VERSION,
+            "pending_tasks": pending,
+            "pending_limit": self.max_pending_tasks,
+            "available_slots": max(0, self.max_pending_tasks - pending),
+            "saturated": pending >= self.max_pending_tasks,
+            "task_state_counts": counts,
+        }
+
 
     @staticmethod
     def _validate_graph_checkpoint_envelope(task_id: str, envelope: Mapping[str, Any]) -> dict[str, Any]:
