@@ -14,7 +14,7 @@ from typing import Any, Callable, Mapping
 from .bounded_crew_dispatch import BoundedCrewDispatcher
 
 from .orchestration import Graph, Node, NodeKind, NodeStatus, OrchestrationRun, Orchestrator, RunStatus
-from .crew_adapters import CrewHandoff, GraphHandoffController, TaskRetryBudget, rollback_readiness
+from .crew_adapters import CrewHandoff, GraphHandoffController, TaskRetryBudget, SOFTWARE_TEAM_PERSONA_IDS, rollback_readiness
 from .runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
 from .agency_observability import Tracer
 
@@ -819,6 +819,28 @@ class GraphAgentTeam:
         if not isinstance(name, str) or not name.strip():
             raise ValueError("agent name is required")
         self.agents[name] = agent
+
+    def register_software_team_personas(self, adapters: Mapping[str, Any]) -> tuple[str, ...]:
+        """Register the complete, explicitly configured leadership/research persona set."""
+        if not isinstance(adapters, Mapping):
+            raise TypeError("software-team persona adapters must be a mapping")
+        expected = set(SOFTWARE_TEAM_PERSONA_IDS)
+        supplied = set(adapters)
+        if supplied != expected:
+            missing = sorted(expected - supplied)
+            unknown = sorted(supplied - expected)
+            raise ValueError(
+                "software-team persona registration must be complete; "
+                f"missing={missing}, unknown={unknown}"
+            )
+        for persona_id in SOFTWARE_TEAM_PERSONA_IDS:
+            adapter = adapters[persona_id]
+            if getattr(adapter, "crew_id", None) != persona_id or not callable(getattr(adapter, "propose", None)):
+                raise TypeError(f"persona adapter {persona_id} must expose a matching crew_id and propose()")
+            if persona_id in self.agents:
+                raise ValueError(f"persona agent {persona_id} is already registered")
+        self.agents.update(adapters)
+        return SOFTWARE_TEAM_PERSONA_IDS
 
     def add_crew(self, crew: CrewDefinition) -> None:
         if not isinstance(crew, CrewDefinition):
