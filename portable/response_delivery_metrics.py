@@ -12,6 +12,14 @@ from .progress_journal import ProgressJournal
 SCHEMA_VERSION = "auren-response-delivery-metrics-v1"
 
 
+_JOURNAL_STATES = {"queued", "running", "blocked", "recovering", "completed", "failed", "cancelled"}
+
+
+def _metric_state(journal: ProgressJournal, task_id: str) -> str | None:
+    state = journal.snapshot(task_id).get("state")
+    return state if state in _JOURNAL_STATES else None
+
+
 def record_delivery_metrics(
     journal: ProgressJournal,
     task_id: str,
@@ -70,10 +78,9 @@ def record_delivery_metrics(
         "failure_reason": failure_reason,
         "completion_digest": completion_digest,
     }
-    snapshot = journal.snapshot(task_id)
-    state = snapshot.get("state", "running")
-    if state not in {"queued", "running", "blocked", "recovering", "completed", "failed", "cancelled"}:
-        state = "running"
+    state = _metric_state(journal, task_id)
+    if state is None:
+        return
     journal.record(
         task_id,
         "response_delivery_metrics",
@@ -110,9 +117,9 @@ def record_chunk_offer(
         "total_chunks": total_chunks,
         "offered_at_unix": time.time(),
     }
-    state = journal.snapshot(task_id).get("state", "running")
-    if state not in {"queued", "running", "blocked", "recovering", "completed", "failed", "cancelled"}:
-        state = "running"
+    state = _metric_state(journal, task_id)
+    if state is None:
+        raise RuntimeError("delivery journal state is not safe for a chunk offer")
     journal.record(
         task_id, "response_chunk_offered", state=state,
         stage=f"response-delivery:{response_id}",
@@ -169,9 +176,9 @@ def record_chunk_ack_measurement(
         "chunk_bytes": chunk_bytes,
         "backpressure_wait_ms": round(wait_ms, 3),
     }
-    state = journal.snapshot(task_id).get("state", "running")
-    if state not in {"queued", "running", "blocked", "recovering", "completed", "failed", "cancelled"}:
-        state = "running"
+    state = _metric_state(journal, task_id)
+    if state is None:
+        return 0.0
     journal.record(
         task_id, "response_delivery_chunk_measurement", state=state,
         stage=f"response-delivery:{response_id}",
@@ -189,9 +196,9 @@ def record_delivery_failure(
         ch not in "abcdefghijklmnopqrstuvwxyz0123456789_-" for ch in reason
     ):
         raise ValueError("failure reason must be a short safe category")
-    state = journal.snapshot(task_id).get("state", "running")
-    if state not in {"queued", "running", "blocked", "recovering", "completed", "failed", "cancelled"}:
-        state = "running"
+    state = _metric_state(journal, task_id)
+    if state is None:
+        return
     payload = {"schema_version": SCHEMA_VERSION, "response_id": response_id, "failure_reason": reason}
     journal.record(
         task_id, "response_delivery_failure", state=state,
