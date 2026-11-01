@@ -46,7 +46,7 @@ class TrustedPlanDispatchRoot:
         recovery_bridge: EngineeringPlanRecoveryBridge,
         approval_store: DurableApprovalStore,
         budget_resolver: Callable[[str, str, str], Mapping[str, Any]],
-        approval_resolver: Callable[[str, str, str, Mapping[str, Any]], Mapping[str, Any] | None],
+        approval_resolver: Callable[[str, str, str], Mapping[str, Any] | None],
     ) -> None:
         if not isinstance(controller, ExecutionController):
             raise TypeError("controller must be the live ExecutionController")
@@ -93,9 +93,9 @@ class TrustedPlanDispatchRoot:
         }
 
     def _approval_binding(
-        self, run_id: str, task_id: str, handler: str, payload: Mapping[str, Any],
+        self, run_id: str, task_id: str, handler: str,
     ) -> dict[str, str] | None:
-        resolved = self.approval_resolver(run_id, task_id, handler, dict(payload))
+        resolved = self.approval_resolver(run_id, task_id, handler)
         execution_class = self.controller._handler_execution_class(handler)
         if resolved is None:
             if execution_class == "consequential":
@@ -174,7 +174,7 @@ class TrustedPlanDispatchRoot:
             raise ValueError("dispatch payload must be a mapping")
         safe_payload = dict(payload or {})
         budget = self._budget_binding(run_id, task_id, handler)
-        approval = self._approval_binding(run_id, task_id, handler, safe_payload)
+        approval = self._approval_binding(run_id, task_id, handler)
         return EngineeringPlanDispatch(
             store=self.store, controller=self.controller, recovery_bridge=self.recovery_bridge,
         ).dispatch(
