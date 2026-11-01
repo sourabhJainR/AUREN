@@ -320,5 +320,117 @@ class ProviderBackedCrewAdapterTests(unittest.TestCase):
             runtime._CREW_ADAPTERS.clear()
 
 
+    def test_runtime_registers_all_six_software_team_personas_with_pinned_host_providers(self):
+        from portable.crew_adapters import SOFTWARE_TEAM_PERSONA_IDS
+
+        runtime._CREW_ADAPTERS.clear()
+        try:
+            tools = ApprovedToolRegistry()
+            invokers = {persona: (lambda _prompt, _timeout: "{}") for persona in SOFTWARE_TEAM_PERSONA_IDS}
+            provider_ids = {persona: "host-provider" for persona in SOFTWARE_TEAM_PERSONA_IDS}
+            provider_versions = {persona: "pinned-model-v1" for persona in SOFTWARE_TEAM_PERSONA_IDS}
+            scopes = {persona: () for persona in SOFTWARE_TEAM_PERSONA_IDS}
+            callbacks = {persona: (lambda _event: None) for persona in SOFTWARE_TEAM_PERSONA_IDS}
+            adapters = runtime.register_software_team_persona_adapters(
+                provider_invokers=invokers,
+                provider_ids=provider_ids,
+                provider_versions=provider_versions,
+                tools=tools,
+                allowed_tools_by_persona=scopes,
+                progress_callbacks_by_persona=callbacks,
+                replace=True,
+            )
+            self.assertEqual(set(adapters), set(SOFTWARE_TEAM_PERSONA_IDS))
+            self.assertEqual(set(runtime._CREW_ADAPTERS), set(SOFTWARE_TEAM_PERSONA_IDS))
+            for persona, adapter in adapters.items():
+                self.assertEqual(adapter.crew_id, persona)
+                self.assertEqual(adapter.provider_id, "host-provider")
+                self.assertEqual(adapter.provider_version, "pinned-model-v1")
+                self.assertEqual(adapter._progress_callback, callbacks[persona])
+                self.assertEqual(len(adapter.configuration_digest), 64)
+        finally:
+            runtime._CREW_ADAPTERS.clear()
+
+
+    def test_registered_personas_are_consumed_by_the_real_phase_team_factory(self):
+        from portable.crew_adapters import SOFTWARE_TEAM_PERSONA_IDS
+        from runtime.graph_agent_team import AgentSpec, GraphAgentTeam
+
+        runtime._CREW_ADAPTERS.clear()
+        try:
+            tools = ApprovedToolRegistry()
+            invokers = {persona: (lambda _prompt, _timeout: "{}") for persona in SOFTWARE_TEAM_PERSONA_IDS}
+            provider_ids = {persona: "host-provider" for persona in SOFTWARE_TEAM_PERSONA_IDS}
+            provider_versions = {persona: "pinned-v1" for persona in SOFTWARE_TEAM_PERSONA_IDS}
+            scopes = {persona: () for persona in SOFTWARE_TEAM_PERSONA_IDS}
+            runtime.register_software_team_persona_adapters(
+                provider_invokers=invokers,
+                provider_ids=provider_ids,
+                provider_versions=provider_versions,
+                tools=tools,
+                allowed_tools_by_persona=scopes,
+                replace=True,
+            )
+            team = runtime._phase_team(
+                {"risk": "critical", "task": "CEO CTO engineering manager solution architect release operations research evaluation"},
+                "execute",
+                (AgentSpec, GraphAgentTeam),
+            )
+            self.assertEqual(set(team.crew_adapters), set(SOFTWARE_TEAM_PERSONA_IDS))
+            self.assertTrue(team.require_crew_adapters)
+        finally:
+            runtime._CREW_ADAPTERS.clear()
+
+
+    def test_software_team_registration_is_all_or_nothing_and_supervised(self):
+        import tempfile
+        from types import SimpleNamespace
+        from portable.crew_adapters import SOFTWARE_TEAM_PERSONA_IDS
+
+        runtime._CREW_ADAPTERS.clear()
+        try:
+            tools = ApprovedToolRegistry()
+            invokers = {persona: (lambda _prompt, _timeout: "{}") for persona in SOFTWARE_TEAM_PERSONA_IDS}
+            provider_ids = {persona: "host-provider" for persona in SOFTWARE_TEAM_PERSONA_IDS}
+            provider_versions = {persona: "pinned-v1" for persona in SOFTWARE_TEAM_PERSONA_IDS}
+            scopes = {persona: () for persona in SOFTWARE_TEAM_PERSONA_IDS}
+            with self.assertRaisesRegex(ValueError, "missing software-team persona IDs"):
+                runtime.register_software_team_persona_adapters(
+                    provider_invokers={key: value for key, value in invokers.items() if key != SOFTWARE_TEAM_PERSONA_IDS[0]},
+                    provider_ids=provider_ids, provider_versions=provider_versions,
+                    tools=tools, allowed_tools_by_persona=scopes, replace=True,
+                )
+            self.assertEqual(runtime._CREW_ADAPTERS, {})
+            with self.assertRaisesRegex(TypeError, "canonical ProgressJournal"):
+                runtime.register_supervised_software_team_persona_adapters(
+                    SimpleNamespace(), provider_invokers=invokers,
+                    provider_ids=provider_ids, provider_versions=provider_versions,
+                    tools=tools, allowed_tools_by_persona=scopes, replace=True,
+                )
+            with tempfile.TemporaryDirectory() as temp:
+                journal = ProgressJournal(Path(temp) / "progress.jsonl")
+                controller = SimpleNamespace(progress_journal=journal)
+                adapters = runtime.register_supervised_software_team_persona_adapters(
+                    controller, provider_invokers=invokers,
+                    provider_ids=provider_ids, provider_versions=provider_versions,
+                    tools=tools, allowed_tools_by_persona=scopes, replace=True,
+                )
+                self.assertEqual(set(adapters), set(SOFTWARE_TEAM_PERSONA_IDS))
+                for adapter in adapters.values():
+                    self.assertIs(adapter._progress_callback.__self__, journal)
+                    self.assertIs(adapter._progress_callback.__func__,
+                                  journal.record_provider_event.__func__)
+                with self.assertRaisesRegex(ValueError, "owns persona progress wiring"):
+                    runtime.register_supervised_software_team_persona_adapters(
+                        controller, provider_invokers=invokers,
+                        provider_ids=provider_ids, provider_versions=provider_versions,
+                        tools=tools, allowed_tools_by_persona=scopes,
+                        progress_callbacks_by_persona={persona: (lambda _event: None) for persona in SOFTWARE_TEAM_PERSONA_IDS},
+                        replace=True,
+                    )
+        finally:
+            runtime._CREW_ADAPTERS.clear()
+
+
 if __name__ == "__main__":
     unittest.main()

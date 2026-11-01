@@ -671,6 +671,73 @@ def build_software_team_persona_adapters(
     }
 
 
+def build_provider_backed_software_team_persona_adapters(
+    *,
+    provider_invokers: Mapping[str, Callable[[str, int], str]],
+    provider_ids: Mapping[str, str],
+    provider_versions: Mapping[str, str],
+    tools: ApprovedToolRegistry,
+    allowed_tools_by_persona: Mapping[str, Sequence[str]],
+    finalizers: Mapping[str, Callable[[Mapping[str, Any]], Mapping[str, Any]]] | None = None,
+    timeout_seconds_by_persona: Mapping[str, int] | None = None,
+    max_response_chars: int = 100_000,
+    max_tool_calls: int = 4,
+    progress_callbacks_by_persona: Mapping[str, Callable[[Mapping[str, Any]], None]] | None = None,
+) -> dict[str, ProviderBackedCrewAdapter]:
+    """Build all six host-backed leadership/research/architecture persona adapters.
+
+    Provider clients, credentials, and network policy remain host-owned. Every
+    persona requires a pinned provider identity/version and an explicit read-only
+    tool scope; returned adapters can only make structured proposals.
+    """
+    if not isinstance(tools, ApprovedToolRegistry):
+        raise TypeError("tools must be an ApprovedToolRegistry")
+    mappings = {
+        "provider_invokers": provider_invokers,
+        "provider_ids": provider_ids,
+        "provider_versions": provider_versions,
+        "allowed_tools_by_persona": allowed_tools_by_persona,
+    }
+    expected = set(SOFTWARE_TEAM_PERSONA_IDS)
+    for name, mapping in mappings.items():
+        if not isinstance(mapping, Mapping):
+            raise TypeError(f"{name} must be a mapping")
+        unknown = set(mapping) - expected
+        missing = expected - set(mapping)
+        if unknown:
+            raise ValueError(f"{name} contains unknown persona IDs: " + ", ".join(sorted(unknown)))
+        if missing:
+            raise ValueError(f"{name} is missing software-team persona IDs: " + ", ".join(sorted(missing)))
+    finalizers = {} if finalizers is None else finalizers
+    timeouts = {} if timeout_seconds_by_persona is None else timeout_seconds_by_persona
+    callbacks = {} if progress_callbacks_by_persona is None else progress_callbacks_by_persona
+    for name, mapping in (("finalizers", finalizers), ("timeout_seconds_by_persona", timeouts),
+                          ("progress_callbacks_by_persona", callbacks)):
+        if not isinstance(mapping, Mapping):
+            raise TypeError(f"{name} must be a mapping")
+        unknown = set(mapping) - expected
+        if unknown:
+            raise ValueError(f"{name} contains unknown persona IDs: " + ", ".join(sorted(unknown)))
+    if any(not callable(callback) for callback in callbacks.values()):
+        raise TypeError("every software-team progress callback must be callable")
+    return {
+        persona_id: ProviderBackedCrewAdapter(
+            persona_id,
+            provider_ids[persona_id],
+            provider_versions[persona_id],
+            provider_invokers[persona_id],
+            tools,
+            allowed_tools=allowed_tools_by_persona[persona_id],
+            timeout_seconds=timeouts.get(persona_id, 120),
+            max_response_chars=max_response_chars,
+            finalizer=finalizers.get(persona_id),
+            max_tool_calls=max_tool_calls,
+            progress_callback=callbacks.get(persona_id),
+        )
+        for persona_id in SOFTWARE_TEAM_PERSONA_IDS
+    }
+
+
 def build_specialist_crew_adapters(
     *,
     planners: Mapping[str, Callable[[Mapping[str, Any]], Mapping[str, Any]]],

@@ -64,3 +64,17 @@ The independent [AUREN Capability Lab](https://github.com/sourabhJainR/firstTest
 - rollback and operator acceptance where required.
 
 This operating model supports the long-term SI and AGI research direction. It does not assert AGI achievement. Claims about generality must be backed by broad, independent transfer evidence and external evaluation.
+
+
+## Host bootstrap and provider registration
+
+The portable runtime now exposes an explicit host registration path:
+
+- `runtime.register_software_team_persona_adapters(...)` builds and registers all six provider-backed leadership, research, release, and architecture personas.
+- `runtime.register_supervised_software_team_persona_adapters(controller, ...)` binds provider lifecycle receipts to the controller-owned `ProgressJournal`.
+- Both paths require a complete mapping of provider invokers, provider IDs, pinned provider versions, and per-persona approved read-only tool scopes. Partial registration is rejected before the runtime registry is changed.
+- The host owns provider clients, credentials, network policy, timeout choices, and tool handlers. AUREN does not discover credentials or enable a provider by default.
+- Adapters return proposals only. They cannot mutate repositories, approve their own work, merge, promote, or bypass the supervisor.
+- Registration does not prove that a production host has configured all six personas. A deployment must supply its approved provider configuration and verify the resulting runtime registry at startup.
+
+The registration test covers all six identities, pinned provider metadata, per-persona progress callbacks, incomplete configuration rejection, and supervisor-journal ownership. It is repository contract evidence; production provider availability and host policy remain deployment checks.

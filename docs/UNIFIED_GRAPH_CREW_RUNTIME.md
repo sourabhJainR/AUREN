@@ -119,3 +119,15 @@ The last command is the broad local suite; repository CI remains the authoritati
 ## Shared delivery resource budget — 2026-11-01
 
 The canonical RuntimeExecutionGuard now includes a delivery-byte charge ledger. The acknowledged transport can receive that same guard instance from the active graph/crew context and charge UTF-8 bytes by stable task/response/chunk identity before dispatch. This does not create a second retry or task store. Checkpoint/resume retains the delivery charges, duplicate chunk keys cannot authorize replay, and exhausted budgets block before the next send. Host integrations must persist the guard snapshot through their canonical graph/supervisor checkpoint path; repository tests prove value-object snapshot/resume and transport enforcement, not a deployment-wide distributed quota.
+
+
+## Host bootstrap for leadership and specialist personas
+
+The `.ai-harness/runtime` bootstrap now has a distinct provider-backed registration path for the six company-level personas:
+`ceo_sponsor`, `cto_sponsor`, `engineering_manager`, `solution_architect`, `research_evaluation`, and `release_operations`.
+
+The host calls `register_software_team_persona_adapters(...)` with a complete set of provider invokers, provider IDs, pinned provider versions, and per-persona read-only tool scopes. For canonical progress events, call `register_supervised_software_team_persona_adapters(controller, ...)`; this binds each persona to the controller-owned progress journal and rejects caller-supplied progress callbacks. No provider or credential is discovered implicitly.
+
+The registration path is atomic: incomplete maps, unknown personas, missing provider metadata, invalid tool scopes, or invalid adapters fail before registry mutation. The resulting adapters enter the same `_CREW_ADAPTERS` registry consumed by the phase-team factory. The six personas therefore participate in normal graph crew planning and proposal dispatch when the task contract selects them. Their output remains proposal-only and is subject to the existing supervisor, Guard, independent QA, security, and release gates.
+
+Repository tests cover all six provider registrations, journal ownership, rejection of partial registration, and consumption by the actual phase-team factory. This proves the host bootstrap contract in CI. It does not prove that a deployed host has configured providers, credentials, or approved tools; those remain explicit deployment inputs.
