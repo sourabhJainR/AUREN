@@ -2687,6 +2687,13 @@ class ExecutionController:
             return
         from .engineering_plan_recovery import EngineeringPlanCheckpointMismatch
 
+        if (
+            getattr(self, "_trusted_plan_dispatch_required", False)
+            and getattr(self, "_trusted_plan_dispatch_token", None) is None
+        ):
+            raise EngineeringPlanCheckpointMismatch(
+                "trusted plan dispatch root is not configured in this worker; refusing task execution"
+            )
         if not isinstance(metadata, Mapping):
             raise EngineeringPlanCheckpointMismatch("dispatch metadata is malformed")
         required = {
