@@ -2370,6 +2370,7 @@ class ExecutionController:
         # Claim under a write lock so two controllers cannot both observe
         # "pending" and execute the same side-effecting handler. Each claim
         # increments a fencing generation and receives a fresh unguessable token.
+        pending_admission_lease: Any | None = None
         with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
@@ -2379,6 +2380,10 @@ class ExecutionController:
             ).fetchone()
             if not row or row[3] in {"completed", "failed", "cancelled"}:
                 return None
+            if row[3] == "pending" and self._deployment_admission_coordinator is not None:
+                pending_admission_lease = self._acquire_deployment_pending_slot(task_id)
+                if pending_admission_lease is None:
+                    return None
             now_dt = datetime.now(timezone.utc)
             now = now_dt.isoformat()
             if row[3] == "running":
@@ -2404,6 +2409,20 @@ class ExecutionController:
                 (attempts, now, now, lease, generation, token, task_id, int(row[7] or 0)),
             )
             if cursor.rowcount != 1:
+                return None
+        if pending_admission_lease is not None:
+            try:
+                self._release_deployment_pending_slot(pending_admission_lease)
+            except Exception:
+                # Do not start the handler while shared pending ownership is
+                # uncertain. Restore the durable row to pending; the bounded
+                # shared lease can be reacquired or will expire safely.
+                with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
+                    db.execute(
+                        "UPDATE tasks SET state='pending',updated_at=?,heartbeat_at=NULL,lease_until=NULL,lease_token=NULL "
+                        "WHERE id=? AND state='running' AND lease_token=? AND lease_generation=?",
+                        (_now(), task_id, token, generation),
+                    )
                 return None
         task = DurableTask(
             row[0], row[1], json.loads(row[2]), "running", attempts, row[5],
