@@ -16,7 +16,7 @@ import tempfile
 import sqlite3
 import time
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -296,8 +296,7 @@ class MultiInstanceAdmissionStagingTests(unittest.TestCase):
                 {"id": "stale-requeue"}, goal="stale requeue rehearsal",
                 work_key="staging:requeue:stale-task",
             )
-            stale_time = datetime.now(timezone.utc).replace(microsecond=0)
-            stale_iso = (stale_time.replace(year=stale_time.year - 1)).isoformat()
+            stale_iso = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
             import sqlite3
             with sqlite3.connect(requeue_controller.db_path) as local_db:
                 local_db.execute(
