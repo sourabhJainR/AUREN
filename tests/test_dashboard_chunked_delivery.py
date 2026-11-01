@@ -182,6 +182,22 @@ def test_chunked_route_supports_acknowledged_resume_after_server_restart(monkeyp
         assert status == 200 and final["complete"] is True
         assert server.RequestHandlerClass.delivery_supervisor.state(task_id) == "completed"
         assert server.RequestHandlerClass.progress_journal.snapshot(task_id)["state"] == "completed"
+        measurements = server.RequestHandlerClass.delivery_supervisor.metrics_snapshot()["measurements"]
+        assert measurements["total_bytes"] == manifest["total_bytes"]
+        assert measurements["total_chunks"] == manifest["total_chunks"]
+        assert measurements["peak_in_flight_bytes"] > 0
+        assert measurements["backpressure_wait_ms"] >= 0
+        assert measurements["resume_count"] >= 1
+        assert "acknowledgement_rejected" in measurements["failure_reasons"]
+        assert response_id in measurements["completion_digests"]
+        metric_messages = [
+            row["message"] for row in server.RequestHandlerClass.progress_journal._events()
+            if row.get("task_id") == task_id and row.get("event") in {
+                "response_delivery_metrics", "response_delivery_chunk_measurement",
+                "response_delivery_failure", "response_chunk_offered",
+            }
+        ]
+        assert all(answer not in message for message in metric_messages)
     finally:
         _stop_server(server, thread)
 
