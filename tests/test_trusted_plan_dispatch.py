@@ -192,5 +192,37 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             )
 
 
+    def test_adaptive_runtime_bootstrap_installs_the_trusted_dispatch_root(self):
+        from portable.adaptive_runtime import AdaptiveRuntime
+        from portable.engineering_plan_recovery import EngineeringPlanRecoveryBridge
+        from portable.engineering_plan_store import EngineeringPlanStore
+        from portable.engineering_recovery import EngineeringRecoveryLedger
+        from portable.orchestration import Graph
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            runtime = AdaptiveRuntime(Graph([]), state_root=Path(tmp) / "runtime")
+            store = EngineeringPlanStore(Path(tmp) / "plans.sqlite3")
+            bridge = EngineeringPlanRecoveryBridge(
+                store=store,
+                ledger=EngineeringRecoveryLedger(Path(tmp) / "runtime" / "recovery.sqlite3"),
+            )
+            approvals = DurableApprovalStore(runtime.execution_controller)
+            with self.assertRaisesRegex(RuntimeError, "not configured"):
+                runtime.dispatch_engineering_plan_task(
+                    run_id="run", task_id="task", dispatch_key="key",
+                    handler="dispatch-test", packet=self.packet,
+                )
+            root = runtime.configure_trusted_plan_dispatch(
+                store=store,
+                recovery_bridge=bridge,
+                approval_store=approvals,
+                budget_resolver=lambda run_id, task_id, handler: {},
+                approval_resolver=lambda run_id, task_id, handler: None,
+            )
+            self.assertIs(runtime.trusted_plan_dispatch_root, root)
+            self.assertIsNotNone(runtime.execution_controller._trusted_plan_dispatch_token)
+
+
+
 if __name__ == "__main__":
     unittest.main()
