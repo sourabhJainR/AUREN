@@ -105,7 +105,7 @@ class ResponseDeliveryTransportTests(unittest.TestCase):
             "portable.response_delivery_transport.record_delivery_metrics",
             side_effect=OSError("metrics store unavailable"),
         ):
-            with self.assertRaises(OSError):
+            with self.assertRaises(DeliveryOutcomeUnknown):
                 deliver_response(
                     "task-metrics-failure", "remote result",
                     receiver=lambda chunk: (_ for _ in ()).throw(OSError("receiver disconnected")),
@@ -122,6 +122,23 @@ class ResponseDeliveryTransportTests(unittest.TestCase):
                 "task-metrics-failure", "remote result",
                 receiver=self.ack, journal=self.journal,
             )
+
+    def test_metrics_write_failure_does_not_change_successful_delivery_receipt(self):
+        from unittest.mock import patch
+        self.start_task("task-metrics-success")
+        with patch(
+            "portable.response_delivery_transport.record_delivery_metrics",
+            side_effect=OSError("metrics store unavailable"),
+        ):
+            receipt = deliver_response(
+                "task-metrics-success", "complete payload",
+                receiver=self.ack, journal=self.journal,
+            )
+        self.assertEqual(receipt.total_chunks, receipt.acknowledged_chunks)
+        checkpoint = self.journal.response_delivery_checkpoint(
+            "task-metrics-success", receipt.response_id,
+        )
+        self.assertEqual(receipt.total_chunks, checkpoint["acknowledged_index"])
 
     def test_mismatched_ack_blocks_without_advancing_cursor(self):
         self.start_task("task-3")
