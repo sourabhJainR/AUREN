@@ -209,6 +209,7 @@ def aggregate_delivery_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
     completion_digests: set[str] = set()
     total_wait = 0.0
     peak_in_flight = 0
+    metric_resume_events = 0
 
     for row in events:
         if not isinstance(row, dict):
@@ -263,7 +264,7 @@ def aggregate_delivery_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
             total_wait += wait_ms
             peak_in_flight = max(peak_in_flight, peak_bytes)
             if resumed > 0:
-                admissions[task_id] = admissions.get(task_id, 0) + 1
+                metric_resume_events += 1
             digest = payload.get("completion_digest")
             if isinstance(digest, str) and digest == response_id:
                 completion_digests.add(digest)
@@ -295,16 +296,13 @@ def aggregate_delivery_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
         total_wait += max(0.0, float(payload.get("backpressure_wait_ms", 0.0)))
         peak_in_flight = max(peak_in_flight, int(payload.get("chunk_bytes", 0)))
     admission_resumes = sum(max(0, count - 1) for count in admissions.values())
-    metric_resumes = sum(
-        1 for row in latest.values() if int(row.get("resumed_from_chunk", 0)) > 0
-    )
     return {
         "measured_deliveries": len(set(latest) | {(task, response) for task, response, _ in chunk_measurements}),
         "total_bytes": sum(int(row.get("total_bytes", 0)) for row in latest.values()),
         "total_chunks": sum(int(row.get("total_chunks", 0)) for row in latest.values()),
         "peak_in_flight_bytes": peak_in_flight,
         "backpressure_wait_ms": round(total_wait, 3),
-        "resume_count": max(admission_resumes, metric_resumes),
+        "resume_count": max(admission_resumes, metric_resume_events),
         "failure_reasons": sorted(failure_reasons),
         "completion_digests": sorted(completion_digests),
     }
