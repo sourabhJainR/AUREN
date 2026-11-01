@@ -262,7 +262,7 @@ def test_identical_response_bodies_use_independent_receiver_cursors(monkeypatch,
         assert first["delivery_id"] != second["delivery_id"]
 
         status, _, chunk = _request(server, "GET", first["next"])
-        assert status == 200 and chunk["chunk_index"] == 1
+        assert status == 200, chunk and chunk["chunk_index"] == 1
         ack = {
             "chunk_index": 1, "chunk_sha256": chunk["chunk_sha256"],
             "response_sha256": first["response_sha256"],
@@ -572,10 +572,10 @@ def test_session_delivery_metrics_report_durable_acknowledgements(monkeypatch, t
         # Session Control Center APIs expose the same delivery counters, not a
         # separately reconstructed UI-only approximation.
         status, _, sessions = _request(server, "GET", "/api/sessions?limit=10")
-        assert status == 200
+        assert status == 200, sessions
         assert sessions["delivery_metrics"]["acknowledged_chunks"] == 1
         status, _, center = _request(server, "GET", "/api/control-center")
-        assert status == 200
+        assert status == 200, center
         assert center["delivery_metrics"]["acknowledged_chunks"] == 1
     finally:
         _stop_server(server, thread)
