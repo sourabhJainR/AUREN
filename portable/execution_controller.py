@@ -2101,6 +2101,44 @@ class ExecutionController:
             active = self._deployment_admission_coordinator.active_count("durable_pending_tasks")
             raise QueueAdmissionRejected(active, self.max_pending_tasks)
 
+    def reconcile_deployment_work_key_identities(self) -> dict[str, Any]:
+        """Backfill all local keyed tasks into the shared identity registry.
+
+        Run this on each existing runtime root while submissions are stopped,
+        before enabling cross-root submissions. The operation is idempotent:
+        partial progress can be retried after a crash. It includes terminal
+        tasks so a completed key cannot be silently resubmitted from another
+        root. Missing digests or conflicting canonical IDs fail closed.
+        """
+        coordinator = self._deployment_admission_coordinator
+        if coordinator is None or not self._deployment_instance_id:
+            raise ValueError("shared deployment admission must be configured for identity reconciliation")
+        claim_work_key = getattr(coordinator, "claim_work_key", None)
+        if not callable(claim_work_key):
+            raise RuntimeError("shared admission coordinator does not support durable work-key identity")
+        with closing(sqlite3.connect(self.db_path)) as db:
+            rows = db.execute(
+                "SELECT id,work_key,intent_digest FROM tasks "
+                "WHERE work_key IS NOT NULL ORDER BY created_at,id"
+            ).fetchall()
+        reconciled: list[str] = []
+        for task_id, work_key, intent_digest in rows:
+            if not isinstance(work_key, str) or not work_key.strip():
+                raise WorkKeyConflict(f"task {task_id} has a malformed legacy work key")
+            if not isinstance(intent_digest, str) or not re.fullmatch(r"[0-9a-f]{64}", intent_digest):
+                raise WorkKeyConflict(
+                    f"task {task_id} has no valid immutable intent digest; operator review is required"
+                )
+            identity = claim_work_key(
+                work_key, intent_digest, self._deployment_instance_id, task_id,
+            )
+            if identity.task_id != task_id:
+                raise WorkKeyConflict(
+                    f"task {task_id} does not match the canonical deployment task ID for work_key {work_key!r}"
+                )
+            reconciled.append(task_id)
+        return {"reconciled": len(reconciled), "task_ids": tuple(reconciled)}
+
     def submit(
         self,
         handler: str,
