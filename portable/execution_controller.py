@@ -2087,7 +2087,11 @@ class ExecutionController:
 
     def _release_deployment_pending_slot(self, lease: Any | None) -> None:
         if lease is not None and self._deployment_admission_coordinator is not None:
-            self._deployment_admission_coordinator.release(lease)
+            released = self._deployment_admission_coordinator.release(lease)
+            if released is not True:
+                raise RuntimeError(
+                    "shared pending-task lease release was not confirmed; dispatch must remain blocked"
+                )
 
     def _reserve_deployment_pending_for_requeue(self, task_id: str) -> None:
         if self._deployment_admission_coordinator is None:
@@ -2426,6 +2430,12 @@ class ExecutionController:
                 (attempts, now, now, lease, generation, token, task_id, int(row[7] or 0)),
             )
             if cursor.rowcount != 1:
+                if pending_admission_lease is not None:
+                    try:
+                        self._release_deployment_pending_slot(pending_admission_lease)
+                    except Exception:
+                        # A bounded orphan lease is safer than an unowned dispatch.
+                        pass
                 return None
         if pending_admission_lease is not None:
             try:
