@@ -219,3 +219,32 @@ Five paired iterations on Python 3.12.15 / Ubuntu runner, 299,008 UTF-8 payload 
 
 The result is a controlled local comparison, not a production performance guarantee or a promotion decision. Exact-head PR CI remains the merge gate.
 
+
+
+## Software-team and capability-lab update — 2026-11-01
+
+**AUREN branch:** `feat/issue-696-delivery-completion`; PR [#1165](https://github.com/sourabhJainR/AUREN/pull/1165). Latest exact-head CI must pass before merge. The delivery integration test suite exposed lifecycle/recovery regressions; these are being corrected on the branch and are not waived.
+
+- [x] Product positioning and About/README now describe AUREN as a supervised operating system for an AI engineering company.
+- [x] Canonical graph crew definitions include solution architect, engineering manager, research/evaluation, release/operations, CTO sponsor, and CEO sponsor personas.
+- [x] `build_software_team_persona_adapters` creates proposal-only adapters for these six roles with explicit per-persona read-only tool scopes. This is additive to the existing eight core specialist adapters.
+- [x] Persona contract and adapter tests are included in the portable-bundle CI test list.
+- [x] The role model documents reporting flow, independent QA/security, manager acceptance, stakeholder evidence, and explicit human approval boundaries.
+- [x] Independent private research repository [firstTestproj](https://github.com/sourabhJainR/firstTestproj) is initialized as the AUREN Capability Lab. Its latest CI run [41264707461](https://github.com/sourabhJainR/firstTestproj/actions/runs/41264707461) passed.
+- [x] First lab experiment compared shared context with isolated persona context using a deterministic fixture: 27 vs 19 context fields (29.6% fewer), unchanged 100% acceptance/evidence coverage, and no QA exposure to implementer self-assessment. See [EXPERIMENT_RESULTS.md](https://github.com/sourabhJainR/firstTestproj/blob/main/EXPERIMENT_RESULTS.md).
+- [x] Lab evaluator requires independently reviewed holdouts, cross-domain coverage, and bounded confidence calibration before research promotion eligibility. Development-only success cannot pass the promotion gate.
+- [ ] Real provider/model adapters, metered provider cost, token/memory measurements, sealed holdouts, broad transfer, and external independent evaluation remain outstanding. The deterministic experiment does not demonstrate model-level SI gains or AGI.
+- [ ] Host bootstrap must register the six new persona adapters with approved planner/model and tool-scope mappings. The catalogue and adapter factory are implemented; production credentials and operator-owned registration are not fabricated or enabled by default.
+
+### Roadmap reconciliation
+
+| Gate | Current status | Remaining proof |
+|---|---|---|
+| #696 unified runtime, learning, delivery, dashboard | In progress; PR #1165 | Exact-head CI, merge/main verification, host persona registration, complete delivery lifecycle evidence |
+| #692 recursive harness learning | Research/evaluation foundation added | Causal attribution, pinned baselines, sealed holdouts, transfer, independent Arena custody |
+| #694 spec-driven persistent planning | Engineering-manager and architect contracts added | Durable plan evolution, dependency updates, fresh-context resume, contradiction and staleness tests |
+| #809 durable human approval and resumable side effects | Not closed by this change | Real host approval boundary, restart, cancellation, timeout, idempotency and final-ack tests |
+| #534 migration and rollback | Blocked | Operator-controlled staging migration, fresh-process resume, rollback and post-cutover reconciliation receipts |
+| Independent Arena / isolation | Not production-ready | External custody, repeatability, adversarial holdouts, OS-level isolation audit and signed attestation |
+
+**Readiness decision:** the repository now has a more explicit software-company team model and an independent capability experiment harness. It is not a production-ready autonomous engineering company, and it has not demonstrated AGI. Do not promote the new persona adapters to production or close the remaining roadmap gates until the evidence above is attached and independently reviewed. Product version remains unchanged. Rollback is a revert of the relevant PR; the separate lab has no runtime dependency on AUREN.
