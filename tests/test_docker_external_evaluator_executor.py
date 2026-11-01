@@ -44,10 +44,63 @@ class DockerExternalEvaluatorExecutorTests(unittest.TestCase):
                 executor.verify_policy()
         self.assertFalse(executor.production_ready)
 
+    @patch("portable.docker_external_evaluator_executor.subprocess.Popen")
+    def test_launch_uses_dedicated_process_group_for_bounded_client_cleanup(self, popen):
+        from portable.docker_external_evaluator_executor import _ContainerProcess
+        process = type("FakeProcess", (), {
+            "stdin": object(), "stdout": object(), "pid": 1234,
+        })()
+        popen.return_value = process
+        with patch("portable.docker_external_evaluator_executor.subprocess.run") as run:
+            run.side_effect = [
+                subprocess.CompletedProcess([], 0),  # docker kill
+                subprocess.CompletedProcess([], 0),  # docker rm
+            ]
+            container = _ContainerProcess("/usr/bin/docker", "auren-test", ["/usr/bin/docker", "run"])
+        self.assertEqual(container.pid, 1234)
+        self.assertTrue(popen.call_args.kwargs["start_new_session"])
+        self.assertTrue(popen.call_args.kwargs["close_fds"])
+
+    @patch("portable.docker_external_evaluator_executor.os.killpg")
+    @patch("portable.docker_external_evaluator_executor.subprocess.run")
+    def test_termination_reports_orphaned_container_and_preserves_failure(self, run, killpg):
+        from portable.docker_external_evaluator_executor import _ContainerProcess
+        import subprocess as subprocess_module
+        process = type("FakeProcess", (), {
+            "stdin": object(), "stdout": object(), "pid": 4321,
+            "returncode": None,
+            "wait": lambda self, timeout=None: setattr(self, "returncode", -9) or -9,
+            "poll": lambda self: -9,
+            "kill": lambda self: None,
+        })()
+        with patch("portable.docker_external_evaluator_executor.subprocess.Popen", return_value=process):
+            container = _ContainerProcess("/usr/bin/docker", "auren-test", ["/usr/bin/docker", "run"])
+        run.side_effect = [
+            subprocess_module.CompletedProcess([], 1),  # kill failed
+            subprocess_module.CompletedProcess([], 0, stdout="true\n"),  # still running
+            subprocess_module.CompletedProcess([], 1),  # rm failed
+            subprocess_module.CompletedProcess([], 0),  # inspect says it still exists
+        ]
+        container.terminate_isolated()
+        self.assertIn("termination could not be confirmed", container.termination_error)
+        self.assertIn("still exists", container.termination_error)
+        self.assertEqual(container.returncode, -9)
+
     def test_launch_fails_closed_without_fresh_policy_evidence(self):
         executor = DockerExternalEvaluatorExecutor.__new__(DockerExternalEvaluatorExecutor)
         executor.production_ready = False
         executor.evidence = None
+        with self.assertRaisesRegex(ContainerIsolationError, "verify_policy"):
+            executor.launch(type("Command", (), {"argv": ("python", "eval.py")})(), {})
+
+    def test_launch_reprobes_previously_verified_policy_before_execution(self):
+        executor = DockerExternalEvaluatorExecutor.__new__(DockerExternalEvaluatorExecutor)
+        executor.production_ready = True
+        executor.evidence = type("Evidence", (), {"passed": True})()
+        def failed_reprobe():
+            executor.production_ready = False
+            executor.evidence = None
+        executor.verify_policy = failed_reprobe
         with self.assertRaisesRegex(ContainerIsolationError, "verify_policy"):
             executor.launch(type("Command", (), {"argv": ("python", "eval.py")})(), {})
 
