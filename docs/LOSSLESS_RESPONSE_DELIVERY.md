@@ -62,10 +62,11 @@ after a worker exits. The delivery status response exposes process-local and sha
 worker capacity. Process-local saturation-event counts reset on restart and are
 operational telemetry, not an audit ledger.
 
-The quota is global only for processes using the same registry database. It does not
-bound the number of durable pending tasks, coordinate separate registry databases,
-or replace deployment-level admission controls. Persistent queue admission limits,
-multi-host deployment validation, and operator-tested recovery remain separate gates.
+The worker-slot quota is global only for processes using the same registry database.
+It does not itself bound durable pending tasks; the canonical controller's persistent
+queue admission policy is described in the next section. Neither layer coordinates
+separate controller/registry databases or replaces deployment-level admission controls.
+Multi-host deployment validation and operator-tested recovery remain separate gates.
 
 ## Persistent pending-queue admission
 
