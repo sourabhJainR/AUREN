@@ -26,7 +26,21 @@ def durable_handler(payload):
 class _FakeDeploymentAdmissionCoordinator:
     def __init__(self):
         self.leases = {}
+        self.work_keys = {}
         self.fail = False
+
+    def claim_work_key(self, work_key, intent_digest, owner, task_id):
+        if self.fail:
+            raise RuntimeError("shared coordinator unavailable")
+        prior = self.work_keys.get(work_key)
+        if prior is None:
+            prior = (intent_digest, owner, task_id)
+            self.work_keys[work_key] = prior
+        if prior[0] != intent_digest:
+            raise RuntimeError("work_key is already bound to a different immutable intent")
+        if prior[1] != owner:
+            raise RuntimeError("work_key is already owned by another runtime")
+        return type("Identity", (), {"task_id": prior[2]})()
 
     def acquire(self, resource, owner, operation_id, *, capacity, lease_seconds):
         if self.fail:
