@@ -115,3 +115,7 @@ python -m unittest discover -s tests -p 'test_*.py'
 ```
 
 The last command is the broad local suite; repository CI remains the authoritative result for the exact PR head. The current implementation exposes a host-injected adapter registry but does not ship provider-specific live adapters by default. Post-merge checks and any operator-controlled migration or external Arena campaign are separate evidence gates.
+
+## Shared delivery resource budget — 2026-11-01
+
+The canonical RuntimeExecutionGuard now includes a delivery-byte charge ledger. The acknowledged transport can receive that same guard instance from the active graph/crew context and charge UTF-8 bytes by stable task/response/chunk identity before dispatch. This does not create a second retry or task store. Checkpoint/resume retains the delivery charges, duplicate chunk keys cannot authorize replay, and exhausted budgets block before the next send. Host integrations must persist the guard snapshot through their canonical graph/supervisor checkpoint path; repository tests prove value-object snapshot/resume and transport enforcement, not a deployment-wide distributed quota.
