@@ -179,7 +179,7 @@ No local test run is claimed for this review because no AUREN checkout/runtime i
 
 ## Response-delivery completion update — 2026-11-01
 
-**Implementation branch:** feat/issue-696-delivery-completion (exact-head CI pending at review time).
+**Merged implementation:** PR #1165 at 357d60af09f1be486e0950de727077454efceac1.
 **Baseline main before this change:** 40bd0bd98a68ddabfad74aeca26b2a5a84ef2b1b.
 
 - [x] Extend the shared RuntimeExecutionGuard with a checkpointable UTF-8 delivery-byte ledger and idempotent operation keys; wire the acknowledged response transport to the same guard instance.
@@ -188,9 +188,21 @@ No local test run is claimed for this review because no AUREN checkout/runtime i
 - [x] Add an MCP regression that sends an oversized atomic JSON-RPC frame while a descendant is running and verifies the process tree is terminated. MCP framing remains atomic; no frame truncation or response chunking is introduced.
 - [x] Expose durable delivery metrics through Session Control Center session and control-center APIs.
 - [x] Add a paired baseline/candidate benchmark and CI artifact workflow for integrity, recovery, latency, peak traced memory and transported-byte cost proxy.
-- [ ] Inspect exact-head CI and benchmark artifact. No benchmark values are asserted in this source-only review.
+- [x] PR #1165 exact-head CI passed all nine workflows; all eight inspected post-merge push workflows passed on the merge SHA.
+- [x] Paired benchmark artifact [run 41266288196](https://github.com/sourabhJainR/AUREN/actions/runs/41266288196) inspected: five iterations, 299,008-byte payload; baseline/candidate integrity and completion passed in every iteration; recovery resumed from chunk 2 with no acknowledged-chunk replay.
+
+| Measure | Baseline | Candidate | Difference |
+|---|---:|---:|---:|
+| Median latency | 279.032 ms | 277.653 ms | -1.379 ms |
+| Peak traced memory | 3,262,528 B | 2,181,992 B | -1,080,536 B |
+| Transported bytes | 299,008 B | 299,008 B | 0 B |
+| Chunks | 74 | 74 | 0 |
+
+Provider monetary cost is unmeasured; transported bytes are a proxy only. This local benchmark does not establish production latency or cost improvement.
 - [ ] Provider monetary cost remains unmeasured without a metered provider; production receiver latency/memory and deployment-wide queue saturation require a staged workload.
-- [ ] Complete cross-process/global worker quota, persistent queue admission policy, independent production isolation, external evaluator/holdout custody, required-check enforcement and staging rollback rehearsal as separate deployment gates.
+- [x] Add cross-process worker-slot leases with heartbeat renewal, owner-fenced release, and crash expiry in PR #1166; all six post-merge workflows passed on main SHA `81906e3eca59e9903b6056a5493abd736cc62309`.
+- [ ] Complete persistent pending-queue admission limits and deployment-wide multi-host contention validation.
+- [ ] Complete independent production isolation, external evaluator/holdout custody, owner/admin required-check enforcement, and operator staging rollback rehearsal.
 
 The implementation status above is source/test intent, not a passing-CI claim. Keep the product version unchanged. Revert the PR as a unit if required; do not remove the existing byte caps, digest-bound acknowledgement, unknown-outcome block, or atomic MCP frame rejection.
 
@@ -346,35 +358,11 @@ Integrity and completion passed all iterations; recovery resumed from chunk 2 wi
 No local test run is claimed because this session has GitHub source/CI access but no AUREN checkout. Close the remaining gates only with exact-revision CI, operator receipts, or independently verifiable external evidence. Repository CI is not evidence of AGI or production autonomy.
 
 
-## Current implementation reconciliation — 2026-11-01
+## Follow-up verification — 2026-11-01
 
-### Merged delivery foundation
+- PR [#1165](https://github.com/sourabhJainR/AUREN/pull/1165) is merged at `357d60af09f1be486e0950de727077454efceac1`; all nine exact-head workflows and all eight post-merge push workflows passed.
+- PR [#1166](https://github.com/sourabhJainR/AUREN/pull/1166) is merged at `81906e3eca59e9903b6056a5493abd736cc62309`; all six post-merge workflows passed. It enforces the eight-worker quota across processes sharing the same registry database with renewable leases and crash expiry.
+- PR [#1169](https://github.com/sourabhJainR/AUREN/pull/1169) adds a real nine-process contention regression and makes pytest execute the capacity suite. An initial explicit pytest run found two fake-thread tests that no longer matched the durable lease contract; those tests were rewritten to exercise slot admission directly. The latest exact-head CI is pending. Do not merge until the new pytest step and all required workflows pass.
+- The local paired benchmark shows unchanged bytes/chunk count and complete integrity/recovery. Latency is small and variable; provider monetary cost remains unknown. The consistent traced-memory reduction is a local-harness observation, not a production guarantee.
+- The separate [AUREN Capability Lab](https://github.com/sourabhJainR/firstTestproj) main SHA `a56a715cad72b241489a35bdf1aa1bb1412456a5` passed CI. Its deterministic persona-context experiment is a workflow-contract result, not model-level SI or AGI evidence.
 
-PR [#1165](https://github.com/sourabhJainR/AUREN/pull/1165) is merged at `357d60af09f1be486e0950de727077454efceac1`. All nine exact-head PR workflows passed. The inspected push-triggered main workflows on that exact merge SHA also passed: Architecture Integrity, Portable Bundle, Production Harness Hardening, AI Harness Check (including Python 3.11/3.12 unit and harness matrices), Runtime Resilience Matrix (Linux and Windows, Python 3.11/3.12), cleanup contract, Agent Capability Runtime, and repository traceability.
-
-The merged delivery scope includes the shared crew delivery-byte budget and restart snapshot, HTTP chunk-offer charging, slow-receiver/backpressure and disconnect/recovery tests, queue saturation, cancellation/deadline coverage, CLI/stdout and atomic file sinks, MCP atomic-frame rejection and descendant cleanup, durable Session Control Center metrics, and paired benchmark artifacts.
-
-**Measurement interpretation:** repeated local paired runs show lower peak traced memory (about 1.08 MB in the 299,008-byte fixture) and identical transported bytes. Latency varies in both directions across repeats; do not claim a reliable speedup. Monetary provider cost is unknown because the benchmark does not call a metered provider. These results do not establish production receiver performance or multi-host capacity.
-
-### Software-team host bootstrap — active PR
-
-PR [#1167](https://github.com/sourabhJainR/AUREN/pull/1167) wires all six leadership, engineering-manager, architecture, research/evaluation, and release personas into the real `.ai-harness/runtime` bootstrap. The host must supply complete provider invokers, provider IDs and pinned versions, plus per-persona read-only tool scopes. The supervised registration helper binds lifecycle events to the controller-owned ProgressJournal. Incomplete mappings fail before registry mutation; adapters remain proposal-only.
-
-The exact-head check set for #1167 is the merge gate. Its branch has been refreshed onto the new main revision after the older overlapping #1166 PR merged. Passing repository tests will prove the registration contract, not that production hosts have supplied valid provider credentials, approved tool scopes, or operational policy.
-
-### Parallel response-delivery admission work
-
-PR [#1166](https://github.com/sourabhJainR/AUREN/pull/1166) adds cross-process response-delivery worker quota enforcement. It is separate from the merged in-process worker cap and must pass its own exact-head checks before merge. Until then, do not describe the deployment-wide worker quota as complete.
-
-### Roadmap status
-
-| Roadmap gate | Current status | Remaining evidence |
-|---|---|---|
-| #696 unified runtime, learning, delivery, dashboard | Delivery foundation merged; #1167 host persona bootstrap and #1166 cross-process admission are under review | Merge exact-head green PRs; verify host-configured provider dispatch; reconcile dashboard after real multi-session restart; independent evaluation and production isolation |
-| #692 recursive harness learning | Capability Lab and deterministic baseline/candidate contracts exist | Metered provider/model runs, causal attribution, sealed holdouts, broad cross-domain transfer, independent Arena custody |
-| #694 spec-driven persistent planning | Plan, graph, architect and manager contracts exist | Durable plan evolution and approval handoff, dependency mutation, fresh-context resume, contradiction/staleness and restart tests |
-| #809 durable human approval and resumable side effects | Repository-side approval and delivery contracts exist | Real host approval boundary, provider-native idempotency/history lookup, restart, cancellation, timeout and final-ack evidence |
-| #534 migration and rollback | Blocked | Operator-controlled staging migration, fresh-process resume, rollback and post-cutover reconciliation receipts |
-| Independent Arena / isolation | Not production-ready | External custody, independently controlled evaluator, adversarial holdouts, OS-level isolation audit and signed attestation |
-
-**Readiness decision:** repository implementation and CI are improving, but production readiness and general intelligence are not established. Keep external evaluation, sealed holdout custody, production isolation, staging migration/rollback, and provider monetary cost marked blocked or unmeasured until their own evidence exists. The independent [firstTestproj Capability Lab](https://github.com/sourabhJainR/firstTestproj) remains a research/test dependency only, not an AUREN runtime dependency. No AGI claim is supported.
