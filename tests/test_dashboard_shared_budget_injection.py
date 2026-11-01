@@ -5,7 +5,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from portable.dashboard_server import serve
+from types import SimpleNamespace
+
+from portable.dashboard_server import _Handler, serve
 from portable.runtime_recovery import RuntimeExecutionGuard
 
 
@@ -34,6 +36,38 @@ class DashboardSharedBudgetInjectionTests(unittest.TestCase):
         self.assertIs(handler.delivery_execution_guard, guard)
         self.assertEqual("crew:integration-test", handler.delivery_budget_id)
         self.assertTrue(captured["closed"])
+
+
+    def test_artifact_delivery_creation_receives_the_exact_shared_guard(self):
+        captured = {}
+        class Repository:
+            def stage(self, text, *, max_chunk_bytes):
+                captured["text"] = text
+                captured["max_chunk_bytes"] = max_chunk_bytes
+                return SimpleNamespace(artifact=SimpleNamespace(digest="b" * 64))
+        class Supervisor:
+            def create(self, response_id, delivery_id, digest, **kwargs):
+                captured["create"] = (response_id, delivery_id, digest, kwargs)
+                return "delivery-task"
+            def start(self, task_id, *, artifact_verified):
+                captured["start"] = (task_id, artifact_verified)
+        class Journal:
+            def record_response_artifact(self, task_id, **kwargs):
+                captured["journal"] = (task_id, kwargs)
+
+        guard = RuntimeExecutionGuard(max_delivery_bytes=12345)
+        handler = object.__new__(_Handler)
+        handler.response_repository = Repository()
+        handler.delivery_supervisor = Supervisor()
+        handler.progress_journal = Journal()
+        handler.delivery_execution_guard = guard
+        handler.delivery_budget_id = "crew:real-path"
+        stored = handler._persist_response_artifact("a" * 64, "c" * 32, b"hello")
+        self.assertEqual("hello", captured["text"])
+        self.assertIs(captured["create"][3]["execution_guard"], guard)
+        self.assertEqual("crew:real-path", captured["create"][3]["budget_id"])
+        self.assertEqual(("delivery-task", True), captured["start"])
+        self.assertEqual("b" * 64, stored.artifact.digest)
 
     def test_shared_guard_requires_stable_budget_identity(self):
         with self.assertRaisesRegex(ValueError, "stable delivery_budget_id"):
