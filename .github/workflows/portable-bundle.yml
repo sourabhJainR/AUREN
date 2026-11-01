@@ -66,6 +66,8 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
+      - name: Install dashboard integration test runner
+        run: python -m pip install pytest
       - name: Run deterministic contract tests
         run: |
           PYTHONPATH=.:.ai-harness python -m unittest \
@@ -74,7 +76,9 @@ jobs:
             tests.test_engineering_design_guard tests.test_state_graph_hardening \
             tests.test_execution_contract tests.test_evidence_contract tests.test_adaptive_planning_evidence tests.test_execution_strategy_learning tests.test_skill_group_evidence tests.test_vibe_coding tests.test_vibe_coding_adapters tests.test_vibe_coding_host \
             tests.test_runtime_recovery tests.test_response_delivery tests.test_response_delivery_transport tests.test_response_delivery_sinks \
-            tests.test_response_delivery_supervisor_capacity tests.test_dashboard_chunked_delivery tests.test_response_delivery_benchmark -v
+            tests.test_response_delivery_supervisor_capacity tests.test_response_delivery_benchmark -v
+      - name: Run live dashboard delivery integration tests
+        run: PYTHONPATH=.:.ai-harness python -m pytest -q tests/test_dashboard_chunked_delivery.py
       - name: Compile host integration entrypoints
         run: python -m py_compile portable/vibe_coding_host.py scripts/run_vibe_coding_project.py
       - name: Read AUREN version
