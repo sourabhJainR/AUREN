@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from typing import Any
 
 from .progress_journal import ProgressJournal
@@ -80,6 +81,122 @@ def record_delivery_metrics(
         stage=f"response-delivery:{response_id}",
         message=json.dumps(payload, sort_keys=True, separators=(",", ":")),
         evidence_ref=("sha256:" + completion_digest) if completion_digest else None,
+    )
+
+
+def record_chunk_offer(
+    journal: ProgressJournal, task_id: str, response_id: str, *,
+    chunk_index: int, chunk_sha256: str, chunk_bytes: int,
+    total_bytes: int, total_chunks: int,
+) -> None:
+    """Record a bounded offer timestamp to measure pull/ack backpressure."""
+    if type(chunk_index) is not int or chunk_index < 1:
+        raise ValueError("chunk_index must be positive")
+    if type(chunk_bytes) is not int or chunk_bytes < 0:
+        raise ValueError("chunk_bytes must be non-negative")
+    if type(total_bytes) is not int or total_bytes < 0:
+        raise ValueError("total_bytes must be non-negative")
+    if type(total_chunks) is not int or total_chunks < chunk_index:
+        raise ValueError("total_chunks must include the offered chunk")
+    if len(chunk_sha256) != 64 or any(ch not in "0123456789abcdef" for ch in chunk_sha256):
+        raise ValueError("chunk_sha256 must be a lowercase digest")
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "response_id": response_id,
+        "chunk_index": chunk_index,
+        "chunk_sha256": chunk_sha256,
+        "chunk_bytes": chunk_bytes,
+        "total_bytes": total_bytes,
+        "total_chunks": total_chunks,
+        "offered_at_unix": time.time(),
+    }
+    state = journal.snapshot(task_id).get("state", "running")
+    if state not in {"queued", "running", "blocked", "recovering", "completed", "failed", "cancelled"}:
+        state = "running"
+    journal.record(
+        task_id, "response_chunk_offered", state=state,
+        stage=f"response-delivery:{response_id}",
+        message=json.dumps(payload, sort_keys=True, separators=(",", ":")),
+        evidence_ref="sha256:" + chunk_sha256,
+    )
+
+
+def record_chunk_ack_measurement(
+    journal: ProgressJournal, task_id: str, response_id: str, *,
+    chunk_index: int, chunk_sha256: str, chunk_bytes: int,
+) -> float:
+    """Persist one idempotent offer-to-ack wait measurement for a chunk."""
+    events = journal._events()
+    for row in events:
+        if row.get("task_id") != task_id or row.get("event") != "response_delivery_chunk_measurement":
+            continue
+        try:
+            prior = json.loads(str(row.get("message", "")))
+        except (TypeError, ValueError):
+            continue
+        if (
+            isinstance(prior, dict) and prior.get("response_id") == response_id
+            and prior.get("chunk_index") == chunk_index
+            and prior.get("chunk_sha256") == chunk_sha256
+        ):
+            return float(prior.get("backpressure_wait_ms", 0.0))
+    offers = []
+    for row in events:
+        if row.get("task_id") != task_id or row.get("event") != "response_chunk_offered":
+            continue
+        try:
+            payload = json.loads(str(row.get("message", "")))
+        except (TypeError, ValueError):
+            continue
+        if (
+            isinstance(payload, dict) and payload.get("schema_version") == SCHEMA_VERSION
+            and payload.get("response_id") == response_id
+            and payload.get("chunk_index") == chunk_index
+            and payload.get("chunk_sha256") == chunk_sha256
+        ):
+            offered_at = payload.get("offered_at_unix")
+            if isinstance(offered_at, (int, float)) and math.isfinite(offered_at):
+                offers.append(float(offered_at))
+    if not offers:
+        wait_ms = 0.0
+    else:
+        wait_ms = max(0.0, (time.time() - min(offers)) * 1000.0)
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "response_id": response_id,
+        "chunk_index": chunk_index,
+        "chunk_sha256": chunk_sha256,
+        "chunk_bytes": chunk_bytes,
+        "backpressure_wait_ms": round(wait_ms, 3),
+    }
+    state = journal.snapshot(task_id).get("state", "running")
+    if state not in {"queued", "running", "blocked", "recovering", "completed", "failed", "cancelled"}:
+        state = "running"
+    journal.record(
+        task_id, "response_delivery_chunk_measurement", state=state,
+        stage=f"response-delivery:{response_id}",
+        message=json.dumps(payload, sort_keys=True, separators=(",", ":")),
+        evidence_ref="sha256:" + chunk_sha256,
+    )
+    return round(wait_ms, 3)
+
+
+def record_delivery_failure(
+    journal: ProgressJournal, task_id: str, response_id: str, reason: str,
+) -> None:
+    """Record only a safe failure category, never exception text or payloads."""
+    if not isinstance(reason, str) or not reason or len(reason) > 80 or any(
+        ch not in "abcdefghijklmnopqrstuvwxyz0123456789_-" for ch in reason
+    ):
+        raise ValueError("failure reason must be a short safe category")
+    state = journal.snapshot(task_id).get("state", "running")
+    if state not in {"queued", "running", "blocked", "recovering", "completed", "failed", "cancelled"}:
+        state = "running"
+    payload = {"schema_version": SCHEMA_VERSION, "response_id": response_id, "failure_reason": reason}
+    journal.record(
+        task_id, "response_delivery_failure", state=state,
+        stage=f"response-delivery:{response_id}",
+        message=json.dumps(payload, sort_keys=True, separators=(",", ":")),
     )
 
 
