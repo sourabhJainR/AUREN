@@ -4,7 +4,6 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import sqlite3
 import tempfile
-import time
 import unittest
 from pathlib import Path
 
@@ -19,13 +18,15 @@ from tests.test_engineering_plan_dispatch import prepared
 
 
 class TrustedPlanDispatchRootTests(unittest.TestCase):
-    def _approval(self, controller, *, context, plan_task_id="implement", expiry_seconds=3600):
+    def _approval(self, controller, *, context, plan_task_id="implement", expiry_seconds=3600, clock=None):
+        approval_now = clock() if clock is not None else datetime.now(timezone.utc)
         store = DurableApprovalStore(
             controller,
             approver_authorizer=lambda approver, role, scope, roles: (
                 approver == "manager-1" and role in roles and scope == "repo:write"
             ),
             context_provider=lambda request: dict(context),
+            clock=clock,
         )
         request = ActionRequest(
             run_id="approval-run", action_id="publish-change", actor="agent:implementer",
@@ -47,7 +48,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                 "run_revision": self.packet.run_revision,
                 "source_revision": self.packet.source_revision,
             },
-            expires_at=datetime.now(timezone.utc) + timedelta(seconds=expiry_seconds),
+            expires_at=approval_now + timedelta(seconds=expiry_seconds),
         )
         store.decide(
             record.approval_id, "approve", approver_id="manager-1",
@@ -263,11 +264,13 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
 
 
     def test_approved_but_expired_record_is_rejected(self):
+        now = [datetime.now(timezone.utc)]
+        clock = lambda: now[0]
         approvals, request, record = self._approval(
-            self.controller, context=self.context, expiry_seconds=1,
+            self.controller, context=self.context, expiry_seconds=3600, clock=clock,
         )
         self.assertEqual("approved", record.status)
-        time.sleep(1.1)
+        now[0] += timedelta(hours=2)
         guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
         root = self._root(self.controller, approvals, request, record, guard, context=self.context)
         with self.assertRaisesRegex(PermissionError, "expired"):
