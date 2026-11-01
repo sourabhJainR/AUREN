@@ -199,7 +199,7 @@ class _Handler(BaseHTTPRequestHandler):
             # corruption is never hidden behind a blocked/cancelled task response.
             stored = self._load_delivery(response_id, delivery_id, resume=(action == "next"))
             initial_snapshot = self.progress_journal.snapshot(task_id)
-            if action == "next" and initial_snapshot.get("state") != "running":
+            if action == "next" and initial_snapshot.get("state") not in {"running", "recovering", "queued"}:
                 self._send_delivery_json(409, {
                     "error": "delivery is not runnable; reconcile its durable state before resuming",
                     "state": initial_snapshot.get("state", "unknown"),
@@ -222,6 +222,16 @@ class _Handler(BaseHTTPRequestHandler):
                 while time.monotonic() < deadline and terminal_state == "pending":
                     time.sleep(0.02)
                     terminal_state = self.delivery_supervisor.state(task_id)
+            if (
+                action == "next" and terminal_state == "running"
+                and snapshot.get("state") in {"recovering", "queued"}
+            ):
+                self.progress_journal.record_reconciliation(
+                    task_id, state="running", stage="response-delivery-recovery",
+                    message="durable worker lease is active; progress projection reconciled after restart",
+                    expected_sequence=int(snapshot.get("sequence", 0)),
+                )
+                snapshot = self.progress_journal.snapshot(task_id)
             all_acknowledged = acknowledged == manifest.total_chunks
             if (
                 action == "status" and terminal_state == "completed"
