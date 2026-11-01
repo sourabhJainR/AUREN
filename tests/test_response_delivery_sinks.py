@@ -1,4 +1,8 @@
+import hashlib
 import io
+import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -86,6 +90,53 @@ class ResponseDeliverySinkTests(unittest.TestCase):
                 "--input", str(source), "--output", str(blocked), "--max-bytes", "2",
             ]))
             self.assertFalse(blocked.exists())
+
+    def test_cli_stdout_subprocess_preserves_unicode_bytes_and_emits_digest_receipt(self):
+        cli = Path(__file__).resolve().parents[1] / "auren_cli.py"
+        payload = ("multi-source research evidence: ₹ € 東京\n" * 3000).encode("utf-8")
+        result = subprocess.run(
+            [sys.executable, str(cli), "deliver", "--input", "-", "--output", "-"],
+            input=payload, capture_output=True, check=False, timeout=15,
+        )
+        self.assertEqual(0, result.returncode, result.stderr.decode("utf-8", errors="replace"))
+        self.assertEqual(payload, result.stdout)
+        receipt = json.loads(result.stderr.decode("utf-8").strip().splitlines()[-1])
+        self.assertTrue(receipt["complete"])
+        self.assertEqual(len(payload), receipt["bytes"])
+        self.assertEqual(hashlib.sha256(payload).hexdigest(), receipt["sha256"])
+
+    def test_cli_subprocess_oversize_emits_no_partial_output(self):
+        cli = Path(__file__).resolve().parents[1] / "auren_cli.py"
+        payload = "oversized-東京".encode("utf-8")
+        result = subprocess.run(
+            [sys.executable, str(cli), "deliver", "--input", "-", "--output", "-", "--max-bytes", "4"],
+            input=payload, capture_output=True, check=False, timeout=15,
+        )
+        self.assertEqual(2, result.returncode)
+        self.assertEqual(b"", result.stdout)
+        self.assertIn(b"no output was written", result.stderr)
+
+    def test_cli_file_subprocess_never_overwrites_without_explicit_flag(self):
+        cli = Path(__file__).resolve().parents[1] / "auren_cli.py"
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "input.bin"
+            target = root / "output.bin"
+            source.write_bytes(b"first-complete-value")
+            first = subprocess.run(
+                [sys.executable, str(cli), "deliver", "--input", str(source), "--output", str(target)],
+                capture_output=True, check=False, timeout=15,
+            )
+            self.assertEqual(0, first.returncode, first.stderr.decode("utf-8", errors="replace"))
+            self.assertEqual(b"first-complete-value", target.read_bytes())
+
+            source.write_bytes(b"replacement-must-not-leak")
+            second = subprocess.run(
+                [sys.executable, str(cli), "deliver", "--input", str(source), "--output", str(target)],
+                capture_output=True, check=False, timeout=15,
+            )
+            self.assertEqual(2, second.returncode)
+            self.assertEqual(b"first-complete-value", target.read_bytes())
 
 
 if __name__ == "__main__":
