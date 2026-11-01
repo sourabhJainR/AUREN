@@ -44,7 +44,8 @@ class DashboardSharedBudgetInjectionTests(unittest.TestCase):
             def stage(self, text, *, max_chunk_bytes):
                 captured["text"] = text
                 captured["max_chunk_bytes"] = max_chunk_bytes
-                return SimpleNamespace(artifact=SimpleNamespace(digest="b" * 64))
+                manifest = SimpleNamespace(sha256="a" * 64, total_bytes=len(text.encode("utf-8")), total_chunks=1)
+                return SimpleNamespace(artifact=SimpleNamespace(digest="b" * 64), manifest=manifest)
         class Supervisor:
             def create(self, response_id, delivery_id, digest, **kwargs):
                 captured["create"] = (response_id, delivery_id, digest, kwargs)
