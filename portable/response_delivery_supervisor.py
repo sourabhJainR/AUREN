@@ -417,6 +417,10 @@ class ResponseDeliverySupervisor:
     def _run(self, key: tuple[str, str], task_id: str) -> None:
         try:
             self.controller.run_once(task_id)
+        except LeaseLostError:
+            # Expected when a replacement supervisor has fenced this worker.
+            # The new lease owner is responsible for continuing the task.
+            pass
         finally:
             with _THREADS_LOCK:
                 _THREADS.pop(key, None)
