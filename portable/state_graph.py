@@ -841,7 +841,17 @@ class GraphAgentTeam:
 
     def required_personas(self, goal: str) -> tuple[str, ...]:
         selected = {item.crew_id for item in self.plan_crews(goal).assignments}
-        personas = ["pm", "backend", "reviewer", "enduser"]
+        personas = ["pm", "manager", "backend", "reviewer", "enduser"]
+        if "solution_architect" in selected:
+            personas.insert(personas.index("backend"), "architect")
+        if "research_evaluation" in selected:
+            personas.append("research_evaluation")
+        if "release_operations" in selected:
+            personas.append("release_operations")
+        if "cto_sponsor" in selected:
+            personas.append("cto")
+        if "ceo_sponsor" in selected:
+            personas.append("ceo")
         if "frontend_ui" in selected:
             personas.insert(1, "frontend")
         if "database_schema" in selected:
