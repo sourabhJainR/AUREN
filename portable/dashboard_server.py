@@ -19,6 +19,7 @@ from .execution_controller import ExecutionController
 from .response_delivery_supervisor import ResponseDeliverySupervisor
 from .response_delivery import assemble_response
 from .response_delivery_artifacts import ResponseArtifactRepository
+from .runtime_recovery import RuntimeExecutionGuard
 
 MAX_API_RESPONSE_BYTES = 4_000_000
 MAX_CHUNKED_RESPONSE_BYTES = 16_000_000
@@ -587,9 +588,27 @@ class _Handler(BaseHTTPRequestHandler):
         return
 
 
-def serve(project_root=".", host="127.0.0.1", port=8765):
+def serve(
+    project_root=".", host="127.0.0.1", port=8765, *,
+    delivery_execution_guard: RuntimeExecutionGuard | None = None,
+    delivery_budget_id: str | None = None,
+):
+    """Run the dashboard host, optionally joining a caller-owned crew budget.
+
+    A shared guard must be paired with a stable budget ID. Hosts that do not
+    provide one retain the safer delivery-scoped default budget.
+    """
     if host not in {"127.0.0.1", "localhost"}:
         raise ValueError("dashboard server only binds to loopback; remote access requires a separately secured deployment")
+    if delivery_execution_guard is not None:
+        if not isinstance(delivery_execution_guard, RuntimeExecutionGuard):
+            raise TypeError("delivery_execution_guard must be a RuntimeExecutionGuard")
+        if not isinstance(delivery_budget_id, str) or not delivery_budget_id.strip():
+            raise ValueError("a stable delivery_budget_id is required with a shared crew guard")
+    elif delivery_budget_id is not None and (not isinstance(delivery_budget_id, str) or not delivery_budget_id.strip()):
+        raise ValueError("delivery_budget_id must be a non-empty string")
+    if delivery_budget_id is not None:
+        delivery_budget_id = delivery_budget_id.strip()
     dashboard = EngineeringDashboard(project_root)
     control_center = MuxinSessionAdapter(project_root, dashboard=dashboard)
     runtime_root = Path(project_root).expanduser().resolve() / ".auren"
@@ -604,6 +623,8 @@ def serve(project_root=".", host="127.0.0.1", port=8765):
         "artifact_store": artifact_store, "response_repository": response_repository,
         "progress_journal": progress_journal,
         "delivery_supervisor": delivery_supervisor,
+        "delivery_execution_guard": delivery_execution_guard,
+        "delivery_budget_id": delivery_budget_id,
     })
     server = ThreadingHTTPServer((host, port), handler)
     print(f"AUREN Engineering Console: http://{host}:{port}")

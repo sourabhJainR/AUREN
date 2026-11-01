@@ -76,10 +76,15 @@ preserves the byte ledger across checkpoint/resume; duplicate charge keys do not
 grant a second send through this transport API.
 
 The HTTP Session Control Center path also charges each chunk offer against a
-supervisor-owned durable budget record before returning the chunk. Hosts may inject
-a shared guard and stable `delivery_budget_id` when creating delivery tasks; tasks
-using the same ID share one budget ledger. The registry stores the guard snapshot,
-and restart resumes from that snapshot. Re-reading an unacknowledged chunk is
+supervisor-owned durable budget record before returning the chunk. The default
+`serve()` entry point accepts the caller's `delivery_execution_guard` and stable
+`delivery_budget_id`; it binds that exact guard to the delivery supervisor and
+passes it into task creation. A guard without a non-empty stable ID is rejected.
+Hosts may also provide only a previously persisted budget ID to resume its ledger.
+Tasks using the same ID share one budget ledger. The registry stores the guard
+snapshot, and restart resumes from that snapshot. If no crew budget is supplied,
+the host retains a delivery-scoped budget and must not claim it shares the graph/crew
+budget. Re-reading an unacknowledged chunk is
 allowed without a second charge because the operation key and byte count must match.
 A different chunk or delivery cannot spend beyond the remaining shared budget.
 Without an injected crew guard, the supervisor creates a delivery-scoped budget.
