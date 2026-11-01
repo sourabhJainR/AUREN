@@ -1744,3 +1744,33 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
 
 if __name__ == "__main__":
     unittest.main()
+    def test_oversized_atomic_mcp_frame_rejects_and_terminates_spawned_descendant(self):
+        from portable.vibe_coding_host import AdapterUnavailable, MCPStdioToolAdapter
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            marker = root / "oversized-descendant-survived"
+            server = root / "oversized_server.py"
+            server.write_text(
+                "import json, subprocess, sys\\n"
+                "for line in sys.stdin:\\n"
+                " request = json.loads(line)\\n"
+                " if request.get('method') == 'initialize':\\n"
+                "  print(json.dumps({'jsonrpc':'2.0','id':request['id'],'result':{'protocolVersion':'2024-11-05','capabilities':{},'serverInfo':{'name':'oversize','version':'1'}}}), flush=True)\\n"
+                " elif request.get('method') == 'tools/call':\\n"
+                "  code = 'import pathlib,time,sys; time.sleep(1.0); pathlib.Path(sys.argv[1]).write_text(\\\"survived\\\")'\\n"
+                "  subprocess.Popen([sys.executable, '-c', code, sys.argv[1]], close_fds=True)\\n"
+                "  print(json.dumps({'jsonrpc':'2.0','id':request['id'],'result':{'content':[{'type':'text','text':'x'*4000}]}}), flush=True)\\n",
+                encoding="utf-8",
+            )
+            tool = MCPStdioToolAdapter(
+                argv=(sys.executable, str(server), str(marker)),
+                tool_name="oversized_atomic",
+                timeout_seconds=5,
+                max_response_chars=512,
+                requires_authority_binding=False,
+                trusted_workspace_root=root,
+            )
+            with self.assertRaisesRegex(AdapterUnavailable, "character limit"):
+                tool({"stage": "research", "intent": "reject oversized frame", "state": {"workspace_root": str(root)}})
+            time.sleep(1.5)
+            self.assertFalse(marker.exists(), "oversized MCP frame must terminate the complete child process tree")
