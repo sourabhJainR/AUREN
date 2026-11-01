@@ -87,13 +87,17 @@ and release, and bounded expiry. A host must stop work when renewal fails or
 the coordinator cannot be reached. Never create a local-only fallback when
 shared admission is configured.
 
-Before enabling this feature for an existing deployment, stop new submissions
-and reconcile every existing nonterminal task with a work key into the shared
+Before enabling this feature for an existing deployment, stop new
+submissions and reconcile every existing task with a work key into the shared
 identity registry. Each identity must retain its existing task ID, intent
-digest, and stable runtime owner. Do not allow a second host to accept new work
-until reconciliation is complete. Existing tasks without a work key cannot be
-retroactively deduplicated; assign keys only through an operator-reviewed
-migration that preserves their original task identity.
+digest, and stable runtime owner. Run
+`controller.reconcile_deployment_work_key_identities()` on each root while
+submissions are stopped. The method is idempotent and includes terminal tasks;
+a partial run can be repeated safely. Do not allow a second host to accept new
+work until every root has reconciled. Existing tasks without a work key cannot
+be retroactively deduplicated; assign keys only through an operator-reviewed
+migration that preserves their original task identity. Conflicting work keys,
+owners, digests, or task IDs must be resolved by an operator, not overwritten.
 
 ## Rollout and rollback
 
