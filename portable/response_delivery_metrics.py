@@ -272,6 +272,11 @@ def aggregate_delivery_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
             peak_in_flight = max(peak_in_flight, peak_bytes)
             if resumed > 0:
                 metric_resume_events += 1
+            failure = payload.get("failure_reason")
+            if isinstance(failure, str) and 0 < len(failure) <= 80 and all(
+                ch in "abcdefghijklmnopqrstuvwxyz0123456789_-" for ch in failure
+            ):
+                failure_reasons.add(failure)
             digest = payload.get("completion_digest")
             if isinstance(digest, str) and digest == response_id:
                 completion_digests.add(digest)
