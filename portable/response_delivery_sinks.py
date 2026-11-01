@@ -50,14 +50,15 @@ def deliver_file(
 ) -> dict[str, object]:
     """Commit a file atomically without exposing partial content at the destination."""
     digest = _validate(payload, max_bytes)
-    target = Path(destination).expanduser().resolve()
+    requested = Path(destination).expanduser()
+    if requested.is_symlink():
+        raise OutputDeliveryError("refusing to replace a symlink output path")
+    target = requested.resolve()
     parent = target.parent
     if not parent.is_dir():
         raise OutputDeliveryError("output directory does not exist")
     if target.exists() and not overwrite:
         raise FileExistsError(target)
-    if target.is_symlink():
-        raise OutputDeliveryError("refusing to replace a symlink output path")
     fd, temp_name = tempfile.mkstemp(prefix=".auren-delivery-", dir=parent)
     temp = Path(temp_name)
     try:
