@@ -21,6 +21,7 @@ on:
       - "portable/execution_controller.py"
       - "tests/test_execution_controller.py"
       - "tests/test_multi_instance_admission_staging.py"
+      - "scripts/staging/**"
       - "portable/postgres_admission_coordinator.py"
       - "portable/response_delivery_supervisor.py"
       - "tests/test_postgres_admission_coordinator.py"
