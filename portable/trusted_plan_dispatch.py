@@ -148,6 +148,26 @@ class TrustedPlanDispatchRoot:
             raise PermissionError("durable approval checkpoint is not bound to this exact plan task revision")
         if not self.approval_store.verify_audit_chain():
             raise PermissionError("durable approval audit chain failed verification")
+        approval_events = self.approval_store.events(approval_id)
+        request_events = [item for item in approval_events if item["event_type"] == "approval_requested"]
+        if len(request_events) != 1:
+            raise PermissionError("durable approval request event is missing or ambiguous")
+        request_details = request_events[0]["event"].get("details", {})
+        if (
+            request_details.get("expires_at") != record.expires_at
+            or request_details.get("request_fingerprint") != record.request_fingerprint
+            or request_details.get("artifact_digest") != record.artifact_digest
+            or request_details.get("evidence_digest") != record.evidence_digest
+            or request_details.get("policy_digest") != record.policy_digest
+            or request_details.get("scope") != record.scope
+            or request_details.get("required_role") != record.required_role
+        ):
+            raise PermissionError("durable approval row differs from its immutable request event")
+        if not approval_events:
+            raise PermissionError("durable approval has no audit events")
+        final_event = approval_events[-1]["event"]
+        if final_event.get("to_state") != record.status or final_event.get("version") != record.version:
+            raise PermissionError("durable approval state differs from its append-only audit chain")
         if self.approval_store.context_provider is None:
             raise PermissionError("durable approval has no trusted current-context provider")
         context = self.approval_store.context_provider(request)
@@ -180,6 +200,7 @@ class TrustedPlanDispatchRoot:
             "scope": record.scope,
             "version": record.version,
             "status": record.status,
+            "expires_at": record.expires_at,
             "decision_event_digests": [item["event_digest"] for item in votes],
         })
         return {
