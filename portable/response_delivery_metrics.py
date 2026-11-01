@@ -311,4 +311,7 @@ def aggregate_delivery_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 
-__all__ = [\n    "SCHEMA_VERSION", "record_delivery_metrics", "record_chunk_offer",\n    "record_chunk_ack_measurement", "record_delivery_failure", "aggregate_delivery_metrics",\n]
+__all__ = [
+    "SCHEMA_VERSION", "record_delivery_metrics", "record_chunk_offer",
+    "record_chunk_ack_measurement", "record_delivery_failure", "aggregate_delivery_metrics",
+]
