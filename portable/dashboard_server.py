@@ -194,6 +194,14 @@ class _Handler(BaseHTTPRequestHandler):
             return
         response_id, delivery_id, action = match.groups()
         try:
+            task_id = self._delivery_task_id(response_id, delivery_id)
+            initial_snapshot = self.progress_journal.snapshot(task_id)
+            if action == "next" and initial_snapshot.get("state") != "running":
+                self._send_delivery_json(409, {
+                    "error": "delivery is not runnable; reconcile its durable state before resuming",
+                    "state": initial_snapshot.get("state", "unknown"),
+                })
+                return
             stored = self._load_delivery(response_id, delivery_id, resume=(action == "next"))
             manifest, chunks = stored.manifest, stored.chunks
             checkpoint = self._delivery_checkpoint(response_id, delivery_id)
@@ -203,7 +211,15 @@ class _Handler(BaseHTTPRequestHandler):
             snapshot = self.progress_journal.snapshot(
                 self._delivery_task_id(response_id, delivery_id),
             )
-            terminal_state = self.delivery_supervisor.state(self._delivery_task_id(response_id, delivery_id))
+            task_id = self._delivery_task_id(response_id, delivery_id)
+            terminal_state = self.delivery_supervisor.state(task_id)
+            if action == "next" and terminal_state == "pending":
+                # A fenced old worker may need a short interval to exit before
+                # the replacement acquires the durable lease.
+                deadline = time.monotonic() + 2.0
+                while time.monotonic() < deadline and terminal_state == "pending":
+                    time.sleep(0.02)
+                    terminal_state = self.delivery_supervisor.state(task_id)
             all_acknowledged = acknowledged == manifest.total_chunks
             if (
                 action == "status" and terminal_state == "completed"
