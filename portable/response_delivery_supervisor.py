@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .runtime_recovery import RuntimeExecutionGuard
+from .progress_journal import ProgressJournal
 from .execution_controller import (
     ExecutionController,
     LeaseLostError,
