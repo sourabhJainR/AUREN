@@ -368,14 +368,65 @@ No local test run is claimed because this session has GitHub source/CI access bu
 
 
 
-## Delivery and software-team reconciliation — 2026-11-01
+## Current delivery, software-team and #696 reconciliation — 2026-11-01
 
-- PR #1165 merged at `357d60af09f1be486e0950de727077454efceac1`; all nine exact-head workflows and eight post-merge workflows passed. It delivers supervisor-owned lossless response delivery, shared crew budgets, CLI/stdout and atomic file sinks, MCP atomic-frame rejection/cleanup, and durable Session Control Center metrics.
-- PR #1166 merged at `81906e3eca59e9903b6056a5493abd736cc62309`; all six post-merge workflows passed. Its SQLite worker-slot lease limits processes sharing one registry database to eight concurrent workers, renews every five seconds, expires after 30 seconds, and releases with owner fencing.
-- PR #1167 merged at `f53880d25b60f9ce38e216053fdee6043af58ef0`; provider-backed leadership, manager, architect, research and release personas are wired into the real host bootstrap. Hosts must still validate their own provider credentials, pinned versions and approved tool scopes.
-- PR #1169 merged at `c7e2a5110d3be725cfbd02a2bd78d2dc5b8114f3`; discoverable unittest coverage includes nine concurrent OS processes competing for eight shared slots, crash expiry, lease renewal and owner-fenced release.
-- PR #1170 is adding Session Control Center UI panels for delivery health. Merge only after its exact-head CI and fresh-base checks pass.
-- Paired benchmark artifact [run 41266288196](https://github.com/sourabhJainR/AUREN/actions/runs/41266288196): five iterations, 299,008-byte payload; integrity and completion passed; recovery resumed from chunk 2 without replay. Median latency was 279.032 ms baseline versus 277.653 ms candidate (-1.379 ms); peak traced memory was 3,262,528 B versus 2,181,992 B (-1,080,536 B); bytes and chunks were unchanged (299,008 B / 74). Across repeats latency moves in both directions; no reliable latency improvement is established. Provider monetary cost remains unmeasured.
-- Remaining #696 gates: persistent pending-queue admission limits; distinct-registry and deployment-wide multi-host contention; provider-native idempotency and ambiguous-outcome reconciliation; external evaluator and sealed holdout custody; independent OS isolation audit; owner/admin required-check enforcement; and operator-run #534 staging migration/rollback.
-- The latest `firstTestproj` main SHA `ab3347a447ee70f79abbae6d959a7db0534eb34f` passed Capability Lab CI.
+### Merged implementation
 
+| PR | Verified result |
+|---|---|
+| #1165 | Supervisor-owned response delivery, shared-budget charging, CLI/stdout, atomic file output, MCP atomic-frame rejection and cleanup |
+| #1166 | Renewable SQLite worker-slot leases; eight concurrent workers across processes sharing one registry; crash expiry and owner-fenced release |
+| #1167 | Real host registration for CEO, CTO, engineering manager, architect, research/evaluation and release/operations personas with explicit provider and tool-scope contracts |
+| #1169 | Discoverable regression tests with nine competing OS processes against the eight-slot quota |
+| #1170 | Live Session Control Center delivery-health panel |
+| #1172 | Dashboard host accepts the exact caller-owned `RuntimeExecutionGuard` plus stable budget ID; host can resume a previously persisted budget |
+
+### In progress
+
+- **#1175 — durable delivery telemetry:** records total bytes/chunks, peak in-flight chunk bytes, receiver/backpressure wait, worker resumes, safe failure categories and completion digests. The Session Control Center renders these measurements. Exact-head CI is running; do not treat the PR as merged.
+- **#1176 — fail-closed budget resume:** rejects a supplied budget ID when its durable checkpoint is missing or unreadable, before task dispatch. This closes the risk of silently creating a new budget under an existing external identity. Exact-head CI and review remain required.
+- **#1174 — readiness documentation:** this PR refreshes the project description and this matrix against the latest merged baseline.
+
+### Latest paired baseline-versus-candidate evidence
+
+Artifact: [benchmark run 41275927868](https://github.com/sourabhJainR/AUREN/actions/runs/41275927868), five paired iterations, baseline `98730d8c9323bc1090c83fd23c1470586d882ba3`, candidate `2d3f8e6a886562a22ce84c7d93cbf55f24142c6f`, Python 3.12.15 / Linux, 299,008-byte payload.
+
+| Measure | Baseline | Candidate | Difference |
+|---|---:|---:|---:|
+| Median latency | 194.365 ms | 192.191 ms | -2.174 ms (-1.12%) |
+| Median peak traced memory | 3,262,528 B | 2,182,192 B | -1,080,336 B (-33.1%) |
+| Transported bytes | 299,008 B | 299,008 B | No change |
+| Chunks | 74 | 74 | No change |
+| Integrity / completion | All pass | All pass | Preserved |
+
+Recovery interrupted after two acknowledged chunks, resumed from chunk 2, delivered the remaining 72 chunks, and did not replay acknowledged chunks. Provider monetary cost is not measured; transported bytes are a proxy only. These are local harness results, not production performance guarantees.
+
+### Independent SI capability lab
+
+The separate [firstTestproj Capability Lab](https://github.com/sourabhJainR/firstTestproj) is at main SHA `5c7d9402dcf8eacee5fcc22f1f6c7a31271f9f5f`; its offline CI passed. It now tests:
+- shared-context baseline versus isolated persona context;
+- independent QA without implementer self-assessment exposure;
+- task-scoped memory that admits only reviewed evidence to architect, research, implementation and manager roles;
+- fresh-context QA and security review, excluding unreviewed and cross-task memories.
+
+These tests establish workflow contracts with deterministic fixtures. They do not establish a model-level SI gain or AGI. Real model/provider adapters, metered provider cost, sealed external holdouts and broad cross-domain transfer remain outstanding.
+
+### Remaining #696 roadmap gates
+
+| Gate | Current status | Evidence still required |
+|---|---|---|
+| #696 unified runtime, learning, delivery and dashboard | In progress; core delivery, host personas and dashboard UI merged; telemetry and fail-closed budget resume under review | Final exact-head CI, production host configuration, full end-to-end lifecycle and external readiness evidence |
+| #692 recursive harness learning | Independent lab and reviewed-memory routing implemented | Causal attribution, real model adapters, pinned baselines, sealed holdouts, transfer and independent Arena custody |
+| #694 spec-driven persistent planning | Architect/manager personas and task-scoped evidence context implemented | Durable plan evolution, dependency changes, fresh-context resume, contradiction and staleness tests |
+| #809 durable human approval and resumable side effects | Not closed | Real host approval boundary; provider idempotency; restart, cancellation, deadline, timeout and final-ack proof |
+| #534 migration and rollback | Blocked | Operator-controlled staging migration, fresh-process recovery, rollback and post-cutover reconciliation receipts |
+| Independent Arena / OS isolation | Not production-ready | External custody, repeatable adversarial holdouts, OS-level isolation audit and signed attestation |
+
+Additional operational gaps:
+- The eight-worker quota applies only to processes sharing the same registry database. Distinct registries and deployment-wide multi-host coordination remain unproven.
+- The durable pending queue is not yet bounded by a global admission quota.
+- Real provider-side-effect ambiguity and cross-adapter idempotency still need production receipts.
+- Required-check enforcement must be verified by a repository owner/admin; CI results alone do not prove the branch rules are configured correctly.
+- No staging migration or rollback rehearsal has been claimed.
+
+**Readiness decision:** AUREN now has the core response-delivery paths, cross-process worker admission, explicit shared-budget host injection, software-company personas, and live delivery observability. It is not yet production-ready as an autonomous engineering company and has not demonstrated AGI. Keep #696, #692, #694, #809, #534 and the independent Arena/isolation gates open until their specific evidence is independently reviewed. Revert each implementation PR as a unit if regression evidence requires rollback.
