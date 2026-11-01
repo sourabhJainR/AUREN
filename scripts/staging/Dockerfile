@@ -1,6 +1,7 @@
 FROM python:3.12-slim
 WORKDIR /workspace
 COPY *.py /workspace/
+COPY .ai-harness/runtime/ /workspace/runtime/
 COPY portable/ /workspace/portable/
 COPY tests/ /workspace/tests/
 COPY scripts/staging/multi_instance_container_worker.py /workspace/scripts/staging/multi_instance_container_worker.py
