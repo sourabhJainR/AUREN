@@ -35,6 +35,7 @@ class AurenClient:
         self.controller = ExecutionController(
             self.project_root, agent_assignment_verifier=agent_assignment_verifier
         )
+        self.controller._trusted_plan_dispatch_required = True
         self.trusted_plan_dispatch_root = None
         resolved_memory_path = (
             Path(memory_path).expanduser().resolve()
