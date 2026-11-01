@@ -345,7 +345,8 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             controller=self.controller, store=self.plan_store,
             recovery_bridge=self.recovery_bridge, approval_store=approvals,
             budget_resolver=lambda run_id, task_id, handler: {
-                "budget_id": "crew:team-a:run-1", "guard": guard, "policy_digest": "a" * 64,
+                "budget_id": "crew:team-a:run-1", "guard": guard,
+                "checkpoint_digest": guard.snapshot()["digest"], "policy_digest": "a" * 64,
             },
             approval_resolver=lambda run_id, task_id, handler: None,
         )
