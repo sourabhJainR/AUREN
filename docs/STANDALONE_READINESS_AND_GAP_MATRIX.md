@@ -300,3 +300,19 @@ Five paired iterations on Python 3.12.15 / Linux, 299,008-byte payload:
 | Chunks | 74 | 74 | 0 |
 
 Both variants preserved integrity and completed all iterations. Recovery resumed from chunk 2 without replaying acknowledged chunks. Provider USD cost remains unmeasured; transported bytes are a proxy only. The other PR-level required workflows and branch policy must still pass before merge. The latest bundle success is not a substitute for the complete exact-head check set.
+
+
+### Final paired benchmark for current software-team integration head — 2026-11-01
+
+Artifact: [run 41266093867](https://github.com/sourabhJainR/AUREN/actions/runs/41266093867), candidate revision `cf18e34c47e2e6fa3c8c3ec1acdbd61b37b6bc54`.
+
+Five paired iterations, 299,008-byte payload, Python 3.12.15 / Linux:
+
+| Measure | Baseline | Candidate | Difference |
+|---|---:|---:|---:|
+| Latency | 169.443 ms | 168.294 ms | -1.149 ms |
+| Peak traced memory | 3,262,528 B | 2,181,992 B | -1,080,536 B |
+| Transported bytes | 299,008 B | 299,008 B | 0 B |
+| Chunks | 74 | 74 | 0 |
+
+All baseline and candidate iterations preserved integrity and completed. Recovery resumed after two acknowledged chunks and did not replay them. Monetary provider cost is not measured. The repeated runs show a consistent reduction in peak traced memory, while latency differences remain small and environment-sensitive. No production performance claim is made.
