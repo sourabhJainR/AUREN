@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from portable.action_governance import ActionRequest
@@ -264,20 +265,25 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
 
 
     def test_approved_but_expired_record_is_rejected(self):
-        now = [datetime.now(timezone.utc)]
-        clock = lambda: now[0]
-        approvals, request, record = self._approval(
-            self.controller, context=self.context, expiry_seconds=3600, clock=clock,
+        approvals, request, pending_record = self._approval(
+            self.controller, context=self.context,
         )
+        record = approvals.get(pending_record.approval_id)
         self.assertEqual("approved", record.status)
-        now[0] += timedelta(hours=2)
+
+        class FutureDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return datetime.now(tz) + timedelta(hours=2)
+
         guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
         root = self._root(self.controller, approvals, request, record, guard, context=self.context)
-        with self.assertRaisesRegex(PermissionError, "expired"):
-            root.dispatch(
-                run_id=self.plan.run_id, task_id="implement", dispatch_key="expired-approval",
-                handler="dispatch-test", packet=self.packet,
-            )
+        with patch("portable.trusted_plan_dispatch.datetime", FutureDateTime):
+            with self.assertRaisesRegex(PermissionError, "expired"):
+                root.dispatch(
+                    run_id=self.plan.run_id, task_id="implement", dispatch_key="expired-approval",
+                    handler="dispatch-test", packet=self.packet,
+                )
         with sqlite3.connect(self.controller.db_path) as db:
             self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
 
