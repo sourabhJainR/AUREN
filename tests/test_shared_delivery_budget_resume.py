@@ -70,6 +70,24 @@ class SharedDeliveryBudgetResumeTests(unittest.TestCase):
         )
         self.assertEqual(1, self.controller.submissions)
 
+
+    def test_missing_checkpoint_after_task_creation_blocks_chunk_charge(self):
+        guard = RuntimeExecutionGuard(max_delivery_bytes=4096)
+        task_id = self.supervisor.create(
+            "1" * 64, "2" * 32, "1" * 64,
+            execution_guard=guard, budget_id="crew:deleted-after-create",
+        )
+        with sqlite3.connect(self.supervisor.registry_path) as db:
+            db.execute(
+                "DELETE FROM delivery_budgets WHERE budget_id=?",
+                ("crew:deleted-after-create",),
+            )
+        with self.assertRaisesRegex(RuntimeError, "checkpoint is unavailable"):
+            self.supervisor.consume_delivery_bytes(
+                task_id, 512, operation_key="delivery:deleted:chunk-1"
+            )
+        self.assertNotIn("delivery:deleted:chunk-1", guard.snapshot()["delivery_charges"])
+
     def test_corrupt_existing_checkpoint_fails_before_task_dispatch(self):
         with sqlite3.connect(self.supervisor.registry_path) as db:
             db.execute(
