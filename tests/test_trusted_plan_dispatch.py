@@ -310,6 +310,9 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             handler="dispatch-test", packet=self.packet, payload={"change": "small"},
         )
         token = self.controller._trusted_plan_dispatch_token
+        # Simulate a fresh low-level controller: no in-memory root-required flag
+        # survives, but the persisted trusted binding still requires bootstrap.
+        self.controller._trusted_plan_dispatch_required = False
         self.controller._trusted_plan_dispatch_token = None
         with self.assertRaisesRegex(EngineeringPlanCheckpointMismatch, "root is not configured"):
             self.controller._verify_engineering_plan_dispatch_checkpoint(task)
