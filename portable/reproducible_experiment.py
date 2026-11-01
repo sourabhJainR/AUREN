@@ -43,6 +43,11 @@ class ExperimentManifest:
     environment_digest: str
     model_provider: str
     model_version: str
+    canonical_manifest_digest: str = ""
+    policy_digest: str = ""
+    budget_digest: str = ""
+    executor_id: str = ""
+    evaluator_id: str = ""
 
     def __post_init__(self) -> None:
         for name in ("experiment_id", "model_provider", "model_version"):
@@ -51,6 +56,12 @@ class ExperimentManifest:
                      "baseline_digest", "harness_digest", "environment_digest"):
             if not _valid_digest(getattr(self, name)):
                 raise ValueError(f"{name} must be a lowercase SHA-256 digest")
+        if self.canonical_manifest_digest and not _valid_digest(self.canonical_manifest_digest):
+            raise ValueError("canonical_manifest_digest must be a lowercase SHA-256 digest")
+        for name in ("policy_digest", "budget_digest", "executor_id", "evaluator_id"):
+            value = getattr(self, name)
+            if value and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"{name} must be non-empty text when supplied")
         if isinstance(self.seed, bool) or not isinstance(self.seed, int) or self.seed < 0:
             raise ValueError("seed must be a non-negative integer")
 
