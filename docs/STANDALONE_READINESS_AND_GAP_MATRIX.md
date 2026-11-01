@@ -366,3 +366,16 @@ No local test run is claimed because this session has GitHub source/CI access bu
 - The local paired benchmark shows unchanged bytes/chunk count and complete integrity/recovery. Latency is small and variable; provider monetary cost remains unknown. The consistent traced-memory reduction is a local-harness observation, not a production guarantee.
 - The separate [AUREN Capability Lab](https://github.com/sourabhJainR/firstTestproj) main SHA `a56a715cad72b241489a35bdf1aa1bb1412456a5` passed CI. Its deterministic persona-context experiment is a workflow-contract result, not model-level SI or AGI evidence.
 
+
+
+## Delivery and software-team reconciliation — 2026-11-01
+
+- PR #1165 merged at `357d60af09f1be486e0950de727077454efceac1`; all nine exact-head workflows and eight post-merge workflows passed. It delivers supervisor-owned lossless response delivery, shared crew budgets, CLI/stdout and atomic file sinks, MCP atomic-frame rejection/cleanup, and durable Session Control Center metrics.
+- PR #1166 merged at `81906e3eca59e9903b6056a5493abd736cc62309`; all six post-merge workflows passed. Its SQLite worker-slot lease limits processes sharing one registry database to eight concurrent workers, renews every five seconds, expires after 30 seconds, and releases with owner fencing.
+- PR #1167 merged at `f53880d25b60f9ce38e216053fdee6043af58ef0`; provider-backed leadership, manager, architect, research and release personas are wired into the real host bootstrap. Hosts must still validate their own provider credentials, pinned versions and approved tool scopes.
+- PR #1169 merged at `c7e2a5110d3be725cfbd02a2bd78d2dc5b8114f3`; discoverable unittest coverage includes nine concurrent OS processes competing for eight shared slots, crash expiry, lease renewal and owner-fenced release.
+- PR #1170 is adding Session Control Center UI panels for delivery health. Merge only after its exact-head CI and fresh-base checks pass.
+- Paired benchmark artifact [run 41266288196](https://github.com/sourabhJainR/AUREN/actions/runs/41266288196): five iterations, 299,008-byte payload; integrity and completion passed; recovery resumed from chunk 2 without replay. Median latency was 279.032 ms baseline versus 277.653 ms candidate (-1.379 ms); peak traced memory was 3,262,528 B versus 2,181,992 B (-1,080,536 B); bytes and chunks were unchanged (299,008 B / 74). Across repeats latency moves in both directions; no reliable latency improvement is established. Provider monetary cost remains unmeasured.
+- Remaining #696 gates: persistent pending-queue admission limits; distinct-registry and deployment-wide multi-host contention; provider-native idempotency and ambiguous-outcome reconciliation; external evaluator and sealed holdout custody; independent OS isolation audit; owner/admin required-check enforcement; and operator-run #534 staging migration/rollback.
+- The latest `firstTestproj` main SHA `ab3347a447ee70f79abbae6d959a7db0534eb34f` passed Capability Lab CI.
+
