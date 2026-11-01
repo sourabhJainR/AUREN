@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import datetime, timezone
 from typing import Any, Callable, Mapping
 
 from .action_governance import ActionRequest
@@ -110,6 +111,12 @@ class TrustedPlanDispatchRoot:
         record = self.approval_store.get(approval_id)
         if record.status != "approved":
             raise PermissionError(f"durable approval is {record.status}, not approved")
+        try:
+            expires_at = datetime.fromisoformat(record.expires_at)
+        except (TypeError, ValueError) as exc:
+            raise PermissionError("durable approval expiry is invalid") from exc
+        if expires_at.tzinfo is None or expires_at <= datetime.now(timezone.utc):
+            raise PermissionError("durable approval is expired")
         if request.task_id != record.task_id or request.fingerprint() != record.request_fingerprint:
             raise PermissionError("durable approval is not bound to the resolved operation")
         if not isinstance(packet, EngineeringContextPacket):
