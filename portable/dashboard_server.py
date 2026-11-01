@@ -152,6 +152,8 @@ class _Handler(BaseHTTPRequestHandler):
         task_id = self.delivery_supervisor.create(
             response_id, delivery_id, stored.artifact.digest,
             deadline_seconds=getattr(self, "delivery_deadline_seconds", 600.0),
+            execution_guard=getattr(self, "delivery_execution_guard", None),
+            budget_id=getattr(self, "delivery_budget_id", None),
         )
         self.progress_journal.record_response_artifact(
             task_id, response_id=response_id, artifact_sha256=stored.artifact.digest,
@@ -232,6 +234,16 @@ class _Handler(BaseHTTPRequestHandler):
                 })
                 return
             chunk = chunks[acknowledged]
+            task_id = self._delivery_task_id(response_id, delivery_id)
+            operation_key = f"delivery:{task_id}:{manifest.sha256}:{chunk.index}:{chunk.sha256}"
+            if not self.delivery_supervisor.consume_delivery_bytes(
+                task_id, chunk.utf8_bytes, operation_key=operation_key,
+            ):
+                self._send_delivery_json(429, {
+                    "error": "shared crew delivery byte budget exhausted; delivery remains pending",
+                    "acknowledged_index": acknowledged,
+                })
+                return
             self._send_delivery_json(200, {
                 "response_id": response_id,
                 "response_sha256": manifest.sha256,
