@@ -621,7 +621,7 @@ def test_http_delivery_charges_one_shared_crew_budget_across_deliveries_and_rest
             server.RequestHandlerClass._delivery_task_id(second["response_id"], second["delivery_id"])
         )["delivery_bytes_used"] == chunk["utf8_bytes"]
     finally:
-        _stop_server(server, thread)
+        _stop_server(server, thread, preserve_workers=True)
 
     # A new host restores the same crew budget ledger. A repeated offer remains
     # idempotent; a different delivery cannot spend the exhausted budget again.
