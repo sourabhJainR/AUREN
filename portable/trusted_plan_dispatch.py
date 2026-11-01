@@ -84,9 +84,16 @@ class TrustedPlanDispatchRoot:
             raise PermissionError("trusted supervisor did not return the canonical RuntimeExecutionGuard")
         guard.check()
         snapshot = guard.snapshot()
-        checkpoint_digest = _required_digest(snapshot.get("digest"), "budget checkpoint digest")
-        # Validate the snapshot independently before it is bound to the task intent.
+        live_checkpoint_digest = _required_digest(snapshot.get("digest"), "live budget checkpoint digest")
+        # Validate the live guard before dispatch. The bound digest is the immutable
+        # admission checkpoint returned by the supervisor ledger, not a mutable
+        # post-charge snapshot; this keeps idempotent replay stable after worker use.
         RuntimeExecutionGuard.resume(snapshot)
+        checkpoint_digest = _required_digest(
+            resolved.get("checkpoint_digest"), "canonical supervisor admission checkpoint digest",
+        )
+        if not live_checkpoint_digest:
+            raise PermissionError("live supervisor budget checkpoint is invalid")
         return {
             "budget_id": budget_id.strip(),
             "checkpoint_digest": checkpoint_digest,
