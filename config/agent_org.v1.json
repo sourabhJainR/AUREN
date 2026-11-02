@@ -107,6 +107,10 @@
         "request_reviews",
         "escalate_blockers"
       ],
+      "delegation_limits": {
+        "max_active_tasks": 8,
+        "max_pending_tasks": 4
+      },
       "prohibited_actions": [
         "expand_worker_scope_without_authorization",
         "mark_unverified_work_complete",
