@@ -135,6 +135,7 @@ def validate_agent_assignment_for_dispatch(
     resource_binding = payload.get("resource", payload.get("resource_id", payload.get("path", "")))
     task_payload_digest = hashlib.sha256(_canonical({
         "resource": resource_binding,
+        "path": payload.get("path"),
         "budget": payload.get("budget"),
         "shared_budget": payload.get("shared_budget"),
         "approval": payload.get("approval"),
