@@ -143,6 +143,8 @@ class Span:
         if not 0 <= float(value) <= 1:
             raise ValueError("score value must be between 0 and 1")
         with _TRACE_LOCK:
+            if self.end is not None:
+                raise ValueError("cannot score a terminal span")
             self.scores.append(Score(name, float(value), reason, source))
             if self.on_change is not None:
                 self.on_change()
@@ -231,6 +233,8 @@ class Trace:
         if not 0 <= float(value) <= 1:
             raise ValueError("score value must be between 0 and 1")
         with _TRACE_LOCK:
+            if self.end is not None:
+                raise ValueError("cannot score a terminal trace")
             self.scores.append(Score(name, float(value), reason, source))
             if self.on_change is not None:
                 self.on_change(self, "trace_score", None)
