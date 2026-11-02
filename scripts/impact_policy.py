@@ -43,6 +43,7 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("tests/test_agency_observability_ops.py", ("tests.test_agency_observability_ops",), True),
     ("portable/agency_release_lifecycle.py", ("tests.test_agency_release_lifecycle", "tests.test_agency_observability"), True),
     ("tests/test_agency_release_lifecycle.py", ("tests.test_agency_release_lifecycle",), True),
+    ("tests/test_release_rollback_observability.py", ("tests.test_release_rollback_observability", "tests.test_agency_release_lifecycle"), True),
     ("portable/agency_runtime.py", ("tests.test_agency_runtime", "tests.test_agency_runtime_release_integration", "tests.test_agency_release_lifecycle"), True),
     ("tests/test_agency_runtime.py", ("tests.test_agency_runtime",), True),
     ("tests/test_agency_runtime_release_integration.py", ("tests.test_agency_runtime_release_integration", "tests.test_agency_release_lifecycle"), True),
