@@ -517,6 +517,15 @@ class PersistentExperimentLearningStore:
             ).fetchone()
             if existing:
                 if existing[0] == reviewer and existing[1] == ref and existing[2] == promotion_digest:
+                    persistence_span = _start_observation(
+                        trace, "learning.promotion_persistence", parent_span_id=parent_span_id,
+                        phase="learning", metadata={"receipt_id": receipt_id,
+                                                      "promotion_digest": promotion_digest},
+                    )
+                    _finish_observation(persistence_span,
+                                        {"persisted": True, "idempotent_replay": True,
+                                         "receipt_id": receipt_id,
+                                         "promotion_digest": promotion_digest}, "ok")
                     return promotion_digest
                 raise LearningStoreConflict("promotion receipt already exists with different reviewer/evidence")
             db.execute(
@@ -540,13 +549,21 @@ class PersistentExperimentLearningStore:
                              "promotion_digest": promotion_digest}, "ok")
         return promotion_digest
 
-    def retract(self, receipt_id: str, *, reason: str, evidence_ref: str) -> str:
+    def retract(self, receipt_id: str, *, reason: str, evidence_ref: str,
+                trace: Trace | None = None, parent_span_id: str | None = None) -> str:
         why = self._nonempty(reason, "reason")
         ref = self._nonempty(evidence_ref, "evidence_ref")
+        verification_span = _start_observation(
+            trace, "learning.retraction_evidence_verification", parent_span_id=parent_span_id,
+            phase="verification", metadata={"receipt_id": receipt_id},
+        )
         try:
             verified = self.verify_retraction(receipt_id, why, ref) is True
         except Exception:
             verified = False
+        _finish_observation(verification_span, {"verified": verified},
+                            "ok" if verified else "unscored",
+                            None if verified else "independent_retraction_evidence_unavailable_or_rejected")
         if not verified:
             raise LearningEvidenceError("independent retraction evidence was not verified")
         now = time.time()
@@ -564,6 +581,15 @@ class PersistentExperimentLearningStore:
             ).fetchone()
             if existing:
                 if tuple(existing) == (why, ref, retraction_digest):
+                    persistence_span = _start_observation(
+                        trace, "learning.retraction_persistence", parent_span_id=parent_span_id,
+                        phase="learning", metadata={"receipt_id": receipt_id,
+                                                      "retraction_digest": retraction_digest},
+                    )
+                    _finish_observation(persistence_span,
+                                        {"persisted": True, "idempotent_replay": True,
+                                         "receipt_id": receipt_id,
+                                         "retraction_digest": retraction_digest}, "ok")
                     return retraction_digest
                 raise LearningStoreConflict("learning receipt already has a different retraction")
             db.execute(
@@ -578,6 +604,15 @@ class PersistentExperimentLearningStore:
                 "evidence_ref_digest": _canonical_digest({"ref": ref}),
             })
             self._insert_edge(db, receipt_node, "retracted_by", retraction_node)
+        persistence_span = _start_observation(
+            trace, "learning.retraction_persistence", parent_span_id=parent_span_id,
+            phase="learning", metadata={"receipt_id": receipt_id,
+                                          "retraction_digest": retraction_digest},
+        )
+        _finish_observation(persistence_span,
+                            {"persisted": True, "idempotent_replay": False,
+                             "receipt_id": receipt_id,
+                             "retraction_digest": retraction_digest}, "ok")
         return retraction_digest
 
     def retrieve_compatible(
