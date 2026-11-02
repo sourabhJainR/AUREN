@@ -32,6 +32,8 @@ class AgentExecutionGuardTests(unittest.TestCase):
             manager_id="EM-ENG-01",
             action_class=action_class,
             scope=list(scope),
+            work_key="AUREN:test:agent-execution-guard",
+            task_payload={"path": scope[0], "resource": scope[0]},
             authorizer=lambda _request: True,
             registry_path=REGISTRY_PATH,
         )
