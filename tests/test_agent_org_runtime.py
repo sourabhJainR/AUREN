@@ -176,7 +176,7 @@ class AgentOrgRuntimeTests(unittest.TestCase):
         envelope = result["payload"]["_auren_agent_assignment"]
         self.assertEqual(envelope["role_id"], "BE-01")
         self.assertEqual(envelope["scope"], ["portable/api.py"])
-        self.assertEqual(envelope["schema_version"], "auren-agent-assignment-v2")
+        self.assertEqual(envelope["schema_version"], "auren-agent-assignment-v3")
         self.assertEqual(envelope["work_key"], "AUREN:test:agent-assignment")
         self.assertEqual(envelope["deadline_seconds"], 30.0)
         self.assertEqual(len(envelope["task_payload_digest"]), 64)
