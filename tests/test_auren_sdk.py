@@ -6,6 +6,7 @@ import unittest
 
 from portable.sdk import AurenClient, SDK_API_VERSION
 from portable.agent_org_runtime import REGISTRY_PATH, authorize_agent_assignment
+from portable.agent_execution_guard import AgentAssignmentScopeDenied
 
 
 _SDK_NO_VERIFIER_INVOCATIONS = []
@@ -122,7 +123,7 @@ class AurenClientTests(unittest.TestCase):
             finally:
                 client.close()
 
-    def test_sdk_assignment_without_dispatch_verifier_fails_closed(self):
+    def test_sdk_assignment_without_dispatch_verifier_fails_closed_before_persistence(self):
         with tempfile.TemporaryDirectory() as tmp:
             _SDK_NO_VERIFIER_INVOCATIONS.clear()
             client = AurenClient(tmp, dashboard_enabled=False)
@@ -131,15 +132,14 @@ class AurenClientTests(unittest.TestCase):
                     "sdk-assigned", sdk_no_verifier_handler,
                     execution_class="read_only", agent_action_class="edit_assigned_paths",
                 )
-                task = client.submit_agent_task(
-                    "sdk-assigned", {"resource": "allowed.txt", "path": "allowed.txt"},
-                    role_id="BE-01", manager_id="EM-ENG-01",
-                    action_class="edit_assigned_paths", scope=["allowed.txt"],
-                    authorizer=lambda _request: True,
-                    work_key="AUREN:test:sdk-no-verifier", registry_path=REGISTRY_PATH,
-                )
-                client.run_once(task.id)
-                self.assertNotEqual("completed", client.task(task.id).state)
+                with self.assertRaises(AgentAssignmentScopeDenied):
+                    client.submit_agent_task(
+                        "sdk-assigned", {"resource": "allowed.txt", "path": "allowed.txt"},
+                        role_id="BE-01", manager_id="EM-ENG-01",
+                        action_class="edit_assigned_paths", scope=["allowed.txt"],
+                        authorizer=lambda _request: True,
+                        work_key="AUREN:test:sdk-no-verifier", registry_path=REGISTRY_PATH,
+                    )
                 self.assertEqual([], _SDK_NO_VERIFIER_INVOCATIONS)
             finally:
                 client.close()
