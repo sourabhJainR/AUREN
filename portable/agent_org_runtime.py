@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import math
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Callable, Mapping, Sequence
@@ -192,7 +193,7 @@ def authorize_agent_assignment(
         raise ValueError("assignment work_key must be non-empty printable text of at most 256 characters")
     if deadline_seconds is not None and (
         isinstance(deadline_seconds, bool) or not isinstance(deadline_seconds, (int, float))
-        or not __import__("math").isfinite(deadline_seconds) or not 0 < deadline_seconds <= 86400
+        or not math.isfinite(deadline_seconds) or not 0 < deadline_seconds <= 86400
     ):
         raise ValueError("assignment deadline_seconds must be finite, positive, and at most one day")
     normalized_deadline_seconds = float(deadline_seconds) if deadline_seconds is not None else None
