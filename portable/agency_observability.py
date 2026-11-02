@@ -120,7 +120,13 @@ class Span:
     on_change: Callable[[], None] | None = field(default=None, repr=False, compare=False)
 
     def finish(self, output: Any = None, status: str = "ok", terminal_reason: str | None = None) -> "Span":
+        if not isinstance(status, str) or not status.strip():
+            raise ValueError("span terminal status is required")
         with _TRACE_LOCK:
+            if self.end is not None:
+                if self.status != status:
+                    raise ValueError("span is already finished with a different status")
+                return self
             self.output = _safe(output)
             self.end = time.time()
             self.status = status
@@ -204,9 +210,13 @@ class Trace:
         if not name.strip():
             raise ValueError("span name is required")
         with _TRACE_LOCK:
-            known_ids = {span.span_id for span in self.spans}
-            if parent_id is not None and parent_id not in known_ids:
+            if self.end is not None:
+                raise ValueError("cannot add a span to a terminal trace")
+            known = {span.span_id: span for span in self.spans}
+            if parent_id is not None and parent_id not in known:
                 raise ValueError("parent_id must reference a span in this trace")
+            if parent_id is not None and known[parent_id].end is not None:
+                raise ValueError("parent span is already terminal")
             item = Span(
                 name, kind, parent_id=parent_id, input=_safe(input),
                 metadata=_safe(dict(metadata or {})), phase=phase,
@@ -228,12 +238,24 @@ class Trace:
                 self.on_change(self, "trace_score", None)
 
     def finish(self, status: str = "ok") -> "Trace":
+        if not isinstance(status, str) or not status.strip():
+            raise ValueError("trace terminal status is required")
         with _TRACE_LOCK:
             if self.end is not None:
                 # Terminal state is immutable; do not emit contradictory end events.
                 if self.status != status:
                     raise ValueError("trace is already finished with a different status")
                 return self
+            unfinished = [span for span in self.spans if span.end is None]
+            if unfinished and status == "ok":
+                raise ValueError("trace cannot finish successfully while spans remain running")
+            # Preserve partial evidence on failure/cancellation without leaving
+            # child spans falsely marked as active after their owning trace ends.
+            for span in unfinished:
+                span.finish(
+                    status="unknown",
+                    terminal_reason="trace ended before span completion",
+                )
             self.end = time.time()
             self.status = status
             if self.on_change is not None:
