@@ -1,4 +1,5 @@
 """Integration regressions for acknowledged transport and telemetry isolation."""
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -123,9 +124,7 @@ class ResponseDeliveryTransportTests(unittest.TestCase):
             )
 
         self.assertEqual(1, len(calls))
-        self.assertNotEqual(calls[0][0], __import__("hashlib").sha256(
-            b"second provider receipt"
-        ).hexdigest())
+        self.assertNotEqual(calls[0][0], hashlib.sha256(b"second provider receipt").hexdigest())
 
     def test_metrics_write_failure_cannot_erase_unknown_outcome_fence(self):
         from unittest.mock import patch
