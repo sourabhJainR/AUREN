@@ -105,6 +105,20 @@ def load_agent_org_registry(path: str | Path = REGISTRY_PATH) -> tuple[dict[str,
             not isinstance(item, str) or not item.strip() for item in role["allowed_action_classes"]
         ):
             raise ValueError(f"organization role {role['id']} has invalid action classes")
+        if "assign_scoped_tasks" in role["allowed_action_classes"]:
+            limits = role.get("delegation_limits")
+            if not isinstance(limits, dict) or set(limits) != {"max_active_tasks", "max_pending_tasks"}:
+                raise ValueError(f"delegating role {role['id']} requires explicit delegation limits")
+            active_limit = limits.get("max_active_tasks")
+            pending_limit = limits.get("max_pending_tasks")
+            if (
+                type(active_limit) is not int or active_limit < 1
+                or type(pending_limit) is not int or pending_limit < 1
+                or pending_limit > active_limit
+            ):
+                raise ValueError(f"delegating role {role['id']} has invalid delegation limits")
+        elif "delegation_limits" in role:
+            raise ValueError(f"non-delegating role {role['id']} cannot define delegation limits")
         role_map[role["id"]] = role
     external_ids = {
         item.get("id") for item in external
