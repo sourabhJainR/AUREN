@@ -6,6 +6,10 @@ AUREN is intended to operate as an AI-native engineering organization. Named age
 
 The machine-readable registry is [`config/agent_org.v1.json`](../config/agent_org.v1.json). Regression checks are in [`tests/test_agent_org_contract.py`](../tests/test_agent_org_contract.py).
 
+## Runtime delegation limits
+
+The engineering manager role declares a maximum of 8 active delegated tasks and 4 pending delegated tasks. The canonical execution controller enforces these limits atomically at durable task admission. Idempotent stable work-key replay does not consume another slot, and terminal tasks release capacity. This repository-level guard does not authenticate the manager by itself; production still requires the host-owned assignment authorizer and dispatch verifier described in the controller documentation.
+
 ## Reporting structure
 
 ```text
