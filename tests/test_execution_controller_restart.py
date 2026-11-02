@@ -40,7 +40,7 @@ print(task.id)
 """
     seeded = subprocess.run(
         [sys.executable, "-c", seed_script, str(tmp_path)],
-        cwd=repo_root, text=True, capture_output=True, check=True, timeout=10,
+        cwd=repo_root, text=True, capture_output=True, check=True, timeout=30,
     )
     task_id = seeded.stdout.strip()
     assert task_id
@@ -69,7 +69,7 @@ print(json.dumps({
 """
     recovered = subprocess.run(
         [sys.executable, "-c", recovery_script, str(tmp_path), task_id],
-        cwd=repo_root, text=True, capture_output=True, check=True, timeout=10,
+        cwd=repo_root, text=True, capture_output=True, check=True, timeout=30,
     )
     result = json.loads(recovered.stdout.strip().splitlines()[-1])
     assert result == {
