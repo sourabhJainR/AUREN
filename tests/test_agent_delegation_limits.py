@@ -64,6 +64,39 @@ class AgentDelegationLimitTests(unittest.TestCase):
                 ))
             self.assertEqual(1, sum(result is not None for result in results))
 
+    def test_cto_has_a_separate_bounded_manager_delegation_limit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            controller = ExecutionController(
+                Path(directory), agent_assignment_verifier=lambda _request: True,
+            )
+            handler = "tests.test_agent_delegation_limits.delegation_limit_noop_handler"
+            controller.register_handler(
+                handler, delegation_limit_noop_handler,
+                execution_class="read_only",
+                agent_action_class="assign_scoped_tasks",
+            )
+
+            def submit(index):
+                resource = f"portable/manager-{index}.py"
+                return submit_agent_task(
+                    controller, handler,
+                    {"resource": resource, "path": resource},
+                    role_id="EM-ENG-01",
+                    manager_id="CTO-01",
+                    action_class="assign_scoped_tasks",
+                    scope=[resource],
+                    authorizer=lambda _request: True,
+                    work_key=f"AUREN:test:cto-manager-limit:{index}",
+                    registry_path=REGISTRY_PATH,
+                )
+
+            admitted = [submit(index) for index in range(2)]
+            self.assertEqual(2, len(admitted))
+            with self.assertRaisesRegex(
+                AgentDelegationLimitExceeded, "pending delegated-task limit"
+            ):
+                submit(2)
+
     def test_pending_limit_is_atomic_and_completed_work_releases_capacity(self):
         with tempfile.TemporaryDirectory() as directory:
             controller = ExecutionController(

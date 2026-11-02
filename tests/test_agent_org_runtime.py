@@ -108,30 +108,35 @@ class AgentOrgRuntimeTests(unittest.TestCase):
 
     def test_only_roles_with_explicit_delegation_authority_can_assign_scoped_tasks(self):
         calls = []
-        args = dict(
-            action_class="manage_shared_budgets",
+        assignment = authorize_agent_assignment(
+            role_id="EM-ENG-01",
+            manager_id="CTO-01",
+            action_class="assign_scoped_tasks",
             scope=["portable/runtime.py"],
-            work_key="AUREN:test:agent-org-delegation",
+            work_key="AUREN:test:cto-manager-delegation",
             authorizer=lambda request: calls.append(dict(request)) or True,
             registry_path=REGISTRY,
         )
-        # CTO-01 is the configured parent of EM-ENG-01, but its role is
-        # limited to technical direction and verification requests. It cannot
-        # create worker assignments through the manager dispatch API.
-        with self.assertRaisesRegex(AgentAssignmentDenied, "not authorized to delegate"):
-            authorize_agent_assignment(
-                role_id="EM-ENG-01", manager_id="CTO-01", **args
-            )
+        self.assertEqual("EM-ENG-01", assignment.role_id)
+        self.assertEqual("CTO-01", assignment.manager_id)
+        self.assertEqual(1, len(calls))
+
         # CEO-01 is the configured parent of CTO-01, but portfolio priority
         # does not grant task-dispatch authority.
         with self.assertRaisesRegex(AgentAssignmentDenied, "not authorized to delegate"):
             authorize_agent_assignment(
-                role_id="CTO-01", manager_id="CEO-01",
-                action_class="request_verification", **{
-                    key: value for key, value in args.items() if key != "action_class"
-                }
+                role_id="CTO-01",
+                manager_id="CEO-01",
+                action_class="request_verification",
+                scope=["portable/runtime.py"],
+                work_key="AUREN:test:ceo-no-delegation",
+                authorizer=lambda request: calls.append(dict(request)) or True,
+                registry_path=REGISTRY,
             )
-        self.assertEqual(calls, [], "unauthorized managers must be rejected before host authorization")
+        self.assertEqual(
+            1, len(calls),
+            "unauthorized managers must be rejected before host authorization",
+        )
 
     def test_external_reporting_entity_cannot_act_as_assigning_manager(self):
         with self.assertRaisesRegex(AgentAssignmentDenied, "must be an organization role"):

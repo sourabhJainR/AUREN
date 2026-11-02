@@ -10,6 +10,8 @@ The machine-readable registry is [`config/agent_org.v1.json`](../config/agent_or
 
 A delegated worker cannot claim another role as its manager or assign resources outside its parent's exact-path scope. The execution controller binds the active role and scope for the handler lifetime, and nested assignments are checked before the host authorizer is called.
 
+The CTO may assign scoped work to the engineering manager, with a limit of 4 active and 2 pending manager assignments. The CEO does not receive task-delegation authority through this registry. The engineering manager retains its separate 8-active / 4-pending worker limits.
+
 The engineering manager role declares a maximum of 8 active delegated tasks and 4 pending delegated tasks. The canonical execution controller enforces these limits atomically at durable task admission. Idempotent stable work-key replay does not consume another slot, and terminal tasks release capacity. This repository-level guard does not authenticate the manager by itself; production still requires the host-owned assignment authorizer and dispatch verifier described in the controller documentation.
 
 ## Reporting structure

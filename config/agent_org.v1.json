@@ -75,8 +75,13 @@
         "approve_architecture_within_policy",
         "request_verification",
         "prioritize_technical_work",
-        "escalate_risk"
+        "escalate_risk",
+        "assign_scoped_tasks"
       ],
+      "delegation_limits": {
+        "max_active_tasks": 4,
+        "max_pending_tasks": 2
+      },
       "prohibited_actions": [
         "override_host_policy",
         "self-approve_independent_evaluation",
