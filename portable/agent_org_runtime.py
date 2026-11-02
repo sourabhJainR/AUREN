@@ -19,7 +19,7 @@ from .organization_guard import POLICY_VERSION, guard_policy_fingerprint, load_g
 
 
 REGISTRY_PATH = Path(__file__).resolve().parents[1] / "config" / "agent_org.v1.json"
-_SCHEMA = "auren-agent-assignment-v2"
+_SCHEMA = "auren-agent-assignment-v3"
 _MAX_REGISTRY_BYTES = 256 * 1024
 _MAX_SCOPE_ITEMS = 100
 _MAX_SCOPE_LENGTH = 512
