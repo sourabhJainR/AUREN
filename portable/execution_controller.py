@@ -2729,8 +2729,13 @@ class ExecutionController:
                 expected_policy_version=POLICY_VERSION,
                 expected_policy_digest=guard_policy_fingerprint(current_policy),
             )
+            assignment_envelope = payload.get("_auren_agent_assignment")
+            active_role_id = (
+                assignment_envelope.get("role_id")
+                if isinstance(assignment_envelope, Mapping) else None
+            )
             handler_started = True
-            with agent_assignment_scope(assignment_scope):
+            with agent_assignment_scope(assignment_scope, role_id=active_role_id):
                 result = handler(payload)
         except BaseException as exc:
             handler_error = exc
