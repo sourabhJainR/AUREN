@@ -7,7 +7,7 @@ import unittest
 import tempfile
 
 from portable.agency_observability import Dataset, DatasetItem, LocalExporter, PromptRegistry, Tracer, retrieval_scores, run_experiment
-from portable.agency_runtime import EvidenceItem, TaskProfile, execute
+from portable.agency_runtime import EvidenceItem, TaskProfile, execute, _record_worker_observations
 
 
 
@@ -403,6 +403,50 @@ class TestAgencyObservability(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "terminal trace"):
             trace.span("late-span")
 
+
+
+    def test_worker_observability_preserves_provider_evaluation_and_governance_phases(self):
+        tracer = Tracer()
+        trace = tracer.start("worker-phases")
+        worker = trace.span("worker", phase="implementation")
+        _record_worker_observations(trace, worker, {
+            "observability_events": [
+                {"name": "provider-call", "phase": "provider"},
+                {"name": "regression-evaluation", "phase": "evaluation"},
+                {"name": "review", "phase": "review"},
+                {"name": "approval", "phase": "approval"},
+                {"name": "recovery", "phase": "recovery"},
+                {"name": "future-phase", "phase": "not-yet-supported"},
+            ],
+        }, None)
+        worker.finish({"observations": 6})
+        tracer.end(trace)
+
+        phases = [span.phase for span in trace.spans]
+        self.assertIn("provider", phases)
+        self.assertIn("evaluation", phases)
+        self.assertIn("review", phases)
+        self.assertIn("approval", phases)
+        self.assertIn("recovery", phases)
+        self.assertEqual("unknown", phases[-1])
+        self.assertIn("unknown_worker_phase", trace.metadata["phase_coverage_gaps"])
+
+    def test_worker_observation_limit_records_omitted_event_count(self):
+        tracer = Tracer()
+        trace = tracer.start("worker-observation-limit")
+        worker = trace.span("worker", phase="implementation")
+        _record_worker_observations(trace, worker, {
+            "observability_events": [
+                {"name": f"event-{index}", "phase": "tool"} for index in range(102)
+            ],
+        }, None)
+        worker.finish({"observations": 100})
+        tracer.end(trace)
+
+        self.assertEqual(101, len(trace.spans))
+        self.assertEqual(2, trace.metadata["worker_observations_truncated"])
+        self.assertEqual(["observability_events"], trace.metadata["worker_observation_truncated_sources"])
+        self.assertIn("worker_observations_truncated", trace.metadata["phase_coverage_gaps"])
 
 
 def test_multiprocess_exporters_preserve_complete_jsonl_records():
