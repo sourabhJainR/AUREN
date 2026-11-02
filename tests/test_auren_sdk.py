@@ -74,6 +74,98 @@ class AurenClientTests(unittest.TestCase):
             finally:
                 client.close()
 
+    def test_sdk_assignment_entrypoint_runs_authorizer_and_dispatch_verifier(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            authorized = []
+            verified = []
+            client = AurenClient(
+                tmp, dashboard_enabled=False,
+                agent_assignment_verifier=lambda request: verified.append(request) or True,
+            )
+            try:
+                client.register_handler(
+                    "sdk-assigned", sdk_assigned_handler, execution_class="read_only",
+                    agent_action_class="edit_assigned_paths",
+                )
+                task = client.submit_agent_task(
+                    "sdk-assigned",
+                    {"resource": "allowed.txt", "path": "allowed.txt"},
+                    role_id="BE-01",
+                    manager_id="EM-ENG-01",
+                    action_class="edit_assigned_paths",
+                    scope=["allowed.txt"],
+                    authorizer=lambda request: authorized.append(dict(request)) or True,
+                    work_key="AUREN:test:sdk-entrypoint",
+                    deadline_seconds=30,
+                    registry_path=REGISTRY_PATH,
+                )
+                self.assertEqual("pending", client.task(task.id).state)
+                self.assertEqual(1, len(authorized))
+                self.assertEqual("AUREN:test:sdk-entrypoint", authorized[0]["work_key"])
+                client.run_once(task.id)
+                self.assertEqual("completed", client.task(task.id).state)
+                self.assertGreaterEqual(len(verified), 1)
+                self.assertEqual(
+                    authorized[0]["assignment_digest"],
+                    verified[-1]["assignment_digest"],
+                )
+            finally:
+                client.close()
+
+    def test_sdk_assignment_entrypoint_rejects_caller_forged_envelope(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            client = AurenClient(
+                tmp, dashboard_enabled=False,
+                agent_assignment_verifier=lambda _request: True,
+            )
+            try:
+                client.register_handler(
+                    "sdk-assigned", sdk_assigned_handler, execution_class="read_only",
+                    agent_action_class="edit_assigned_paths",
+                )
+                with self.assertRaisesRegex(ValueError, "reserved"):
+                    client.submit_agent_task(
+                        "sdk-assigned",
+                        {"_auren_agent_assignment": {"role_id": "CEO-01"}},
+                        role_id="BE-01",
+                        manager_id="EM-ENG-01",
+                        action_class="edit_assigned_paths",
+                        scope=["allowed.txt"],
+                        authorizer=lambda _request: True,
+                        work_key="AUREN:test:sdk-forged",
+                        registry_path=REGISTRY_PATH,
+                    )
+                self.assertEqual([], client.controller.list_tasks())
+            finally:
+                client.close()
+
+    def test_sdk_assignment_without_dispatch_verifier_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            invoked = []
+            client = AurenClient(tmp, dashboard_enabled=False)
+            try:
+                client.register_handler(
+                    "sdk-assigned", lambda payload: invoked.append(payload) or sdk_assigned_handler(payload),
+                    execution_class="read_only",
+                    agent_action_class="edit_assigned_paths",
+                )
+                task = client.submit_agent_task(
+                    "sdk-assigned",
+                    {"resource": "allowed.txt", "path": "allowed.txt"},
+                    role_id="BE-01",
+                    manager_id="EM-ENG-01",
+                    action_class="edit_assigned_paths",
+                    scope=["allowed.txt"],
+                    authorizer=lambda _request: True,
+                    work_key="AUREN:test:sdk-no-verifier",
+                    registry_path=REGISTRY_PATH,
+                )
+                client.run_once(task.id)
+                self.assertNotEqual("completed", client.task(task.id).state)
+                self.assertEqual([], invoked)
+            finally:
+                client.close()
+
     def test_unknown_execution_class_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             client = AurenClient(tmp, dashboard_enabled=False)
