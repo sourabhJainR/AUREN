@@ -74,5 +74,25 @@ class MCPToolObservabilityTests(unittest.TestCase):
         self.assertEqual(adapter({"request": {"query": "hello"}}), {"ok": True})
 
 
+    def test_non_json_result_keeps_original_return_behavior(self):
+        adapter = self.adapter()
+        opaque = object()
+        result = {"opaque": opaque}
+        adapter._invoke_unchecked = lambda _request, **_kwargs: result
+        trace = Trace("supervised MCP")
+        parent = trace.span("vibe.execute", phase="execution")
+
+        with bind_trace_context(trace, parent.span_id):
+            observed = adapter({"request": {"query": "hello"}})
+
+        self.assertIs(observed, result)
+        self.assertIs(observed["opaque"], opaque)
+        span = trace.spans[1]
+        self.assertEqual(span.status, "ok")
+        self.assertIsNotNone(span.end)
+        self.assertIsNone(span.output["result_digest"])
+        self.assertTrue(span.output["result_digest_unavailable"])
+
+
 if __name__ == "__main__":
     unittest.main()
