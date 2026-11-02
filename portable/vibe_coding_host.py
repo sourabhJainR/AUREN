@@ -1164,6 +1164,83 @@ class MCPStdioToolAdapter:
         return args
 
     def __call__(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        """Invoke the configured MCP tool and emit a privacy-safe child span when traced."""
+        span = None
+        try:
+            from .agency_observability import current_trace_context
+            active = current_trace_context()
+            if active is not None:
+                trace, parent_span_id = active
+                request_keys = sorted(str(key) for key in request.keys())[:100] if isinstance(request, Mapping) else []
+                try:
+                    encoded_request = json.dumps(
+                        dict(request), sort_keys=True, separators=(",", ":"),
+                        ensure_ascii=False, allow_nan=False,
+                    ).encode("utf-8")
+                    request_digest = hashlib.sha256(encoded_request).hexdigest()
+                except (TypeError, ValueError):
+                    request_digest = None
+                argv_digest = hashlib.sha256(
+                    json.dumps(list(self.argv), separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+                ).hexdigest()
+                span = trace.span(
+                    "tool.mcp." + self.tool_name[:96],
+                    kind="tool",
+                    input={"request_keys": request_keys},
+                    metadata={
+                        "tool_name": self.tool_name[:128],
+                        "request_digest": request_digest,
+                        "request_key_count": len(request) if isinstance(request, Mapping) else 0,
+                        "argv_digest": argv_digest,
+                    },
+                    parent_id=parent_span_id,
+                    phase="tool",
+                )
+        except Exception:
+            # Tracing is observational only; it cannot grant or deny MCP authority.
+            span = None
+
+        try:
+            result = self._call_untraced(request)
+        except BaseException:
+            if span is not None:
+                try:
+                    span.finish(
+                        output={"outcome": "error"},
+                        status="error",
+                        terminal_reason="MCP tool invocation failed",
+                    )
+                except Exception:
+                    pass
+            raise
+
+        if span is not None:
+            # Result encoding is telemetry-only. Unsupported result values must
+            # never turn a successful MCP invocation into a caller-visible failure.
+            try:
+                encoded_result = json.dumps(
+                    dict(result), sort_keys=True, separators=(",", ":"),
+                    ensure_ascii=False, allow_nan=False,
+                ).encode("utf-8")
+                result_metadata = {
+                    "result_digest": hashlib.sha256(encoded_result).hexdigest(),
+                    "result_type": type(result).__name__,
+                    "result_bytes": len(encoded_result),
+                }
+            except Exception:
+                result_metadata = {
+                    "result_digest": None,
+                    "result_type": type(result).__name__,
+                    "result_bytes": None,
+                    "result_digest_unavailable": True,
+                }
+            try:
+                span.finish(output=result_metadata, status="ok")
+            except Exception:
+                pass
+        return result
+
+    def _call_untraced(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
         if not isinstance(request, Mapping):
             raise ValueError("MCP request must be a mapping")
 

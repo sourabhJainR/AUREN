@@ -31,3 +31,25 @@ Raw argument values, tool output, and exception messages are not copied into the
 ## Remaining observability work
 
 The integration above does not close the broader lifecycle contract in [issue #913](https://github.com/sourabhJainR/AUREN/issues/913). Continue wiring and testing the other concrete execution boundaries independently, especially provider calls outside StateGraph trace context, MCP and other tool adapters, test/evaluator transitions, evidence verification, learning persistence, and release/rollback events. Do not infer missing spans as successful work, and do not treat trace presence as evaluation or execution authority.
+
+
+## MCP stdio tool lifecycle integration
+
+`MCPStdioToolAdapter.__call__()` emits a child tool span when an AUREN trace
+context is active. This instruments the actual configured MCP invocation path,
+including read-only calls and authority-bound calls, without changing the
+authority gateway or process-launch contract.
+
+The span records the configured tool name, bounded request-key names, a
+canonical request digest when serializable, and a digest of the configured
+argv. On success it records the result digest, result type and encoded byte
+count. On failure it records only a generic terminal reason. Raw request
+values, MCP results, stderr and exception messages are never copied into the
+trace. The adapter returns the original structured result and preserves the
+original exception behavior.
+
+The regression suite `tests/test_mcp_tool_observability.py` covers successful
+parentage, privacy, error closure and behavior without a trace context.
+Tracing remains non-authoritative: it does not grant tool access, bypass the
+host authority resolver, or make an assigned-agent MCP subprocess launch
+permissible without the required host-enforced sandbox.
