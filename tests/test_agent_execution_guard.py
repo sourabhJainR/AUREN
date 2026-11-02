@@ -28,7 +28,7 @@ def assigned_filesystem_handler(payload):
 class AgentExecutionGuardTests(unittest.TestCase):
     def _payload(
         self, scope=("portable/api.py",), action_class="edit_assigned_paths",
-        deadline_seconds=None, task_path=None,
+        deadline_seconds=None, task_path=None, work_key="AUREN:test:agent-execution-guard",
     ):
         assigned_path = task_path if task_path is not None else scope[0]
         assignment = authorize_agent_assignment(
@@ -36,7 +36,7 @@ class AgentExecutionGuardTests(unittest.TestCase):
             manager_id="EM-ENG-01",
             action_class=action_class,
             scope=list(scope),
-            work_key="AUREN:test:agent-execution-guard",
+            work_key=work_key,
             task_payload={"path": assigned_path, "resource": scope[0]},
             deadline_seconds=deadline_seconds,
             authorizer=lambda _request: True,
@@ -44,7 +44,7 @@ class AgentExecutionGuardTests(unittest.TestCase):
         )
         return {
             "path": assigned_path, "resource": scope[0],
-            "work_key": "AUREN:test:agent-execution-guard",
+            "work_key": work_key,
             "_auren_deadline_policy_seconds": deadline_seconds,
             "_auren_agent_assignment": assignment.as_payload(),
         }
@@ -234,7 +234,7 @@ class AgentExecutionGuardTests(unittest.TestCase):
                 execution_class="read_only",
                 agent_action_class="edit_assigned_paths",
             )
-            blocked_assignment = self._payload(("allowed.txt",), task_path="blocked.txt")[
+            blocked_assignment = self._payload(("allowed.txt",), task_path="blocked.txt", work_key="AUREN:test:blocked-path")[
                 "_auren_agent_assignment"
             ]
             blocked = controller.submit("tests.test_agent_execution_guard.assigned_filesystem_handler", {
@@ -254,7 +254,7 @@ class AgentExecutionGuardTests(unittest.TestCase):
             self.assertNotEqual(controller.task(blocked.id).state, "completed")
             self.assertFalse((root / "blocked.txt").exists())
 
-            allowed_assignment = self._payload(("allowed.txt",), task_path="allowed.txt")[
+            allowed_assignment = self._payload(("allowed.txt",), task_path="allowed.txt", work_key="AUREN:test:allowed-path")[
                 "_auren_agent_assignment"
             ]
             allowed = controller.submit("tests.test_agent_execution_guard.assigned_filesystem_handler", {
