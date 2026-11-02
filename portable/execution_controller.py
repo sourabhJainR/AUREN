@@ -2181,6 +2181,9 @@ class ExecutionController:
                 payload_copy["work_key"] = assigned_work_key
             elif supplied_work_key != assigned_work_key:
                 raise WorkKeyConflict("payload work_key does not match the host-authorized agent assignment")
+            if assignment_envelope.get("deadline_seconds") != normalized_deadline_seconds:
+                raise WorkKeyConflict("deadline policy does not match the host-authorized agent assignment")
+            payload_copy["_auren_deadline_policy_seconds"] = normalized_deadline_seconds
         # Never trust caller-supplied supervisor-owned profile fields. A public
         # workflow_profile may override saved preferences for this task only.
         task_profile = payload_copy.pop("workflow_profile", None)
