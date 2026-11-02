@@ -132,12 +132,16 @@ def validate_agent_assignment_for_dispatch(
         raise AgentAssignmentScopeDenied("assigned work requires a stable work_key")
     if payload.get("work_key") != work_key:
         raise AgentAssignmentScopeDenied("assignment work_key does not match the durable task")
-    clean_task_payload = dict(payload)
-    clean_task_payload.pop(_ASSIGNMENT_KEY, None)
-    clean_task_payload.pop("_auren_workflow_profile", None)
-    clean_task_payload.pop("_auren_workflow_profile_digest", None)
-    clean_task_payload.pop("work_key", None)
-    task_payload_digest = hashlib.sha256(_canonical(clean_task_payload)).hexdigest()
+    resource_binding = payload.get("resource", payload.get("resource_id", payload.get("path", "")))
+    task_payload_digest = hashlib.sha256(_canonical({
+        "resource": resource_binding,
+        "budget": payload.get("budget"),
+        "shared_budget": payload.get("shared_budget"),
+        "approval": payload.get("approval"),
+        "approval_evidence": payload.get("approval_evidence"),
+        "approval_id": payload.get("approval_id"),
+        "risk_tier": payload.get("risk_tier"),
+    })).hexdigest()
     if envelope.get("task_payload_digest") != task_payload_digest:
         raise AgentAssignmentScopeDenied("assignment task payload digest does not match the durable task")
 
