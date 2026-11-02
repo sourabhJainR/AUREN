@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 from pathlib import Path
 
 from portable.agent_org_runtime import REGISTRY_PATH, submit_agent_task
@@ -13,6 +15,55 @@ def delegation_limit_noop_handler(payload):
 
 
 class AgentDelegationLimitTests(unittest.TestCase):
+    def test_concurrent_submissions_cannot_overrun_pending_limit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = ExecutionController(
+                root, agent_assignment_verifier=lambda _request: True,
+            )
+            handler = "tests.test_agent_delegation_limits.delegation_limit_noop_handler"
+            first.register_handler(
+                handler, delegation_limit_noop_handler,
+                execution_class="read_only",
+                agent_action_class="edit_assigned_paths",
+            )
+            second = ExecutionController(
+                root, agent_assignment_verifier=lambda _request: True,
+            )
+
+            def submit(controller, index):
+                resource = f"portable/race-{index}.py"
+                return submit_agent_task(
+                    controller, handler,
+                    {"resource": resource, "path": resource},
+                    role_id="BE-01",
+                    manager_id="EM-ENG-01",
+                    action_class="edit_assigned_paths",
+                    scope=[resource],
+                    authorizer=lambda _request: True,
+                    work_key=f"AUREN:test:delegation-race:{index}",
+                    registry_path=REGISTRY_PATH,
+                )
+
+            for index in range(3):
+                submit(first, index)
+
+            barrier = Barrier(2)
+
+            def race(controller, index):
+                barrier.wait()
+                try:
+                    return submit(controller, index)
+                except AgentDelegationLimitExceeded:
+                    return None
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                results = list(pool.map(
+                    lambda item: race(*item),
+                    ((first, 3), (second, 4)),
+                ))
+            self.assertEqual(1, sum(result is not None for result in results))
+
     def test_pending_limit_is_atomic_and_completed_work_releases_capacity(self):
         with tempfile.TemporaryDirectory() as directory:
             controller = ExecutionController(
