@@ -82,7 +82,7 @@ def validate_agent_assignment_for_dispatch(
     required = {
         "schema_version", "assignment_id", "role_id", "manager_id", "action_class",
         "scope", "registry_digest", "policy_version", "policy_digest",
-        "assignment_digest", "work_key", "task_payload_digest", "authorization",
+        "assignment_digest", "work_key", "task_payload_digest", "deadline_seconds", "authorization",
     }
     if set(envelope) != required or envelope.get("schema_version") != _SCHEMA:
         raise AgentAssignmentScopeDenied("agent assignment schema is invalid")
@@ -144,6 +144,15 @@ def validate_agent_assignment_for_dispatch(
     })).hexdigest()
     if envelope.get("task_payload_digest") != task_payload_digest:
         raise AgentAssignmentScopeDenied("assignment task payload digest does not match the durable task")
+    assigned_deadline = envelope.get("deadline_seconds")
+    persisted_deadline = payload.get("_auren_deadline_policy_seconds")
+    if assigned_deadline != persisted_deadline:
+        raise AgentAssignmentScopeDenied("assignment deadline does not match the durable task policy")
+    if assigned_deadline is not None and (
+        isinstance(assigned_deadline, bool) or not isinstance(assigned_deadline, (int, float))
+        or not 0 < assigned_deadline <= 86400
+    ):
+        raise AgentAssignmentScopeDenied("assignment deadline policy is invalid")
 
     body = {
         "schema_version": _SCHEMA,
@@ -156,6 +165,7 @@ def validate_agent_assignment_for_dispatch(
         "policy_digest": policy_digest,
         "work_key": work_key,
         "task_payload_digest": task_payload_digest,
+        "deadline_seconds": assigned_deadline,
     }
     digest = hashlib.sha256(_canonical(body)).hexdigest()
     if envelope.get("assignment_digest") != digest:
@@ -177,6 +187,7 @@ def validate_agent_assignment_for_dispatch(
         "assignment_digest": digest,
         "work_key": work_key,
         "task_payload_digest": task_payload_digest,
+        "deadline_seconds": assigned_deadline,
     })
     try:
         authorized = authorization_verifier(verification_request)
