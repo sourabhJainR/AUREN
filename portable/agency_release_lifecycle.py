@@ -130,7 +130,7 @@ class ArtifactStore:
                 "review_digest": review_digest,
             },
             parent_id=parent_span_id,
-            phase="release",
+            phase="rollback" if action == "rollback" else "release",
             actor_id="auren.agency_release_lifecycle",
         ) if trace is not None else None
         try:

@@ -16,6 +16,7 @@ import time
 from typing import Any, Callable, Mapping, Sequence
 
 from .adaptive_experiment_controller import AdaptiveExperimentResult
+from .agency_observability import Trace
 from .engineering_episode import EngineeringEpisode, EpisodePhase
 from .experiment_learning_bridge import CurriculumLearningSignal, ExperimentLearningBridge
 from .persistent_evidence_graph import EvidenceNode, PersistentEvidenceGraph
@@ -33,6 +34,29 @@ class LearningEvidenceError(ValueError):
 def _canonical_digest(value: Any) -> str:
     raw = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
+
+
+
+
+def _start_observation(trace: Trace | None, name: str, *, parent_span_id: str | None, phase: str, metadata: Mapping[str, Any] | None = None):
+    """Create a best-effort child span; telemetry never grants learning authority."""
+    if trace is None:
+        return None
+    try:
+        return trace.span(name, "learning", metadata=metadata or {}, parent_id=parent_span_id, phase=phase,
+                          actor_id="auren.persistent_experiment_learning")
+    except Exception:
+        return None
+
+
+def _finish_observation(span: Any, output: Mapping[str, Any], status: str, reason: str | None = None) -> None:
+    if span is None:
+        return
+    try:
+        span.finish(dict(output), status, reason)
+    except Exception:
+        # Observability is non-authoritative and must not change store outcomes.
+        return
 
 
 @dataclass(frozen=True, slots=True)
@@ -272,6 +296,8 @@ class PersistentExperimentLearningStore:
         evidence_refs: Sequence[str],
         episode: EngineeringEpisode | None = None,
         domain_lifts: tuple[tuple[str, float], ...] = (),
+        trace: Trace | None = None,
+        parent_span_id: str | None = None,
     ) -> PersistentLearningReceipt:
         if not isinstance(manifest, ExperimentManifest) or not isinstance(result, AdaptiveExperimentResult):
             raise TypeError("manifest and AdaptiveExperimentResult are required")
@@ -308,10 +334,22 @@ class PersistentExperimentLearningStore:
                 raise LearningEvidenceError("learning may only attach to a terminal episode in this project")
             episode_digest = episode.digest
 
+        evidence_span = _start_observation(
+            trace, "learning.evidence_verification", parent_span_id=parent_span_id,
+            phase="verification", metadata={"experiment_id": manifest.experiment_id,
+                                             "manifest_digest": manifest.digest,
+                                             "evidence_ref_count": len(refs)},
+        )
         try:
             evidence_verified = self.verify_evidence(refs, manifest, result) is True
         except Exception:
             evidence_verified = False
+        _finish_observation(
+            evidence_span,
+            {"verified": evidence_verified, "evidence_ref_count": len(refs)},
+            "ok" if evidence_verified else "unscored",
+            None if evidence_verified else "evidence_verification_unavailable_or_rejected",
+        )
         if not evidence_verified:
             disposition = "unscored"
         elif result.regression_detected or result.rollback_recommended or signal.action == "rollback":
@@ -354,6 +392,15 @@ class PersistentExperimentLearningStore:
                     or receipt.episode_digest != episode_digest
                 ):
                     raise LearningStoreConflict("same experiment manifest was replayed with different outcome/evidence")
+                persistence_span = _start_observation(
+                    trace, "learning.persistence", parent_span_id=parent_span_id,
+                    phase="learning", metadata={"receipt_id": receipt.receipt_id,
+                                                  "record_digest": receipt.record_digest},
+                )
+                _finish_observation(persistence_span,
+                                    {"persisted": True, "idempotent_replay": True,
+                                     "receipt_id": receipt.receipt_id,
+                                     "record_digest": receipt.record_digest}, "ok")
                 return receipt
 
             db.execute(
@@ -411,15 +458,34 @@ class PersistentExperimentLearningStore:
         receipt = self.get_receipt(receipt_id)
         if receipt is None:
             raise RuntimeError("learning receipt committed but could not be reloaded")
+        persistence_span = _start_observation(
+            trace, "learning.persistence", parent_span_id=parent_span_id,
+            phase="learning", metadata={"receipt_id": receipt.receipt_id,
+                                          "record_digest": receipt.record_digest,
+                                          "evidence_verified": receipt.evidence_verified},
+        )
+        _finish_observation(persistence_span,
+                            {"persisted": True, "idempotent_replay": False,
+                             "receipt_id": receipt.receipt_id,
+                             "record_digest": receipt.record_digest,
+                             "disposition": receipt.disposition}, "ok")
         return receipt
 
-    def promote_candidate(self, receipt_id: str, *, reviewer_id: str, evidence_ref: str) -> str:
+    def promote_candidate(self, receipt_id: str, *, reviewer_id: str, evidence_ref: str,
+                          trace: Trace | None = None, parent_span_id: str | None = None) -> str:
         reviewer = self._nonempty(reviewer_id, "reviewer_id")
         ref = self._nonempty(evidence_ref, "evidence_ref")
+        verification_span = _start_observation(
+            trace, "learning.promotion_evidence_verification", parent_span_id=parent_span_id,
+            phase="verification", metadata={"receipt_id": receipt_id},
+        )
         try:
             verified = self.verify_promotion(receipt_id, reviewer, ref) is True
         except Exception:
             verified = False
+        _finish_observation(verification_span, {"verified": verified},
+                            "ok" if verified else "unscored",
+                            None if verified else "independent_promotion_evidence_unavailable_or_rejected")
         if not verified:
             raise LearningEvidenceError("independent promotion evidence was not verified")
         now = time.time()
@@ -451,6 +517,15 @@ class PersistentExperimentLearningStore:
             ).fetchone()
             if existing:
                 if existing[0] == reviewer and existing[1] == ref and existing[2] == promotion_digest:
+                    persistence_span = _start_observation(
+                        trace, "learning.promotion_persistence", parent_span_id=parent_span_id,
+                        phase="learning", metadata={"receipt_id": receipt_id,
+                                                      "promotion_digest": promotion_digest},
+                    )
+                    _finish_observation(persistence_span,
+                                        {"persisted": True, "idempotent_replay": True,
+                                         "receipt_id": receipt_id,
+                                         "promotion_digest": promotion_digest}, "ok")
                     return promotion_digest
                 raise LearningStoreConflict("promotion receipt already exists with different reviewer/evidence")
             db.execute(
@@ -464,15 +539,31 @@ class PersistentExperimentLearningStore:
                 "reviewer_id": reviewer, "evidence_ref_digest": _canonical_digest({"ref": ref}),
             })
             self._insert_edge(db, receipt_node, "promoted_by", promotion_node)
+        persistence_span = _start_observation(
+            trace, "learning.promotion_persistence", parent_span_id=parent_span_id,
+            phase="learning", metadata={"receipt_id": receipt_id,
+                                          "promotion_digest": promotion_digest},
+        )
+        _finish_observation(persistence_span,
+                            {"persisted": True, "receipt_id": receipt_id,
+                             "promotion_digest": promotion_digest}, "ok")
         return promotion_digest
 
-    def retract(self, receipt_id: str, *, reason: str, evidence_ref: str) -> str:
+    def retract(self, receipt_id: str, *, reason: str, evidence_ref: str,
+                trace: Trace | None = None, parent_span_id: str | None = None) -> str:
         why = self._nonempty(reason, "reason")
         ref = self._nonempty(evidence_ref, "evidence_ref")
+        verification_span = _start_observation(
+            trace, "learning.retraction_evidence_verification", parent_span_id=parent_span_id,
+            phase="verification", metadata={"receipt_id": receipt_id},
+        )
         try:
             verified = self.verify_retraction(receipt_id, why, ref) is True
         except Exception:
             verified = False
+        _finish_observation(verification_span, {"verified": verified},
+                            "ok" if verified else "unscored",
+                            None if verified else "independent_retraction_evidence_unavailable_or_rejected")
         if not verified:
             raise LearningEvidenceError("independent retraction evidence was not verified")
         now = time.time()
@@ -490,6 +581,15 @@ class PersistentExperimentLearningStore:
             ).fetchone()
             if existing:
                 if tuple(existing) == (why, ref, retraction_digest):
+                    persistence_span = _start_observation(
+                        trace, "learning.retraction_persistence", parent_span_id=parent_span_id,
+                        phase="learning", metadata={"receipt_id": receipt_id,
+                                                      "retraction_digest": retraction_digest},
+                    )
+                    _finish_observation(persistence_span,
+                                        {"persisted": True, "idempotent_replay": True,
+                                         "receipt_id": receipt_id,
+                                         "retraction_digest": retraction_digest}, "ok")
                     return retraction_digest
                 raise LearningStoreConflict("learning receipt already has a different retraction")
             db.execute(
@@ -504,6 +604,15 @@ class PersistentExperimentLearningStore:
                 "evidence_ref_digest": _canonical_digest({"ref": ref}),
             })
             self._insert_edge(db, receipt_node, "retracted_by", retraction_node)
+        persistence_span = _start_observation(
+            trace, "learning.retraction_persistence", parent_span_id=parent_span_id,
+            phase="learning", metadata={"receipt_id": receipt_id,
+                                          "retraction_digest": retraction_digest},
+        )
+        _finish_observation(persistence_span,
+                            {"persisted": True, "idempotent_replay": False,
+                             "receipt_id": receipt_id,
+                             "retraction_digest": retraction_digest}, "ok")
         return retraction_digest
 
     def retrieve_compatible(
