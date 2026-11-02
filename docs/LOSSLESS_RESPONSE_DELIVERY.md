@@ -228,7 +228,9 @@ digest, it must stop without posting completion.
 without creating a second delivery journal. The host supplies a receiver per stage,
 the canonical `ProgressJournal`, and a trusted context resolver that maps
 the invocation to the already-running supervisor task and may provide the live
-`RuntimeExecutionGuard`, cancellation probe, and monotonic deadline.
+`RuntimeExecutionGuard`, cancellation probe, and monotonic deadline. AUREN resolves
+and validates this context before adapter dispatch, rejects a task-ID mismatch, and
+checks cancellation, deadline and guard state before any stage work begins.
 
 After the adapter result passes its stage contract and secret sanitization, AUREN
 serializes the complete structured result deterministically and sends it through
