@@ -132,7 +132,7 @@ class AgentExecutionGuardTests(unittest.TestCase):
                 agent_action_class="edit_assigned_paths",
             )
             payload = self._payload()
-            with self.assertRaisesRegex(WorkKeyConflict, "does not match"):
+            with self.assertRaisesRegex(WorkKeyConflict, "conflicts"):
                 controller.submit(
                     "tests.test_agent_execution_guard.assigned_filesystem_handler",
                     payload, work_key="AUREN:test:substituted-task",
