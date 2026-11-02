@@ -307,6 +307,39 @@ class VibeAdapterRegistry:
                capabilities: Sequence[str] | None = None) -> Mapping[str, Any]:
         selected = self.select(stage, capabilities)
         workflow_id = str(state.get("vibe_coding_workflow_id", state.get("task_id", ""))).strip()
+        receiver = self.response_delivery_receivers.get(stage)
+        delivery_context: Mapping[str, Any] | None = None
+        if receiver is not None:
+            assert self.response_delivery_context is not None
+            assert self.response_delivery_journal is not None
+            resolved_context = self.response_delivery_context(state)
+            if not isinstance(resolved_context, Mapping):
+                raise AdapterUnavailable("host response delivery context must be a mapping")
+            delivery_task_id = resolved_context.get("task_id")
+            if not isinstance(delivery_task_id, str) or not delivery_task_id.strip():
+                raise AdapterUnavailable("host response delivery context must resolve a durable task_id")
+            state_task_id = state.get("task_id")
+            if state_task_id is not None and str(state_task_id).strip() and str(state_task_id).strip() != delivery_task_id:
+                raise AdapterUnavailable("host response delivery task_id does not match the invocation task_id")
+            deadline = resolved_context.get("deadline_monotonic")
+            if deadline is not None and (
+                isinstance(deadline, bool) or not isinstance(deadline, (int, float))
+                or not math.isfinite(deadline)
+            ):
+                raise AdapterUnavailable("host response delivery deadline must be a finite monotonic timestamp")
+            cancelled = resolved_context.get("is_cancelled")
+            if cancelled is not None and not callable(cancelled):
+                raise AdapterUnavailable("host response delivery cancellation probe must be callable")
+            execution_guard = resolved_context.get("execution_guard")
+            if execution_guard is not None and not callable(getattr(execution_guard, "consume_delivery_bytes", None)):
+                raise AdapterUnavailable("host response delivery guard must expose consume_delivery_bytes")
+            if cancelled is not None and cancelled():
+                raise AdapterUnavailable("host response delivery task is cancelled before stage dispatch")
+            if deadline is not None and time.monotonic() >= deadline:
+                raise AdapterUnavailable("host response delivery deadline expired before stage dispatch")
+            if execution_guard is not None:
+                execution_guard.check()
+            delivery_context = resolved_context
         if selected.external_side_effects:
             if self.side_effect_lifecycle is None:
                 raise AdapterUnavailable(
@@ -448,28 +481,12 @@ class VibeAdapterRegistry:
             valid, reason = validate_stage_output(stage, result)
             if not valid:
                 raise ValueError(f"{stage.value} adapter output failed its stage contract: {reason}")
-            receiver = self.response_delivery_receivers.get(stage)
             if receiver is not None:
-                assert self.response_delivery_context is not None
-                assert self.response_delivery_journal is not None
-                delivery_context = self.response_delivery_context(state)
-                if not isinstance(delivery_context, Mapping):
-                    raise AdapterUnavailable("host response delivery context must be a mapping")
-                delivery_task_id = delivery_context.get("task_id")
-                if not isinstance(delivery_task_id, str) or not delivery_task_id.strip():
-                    raise AdapterUnavailable("host response delivery context must resolve a durable task_id")
+                assert delivery_context is not None
+                delivery_task_id = str(delivery_context["task_id"])
                 deadline = delivery_context.get("deadline_monotonic")
-                if deadline is not None and (
-                    isinstance(deadline, bool) or not isinstance(deadline, (int, float))
-                    or not math.isfinite(deadline)
-                ):
-                    raise AdapterUnavailable("host response delivery deadline must be a finite monotonic timestamp")
                 cancelled = delivery_context.get("is_cancelled")
-                if cancelled is not None and not callable(cancelled):
-                    raise AdapterUnavailable("host response delivery cancellation probe must be callable")
                 execution_guard = delivery_context.get("execution_guard")
-                if execution_guard is not None and not callable(getattr(execution_guard, "consume_delivery_bytes", None)):
-                    raise AdapterUnavailable("host response delivery guard must expose consume_delivery_bytes")
                 # The canonical stage result is serialized once, after validation.
                 # A retry reuses the durable provider receipt and resumes only after
                 # receiver-confirmed chunks; an ambiguous send remains replay-blocked.
