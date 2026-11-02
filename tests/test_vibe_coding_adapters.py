@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 import json
 import tempfile
+import time
 import os
 import multiprocessing
 import sqlite3
@@ -831,6 +832,44 @@ class VibeCodingAdapterTests(unittest.TestCase):
                 })
             self.assertEqual([1, 2], sent)
             self.assertEqual(80, guard.delivery_bytes_used)
+
+
+    def test_host_delivery_context_is_preflighted_before_adapter_dispatch(self):
+        from portable.progress_journal import ProgressJournal
+        with tempfile.TemporaryDirectory() as directory:
+            journal = ProgressJournal(Path(directory) / "progress.jsonl")
+            calls = []
+            def adapter(_request):
+                calls.append("dispatch")
+                return output_for(VibeStage.RESEARCH, {})
+            registration = AdapterRegistration(
+                "research-preflight", "1", (VibeStage.RESEARCH,),
+                frozenset(default_stage_capabilities()[VibeStage.RESEARCH.value]),
+                adapter, risk="medium",
+            )
+            def make_registry(context):
+                registry = VibeAdapterRegistry(
+                    response_delivery_receivers={VibeStage.RESEARCH: lambda _chunk: {}},
+                    response_delivery_journal=journal,
+                    response_delivery_context=lambda _state: context,
+                )
+                registry.register(registration)
+                return registry
+            state = {
+                "task_id": "expected-task",
+                "vibe_coding_workflow_id": "workflow-preflight",
+                "intent": "research a product",
+            }
+            invalid_contexts = (
+                {"task_id": "different-task"},
+                {"task_id": "expected-task", "is_cancelled": lambda: True},
+                {"task_id": "expected-task", "deadline_monotonic": time.monotonic() - 1},
+            )
+            for context in invalid_contexts:
+                with self.subTest(context=context):
+                    with self.assertRaises(AdapterUnavailable):
+                        make_registry(context).invoke(VibeStage.RESEARCH, state)
+            self.assertEqual([], calls)
 
 
 if __name__ == "__main__":
