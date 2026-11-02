@@ -134,6 +134,10 @@ class WorkKeyConflict(ValueError):
     """A stable work key was reused for a different task intent."""
 
 
+class AgentDelegationLimitExceeded(PermissionError):
+    """A manager reached the active or pending delegated-task limit."""
+
+
 class QueueAdmissionRejected(RuntimeError):
     """A new durable task was rejected because the persistent pending queue is full."""
 
@@ -2239,6 +2243,31 @@ class ExecutionController:
                 expected_policy_version=POLICY_VERSION,
                 expected_policy_digest=guard_policy_fingerprint(current_guard_policy),
             )
+            # Read manager-specific limits from the same host registry digest that
+            # authorized this assignment. The active-count check itself runs
+            # under the task database write reservation below.
+            current_registry, current_registry_digest = load_agent_org_registry()
+            if current_registry_digest != assignment_envelope.get("registry_digest"):
+                raise AgentDelegationLimitExceeded(
+                    "organization registry changed before delegated task admission"
+                )
+            manager_role = next(
+                (role for role in current_registry["roles"]
+                 if role["id"] == assignment_envelope.get("manager_id")),
+                None,
+            )
+            if manager_role is None:
+                raise AgentDelegationLimitExceeded("delegating manager is no longer registered")
+            limits = manager_role.get("delegation_limits")
+            if not isinstance(limits, Mapping):
+                raise AgentDelegationLimitExceeded("delegating manager has no configured task limits")
+            delegation_policy = (
+                assignment_envelope["manager_id"],
+                int(limits["max_active_tasks"]),
+                int(limits["max_pending_tasks"]),
+            )
+        else:
+            delegation_policy = None
         goal_text = goal or f"execute durable handler: {handler}"
         try:
             payload_json = json.dumps(
@@ -2361,6 +2390,48 @@ class ExecutionController:
                         # insertion and runs before AutonomousCompany.start(), so
                         # concurrent processes cannot overfill the local queue.
                         raise QueueAdmissionRejected(pending_count, self.max_pending_tasks)
+                    if delegation_policy is not None:
+                        manager_id, max_active, max_pending = delegation_policy
+                        active_for_manager = 0
+                        pending_for_manager = 0
+                        rows = db.execute(
+                            "SELECT payload,state FROM tasks WHERE state IN ('pending','running')"
+                        ).fetchall()
+                        for stored_json, stored_state in rows:
+                            try:
+                                stored_payload = json.loads(stored_json)
+                            except (TypeError, ValueError) as exc:
+                                raise AgentDelegationLimitExceeded(
+                                    "active task ledger cannot be verified for manager admission"
+                                ) from exc
+                            if not isinstance(stored_payload, dict):
+                                raise AgentDelegationLimitExceeded(
+                                    "active task ledger contains a malformed payload"
+                                )
+                            stored_assignment = stored_payload.get("_auren_agent_assignment")
+                            if stored_assignment is None:
+                                continue
+                            if (
+                                not isinstance(stored_assignment, Mapping)
+                                or not isinstance(stored_assignment.get("manager_id"), str)
+                            ):
+                                raise AgentDelegationLimitExceeded(
+                                    "active delegated task has malformed manager identity"
+                                )
+                            if stored_assignment["manager_id"] == manager_id:
+                                active_for_manager += 1
+                                if stored_state == "pending":
+                                    pending_for_manager += 1
+                        if active_for_manager >= max_active:
+                            raise AgentDelegationLimitExceeded(
+                                f"manager {manager_id} reached its active delegated-task limit "
+                                f"({active_for_manager}/{max_active})"
+                            )
+                        if pending_for_manager >= max_pending:
+                            raise AgentDelegationLimitExceeded(
+                                f"manager {manager_id} reached its pending delegated-task limit "
+                                f"({pending_for_manager}/{max_pending})"
+                            )
                     task_id = uuid4().hex
                     if self._deployment_admission_coordinator is not None:
                         claim_work_key = getattr(
