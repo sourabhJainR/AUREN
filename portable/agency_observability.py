@@ -215,8 +215,6 @@ class Trace:
             known = {span.span_id: span for span in self.spans}
             if parent_id is not None and parent_id not in known:
                 raise ValueError("parent_id must reference a span in this trace")
-            if parent_id is not None and known[parent_id].end is not None:
-                raise ValueError("parent span is already terminal")
             item = Span(
                 name, kind, parent_id=parent_id, input=_safe(input),
                 metadata=_safe(dict(metadata or {})), phase=phase,
