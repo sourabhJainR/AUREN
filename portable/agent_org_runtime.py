@@ -203,6 +203,7 @@ def authorize_agent_assignment(
     resource = source_payload.get("resource", source_payload.get("resource_id", source_payload.get("path", "")))
     clean_task_payload = {
         "resource": resource,
+        "path": source_payload.get("path"),
         "budget": source_payload.get("budget"),
         "shared_budget": source_payload.get("shared_budget"),
         "approval": source_payload.get("approval"),
