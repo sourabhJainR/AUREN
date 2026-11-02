@@ -98,6 +98,35 @@ class ResponseDeliveryTransportTests(unittest.TestCase):
         self.assertIn("receiver_exception", metrics["failure_reasons"])
 
 
+    def test_unknown_outcome_fences_changed_response_digest_for_same_task(self):
+        self.start_task("task-ambiguous-changed-payload")
+        calls = []
+
+        def disconnect(chunk):
+            calls.append((chunk.response_id, chunk.index))
+            raise OSError("receiver disconnected after send")
+
+        with self.assertRaises(DeliveryOutcomeUnknown):
+            deliver_response(
+                "task-ambiguous-changed-payload", "first provider receipt",
+                receiver=disconnect, journal=self.journal,
+            )
+
+        # A replayed provider receipt may be re-serialized with a changed
+        # timestamp or other metadata. A new response digest must not bypass
+        # the task-level unknown-outcome fence.
+        with self.assertRaises(DeliveryBlocked):
+            deliver_response(
+                "task-ambiguous-changed-payload", "second provider receipt",
+                receiver=lambda chunk: calls.append((chunk.response_id, chunk.index)),
+                journal=self.journal,
+            )
+
+        self.assertEqual(1, len(calls))
+        self.assertNotEqual(calls[0][0], __import__("hashlib").sha256(
+            b"second provider receipt"
+        ).hexdigest())
+
     def test_metrics_write_failure_cannot_erase_unknown_outcome_fence(self):
         from unittest.mock import patch
         self.start_task("task-metrics-failure")
