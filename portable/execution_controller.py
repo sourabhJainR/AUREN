@@ -2159,6 +2159,9 @@ class ExecutionController:
             (datetime.now(timezone.utc) + timedelta(seconds=float(deadline_seconds))).isoformat()
             if deadline_seconds is not None else None
         )
+        normalized_deadline_seconds = (
+            float(deadline_seconds) if deadline_seconds is not None else None
+        )
         execution_class = self._handler_execution_class(handler)
         if not isinstance(payload, Mapping):
             raise TypeError("durable task payload must be a mapping")
@@ -2237,9 +2240,6 @@ class ExecutionController:
                 expected_policy_digest=guard_policy_fingerprint(current_guard_policy),
             )
         goal_text = goal or f"execute durable handler: {handler}"
-        normalized_deadline_seconds = (
-            float(deadline_seconds) if deadline_seconds is not None else None
-        )
         try:
             payload_json = json.dumps(
                 payload_copy, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
