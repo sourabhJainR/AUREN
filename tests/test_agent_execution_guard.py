@@ -26,7 +26,7 @@ def assigned_filesystem_handler(payload):
 
 
 class AgentExecutionGuardTests(unittest.TestCase):
-    def _payload(self, scope=("portable/api.py",), action_class="edit_assigned_paths"):
+    def _payload(self, scope=("portable/api.py",), action_class="edit_assigned_paths", deadline_seconds=None):
         assignment = authorize_agent_assignment(
             role_id="BE-01",
             manager_id="EM-ENG-01",
@@ -34,12 +34,14 @@ class AgentExecutionGuardTests(unittest.TestCase):
             scope=list(scope),
             work_key="AUREN:test:agent-execution-guard",
             task_payload={"path": scope[0], "resource": scope[0]},
+            deadline_seconds=deadline_seconds,
             authorizer=lambda _request: True,
             registry_path=REGISTRY_PATH,
         )
         return {
             "path": scope[0], "resource": scope[0],
             "work_key": "AUREN:test:agent-execution-guard",
+            "_auren_deadline_policy_seconds": deadline_seconds,
             "_auren_agent_assignment": assignment.as_payload(),
         }
 
@@ -118,6 +120,15 @@ class AgentExecutionGuardTests(unittest.TestCase):
                     tampered, expected_action_class="edit_assigned_paths",
                     resource="portable/api.py", authorization_verifier=lambda _request: True,
                 )
+
+    def test_assignment_deadline_policy_cannot_be_changed(self):
+        payload = self._payload(deadline_seconds=30)
+        payload["_auren_deadline_policy_seconds"] = 60
+        with self.assertRaisesRegex(AgentAssignmentScopeDenied, "deadline does not match"):
+            self._validate(
+                payload, expected_action_class="edit_assigned_paths",
+                resource="portable/api.py", authorization_verifier=lambda _request: True,
+            )
 
     def test_stale_registry_digest_is_denied(self):
         payload = self._payload()
