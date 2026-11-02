@@ -63,6 +63,11 @@ class PersistentLearningObservabilityTests(unittest.TestCase):
                 evidence_ref="review:receipt-1", trace=trace,
                 parent_span_id=parent.span_id,
             )
+            store.retract(
+                receipt.receipt_id, reason="independent replay found a regression",
+                evidence_ref="retraction:receipt-1", trace=trace,
+                parent_span_id=parent.span_id,
+            )
 
             observed = {span.name: span for span in trace.spans[1:]}
             self.assertEqual(
@@ -71,6 +76,8 @@ class PersistentLearningObservabilityTests(unittest.TestCase):
                     "learning.persistence",
                     "learning.promotion_evidence_verification",
                     "learning.promotion_persistence",
+                    "learning.retraction_evidence_verification",
+                    "learning.retraction_persistence",
                 },
                 set(observed),
             )
@@ -81,9 +88,13 @@ class PersistentLearningObservabilityTests(unittest.TestCase):
             self.assertEqual("ok", observed["learning.persistence"].status)
             self.assertEqual("ok", observed["learning.promotion_evidence_verification"].status)
             self.assertEqual("ok", observed["learning.promotion_persistence"].status)
+            self.assertEqual("ok", observed["learning.retraction_evidence_verification"].status)
+            self.assertEqual("ok", observed["learning.retraction_persistence"].status)
             serialized = str(trace.as_dict())
             self.assertNotIn("arena:receipt-1", serialized)
             self.assertNotIn("review:receipt-1", serialized)
+            self.assertNotIn("retraction:receipt-1", serialized)
+            self.assertNotIn("independent replay found a regression", serialized)
 
     def test_unavailable_evidence_verification_is_visible_as_unscored(self):
         with tempfile.TemporaryDirectory() as tmp:
