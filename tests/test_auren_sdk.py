@@ -8,12 +8,20 @@ from portable.sdk import AurenClient, SDK_API_VERSION
 from portable.agent_org_runtime import REGISTRY_PATH, authorize_agent_assignment
 
 
+_SDK_NO_VERIFIER_INVOCATIONS = []
+
+
 def sdk_test_handler(payload):
     return {"accepted": True, "value": payload.get("value")}
 
 
 def sdk_assigned_handler(payload):
     return {"success": True, "evidence": ["sdk-assignment-verification"]}
+
+
+def sdk_no_verifier_handler(payload):
+    _SDK_NO_VERIFIER_INVOCATIONS.append(payload)
+    return sdk_assigned_handler(payload)
 
 
 class AurenClientTests(unittest.TestCase):
@@ -116,12 +124,11 @@ class AurenClientTests(unittest.TestCase):
 
     def test_sdk_assignment_without_dispatch_verifier_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
-            invoked = []
+            _SDK_NO_VERIFIER_INVOCATIONS.clear()
             client = AurenClient(tmp, dashboard_enabled=False)
             try:
                 client.register_handler(
-                    "sdk-assigned",
-                    lambda payload: invoked.append(payload) or sdk_assigned_handler(payload),
+                    "sdk-assigned", sdk_no_verifier_handler,
                     execution_class="read_only", agent_action_class="edit_assigned_paths",
                 )
                 task = client.submit_agent_task(
@@ -133,7 +140,7 @@ class AurenClientTests(unittest.TestCase):
                 )
                 client.run_once(task.id)
                 self.assertNotEqual("completed", client.task(task.id).state)
-                self.assertEqual([], invoked)
+                self.assertEqual([], _SDK_NO_VERIFIER_INVOCATIONS)
             finally:
                 client.close()
 
