@@ -888,5 +888,56 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
             stable_provider_operation_id("tenant", "deploy\\0provider", intent)
 
 
+    def test_state_graph_binds_provider_dispatch_span_to_live_node_span(self):
+        from portable.orchestration import Node, NodeKind, RunStatus
+        from portable.state_graph import StateGraph
+
+        trace_path = self.path.parent / "state-graph-provider-trace.jsonl"
+        tracer = Tracer(LocalExporter(trace_path, enabled=True))
+        lifecycle = ProviderOperationLifecycle(self.ledger())
+        operation_key = "state-graph:provider-dispatch"
+        intent = {"target": "staging", "revision": "trace-context-revision"}
+
+        def run_provider(_state):
+            receipt = lifecycle.execute(
+                operation_key,
+                "provider-a",
+                intent,
+                lambda payload, operation_id, key: _bound_completed_receipt(
+                    payload, operation_id, key, "provider-a", "remote-trace-context",
+                ),
+            )
+            return {"success": receipt["status"] == "completed"}
+
+        graph = StateGraph.from_nodes([
+            Node("provider-operation", NodeKind.AGENT, run_provider),
+        ])
+        result = graph.run("trace-context-task", "run provider operation", tracer=tracer)
+        self.assertEqual(RunStatus.ACCEPTED, result.status)
+        from portable.agency_observability import current_trace_context
+        self.assertIsNone(current_trace_context(), "trace context must be restored after graph execution")
+
+        records = [
+            json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()
+        ]
+        started = [
+            row for row in records
+            if row.get("event_type") == "span_started"
+            and (row.get("span") or {}).get("name") == "provider_dispatch:provider-a"
+        ]
+        self.assertEqual(1, len(started))
+        provider_span = started[0]["span"]
+        node_spans = [
+            row["span"] for row in records
+            if row.get("event_type") == "span_started"
+            and (row.get("span") or {}).get("name") == "node_execution:provider-operation"
+        ]
+        self.assertEqual(1, len(node_spans))
+        self.assertEqual(node_spans[0]["span_id"], provider_span["parent_id"])
+        self.assertEqual("provider", provider_span["phase"])
+        self.assertEqual("auren.provider_operation_lifecycle", provider_span["actor_id"])
+        self.assertNotIn("trace-context-revision", json.dumps(provider_span))
+
+
 if __name__ == "__main__":
     unittest.main()
