@@ -71,6 +71,9 @@ class TestAgencyObservability(unittest.TestCase):
         self.assertEqual({root.span_id, child.span_id}, {span.span_id for span in resumed.spans})
         resumed_child = resumed.span("resumed_provider", parent_id=root.span_id, phase="provider")
         resumed_child.finish({"reconciled": True}, "ok")
+        next(span for span in resumed.spans if span.span_id == root.span_id).finish(
+            {"children_reconciled": True}, "ok",
+        )
         tracer.end(resumed)
 
         records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
