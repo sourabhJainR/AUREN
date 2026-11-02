@@ -200,6 +200,30 @@ def authorize_agent_assignment(
     if action_class.strip() not in role["allowed_action_classes"]:
         raise AgentAssignmentDenied("action class is not permitted by the role contract")
 
+    # When a task is itself running under a delegated assignment, the active
+    # controller context is the authority for the manager identity and the
+    # maximum scope that may be delegated further. Never trust a nested caller
+    # to name a different manager or widen the parent's exact-path scope.
+    from .agent_execution_guard import (
+        current_agent_assignment_role,
+        current_agent_assignment_scope,
+    )
+    active_role = current_agent_assignment_role()
+    active_scope = current_agent_assignment_scope()
+    if active_role is not None or active_scope is not None:
+        if active_role is None or active_scope is None:
+            raise AgentAssignmentDenied(
+                "nested delegation requires a verified active manager identity and scope"
+            )
+        if manager_id.strip() != active_role:
+            raise AgentAssignmentDenied(
+                "nested delegation manager must match the active assigned agent role"
+            )
+        if not set(clean_scope).issubset(set(active_scope)):
+            raise AgentAssignmentDenied(
+                "nested delegation scope cannot exceed the active manager assignment"
+            )
+
     if (
         not isinstance(work_key, str) or not work_key.strip() or len(work_key.strip()) > 256
         or any(not char.isprintable() for char in work_key)
