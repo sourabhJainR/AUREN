@@ -76,15 +76,21 @@ def deliver_response(
         raise DeliveryBlocked("response exceeds configured total byte budget; split the task or raise an approved budget")
     manifest, chunks = chunk_response(text, max_bytes=max_chunk_bytes)
     delivery_stage = f"response-delivery:{manifest.response_id}"
+    # An ambiguous send is a task-level terminal delivery fence, not merely a
+    # response-digest fence. A replayed provider receipt can be re-serialized
+    # with different non-semantic metadata (for example a fresh observation
+    # timestamp), producing a new response_id. Matching only the digest would
+    # let that new payload bypass the prior unknown-outcome record and resend.
+    # Keep the task blocked until the receiver outcome is reconciled under a
+    # new operator-approved task, regardless of the next response digest/stage.
     if any(
         row.get("task_id") == task_id
-        and row.get("stage") == delivery_stage
         and row.get("event") == "response_chunk_outcome_unknown"
         for row in journal._events()
     ):
         raise DeliveryBlocked(
-            "an earlier chunk has an unknown remote outcome; reconcile receiver status "
-            "under a new operator-approved task before retrying"
+            "this task has an earlier chunk with an unknown remote outcome; reconcile receiver status "
+            "under a new operator-approved task before any further delivery"
         )
     checkpoint = journal.response_delivery_checkpoint(task_id, manifest.response_id)
     acknowledged = checkpoint["acknowledged_index"]
