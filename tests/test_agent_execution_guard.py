@@ -269,6 +269,45 @@ class AgentExecutionGuardTests(unittest.TestCase):
             self.assertEqual((root / "allowed.txt").read_text(encoding="utf-8"), "allowed")
 
 
+    def test_host_authorization_revocation_after_persistence_blocks_dispatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            authorization = {"allowed": True}
+            verification_calls = []
+
+            def verifier(request):
+                verification_calls.append(request["assignment_digest"])
+                return authorization["allowed"]
+
+            controller = ExecutionController(
+                root, agent_assignment_verifier=verifier
+            )
+            handler_name = "tests.test_agent_execution_guard.assigned_filesystem_handler"
+            controller.register_handler(
+                handler_name, assigned_filesystem_handler,
+                execution_class="read_only", agent_action_class="edit_assigned_paths",
+            )
+            payload = self._payload(("allowed.txt",), work_key="AUREN:test:revoked-assignment")
+            payload.update({
+                "workspace_root": str(root),
+                "content": "must not write after authorization revocation",
+            })
+            task = controller.submit(handler_name, payload)
+            self.assertEqual(len(verification_calls), 1)
+
+            # The host identity/policy service revokes the assignment after
+            # persistence. A fresh dispatch-time check must observe that change.
+            authorization["allowed"] = False
+            with self.assertRaisesRegex(
+                AgentAssignmentScopeDenied, "authorization verifier denied"
+            ):
+                controller.run_once(task.id)
+
+            self.assertEqual(len(verification_calls), 2)
+            self.assertEqual(verification_calls[0], verification_calls[1])
+            self.assertNotEqual(controller.task(task.id).state, "completed")
+            self.assertFalse((root / "allowed.txt").exists())
+
     def test_direct_controller_submission_requires_host_verifier_before_persistence(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
