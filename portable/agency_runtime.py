@@ -171,6 +171,7 @@ def _record_worker_observations(trace, worker_span, raw: Mapping[str, object], s
     max_events = 100
     events: list[Mapping[str, object]] = []
     truncated_events = 0
+    processed_events = 0
     truncated_sources: list[str] = []
     for key, default_phase in event_sources:
         raw_events = raw.get(key, ())
@@ -180,11 +181,12 @@ def _record_worker_observations(trace, worker_span, raw: Mapping[str, object], s
             trace.metadata["worker_observation_errors"] = int(trace.metadata.get("worker_observation_errors", 0)) + 1
             continue
         for index, raw_event in enumerate(raw_events):
-            if len(events) >= max_events:
+            if processed_events >= max_events:
                 truncated_events += len(raw_events) - index
                 if key not in truncated_sources:
                     truncated_sources.append(key)
                 break
+            processed_events += 1
             if not isinstance(raw_event, Mapping):
                 trace.metadata["worker_observation_errors"] = int(trace.metadata.get("worker_observation_errors", 0)) + 1
                 continue
