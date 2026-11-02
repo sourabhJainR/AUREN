@@ -95,6 +95,30 @@ class AgentExecutionGuardTests(unittest.TestCase):
                     authorization_verifier=lambda _request: True,
                 )
 
+    def test_assignment_is_bound_to_work_key_budget_and_approval_evidence(self):
+        original = self._payload()
+        tampered_work_key = dict(original)
+        tampered_work_key["work_key"] = "AUREN:test:other-task"
+        with self.assertRaisesRegex(AgentAssignmentScopeDenied, "work_key does not match"):
+            self._validate(
+                tampered_work_key, expected_action_class="edit_assigned_paths",
+                resource="portable/api.py", authorization_verifier=lambda _request: True,
+            )
+
+        for field, value in (
+            ("budget", {"tokens": 10}),
+            ("approval_evidence", {"receipt": "forged"}),
+        ):
+            tampered = dict(original)
+            tampered[field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(
+                AgentAssignmentScopeDenied, "payload digest does not match"
+            ):
+                self._validate(
+                    tampered, expected_action_class="edit_assigned_paths",
+                    resource="portable/api.py", authorization_verifier=lambda _request: True,
+                )
+
     def test_stale_registry_digest_is_denied(self):
         payload = self._payload()
         payload["_auren_agent_assignment"]["registry_digest"] = "0" * 64
