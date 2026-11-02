@@ -318,6 +318,7 @@ class VibeAdapterRegistry:
             delivery_task_id = resolved_context.get("task_id")
             if not isinstance(delivery_task_id, str) or not delivery_task_id.strip():
                 raise AdapterUnavailable("host response delivery context must resolve a durable task_id")
+            delivery_task_id = delivery_task_id.strip()
             state_task_id = state.get("task_id")
             if state_task_id is not None and str(state_task_id).strip() and str(state_task_id).strip() != delivery_task_id:
                 raise AdapterUnavailable("host response delivery task_id does not match the invocation task_id")
