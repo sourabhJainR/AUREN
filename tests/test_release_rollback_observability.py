@@ -19,8 +19,12 @@ class ReleaseRollbackObservabilityTests(unittest.TestCase):
             store = ArtifactStore(root / "release")
             v1 = store.stage(first, "v1")
             v2 = store.stage(second, "v2")
+            store.transition("canary", v1, "stage known-good",
+                             verification_digest="verify-v1", review_digest="review-v1")
             store.transition("promote", v1, "initial release",
                              verification_digest="verify-v1", review_digest="review-v1")
+            store.transition("canary", v2, "stage candidate",
+                             verification_digest="verify-v2", review_digest="review-v2")
             store.transition("promote", v2, "candidate release",
                              verification_digest="verify-v2", review_digest="review-v2")
 
