@@ -16,7 +16,7 @@ from typing import Any, Callable, Iterator, Mapping
 
 from .agent_org_runtime import REGISTRY_PATH, load_agent_org_registry
 
-_SCHEMA = "auren-agent-assignment-v2"
+_SCHEMA = "auren-agent-assignment-v3"
 _ASSIGNMENT_KEY = "_auren_agent_assignment"
 _MAX_SCOPE_ITEMS = 100
 _MAX_SCOPE_LENGTH = 512
