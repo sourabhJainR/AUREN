@@ -1,12 +1,39 @@
 # Standalone Readiness and Important-Gap Matrix
 
-**Reviewed:** 2026-10-28  
+**Reviewed:** 2026-11-03  
 **Product version:** 1.0.6 (no release created by this review)  
 **Status vocabulary:** implemented locally, repository-verified, deployment-verified, externally verified, or open. A merged PR or green CI does not establish external isolation or independent evaluation.
 
 ## Release scope note — 2026-11-02
 
 For the current implementation PRs #1210 and #1211, release scope is the repository-owned code, regression tests, code review, exact-head CI and complete implementation documentation. Deployment-specific receiver configuration and durability, production OS isolation, independent evaluator/holdout custody, external learning persistence, multi-host recovery, and operator-run migration/rollback rehearsals are post-release acceptance work. They remain open product-readiness items and must not be represented as completed, but they are not prerequisites for merging these bounded repository changes. The broader matrix below continues to track those product-level gates. When main advances while a PR remains open, rerun the integration-conflict guard and exact-head checks against the updated base before merging. PR #1210 merged at `b7f71b86af07c557f26699fcb0edd77e7d5a8da4`. PR #1211 was rebased onto that revision, passed all seven exact-head workflows, and merged at `dbf339fb6482aa94456152691430ed8c087f7ec9`.
+
+## Repository implementation closeout — 2026-11-03
+
+The following repository-owned work is merged and verified. The listed CI results are exact-head pre-merge evidence; they are not a claim that production hosts, independent evaluators or external operators have been audited.
+
+| PR | Merge commit | Delivered repository behavior | Exact-head checks |
+|---|---|---|---|
+| [#1210](https://github.com/sourabhJainR/AUREN/pull/1210) | `b7f71b86af07c557f26699fcb0edd77e7d5a8da4` | Opt-in Vibe stage delivery through configured receivers; trusted task-context preflight; bounded response chunks and total bytes; exact acknowledgements; canonical progress-journal cursor; shared execution guard, deadline and cancellation; ambiguity blocks unsafe replay. | Six workflows passed |
+| [#1211](https://github.com/sourabhJainR/AUREN/pull/1211) | `dbf339fb6482aa94456152691430ed8c087f7ec9` | Scoped StateGraph trace context for node, evaluator and repair callbacks; provider-operation inheritance; per-worker context propagation for parallel specialists; no trace metadata added to provider intent or task payloads. | Seven workflows passed |
+| [#1212](https://github.com/sourabhJainR/AUREN/pull/1212) | `a96936881dd96ab15adfb4fd248cd43443705b1e` | README, public site and docs index refreshed with merged implementation status and explicit post-release boundaries. | Eight workflows passed |
+
+The documentation-only refresh keeps `site/index.html` and `docs/index.html` byte-identical. The current `main` revision was checked after the merge; the three PRs above are recorded as merged. No product version bump or release is claimed.
+
+### Release boundary
+
+**In release scope:** repository-owned implementation, deterministic regression tests, code review, exact-head CI, operational contracts, troubleshooting, rollback instructions and accurate public/project documentation.
+
+**Post-release acceptance only:** deployment-specific receiver configuration and durability; real provider-side-effect receipts and cross-adapter ambiguity reconciliation; multi-host recovery/admission; production OS/process/filesystem/network/secret isolation; separately controlled Arena evaluator and sealed holdout custody; external learning persistence; owner/admin confirmation of branch required-check enforcement; and operator-controlled staging migration, fresh-process recovery and rollback rehearsal.
+
+Do not block the repository implementation merge on these external inputs. Do not mark any of them complete until the corresponding host, evaluator, security auditor or operator supplies independently reviewable evidence. Keep the #534 migration and rollback gate open until both state roots and reconciliation receipts are preserved and reviewed.
+
+### Regression and rollback
+
+- Vibe delivery remains opt-in. With no receiver configured, existing adapter behavior is unchanged.
+- Keep exact receiver acknowledgement, durable cursor and ambiguity replay-fence tests. A rollback removes the Vibe receiver wiring and its tests together; preserve durable task and acknowledgement records.
+- Trace propagation remains scoped and context-local. A rollback removes StateGraph/provider trace binding and its regression tests together; preserve existing trace records and never add trace metadata to provider intent or task payloads.
+- Re-run the affected adapter, provider lifecycle, StateGraph, runtime resilience, architecture and portable-bundle suites on the exact candidate head before any future change is merged.
 
 ## Product boundaries
 
@@ -420,9 +447,9 @@ These tests establish workflow contracts with deterministic fixtures. They do no
 
 | Gate | Current status | Evidence still required |
 |---|---|---|
-| #696 unified runtime, learning, delivery and dashboard | In progress; core delivery, host personas and dashboard UI merged; telemetry and fail-closed budget resume under review | Final exact-head CI, production host configuration, full end-to-end lifecycle and external readiness evidence |
-| #692 recursive harness learning | Independent lab and reviewed-memory routing implemented | Causal attribution, real model adapters, pinned baselines, sealed holdouts, transfer and independent Arena custody |
-| #694 spec-driven persistent planning | Architect/manager personas and task-scoped evidence context implemented | Durable plan evolution, dependency changes, fresh-context resume, contradiction and staleness tests |
+| #696 unified runtime, learning, delivery and dashboard | Repository integrations #1210 and #1211 merged; documentation refreshed in #1212 | Continue repository-owned work against explicit regression gates; production host configuration and external readiness evidence are post-release acceptance |
+| #692 recursive harness learning | Repository foundations and independent lab workflow implemented | Continue repository-owned causal-attribution, reproducibility and transfer tests; real model adapters, sealed external holdouts and independent Arena custody are post-release acceptance |
+| #694 spec-driven persistent planning | Architect/manager personas and task-scoped evidence context implemented | Complete repository-owned plan evolution, dependency-change, fresh-context resume, contradiction and staleness tests |
 | #809 durable human approval and resumable side effects | Not closed | Real host approval boundary; provider idempotency; restart, cancellation, deadline, timeout and final-ack proof |
 | #534 migration and rollback | Blocked | Operator-controlled staging migration, fresh-process recovery, rollback and post-cutover reconciliation receipts |
 | Independent Arena / OS isolation | Not production-ready | External custody, repeatable adversarial holdouts, OS-level isolation audit and signed attestation |
