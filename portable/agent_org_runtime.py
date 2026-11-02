@@ -186,11 +186,11 @@ def authorize_agent_assignment(
     if action_class.strip() not in role["allowed_action_classes"]:
         raise AgentAssignmentDenied("action class is not permitted by the role contract")
 
-    if work_key is not None and (
+    if (
         not isinstance(work_key, str) or not work_key.strip() or len(work_key.strip()) > 256
         or any(not char.isprintable() for char in work_key)
     ):
-        raise ValueError("assignment work_key must be non-empty printable text of at most 256 characters")
+        raise ValueError("assigned work requires a non-empty stable work_key of at most 256 characters")
     if deadline_seconds is not None and (
         isinstance(deadline_seconds, bool) or not isinstance(deadline_seconds, (int, float))
         or not math.isfinite(deadline_seconds) or not 0 < deadline_seconds <= 86400
@@ -221,7 +221,7 @@ def authorize_agent_assignment(
         "registry_digest": registry_digest,
         "policy_version": policy_version,
         "policy_digest": policy_digest,
-        "work_key": work_key.strip() if isinstance(work_key, str) else None,
+        "work_key": work_key.strip(),
         "task_payload_digest": task_payload_digest,
         "deadline_seconds": normalized_deadline_seconds,
     }
