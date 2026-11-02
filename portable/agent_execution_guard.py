@@ -196,9 +196,21 @@ def validate_agent_assignment_for_dispatch(
         raise AgentAssignmentScopeDenied("host-owned assignment authorization verification failed") from exc
     if authorized is not True:
         raise AgentAssignmentScopeDenied("host-owned assignment authorization verifier denied the assignment")
+    # A handler may consume more than one resource-shaped payload field. Checking
+    # only the controller-selected primary selector lets a conflicting alias
+    # (for example resource="allowed.txt", path="secrets.txt") reach the handler.
+    # Validate every supported selector before invoking the host verifier or
+    # entering the handler; operation adapters still enforce scope at use time.
+    for field in ("resource", "resource_id", "path"):
+        if field not in payload or payload[field] is None:
+            continue
+        alias_target = _safe_relative_resource(payload[field], field=f"{field} selector")
+        if alias_target not in clean_scope:
+            raise AgentAssignmentScopeDenied(
+                f"task {field} selector is outside the assigned scope"
+            )
     target = _safe_relative_resource(resource, field="resource selector")
-    allowed = target in clean_scope
-    if not allowed:
+    if target not in clean_scope:
         raise AgentAssignmentScopeDenied("task resource is outside the assigned scope")
     return tuple(clean_scope)
 
