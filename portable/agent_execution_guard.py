@@ -82,7 +82,7 @@ def validate_agent_assignment_for_dispatch(
     required = {
         "schema_version", "assignment_id", "role_id", "manager_id", "action_class",
         "scope", "registry_digest", "policy_version", "policy_digest",
-        "assignment_digest", "authorization",
+        "assignment_digest", "work_key", "task_payload_digest", "authorization",
     }
     if set(envelope) != required or envelope.get("schema_version") != _SCHEMA:
         raise AgentAssignmentScopeDenied("agent assignment schema is invalid")
@@ -127,6 +127,20 @@ def validate_agent_assignment_for_dispatch(
         raise AgentAssignmentScopeDenied("assigned work requires a trusted handler action class")
     if action_class != expected_action_class:
         raise AgentAssignmentScopeDenied("assignment action class does not match the registered handler")
+    work_key = envelope.get("work_key")
+    if not isinstance(work_key, str) or not work_key.strip() or len(work_key.strip()) > 256:
+        raise AgentAssignmentScopeDenied("assigned work requires a stable work_key")
+    if payload.get("work_key") != work_key:
+        raise AgentAssignmentScopeDenied("assignment work_key does not match the durable task")
+    clean_task_payload = dict(payload)
+    clean_task_payload.pop(_ASSIGNMENT_KEY, None)
+    clean_task_payload.pop("_auren_workflow_profile", None)
+    clean_task_payload.pop("_auren_workflow_profile_digest", None)
+    clean_task_payload.pop("work_key", None)
+    task_payload_digest = hashlib.sha256(_canonical(clean_task_payload)).hexdigest()
+    if envelope.get("task_payload_digest") != task_payload_digest:
+        raise AgentAssignmentScopeDenied("assignment task payload digest does not match the durable task")
+
     body = {
         "schema_version": _SCHEMA,
         "role_id": role_id,
@@ -136,6 +150,8 @@ def validate_agent_assignment_for_dispatch(
         "registry_digest": registry_digest,
         "policy_version": policy_version,
         "policy_digest": policy_digest,
+        "work_key": work_key,
+        "task_payload_digest": task_payload_digest,
     }
     digest = hashlib.sha256(_canonical(body)).hexdigest()
     if envelope.get("assignment_digest") != digest:
@@ -155,6 +171,8 @@ def validate_agent_assignment_for_dispatch(
         "policy_version": policy_version,
         "policy_digest": policy_digest,
         "assignment_digest": digest,
+        "work_key": work_key,
+        "task_payload_digest": task_payload_digest,
     })
     try:
         authorized = authorization_verifier(verification_request)
