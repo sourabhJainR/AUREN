@@ -694,5 +694,143 @@ class VibeCodingAdapterTests(unittest.TestCase):
             registry.restore_stats(snapshot)
 
 
+    def test_host_stage_output_uses_durable_receiver_acknowledgements(self):
+        from portable.progress_journal import ProgressJournal
+        from portable.response_delivery import chunk_response
+        with tempfile.TemporaryDirectory() as directory:
+            journal = ProgressJournal(Path(directory) / "progress.jsonl")
+            journal.record("host-task-1", "task_started", state="running", stage="vibe-stage")
+            received = []
+            def receiver(chunk):
+                received.append(chunk)
+                return {
+                    "response_id": chunk.response_id,
+                    "index": chunk.index,
+                    "chunk_sha256": chunk.sha256,
+                }
+            registry = VibeAdapterRegistry(
+                response_delivery_receivers={VibeStage.RESEARCH: receiver},
+                response_delivery_journal=journal,
+                response_delivery_context=lambda _state: {"task_id": "host-task-1"},
+                response_delivery_max_chunk_bytes=64,
+            )
+            registry.register(AdapterRegistration(
+                "research-delivery", "1", (VibeStage.RESEARCH,),
+                frozenset(default_stage_capabilities()[VibeStage.RESEARCH.value]),
+                lambda _request: output_for(VibeStage.RESEARCH, {}),
+                risk="medium",
+            ))
+            result = registry.invoke(VibeStage.RESEARCH, {
+                "task_id": "host-task-1", "vibe_coding_workflow_id": "workflow-delivery",
+                "intent": "research a product",
+            })
+            expected = json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+            manifest, expected_chunks = chunk_response(expected, max_bytes=64)
+            self.assertEqual([chunk.text for chunk in received], [chunk.text for chunk in expected_chunks])
+            checkpoint = journal.response_delivery_checkpoint("host-task-1", manifest.response_id)
+            self.assertEqual(checkpoint["acknowledged_index"], manifest.total_chunks)
+            self.assertEqual(checkpoint["response_sha256"], manifest.sha256)
+
+    def test_host_stage_delivery_rejects_incomplete_configuration(self):
+        from portable.progress_journal import ProgressJournal
+        with tempfile.TemporaryDirectory() as directory:
+            journal = ProgressJournal(Path(directory) / "progress.jsonl")
+            with self.assertRaisesRegex(TypeError, "trusted host context resolver"):
+                VibeAdapterRegistry(
+                    response_delivery_receivers={VibeStage.RESEARCH: lambda _chunk: {}},
+                    response_delivery_journal=journal,
+                )
+            with self.assertRaisesRegex(ValueError, "require at least one configured receiver"):
+                VibeAdapterRegistry(response_delivery_journal=journal)
+
+    def test_provider_stage_delivery_ambiguity_does_not_redispatch_side_effect(self):
+        from portable.progress_journal import ProgressJournal
+        from portable.response_delivery_transport import DeliveryOutcomeUnknown, DeliveryBlocked
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = DurableSideEffectLedger(Path(directory) / "side-effects.sqlite3")
+            journal = ProgressJournal(Path(directory) / "progress.jsonl")
+            journal.record("host-task-2", "task_started", state="running", stage="vibe-stage")
+            provider_calls = []
+            receiver_calls = []
+            def provider(request):
+                provider_calls.append(request)
+                return {
+                    **output_for(VibeStage.PREVIEW_DEPLOYMENT, request["state"]),
+                    "provider_operation_id": "remote-preview-delivery-1",
+                }
+            def receiver(chunk):
+                receiver_calls.append(chunk.index)
+                raise OSError("receiver disconnected after send")
+            registry = VibeAdapterRegistry(
+                max_risk="critical",
+                side_effect_ledger=ledger,
+                response_delivery_receivers={VibeStage.PREVIEW_DEPLOYMENT: receiver},
+                response_delivery_journal=journal,
+                response_delivery_context=lambda _state: {"task_id": "host-task-2"},
+            )
+            stage = VibeStage.PREVIEW_DEPLOYMENT
+            registry.register(AdapterRegistration(
+                "preview-delivery", "1", (stage,),
+                frozenset(default_stage_capabilities()[stage.value]),
+                provider,
+                risk=next(spec.risk for spec in STAGE_SPECS if spec.stage == stage),
+                external_side_effects=True,
+                lookup_operation=lambda operation_id, operation_key: {
+                    "status": "unknown", "operation_id": operation_id, "operation_key": operation_key,
+                },
+                supports_provider_idempotency=True,
+                lookup_not_found_is_authoritative=True,
+            ))
+            state = {
+                "task_id": "host-task-2",
+                "vibe_coding_workflow_id": "workflow-preview-delivery",
+                "intent": "deploy preview", "risk": "high",
+            }
+            with self.assertRaises(DeliveryOutcomeUnknown):
+                registry.invoke(stage, state)
+            with self.assertRaises(DeliveryBlocked):
+                registry.invoke(stage, state)
+            self.assertEqual(1, len(provider_calls))
+            self.assertEqual([1], receiver_calls)
+
+    def test_host_stage_delivery_enforces_shared_guard_before_next_chunk(self):
+        from portable.progress_journal import ProgressJournal
+        from portable.runtime_recovery import RuntimeExecutionGuard
+        from portable.response_delivery_transport import DeliveryBlocked
+        with tempfile.TemporaryDirectory() as directory:
+            journal = ProgressJournal(Path(directory) / "progress.jsonl")
+            journal.record("host-task-3", "task_started", state="running", stage="vibe-stage")
+            sent = []
+            guard = RuntimeExecutionGuard(max_delivery_bytes=80)
+            def receiver(chunk):
+                sent.append(chunk.index)
+                return {
+                    "response_id": chunk.response_id,
+                    "index": chunk.index,
+                    "chunk_sha256": chunk.sha256,
+                }
+            registry = VibeAdapterRegistry(
+                response_delivery_receivers={VibeStage.RESEARCH: receiver},
+                response_delivery_journal=journal,
+                response_delivery_context=lambda _state: {
+                    "task_id": "host-task-3", "execution_guard": guard,
+                },
+                response_delivery_max_chunk_bytes=40,
+            )
+            registry.register(AdapterRegistration(
+                "research-budgeted-delivery", "1", (VibeStage.RESEARCH,),
+                frozenset(default_stage_capabilities()[VibeStage.RESEARCH.value]),
+                lambda _request: {**output_for(VibeStage.RESEARCH, {}), "detail": "x" * 500},
+                risk="medium",
+            ))
+            with self.assertRaises(DeliveryBlocked):
+                registry.invoke(VibeStage.RESEARCH, {
+                    "task_id": "host-task-3", "vibe_coding_workflow_id": "workflow-budgeted",
+                    "intent": "research a product",
+                })
+            self.assertEqual([1, 2], sent)
+            self.assertEqual(80, guard.delivery_bytes_used)
+
+
 if __name__ == "__main__":
     unittest.main()
