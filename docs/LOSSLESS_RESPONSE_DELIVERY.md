@@ -262,21 +262,29 @@ every deployment has enabled or independently audited it.
 | CLI `auren deliver` stdin/stdout | Intentionally unsupported for resumable chunking | Prevalidates total bytes; complete stdout writes return a digest receipt; partial writes return an unknown outcome and are not retried. Covered by `tests/test_response_delivery_sinks.py`, including subprocess tests. | No receiver acknowledgement exists on a generic stdout pipe, so replay/resume cannot be claimed. |
 | CLI `auren deliver` file output | Intentionally unsupported for resumable chunking | Same-directory staging and atomic commit; no implicit overwrite; digest receipt. Covered by sink and subprocess tests. | Atomic file replacement is the completion contract; no remote receiver cursor is available. |
 | MCP stdio JSON-RPC | Intentionally unsupported for chunking | Each protocol frame remains atomic and byte-bounded. Oversized frames fail closed; process cleanup remains part of the MCP boundary. | Never split JSON-RPC frames. A future MCP chunk protocol would require explicit peer capability negotiation and a separate protocol contract. |
-| `portable.response_delivery_transport.deliver_response` | Reusable primitive only; not yet integrated into a production host call site | Synchronous receiver call provides one-chunk backpressure; digest-bound acknowledgements are journaled; restart resumes after the last acknowledged chunk; ambiguous outcomes block replay; shared guard and cancellation/deadline checks are supported. Covered by `tests/test_response_delivery_transport.py` and `benchmarks/response_delivery_comparison.py`. | Default-branch call-site search found references in tests and the benchmark, but no production runtime caller. Wire it into a real host adapter before claiming end-to-end integration. |
+| `portable.response_delivery_transport.deliver_response` | Integrated as an opt-in Vibe stage host-adapter path; not enabled by default | `VibeAdapterRegistry` resolves the trusted supervisor task context before adapter dispatch, rejects task-ID mismatch, cancellation and expired deadlines before work begins, then sends the validated/sanitized stage result through the canonical `ProgressJournal`. Digest-bound acknowledgements, bounded chunks, shared guard charging, resume cursors and ambiguous-outcome replay fences are covered by `tests/test_vibe_coding_adapters.py` and the transport suite. | A deployment must supply a real durable receiver and trusted context resolver. This repository integration does not prove the receiver's storage or production host isolation. |
 | Content-addressed response artifacts | Integrated for dashboard chunk delivery | The dashboard stages immutable manifest/chunk artifacts and validates them on reload before serving chunks. | This is not a general-purpose persistence hook for every test, evaluator, provider or tool output. |
 | Provider/model results, tool outputs, test reports and evaluator reports outside the dashboard route | Blocked / not yet proven as end-to-end host integrations | Existing runtime code may retain or pass these values internally, but the repository evidence inspected for this inventory does not establish a receiver-acknowledged delivery boundary for every such path. | Each concrete host call site needs an owner, a supported receiver contract, byte bounds, cancellation/deadline/shared-budget propagation, durable ack/resume where supported, and boundary tests. Until then, do not describe these paths as integrated. |
 | Chat/UI final response delivery outside AUREN's own HTTP dashboard | Blocked / host-controlled | AUREN cannot infer delivery acknowledgement or resume support from a platform response API that does not expose those capabilities. | Treat platform delivery as unconfirmed unless the host supplies a verifiable receipt/cursor. Do not claim that AUREN controls or extends platform response limits. |
 
-### Closure rule for #1140
+### Release scope and post-release work for #1140
 
-The dashboard, CLI and MCP dispositions above are explicit. The opt-in transport
-adapter is reusable but does not satisfy automatic integration of every provider,
-tool, test and evaluator output. Keep #1140 open until those concrete call sites are
-enumerated and each is either integrated with real boundary tests or deliberately
-marked unsupported with a named owner and reason. Do not close the issue based only
-on helper tests or this inventory.
+The dashboard, CLI, MCP and Vibe stage adapter dispositions above are explicit.
+Repository release scope includes the opt-in Vibe adapter wiring, trusted-context
+preflight, byte bounds, shared-budget propagation, exact acknowledgement checks,
+durable resume cursor and replay-fence regression tests. The default host behavior
+is unchanged when no receiver is configured.
+
+Post-release work is to connect deployment-specific receivers and to enumerate any
+additional provider, tool, test and evaluator output call sites that need this
+contract. Each host integration must identify its receiver owner, durable acceptance
+semantics, cancellation/deadline/shared-budget source and recovery procedure. A
+platform that cannot acknowledge and resume output remains explicitly unsupported
+for resumable delivery; do not infer those capabilities from a successful send.
+Production receiver durability, multi-host recovery and host isolation require
+separate operator evidence and are not release claims.
 
 Regression and rollback: preserve the atomic CLI/file behavior, MCP frame rejection,
-dashboard acknowledgement fencing and byte caps. Any future adapter rollback must
-remove its host wiring and tests together while retaining the fail-closed bounds and
-existing durable task/acknowledgement records.
+dashboard acknowledgement fencing and byte caps. If the Vibe integration is rolled
+back, remove its host wiring and tests together while retaining the fail-closed
+bounds and existing durable task/acknowledgement records.
