@@ -10,7 +10,7 @@ import json
 from typing import Any, Callable, Mapping
 
 from .side_effect_ledger import DurableSideEffectLedger, InvalidSideEffectTransition
-from .agency_observability import Trace
+from .agency_observability import Trace, current_trace_context
 
 
 class ProviderOutcomeBlocked(RuntimeError):
@@ -67,6 +67,13 @@ class ProviderOperationLifecycle:
                 trace: Trace | None = None, parent_span_id: str | None = None) -> Mapping[str, Any]:
         if not isinstance(intent, Mapping) or not callable(dispatch):
             raise TypeError("intent mapping and dispatch callable are required")
+        active_context = current_trace_context()
+        if active_context is not None:
+            active_trace, active_parent = active_context
+            if trace is None:
+                trace = active_trace
+            if parent_span_id is None and trace is active_trace:
+                parent_span_id = active_parent
         op_id = stable_provider_operation_id(operation_key, provider, intent)
         payload = {"provider": provider, "operation_id": op_id, "intent": dict(intent)}
         decision = self.ledger.begin(operation_key, payload)
@@ -209,6 +216,13 @@ class ProviderOperationLifecycle:
     def reconcile(self, operation_key: str, provider: str, intent: Mapping[str, Any],
                   lookup: Callable[[str, str], Mapping[str, Any]] | None,
                   *, trace: Trace | None = None, parent_span_id: str | None = None) -> Mapping[str, Any]:
+        active_context = current_trace_context()
+        if active_context is not None:
+            active_trace, active_parent = active_context
+            if trace is None:
+                trace = active_trace
+            if parent_span_id is None and trace is active_trace:
+                parent_span_id = active_parent
         op_id = stable_provider_operation_id(operation_key, provider, intent)
         record = self.ledger.get(operation_key)
         if record is None:
