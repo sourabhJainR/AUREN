@@ -1,6 +1,6 @@
 # Lossless response transport adapter
 
-The optional `portable.response_delivery_transport.deliver_response` adapter is for host consumers whose output protocol explicitly supports chunked delivery. It reuses `portable.response_delivery` and `ProgressJournal`; it does not create another response store.
+The optional `portable.response_delivery_transport.deliver_response` adapter is for host consumers whose output protocol explicitly supports chunked delivery. It reuses `portable.response_delivery` and `ProgressJournal`; it does not create another response store. `VibeAdapterRegistry` now exposes this transport as an opt-in stage-output boundary. The host must supply a receiver, the canonical journal, and a trusted resolver for an existing supervisor task. The resolver is checked before stage dispatch; a mismatched task ID, cancellation, expired deadline or invalid guard fails closed. Existing hosts that do not configure a receiver retain their current atomic result behavior.
 
 ## Guarantees
 
@@ -53,3 +53,9 @@ python auren_cli.py deliver --input result.json --output ./out/result.json --max
 The Session Control Center /api/sessions and /api/control-center responses now include delivery worker capacity, durable task counts, acknowledged chunk count, unknown outcomes, and receiver-acknowledged delivery count. Metrics are projections from the execution controller and progress journal; the in-process saturation counter is operational telemetry, not an audit ledger.
 
 A paired baseline/candidate benchmark is available at benchmarks/response_delivery_comparison.py. CI uploads the report as an artifact. It records integrity, recovery, latency, peak traced memory and transported-byte cost proxy. Monetary provider cost is explicitly null because the local benchmark has no metered provider. No performance claim should be made until the exact-head benchmark artifact is inspected.
+
+## Vibe stage adapter integration
+
+For configured stages, the adapter result is sanitized and validated before deterministic serialization. The host receiver must acknowledge the response digest, chunk index and chunk digest exactly. The progress journal advances only after that acknowledgement. The same runtime guard may be supplied by the supervisor crew; its byte budget is charged before each send. A receiver exception or unverifiable acknowledgement records an unknown outcome and blocks automatic replay. For consequential stages, the completed provider-operation receipt is reused while delivery recovery resumes, so the external operation is not dispatched again.
+
+This is a repository-level integration hook, not a production receiver implementation. Receiver durability, deployment configuration, network failure behavior and multi-host recovery remain post-release operator acceptance work. MCP JSON-RPC frames remain atomic and must not be split.

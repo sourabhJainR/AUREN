@@ -22,6 +22,8 @@ from .agency_registry import rank as rank_agents
 from .agent_capabilities import redact
 from .vibe_coding import STAGE_ORDER, STAGE_SPECS, VibeStage, build_vibe_coding_graph, validate_stage_output
 from .provider_operation_lifecycle import ProviderOperationLifecycle
+from .progress_journal import ProgressJournal
+from .response_delivery_transport import deliver_response
 from .side_effect_ledger import DurableSideEffectLedger
 
 Adapter = Callable[[Mapping[str, Any]], Mapping[str, Any]]
@@ -179,6 +181,11 @@ class VibeAdapterRegistry:
         learning_store_path: str | Path | None = None,
         side_effect_ledger: DurableSideEffectLedger | None = None,
         side_effect_event_recorder: Callable[[Mapping[str, Any]], None] | None = None,
+        response_delivery_receivers: Mapping[VibeStage | str, Callable[[Any], Mapping[str, object]]] | None = None,
+        response_delivery_journal: ProgressJournal | None = None,
+        response_delivery_context: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
+        response_delivery_max_chunk_bytes: int = 12_000,
+        response_delivery_max_total_bytes: int = 8_000_000,
     ) -> None:
         if max_risk not in {"low", "medium", "high", "critical"}:
             raise ValueError("invalid max_risk")
@@ -199,6 +206,29 @@ class VibeAdapterRegistry:
                 side_effect_ledger, record_event=side_effect_event_recorder,
             ) if side_effect_ledger is not None else None
         )
+        self.response_delivery_receivers: dict[VibeStage, Callable[[Any], Mapping[str, object]]] = {}
+        for raw_stage, receiver in (response_delivery_receivers or {}).items():
+            stage = raw_stage if isinstance(raw_stage, VibeStage) else VibeStage(str(raw_stage))
+            if not callable(receiver):
+                raise TypeError(f"response delivery receiver for {stage.value} must be callable")
+            if stage in self.response_delivery_receivers:
+                raise ValueError(f"duplicate response delivery receiver for {stage.value}")
+            self.response_delivery_receivers[stage] = receiver
+        if self.response_delivery_receivers:
+            if not isinstance(response_delivery_journal, ProgressJournal):
+                raise TypeError("configured response delivery requires the canonical ProgressJournal")
+            if not callable(response_delivery_context):
+                raise TypeError("configured response delivery requires a trusted host context resolver")
+        elif response_delivery_journal is not None or response_delivery_context is not None:
+            raise ValueError("response delivery journal and context require at least one configured receiver")
+        if type(response_delivery_max_chunk_bytes) is not int or response_delivery_max_chunk_bytes < 4:
+            raise ValueError("response_delivery_max_chunk_bytes must be an integer >= 4")
+        if type(response_delivery_max_total_bytes) is not int or response_delivery_max_total_bytes < 0:
+            raise ValueError("response_delivery_max_total_bytes must be a non-negative integer")
+        self.response_delivery_journal = response_delivery_journal
+        self.response_delivery_context = response_delivery_context
+        self.response_delivery_max_chunk_bytes = response_delivery_max_chunk_bytes
+        self.response_delivery_max_total_bytes = response_delivery_max_total_bytes
         self.learning_store_path = Path(learning_store_path).expanduser() if learning_store_path else None
         self._learning_loaded = False
 
@@ -277,6 +307,40 @@ class VibeAdapterRegistry:
                capabilities: Sequence[str] | None = None) -> Mapping[str, Any]:
         selected = self.select(stage, capabilities)
         workflow_id = str(state.get("vibe_coding_workflow_id", state.get("task_id", ""))).strip()
+        receiver = self.response_delivery_receivers.get(stage)
+        delivery_context: Mapping[str, Any] | None = None
+        if receiver is not None:
+            assert self.response_delivery_context is not None
+            assert self.response_delivery_journal is not None
+            resolved_context = self.response_delivery_context(state)
+            if not isinstance(resolved_context, Mapping):
+                raise AdapterUnavailable("host response delivery context must be a mapping")
+            delivery_task_id = resolved_context.get("task_id")
+            if not isinstance(delivery_task_id, str) or not delivery_task_id.strip():
+                raise AdapterUnavailable("host response delivery context must resolve a durable task_id")
+            delivery_task_id = delivery_task_id.strip()
+            state_task_id = state.get("task_id")
+            if state_task_id is not None and str(state_task_id).strip() and str(state_task_id).strip() != delivery_task_id:
+                raise AdapterUnavailable("host response delivery task_id does not match the invocation task_id")
+            deadline = resolved_context.get("deadline_monotonic")
+            if deadline is not None and (
+                isinstance(deadline, bool) or not isinstance(deadline, (int, float))
+                or not math.isfinite(deadline)
+            ):
+                raise AdapterUnavailable("host response delivery deadline must be a finite monotonic timestamp")
+            cancelled = resolved_context.get("is_cancelled")
+            if cancelled is not None and not callable(cancelled):
+                raise AdapterUnavailable("host response delivery cancellation probe must be callable")
+            execution_guard = resolved_context.get("execution_guard")
+            if execution_guard is not None and not callable(getattr(execution_guard, "consume_delivery_bytes", None)):
+                raise AdapterUnavailable("host response delivery guard must expose consume_delivery_bytes")
+            if cancelled is not None and cancelled():
+                raise AdapterUnavailable("host response delivery task is cancelled before stage dispatch")
+            if deadline is not None and time.monotonic() >= deadline:
+                raise AdapterUnavailable("host response delivery deadline expired before stage dispatch")
+            if execution_guard is not None:
+                execution_guard.check()
+            delivery_context = resolved_context
         if selected.external_side_effects:
             if self.side_effect_lifecycle is None:
                 raise AdapterUnavailable(
@@ -418,6 +482,30 @@ class VibeAdapterRegistry:
             valid, reason = validate_stage_output(stage, result)
             if not valid:
                 raise ValueError(f"{stage.value} adapter output failed its stage contract: {reason}")
+            if receiver is not None:
+                assert delivery_context is not None
+                delivery_task_id = str(delivery_context["task_id"])
+                deadline = delivery_context.get("deadline_monotonic")
+                cancelled = delivery_context.get("is_cancelled")
+                execution_guard = delivery_context.get("execution_guard")
+                # The canonical stage result is serialized once, after validation.
+                # A retry reuses the durable provider receipt and resumes only after
+                # receiver-confirmed chunks; an ambiguous send remains replay-blocked.
+                response_text = json.dumps(
+                    result, sort_keys=True, separators=(",", ":"),
+                    ensure_ascii=False, allow_nan=False,
+                )
+                deliver_response(
+                    delivery_task_id,
+                    response_text,
+                    receiver=receiver,
+                    journal=self.response_delivery_journal,
+                    max_chunk_bytes=self.response_delivery_max_chunk_bytes,
+                    max_total_bytes=self.response_delivery_max_total_bytes,
+                    deadline_monotonic=deadline,
+                    is_cancelled=cancelled,
+                    execution_guard=execution_guard,
+                )
             stats.successes += 1
             self._persist_learning()
             return result
