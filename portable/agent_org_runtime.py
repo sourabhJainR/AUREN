@@ -57,6 +57,7 @@ class AuthorizedAgentAssignment:
     assignment_digest: str
     work_key: str | None = None
     task_payload_digest: str | None = None
+    deadline_seconds: float | None = None
 
     def as_payload(self) -> dict[str, Any]:
         """Return the immutable, non-secret assignment envelope stored with the task."""
@@ -73,6 +74,7 @@ class AuthorizedAgentAssignment:
             "assignment_digest": self.assignment_digest,
             "work_key": self.work_key,
             "task_payload_digest": self.task_payload_digest,
+            "deadline_seconds": self.deadline_seconds,
             "authorization": "host_authorized_before_submission",
         }
 
@@ -135,6 +137,7 @@ def authorize_agent_assignment(
     policy_path: str | Path | None = None,
     work_key: str | None = None,
     task_payload: Mapping[str, Any] | None = None,
+    deadline_seconds: float | None = None,
 ) -> AuthorizedAgentAssignment:
     """Validate the role hierarchy and require host authorization of exact inputs.
 
@@ -187,6 +190,12 @@ def authorize_agent_assignment(
         or any(not char.isprintable() for char in work_key)
     ):
         raise ValueError("assignment work_key must be non-empty printable text of at most 256 characters")
+    if deadline_seconds is not None and (
+        isinstance(deadline_seconds, bool) or not isinstance(deadline_seconds, (int, float))
+        or not __import__("math").isfinite(deadline_seconds) or not 0 < deadline_seconds <= 86400
+    ):
+        raise ValueError("assignment deadline_seconds must be finite, positive, and at most one day")
+    normalized_deadline_seconds = float(deadline_seconds) if deadline_seconds is not None else None
     if task_payload is not None and not isinstance(task_payload, Mapping):
         raise TypeError("assignment task_payload must be a mapping")
     source_payload = dict(task_payload or {})
@@ -213,6 +222,7 @@ def authorize_agent_assignment(
         "policy_digest": policy_digest,
         "work_key": work_key.strip() if isinstance(work_key, str) else None,
         "task_payload_digest": task_payload_digest,
+        "deadline_seconds": normalized_deadline_seconds,
     }
     assignment_digest = hashlib.sha256(_canonical(body)).hexdigest()
     request = MappingProxyType({**body, "scope": tuple(clean_scope), "assignment_digest": assignment_digest})
@@ -234,6 +244,7 @@ def authorize_agent_assignment(
         assignment_digest=assignment_digest,
         work_key=body["work_key"],
         task_payload_digest=task_payload_digest,
+        deadline_seconds=normalized_deadline_seconds,
     )
 
 
@@ -273,7 +284,7 @@ def submit_agent_task(
         role_id=role_id, manager_id=manager_id, action_class=action_class,
         scope=scope, authorizer=authorizer, registry_path=registry_path,
         policy_path=policy_path, work_key=work_key,
-        task_payload=payload,
+        task_payload=payload, deadline_seconds=deadline_seconds,
     )
     durable_payload = dict(payload)
     durable_payload["_auren_agent_assignment"] = assignment.as_payload()
