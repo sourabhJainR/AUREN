@@ -5,6 +5,11 @@ import time
 import unittest
 
 from portable.bounded_crew_dispatch import BoundedCrewDispatcher
+from portable.agent_execution_guard import (
+    AgentAssignmentScopeDenied,
+    agent_assignment_scope,
+    enforce_agent_resource_scope,
+)
 from portable.orchestration import Node, NodeKind
 from portable.state_graph import CrewDefinition, GraphAgentTeam, StateGraph
 
@@ -72,6 +77,22 @@ class BoundedCrewDispatcherTests(unittest.TestCase):
                 {"crew_id": "crew-b", "task": "bad"},
             ], max_workers=2)
 
+
+    def test_assignment_scope_is_propagated_to_each_worker_context(self):
+        def dispatch(request):
+            enforce_agent_resource_scope(request["path"])
+            return {"path": request["path"]}
+
+        dispatcher = BoundedCrewDispatcher(dispatch)
+        with agent_assignment_scope(("allowed.txt",)):
+            allowed = dispatcher.run([
+                {"crew_id": "crew-a", "task": "allowed", "path": "allowed.txt"},
+            ], max_workers=1)
+            self.assertEqual([{"path": "allowed.txt"}], allowed)
+            with self.assertRaises(AgentAssignmentScopeDenied):
+                dispatcher.run([
+                    {"crew_id": "crew-b", "task": "outside", "path": "secrets.txt"},
+                ], max_workers=1)
 
     def test_graph_scoped_batch_dispatch_integrates_with_stategraph(self):
         lock = threading.Lock()
