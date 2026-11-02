@@ -129,3 +129,9 @@ POSIX RLIMIT_NPROC is per-user, not an isolated process-tree quota, and may beha
 ## Rollback
 
 If the trusted operator authorizer is not configured or fails, reconciliation resume stays blocked. Restore service by provisioning the authenticated host adapter, not by adding a permissive default or trusting caller-provided identity strings. A rollback must preserve the blocked task, open clarification, progress journal, and side-effect ledger so the next authorized run can continue status lookup without redispatch.
+
+## Trace context inheritance
+
+When `ProviderOperationLifecycle.execute` or `reconcile` runs inside a traced `portable.state_graph.StateGraph` node, evaluator or repair callback, it inherits the active trace and parent span if the caller does not pass them explicitly. Explicit caller-supplied trace values take precedence. The supervisor scopes the binding with a context variable and copies the current context into each parallel specialist worker, so synchronous provider operations in those workers retain the correct parentage. Context is restored after callback success or failure and is not added to provider intent or task payloads.
+
+This does not instrument direct tool adapters that bypass `ProviderOperationLifecycle`, independently created threads/processes without explicit context propagation, or external learning persistence. Those remain visible coverage gaps until their concrete call sites are instrumented and tested.

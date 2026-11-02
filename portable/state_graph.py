@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from dataclasses import asdict, dataclass, replace
 import hashlib
 import json
@@ -16,7 +17,7 @@ from .bounded_crew_dispatch import BoundedCrewDispatcher
 from .orchestration import Graph, Node, NodeKind, NodeStatus, OrchestrationRun, Orchestrator, RunStatus
 from .crew_adapters import CrewHandoff, GraphHandoffController, TaskRetryBudget, SOFTWARE_TEAM_PERSONA_IDS, rollback_readiness
 from .runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
-from .agency_observability import Tracer
+from .agency_observability import Tracer, bind_trace_context
 
 _FORBIDDEN_CREW_AUTHORITIES = frozenset({
     "merge", "promote", "self_approve", "approve_own_work", "bypass_review",
@@ -536,7 +537,7 @@ class StateGraph:
                     state.get("auren_runtime_guard", {}).get("schema_version")
                     if isinstance(state.get("auren_runtime_guard"), Mapping) else None
                 ),
-                "phase_coverage_gaps": ["provider_tool_adapters", "external_learning_persistence"],
+                "phase_coverage_gaps": ["tool_adapter_invocations", "provider_calls_outside_trace_context", "external_learning_persistence"],
             },
             run_id=str(run_id), task_id=task_id,
             session_id=str(session_id) if session_id else None,
@@ -597,7 +598,8 @@ class StateGraph:
                     )
                     active_execution_spans[_node.name] = execution_span
                     try:
-                        output = _node.run(node_state)
+                        with bind_trace_context(trace, execution_span.span_id):
+                            output = _node.run(node_state)
                     except BaseException as exc:
                         execution_span.finish(
                             {"execution_status": "error", "error_type": type(exc).__name__},
@@ -621,7 +623,8 @@ class StateGraph:
                             source_revision=str(source_revision) if source_revision else None,
                         )
                         try:
-                            verdict = _evaluator(output)
+                            with bind_trace_context(trace, evaluation_span.span_id):
+                                verdict = _evaluator(output)
                         except BaseException as exc:
                             evaluation_span.finish(
                                 {"error_type": type(exc).__name__}, "error", type(exc).__name__,
@@ -649,7 +652,8 @@ class StateGraph:
                             source_revision=str(source_revision) if source_revision else None,
                         )
                         try:
-                            candidate = _repair(output, repair_state)
+                            with bind_trace_context(trace, repair_span.span_id):
+                                candidate = _repair(output, repair_state)
                         except BaseException as exc:
                             repair_span.finish(
                                 {"error_type": type(exc).__name__}, "error", type(exc).__name__,
@@ -1145,7 +1149,10 @@ class GraphAgentTeam:
 
             ordered_ids = sorted(normalized)
             with ThreadPoolExecutor(max_workers=min(max_workers, len(ordered_ids))) as pool:
-                futures = {crew_id: pool.submit(propose, crew_id) for crew_id in ordered_ids}
+                futures = {
+                    crew_id: pool.submit(copy_context().run, propose, crew_id)
+                    for crew_id in ordered_ids
+                }
                 results: dict[str, dict[str, Any]] = {}
                 try:
                     for crew_id in ordered_ids:

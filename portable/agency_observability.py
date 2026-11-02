@@ -10,6 +10,8 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+from contextlib import contextmanager
+from contextvars import ContextVar
 import math
 import os
 import re
@@ -351,6 +353,32 @@ class LocalExporter:
             canonical = json.dumps(_safe(record), sort_keys=True, separators=(",", ":"), allow_nan=False)
             record["event_digest"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
             self._append_jsonl(record)
+
+
+_ACTIVE_TRACE_CONTEXT: ContextVar[tuple[Trace, str | None] | None] = ContextVar(
+    "auren_active_trace_context", default=None,
+)
+
+
+@contextmanager
+def bind_trace_context(trace: Trace, parent_span_id: str | None = None):
+    """Bind provider/tool work to the active supervisor span for this execution context."""
+    if not isinstance(trace, Trace):
+        raise TypeError("trace context requires a Trace")
+    if parent_span_id is not None and not any(
+        span.span_id == parent_span_id for span in trace.spans
+    ):
+        raise ValueError("trace context parent span does not belong to the trace")
+    token = _ACTIVE_TRACE_CONTEXT.set((trace, parent_span_id))
+    try:
+        yield
+    finally:
+        _ACTIVE_TRACE_CONTEXT.reset(token)
+
+
+def current_trace_context() -> tuple[Trace, str | None] | None:
+    """Return the trace and parent span bound to the current execution context."""
+    return _ACTIVE_TRACE_CONTEXT.get()
 
 
 class Tracer:

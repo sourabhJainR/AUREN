@@ -50,15 +50,23 @@ Deterministic regressions cover redaction bypasses, prompt metadata mutation, em
 
 StateGraph.run with an injected tracer now instruments the actual StateGraph supervisor invocation and its canonical node results. Supervisor and node spans carry stable task/run/session correlation, graph and intent digests, revision metadata, explicit parentage, node status, attempts, repair counts, and evidence counts. The trace's terminal status is derived from the returned OrchestrationRun, not from worker self-report. The coding agency additionally emits canonical evidence, verification, evaluation, regression-feedback, and release/rollback spans. Regression feedback is derived from the runtime regression result and records explicitly that it did not itself mutate a model or policy.
 
-Phase labels on supervisor nodes are derived from the node name and kind. They are useful for coverage and diagnostics, but they are not a substitute for instrumenting a real provider/tool adapter. Worker-supplied provider, research, tool, artifact, and learning observations remain diagnostic only.
+Phase labels on supervisor nodes are derived from the node name and kind. In addition, the active trace and parent span are bound to the current execution context while a StateGraph node, evaluator, or repair callback runs. ProviderOperationLifecycle.execute and reconcile inherit that context when callers omit an explicit trace. The supervisor copies the context into each parallel specialist worker before dispatch, so synchronous provider operations inside those workers remain children of the correct node span. Trace context is not copied into task payloads or provider intent. Explicit caller-supplied trace and parent values remain authoritative.
 
-### Acceptance still required before claiming full production closure
+This closes automatic provider-operation correlation for those traced execution paths; it does not instrument every adapter. Direct tool adapter invocations that do not call ProviderOperationLifecycle, provider calls made outside a bound StateGraph context, and external learning/artifact persistence remain uninstrumented. Worker-supplied provider, research, tool, artifact, and learning observations remain diagnostic only and cannot authorize state transitions or promotion.
 
-- Wire actual research/retrieval, provider routing, tool invocation, artifact storage, learning-candidate persistence/promotion, and release/rollback adapters to the same canonical trace context; do not promote worker-reported events into authority.
-- Exercise process interruption, restart/resume, cancellation, partial writes, and duplicate dispatch against the deployed supervisor and verify that correlated traces match durable canonical state.
-- Prove independent evaluator custody, sealed holdout custody, production isolation, and a rehearsed rollback with evidence.
+### Release-scope acceptance
 
-CI validates repository behavior only. Until the external acceptance items above have evidence, Gate B is implemented at the supervisor/runtime observation boundary but is not certified as fully closed end-to-end in production.
+- Keep the repository-level provider trace propagation, parentage, privacy, and worker-context regression tests in required CI.
+- Keep uninstrumented direct tool calls and external persistence clearly marked as gaps; do not infer trace coverage from phase labels or worker-reported events.
+- Preserve trace context isolation: nested bindings must restore the previous context after success or exception, and each parallel worker must receive a distinct copied context.
+
+### Post-release external acceptance
+
+- Wire remaining direct research/retrieval, tool invocation, artifact storage, learning-candidate persistence/promotion, and release/rollback adapters to the canonical trace context where their host contracts support it.
+- Exercise interruption, restart/resume, cancellation, partial writes, and duplicate dispatch against deployed hosts and compare traces with canonical durable state.
+- Prove independent evaluator custody, sealed holdout custody, production isolation, and an operator-rehearsed rollback with evidence.
+
+CI validates repository behavior only. External host, evaluator, isolation, and operator rehearsal evidence is deliberately deferred to post-release; this does not convert those claims into completed capabilities.
 
 ## Non-negotiable limits
 

@@ -4,6 +4,10 @@
 **Product version:** 1.0.6 (no release created by this review)  
 **Status vocabulary:** implemented locally, repository-verified, deployment-verified, externally verified, or open. A merged PR or green CI does not establish external isolation or independent evaluation.
 
+## Release scope note — 2026-11-02
+
+For the current implementation PRs #1210 and #1211, release scope is the repository-owned code, regression tests, code review, exact-head CI and complete implementation documentation. Deployment-specific receiver configuration and durability, production OS isolation, independent evaluator/holdout custody, external learning persistence, multi-host recovery, and operator-run migration/rollback rehearsals are post-release acceptance work. They remain open product-readiness items and must not be represented as completed, but they are not prerequisites for merging these bounded repository changes. The broader matrix below continues to track those product-level gates. When main advances while a PR remains open, rerun the integration-conflict guard and exact-head checks against the updated base before merging. PR #1210 is merged at `b7f71b86af07c557f26699fcb0edd77e7d5a8da4`; PR #1211 must validate against that main revision before merge.
+
 ## Product boundaries
 
 | Product surface | Existing foundation | Current boundary | Exit gate |
