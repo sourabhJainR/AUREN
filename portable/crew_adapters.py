@@ -269,13 +269,76 @@ class ApprovedToolRegistry:
             raise PermissionError(f"tool is not approved for this adapter: {name}")
         if not isinstance(arguments, Mapping):
             raise ValueError("tool arguments must be a mapping")
-        # Copy the top-level mapping so a handler cannot mutate caller-owned state.
-        result = self._tools[name].handler(dict(arguments))
-        # Only JSON-compatible outputs may cross the adapter boundary.
+
+        # Trace only bounded metadata and digests. Tool arguments and results may
+        # contain private repository content, so raw payloads never enter spans.
+        span = None
         try:
-            json.dumps(result, sort_keys=True)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("approved tool result must be JSON-serializable") from exc
+            from .agency_observability import current_trace_context
+            active = current_trace_context()
+            if active is not None:
+                trace, parent_span_id = active
+                argument_keys = sorted(str(key) for key in arguments.keys())[:100]
+                try:
+                    encoded_arguments = json.dumps(
+                        dict(arguments), sort_keys=True, separators=(",", ":"),
+                        ensure_ascii=False, allow_nan=False,
+                    ).encode("utf-8")
+                    argument_digest = hashlib.sha256(encoded_arguments).hexdigest()
+                except (TypeError, ValueError):
+                    argument_digest = None
+                span = trace.span(
+                    f"tool.{name}",
+                    kind="tool",
+                    input={"argument_keys": argument_keys},
+                    metadata={
+                        "tool_name": name,
+                        "argument_digest": argument_digest,
+                        "argument_count": len(arguments),
+                    },
+                    parent_id=parent_span_id,
+                    phase="tool",
+                )
+        except Exception:
+            # Observation is not authority: an unavailable/terminal trace must
+            # not change whether an already-approved read-only tool can run.
+            span = None
+
+        try:
+            # Copy the top-level mapping so a handler cannot mutate caller-owned state.
+            result = self._tools[name].handler(dict(arguments))
+            # Only JSON-compatible outputs may cross the adapter boundary.
+            try:
+                encoded_result = json.dumps(
+                    result, sort_keys=True, separators=(",", ":"),
+                    ensure_ascii=False, allow_nan=False,
+                ).encode("utf-8")
+            except (TypeError, ValueError) as exc:
+                raise ValueError("approved tool result must be JSON-serializable") from exc
+        except BaseException:
+            if span is not None:
+                try:
+                    span.finish(
+                        output={"outcome": "error"},
+                        status="error",
+                        terminal_reason="approved tool invocation failed",
+                    )
+                except Exception:
+                    pass
+            raise
+
+        if span is not None:
+            try:
+                span.finish(
+                    output={
+                        "result_digest": hashlib.sha256(encoded_result).hexdigest(),
+                        "result_type": type(result).__name__,
+                        "result_bytes": len(encoded_result),
+                    },
+                    status="ok",
+                )
+            except Exception:
+                pass
         return result
 
 
