@@ -7,7 +7,7 @@ from contextlib import closing
 import unittest
 from pathlib import Path
 
-from portable.execution_controller import ExecutionController
+from portable.execution_controller import ExecutionController, WorkKeyConflict
 from portable.guarded_filesystem import write_workspace_text
 
 from portable.agent_execution_guard import (
@@ -120,6 +120,31 @@ class AgentExecutionGuardTests(unittest.TestCase):
                     tampered, expected_action_class="edit_assigned_paths",
                     resource="portable/api.py", authorization_verifier=lambda _request: True,
                 )
+
+    def test_controller_rejects_assignment_key_or_deadline_mismatch_before_persistence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            controller = ExecutionController(root, agent_assignment_verifier=lambda _request: True)
+            controller.register_handler(
+                "tests.test_agent_execution_guard.assigned_filesystem_handler",
+                assigned_filesystem_handler,
+                execution_class="read_only",
+                agent_action_class="edit_assigned_paths",
+            )
+            payload = self._payload()
+            with self.assertRaisesRegex(WorkKeyConflict, "does not match"):
+                controller.submit(
+                    "tests.test_agent_execution_guard.assigned_filesystem_handler",
+                    payload, work_key="AUREN:test:substituted-task",
+                )
+            with self.assertRaisesRegex(WorkKeyConflict, "deadline policy"):
+                controller.submit(
+                    "tests.test_agent_execution_guard.assigned_filesystem_handler",
+                    payload, deadline_seconds=60,
+                )
+            with closing(sqlite3.connect(controller.db_path)) as db, db:
+                count = db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+            self.assertEqual(count, 0)
 
     def test_assignment_deadline_policy_cannot_be_changed(self):
         payload = self._payload(deadline_seconds=30)
