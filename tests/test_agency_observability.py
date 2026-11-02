@@ -354,6 +354,47 @@ class TestAgencyObservability(unittest.TestCase):
         assert len({record["trace_id"] for record in records}) == 40
 
 
+    def test_trace_cannot_finish_successfully_with_running_spans(self):
+        tracer = Tracer(LocalExporter(self.tmp_path / "open-span.jsonl", enabled=True))
+        trace = tracer.start("open-span", task_id="task-open-span")
+        span = trace.span("provider", phase="provider")
+        with self.assertRaisesRegex(ValueError, "spans remain running"):
+            tracer.end(trace, "ok")
+        self.assertIsNone(trace.end)
+        span.finish({"reconciled": True}, "ok")
+        tracer.end(trace, "ok")
+        self.assertEqual("ok", trace.status)
+
+    def test_failed_trace_closes_unfinished_spans_as_unknown(self):
+        tracer = Tracer(LocalExporter(self.tmp_path / "partial-span.jsonl", enabled=True))
+        trace = tracer.start("partial-span")
+        span = trace.span("provider", phase="provider")
+        tracer.end(trace, "failed")
+        self.assertEqual("failed", trace.status)
+        self.assertEqual("unknown", span.status)
+        self.assertEqual("trace ended before span completion", span.terminal_reason)
+        self.assertIsNotNone(span.end)
+
+    def test_span_terminal_state_is_immutable_and_idempotent(self):
+        trace = Tracer().start("span-terminal")
+        span = trace.span("provider")
+        span.finish({"result": "ok"}, "ok")
+        span.finish({"ignored": "same terminal event"}, "ok")
+        with self.assertRaisesRegex(ValueError, "different status"):
+            span.finish({"result": "failed"}, "failed")
+        self.assertEqual({"result": "ok"}, span.output)
+
+    def test_new_spans_cannot_attach_to_terminal_parent_or_trace(self):
+        trace = Tracer().start("parent-terminal")
+        parent = trace.span("parent")
+        parent.finish(status="ok")
+        with self.assertRaisesRegex(ValueError, "parent span is already terminal"):
+            trace.span("late-child", parent_id=parent.span_id)
+        trace.finish("ok")
+        with self.assertRaisesRegex(ValueError, "terminal trace"):
+            trace.span("late-span")
+
+
 
 def test_multiprocess_exporters_preserve_complete_jsonl_records():
     with tempfile.TemporaryDirectory() as tmp:
