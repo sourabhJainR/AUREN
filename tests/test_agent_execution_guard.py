@@ -74,6 +74,17 @@ class AgentExecutionGuardTests(unittest.TestCase):
                 authorization_verifier=lambda _request: True,
             )
 
+    def test_every_resource_alias_is_checked_before_host_verification(self):
+        payload = self._payload(scope=("allowed.txt",), task_path="secrets.txt")
+        verifier_calls = []
+        with self.assertRaisesRegex(AgentAssignmentScopeDenied, "path selector is outside"):
+            self._validate(
+                payload, expected_action_class="edit_assigned_paths",
+                resource="allowed.txt",
+                authorization_verifier=lambda request: verifier_calls.append(request) or True,
+            )
+        self.assertEqual([], verifier_calls, "invalid aliases must be denied before host authorization")
+
     def test_missing_resource_fails_closed_for_assigned_task(self):
         payload = self._payload()
         with self.assertRaises(AgentAssignmentScopeDenied):
