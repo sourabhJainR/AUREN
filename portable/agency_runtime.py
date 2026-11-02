@@ -196,9 +196,12 @@ def _record_worker_observations(trace, worker_span, raw: Mapping[str, object], s
         trace.metadata["worker_observations_truncated"] = (
             int(trace.metadata.get("worker_observations_truncated", 0)) + truncated_events
         )
-        trace.metadata["worker_observation_truncated_sources"] = sorted(set(
-            trace.metadata.get("worker_observation_truncated_sources", ()) + tuple(truncated_sources)
-        ))
+        prior_truncated_sources = trace.metadata.get("worker_observation_truncated_sources", ())
+        if not isinstance(prior_truncated_sources, (list, tuple)):
+            prior_truncated_sources = ()
+        trace.metadata["worker_observation_truncated_sources"] = sorted(
+            {item for item in prior_truncated_sources if isinstance(item, str)} | set(truncated_sources)
+        )
         trace.metadata.setdefault("phase_coverage_gaps", []).append("worker_observations_truncated")
 
     allowed_statuses = {"ok", "error", "blocked", "failed", "cancelled", "timed_out", "unknown", "unscored", "stale"}
