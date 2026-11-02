@@ -222,6 +222,33 @@ legacy clients retain atomic JSON with the existing 4 MB cap. A 16 MB total cap 
 bound host memory and transfer units. If the client cannot durably store chunks or verify the final
 digest, it must stop without posting completion.
 
+## Vibe stage provider/tool output delivery
+
+`VibeAdapterRegistry` can bind selected stages to a real host receiver
+without creating a second delivery journal. The host supplies a receiver per stage,
+the canonical `ProgressJournal`, and a trusted context resolver that maps
+the invocation to the already-running supervisor task and may provide the live
+`RuntimeExecutionGuard`, cancellation probe, and monotonic deadline.
+
+After the adapter result passes its stage contract and secret sanitization, AUREN
+serializes the complete structured result deterministically and sends it through
+`deliver_response`. Each chunk is byte-bounded and acknowledged against
+its response digest, index, and chunk digest. The journal advances only after an
+exact receiver acknowledgement. A shared guard is charged before each send.
+
+This hook is opt-in because a host must define durable receiver semantics. It does
+not invent a chat/UI acknowledgement protocol, and it does not split MCP frames.
+If a receiver outcome is ambiguous, the task remains blocked from automatic replay.
+For a consequential stage, the provider operation ledger replays its completed
+receipt rather than repeating the external side effect while delivery recovery is
+resolved. The host remains responsible for reconciling an unknown receiver outcome
+before an operator-authorized retry.
+
+A missing task identity, journal, receiver, malformed deadline, or invalid guard
+fails closed. Keep the parent task nonterminal until the caller has both a valid
+stage result and a complete delivery receipt. Hosts that do not configure a
+receiver retain the existing bounded atomic result path.
+
 ## Host-path disposition inventory — 2026-11-02
 
 The following is the verified repository-level disposition. "Integrated" means the
