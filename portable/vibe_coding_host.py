@@ -1202,10 +1202,6 @@ class MCPStdioToolAdapter:
 
         try:
             result = self._call_untraced(request)
-            encoded_result = json.dumps(
-                dict(result), sort_keys=True, separators=(",", ":"),
-                ensure_ascii=False, allow_nan=False,
-            ).encode("utf-8")
         except BaseException:
             if span is not None:
                 try:
@@ -1219,15 +1215,27 @@ class MCPStdioToolAdapter:
             raise
 
         if span is not None:
+            # Result encoding is telemetry-only. Unsupported result values must
+            # never turn a successful MCP invocation into a caller-visible failure.
             try:
-                span.finish(
-                    output={
-                        "result_digest": hashlib.sha256(encoded_result).hexdigest(),
-                        "result_type": type(result).__name__,
-                        "result_bytes": len(encoded_result),
-                    },
-                    status="ok",
-                )
+                encoded_result = json.dumps(
+                    dict(result), sort_keys=True, separators=(",", ":"),
+                    ensure_ascii=False, allow_nan=False,
+                ).encode("utf-8")
+                result_metadata = {
+                    "result_digest": hashlib.sha256(encoded_result).hexdigest(),
+                    "result_type": type(result).__name__,
+                    "result_bytes": len(encoded_result),
+                }
+            except Exception:
+                result_metadata = {
+                    "result_digest": None,
+                    "result_type": type(result).__name__,
+                    "result_bytes": None,
+                    "result_digest_unavailable": True,
+                }
+            try:
+                span.finish(output=result_metadata, status="ok")
             except Exception:
                 pass
         return result
