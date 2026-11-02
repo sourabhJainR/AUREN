@@ -296,16 +296,26 @@ class AgentExecutionGuardTests(unittest.TestCase):
             self.assertEqual(len(verification_calls), 1)
 
             # The host identity/policy service revokes the assignment after
-            # persistence. A fresh dispatch-time check must observe that change.
+            # persistence. A fresh process must re-check that live authorization.
             authorization["allowed"] = False
+            del controller
+            import gc
+            gc.collect()
+            restarted = ExecutionController(
+                root, agent_assignment_verifier=verifier
+            )
+            restarted.register_handler(
+                handler_name, assigned_filesystem_handler,
+                execution_class="read_only", agent_action_class="edit_assigned_paths",
+            )
             with self.assertRaisesRegex(
                 AgentAssignmentScopeDenied, "authorization verifier denied"
             ):
-                controller.run_once(task.id)
+                restarted.run_once(task.id)
 
             self.assertEqual(len(verification_calls), 2)
             self.assertEqual(verification_calls[0], verification_calls[1])
-            self.assertNotEqual(controller.task(task.id).state, "completed")
+            self.assertNotEqual(restarted.task(task.id).state, "completed")
             self.assertFalse((root / "allowed.txt").exists())
 
     def test_direct_controller_submission_requires_host_verifier_before_persistence(self):
