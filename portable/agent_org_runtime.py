@@ -55,6 +55,8 @@ class AuthorizedAgentAssignment:
     policy_version: str
     policy_digest: str
     assignment_digest: str
+    work_key: str | None = None
+    task_payload_digest: str | None = None
 
     def as_payload(self) -> dict[str, Any]:
         """Return the immutable, non-secret assignment envelope stored with the task."""
@@ -69,6 +71,8 @@ class AuthorizedAgentAssignment:
             "policy_version": self.policy_version,
             "policy_digest": self.policy_digest,
             "assignment_digest": self.assignment_digest,
+            "work_key": self.work_key,
+            "task_payload_digest": self.task_payload_digest,
             "authorization": "host_authorized_before_submission",
         }
 
@@ -129,6 +133,8 @@ def authorize_agent_assignment(
     authorizer: Callable[[Mapping[str, Any]], Any],
     registry_path: str | Path = REGISTRY_PATH,
     policy_path: str | Path | None = None,
+    work_key: str | None = None,
+    task_payload: Mapping[str, Any] | None = None,
 ) -> AuthorizedAgentAssignment:
     """Validate the role hierarchy and require host authorization of exact inputs.
 
@@ -176,6 +182,20 @@ def authorize_agent_assignment(
     if action_class.strip() not in role["allowed_action_classes"]:
         raise AgentAssignmentDenied("action class is not permitted by the role contract")
 
+    if work_key is not None and (
+        not isinstance(work_key, str) or not work_key.strip() or len(work_key.strip()) > 256
+        or any(not char.isprintable() for char in work_key)
+    ):
+        raise ValueError("assignment work_key must be non-empty printable text of at most 256 characters")
+    if task_payload is not None and not isinstance(task_payload, Mapping):
+        raise TypeError("assignment task_payload must be a mapping")
+    clean_task_payload = dict(task_payload or {})
+    clean_task_payload.pop("_auren_agent_assignment", None)
+    clean_task_payload.pop("_auren_workflow_profile", None)
+    clean_task_payload.pop("_auren_workflow_profile_digest", None)
+    clean_task_payload.pop("work_key", None)
+    task_payload_digest = hashlib.sha256(_canonical(clean_task_payload)).hexdigest()
+
     body = {
         "schema_version": _SCHEMA,
         "role_id": role_id.strip(),
@@ -185,6 +205,8 @@ def authorize_agent_assignment(
         "registry_digest": registry_digest,
         "policy_version": policy_version,
         "policy_digest": policy_digest,
+        "work_key": work_key.strip() if isinstance(work_key, str) else None,
+        "task_payload_digest": task_payload_digest,
     }
     assignment_digest = hashlib.sha256(_canonical(body)).hexdigest()
     request = MappingProxyType({**body, "scope": tuple(clean_scope), "assignment_digest": assignment_digest})
@@ -204,6 +226,8 @@ def authorize_agent_assignment(
         policy_version=policy_version,
         policy_digest=policy_digest,
         assignment_digest=assignment_digest,
+        work_key=body["work_key"],
+        task_payload_digest=task_payload_digest,
     )
 
 
@@ -232,6 +256,8 @@ def submit_agent_task(
         raise TypeError("task payload must be a mapping")
     if "_auren_agent_assignment" in payload:
         raise ValueError("payload key '_auren_agent_assignment' is reserved")
+    if not isinstance(work_key, str) or not work_key.strip():
+        raise ValueError("assigned tasks require an explicit stable work_key")
     controller_root = getattr(controller, "root", None)
     policy_path = (
         Path(controller_root) / ".auren" / "guard_policy.json"
@@ -240,7 +266,8 @@ def submit_agent_task(
     assignment = authorize_agent_assignment(
         role_id=role_id, manager_id=manager_id, action_class=action_class,
         scope=scope, authorizer=authorizer, registry_path=registry_path,
-        policy_path=policy_path,
+        policy_path=policy_path, work_key=work_key,
+        task_payload=payload,
     )
     durable_payload = dict(payload)
     durable_payload["_auren_agent_assignment"] = assignment.as_payload()
