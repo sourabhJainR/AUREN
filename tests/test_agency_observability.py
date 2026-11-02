@@ -387,6 +387,16 @@ class TestAgencyObservability(unittest.TestCase):
             span.finish({"result": "failed"}, "failed")
         self.assertEqual({"result": "ok"}, span.output)
 
+    def test_terminal_spans_and_traces_cannot_accept_late_scores(self):
+        trace = Tracer().start("late-score")
+        span = trace.span("provider")
+        span.finish(status="ok")
+        with self.assertRaisesRegex(ValueError, "terminal span"):
+            span.score("quality", 1.0)
+        trace.finish("ok")
+        with self.assertRaisesRegex(ValueError, "terminal trace"):
+            trace.score("quality", 1.0)
+
     def test_new_spans_cannot_be_added_after_trace_termination(self):
         trace = Tracer().start("trace-terminal")
         trace.finish("ok")
