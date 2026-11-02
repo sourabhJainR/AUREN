@@ -26,20 +26,24 @@ def assigned_filesystem_handler(payload):
 
 
 class AgentExecutionGuardTests(unittest.TestCase):
-    def _payload(self, scope=("portable/api.py",), action_class="edit_assigned_paths", deadline_seconds=None):
+    def _payload(
+        self, scope=("portable/api.py",), action_class="edit_assigned_paths",
+        deadline_seconds=None, task_path=None,
+    ):
+        assigned_path = task_path if task_path is not None else scope[0]
         assignment = authorize_agent_assignment(
             role_id="BE-01",
             manager_id="EM-ENG-01",
             action_class=action_class,
             scope=list(scope),
             work_key="AUREN:test:agent-execution-guard",
-            task_payload={"path": scope[0], "resource": scope[0]},
+            task_payload={"path": assigned_path, "resource": scope[0]},
             deadline_seconds=deadline_seconds,
             authorizer=lambda _request: True,
             registry_path=REGISTRY_PATH,
         )
         return {
-            "path": scope[0], "resource": scope[0],
+            "path": assigned_path, "resource": scope[0],
             "work_key": "AUREN:test:agent-execution-guard",
             "_auren_deadline_policy_seconds": deadline_seconds,
             "_auren_agent_assignment": assignment.as_payload(),
@@ -230,13 +234,15 @@ class AgentExecutionGuardTests(unittest.TestCase):
                 execution_class="read_only",
                 agent_action_class="edit_assigned_paths",
             )
-            assignment_payload = self._payload(("allowed.txt",))["_auren_agent_assignment"]
+            blocked_assignment = self._payload(("allowed.txt",), task_path="blocked.txt")[
+                "_auren_agent_assignment"
+            ]
             blocked = controller.submit("tests.test_agent_execution_guard.assigned_filesystem_handler", {
                 "resource": "allowed.txt",
                 "path": "blocked.txt",
                 "workspace_root": str(root),
                 "content": "must not write",
-                "_auren_agent_assignment": assignment_payload,
+                "_auren_agent_assignment": blocked_assignment,
             })
             # Reconstruct the controller before dispatch: persisted role/scope
             # metadata must be revalidated, not trusted from the prior process.
@@ -248,12 +254,15 @@ class AgentExecutionGuardTests(unittest.TestCase):
             self.assertNotEqual(controller.task(blocked.id).state, "completed")
             self.assertFalse((root / "blocked.txt").exists())
 
+            allowed_assignment = self._payload(("allowed.txt",), task_path="allowed.txt")[
+                "_auren_agent_assignment"
+            ]
             allowed = controller.submit("tests.test_agent_execution_guard.assigned_filesystem_handler", {
                 "resource": "allowed.txt",
                 "path": "allowed.txt",
                 "workspace_root": str(root),
                 "content": "allowed",
-                "_auren_agent_assignment": assignment_payload,
+                "_auren_agent_assignment": allowed_assignment,
             })
             controller.run_once(allowed.id)
             self.assertEqual(controller.task(allowed.id).state, "completed")
