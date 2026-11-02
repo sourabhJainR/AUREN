@@ -23,6 +23,9 @@ _MAX_SCOPE_LENGTH = 512
 _ACTIVE_ASSIGNMENT_SCOPE: ContextVar[tuple[str, ...] | None] = ContextVar(
     "auren_active_agent_assignment_scope", default=None
 )
+_ACTIVE_ASSIGNMENT_ROLE: ContextVar[str | None] = ContextVar(
+    "auren_active_agent_assignment_role", default=None
+)
 
 
 class AgentAssignmentScopeDenied(PermissionError):
@@ -232,13 +235,35 @@ def deny_unscoped_subprocess_for_assigned_agent() -> None:
 
 
 @contextmanager
-def agent_assignment_scope(scope: tuple[str, ...] | None) -> Iterator[None]:
-    """Bind verified exact-path scope to synchronous adapter calls in this context."""
-    token: Token[tuple[str, ...] | None] = _ACTIVE_ASSIGNMENT_SCOPE.set(scope)
+def agent_assignment_scope(
+    scope: tuple[str, ...] | None, *, role_id: str | None = None,
+) -> Iterator[None]:
+    """Bind verified scope and role identity; an active assignment cannot widen or change it."""
+    active_scope = _ACTIVE_ASSIGNMENT_SCOPE.get()
+    active_role = _ACTIVE_ASSIGNMENT_ROLE.get()
+    if active_scope is not None and (scope != active_scope or role_id != active_role):
+        raise AgentAssignmentScopeDenied(
+            "an assigned handler cannot replace its active role identity or resource scope"
+        )
+    if scope is None and role_id is not None:
+        raise AgentAssignmentScopeDenied("an active agent role requires a verified assignment scope")
+    scope_token: Token[tuple[str, ...] | None] = _ACTIVE_ASSIGNMENT_SCOPE.set(scope)
+    role_token: Token[str | None] = _ACTIVE_ASSIGNMENT_ROLE.set(role_id)
     try:
         yield
     finally:
-        _ACTIVE_ASSIGNMENT_SCOPE.reset(token)
+        _ACTIVE_ASSIGNMENT_ROLE.reset(role_token)
+        _ACTIVE_ASSIGNMENT_SCOPE.reset(scope_token)
+
+
+def current_agent_assignment_scope() -> tuple[str, ...] | None:
+    """Return the immutable scope installed by the active controller dispatch."""
+    return _ACTIVE_ASSIGNMENT_SCOPE.get()
+
+
+def current_agent_assignment_role() -> str | None:
+    """Return the role identity installed by the active controller dispatch."""
+    return _ACTIVE_ASSIGNMENT_ROLE.get()
 
 
 def enforce_agent_resource_scope(relative_path: Any) -> None:
@@ -253,6 +278,7 @@ def enforce_agent_resource_scope(relative_path: Any) -> None:
 
 __all__ = [
     "AgentAssignmentScopeDenied", "agent_assignment_scope",
+    "current_agent_assignment_role", "current_agent_assignment_scope",
     "deny_unscoped_subprocess_for_assigned_agent",
     "enforce_agent_resource_scope", "validate_agent_assignment_for_dispatch",
 ]
