@@ -110,6 +110,7 @@ class AgentExecutionGuardTests(unittest.TestCase):
         for field, value in (
             ("budget", {"tokens": 10}),
             ("approval_evidence", {"receipt": "forged"}),
+            ("path", "portable/other.py"),
         ):
             tampered = dict(original)
             tampered[field] = value
