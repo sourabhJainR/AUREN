@@ -37,7 +37,11 @@ class AgentExecutionGuardTests(unittest.TestCase):
             authorizer=lambda _request: True,
             registry_path=REGISTRY_PATH,
         )
-        return {"path": scope[0], "_auren_agent_assignment": assignment.as_payload()}
+        return {
+            "path": scope[0], "resource": scope[0],
+            "work_key": "AUREN:test:agent-execution-guard",
+            "_auren_agent_assignment": assignment.as_payload(),
+        }
 
     def _validate(self, payload, **kwargs):
         expected_policy_version = kwargs.pop("expected_policy_version", POLICY_VERSION)
