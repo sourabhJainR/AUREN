@@ -790,6 +790,7 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
             parent_span_id=parent.span_id,
         )
         self.assertEqual("completed", receipt["status"])
+        parent.finish({"provider_dispatches": 1}, "ok")
         tracer.end(trace)
 
         records = [
@@ -841,6 +842,7 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
                 trace=trace, parent_span_id=parent.span_id,
             )
         self.assertEqual("reconcile_required", self.ledger().get(operation_key)["state"])
+        parent.finish({"provider_lookup_reconciled": True}, "ok")
         tracer.end(trace)
 
         records = [
