@@ -42,6 +42,7 @@ class AgentOrgRuntimeTests(unittest.TestCase):
             manager_id="EM-ENG-01",
             action_class="edit_assigned_paths",
             scope=["portable/example.py", "tests/test_example.py"],
+            work_key="AUREN:test:agent-org-authorized",
             authorizer=lambda request: calls.append(dict(request)) or True,
             registry_path=REGISTRY,
         )
@@ -66,6 +67,7 @@ class AgentOrgRuntimeTests(unittest.TestCase):
             assignment = authorize_agent_assignment(
                 role_id="BE-01", manager_id="EM-ENG-01",
                 action_class="edit_assigned_paths", scope=["portable/example.py"],
+                work_key="AUREN:test:agent-org-policy",
                 authorizer=lambda _request: True, registry_path=REGISTRY, policy_path=path,
             )
             self.assertEqual(assignment.policy_digest, guard_policy_fingerprint({
@@ -82,15 +84,16 @@ class AgentOrgRuntimeTests(unittest.TestCase):
             return True
         assignment = authorize_agent_assignment(
             role_id="BE-01", manager_id="EM-ENG-01", action_class="edit_assigned_paths",
-            scope=["portable/allowed.py"], authorizer=attempted_mutation, registry_path=REGISTRY,
+            scope=["portable/allowed.py"], work_key="AUREN:test:agent-org-mutation",
+            authorizer=attempted_mutation, registry_path=REGISTRY,
         )
         self.assertEqual(("portable/allowed.py",), assignment.scope)
 
     def test_wrong_manager_unknown_role_and_unpermitted_action_fail_closed(self):
         base = dict(
             role_id="BE-01", manager_id="CTO-01", action_class="edit_assigned_paths",
-            scope=["portable/example.py"], authorizer=lambda _request: True,
-            registry_path=REGISTRY,
+            scope=["portable/example.py"], work_key="AUREN:test:agent-org-denial",
+            authorizer=lambda _request: True, registry_path=REGISTRY,
         )
         with self.assertRaises(AgentAssignmentDenied):
             authorize_agent_assignment(**base)
@@ -108,6 +111,7 @@ class AgentOrgRuntimeTests(unittest.TestCase):
         args = dict(
             action_class="manage_shared_budgets",
             scope=["portable/runtime.py"],
+            work_key="AUREN:test:agent-org-delegation",
             authorizer=lambda request: calls.append(dict(request)) or True,
             registry_path=REGISTRY,
         )
@@ -134,13 +138,15 @@ class AgentOrgRuntimeTests(unittest.TestCase):
             authorize_agent_assignment(
                 role_id="CEO-01", manager_id="stakeholders_and_investors",
                 action_class="prioritize_work", scope=["portfolio"],
+                work_key="AUREN:test:agent-org-external",
                 authorizer=lambda _request: True, registry_path=REGISTRY,
             )
 
     def test_host_authorizer_must_return_literal_true_and_exceptions_fail_closed(self):
         args = dict(
             role_id="BE-01", manager_id="EM-ENG-01", action_class="edit_assigned_paths",
-            scope=["portable/example.py"], registry_path=REGISTRY,
+            scope=["portable/example.py"], work_key="AUREN:test:agent-org-verifier",
+            registry_path=REGISTRY,
         )
         for result in (False, None, 1, "true", {"authorized": True}):
             with self.subTest(result=result), self.assertRaises(AgentAssignmentDenied):
@@ -154,6 +160,7 @@ class AgentOrgRuntimeTests(unittest.TestCase):
         args = dict(
             role_id="BE-01", manager_id="EM-ENG-01", action_class="edit_assigned_paths",
             authorizer=lambda _request: True, registry_path=REGISTRY,
+            work_key="AUREN:test:agent-org-scope",
         )
         with self.assertRaises(ValueError):
             authorize_agent_assignment(**args, scope=[])
@@ -176,7 +183,10 @@ class AgentOrgRuntimeTests(unittest.TestCase):
         envelope = result["payload"]["_auren_agent_assignment"]
         self.assertEqual(envelope["role_id"], "BE-01")
         self.assertEqual(envelope["scope"], ["portable/api.py"])
-        self.assertEqual(envelope["schema_version"], "auren-agent-assignment-v2")
+        self.assertEqual(envelope["schema_version"], "auren-agent-assignment-v3")
+        self.assertEqual(envelope["work_key"], "AUREN:test:agent-assignment")
+        self.assertEqual(envelope["deadline_seconds"], 30.0)
+        self.assertEqual(len(envelope["task_payload_digest"]), 64)
         self.assertEqual(envelope["policy_version"], POLICY_VERSION)
         self.assertEqual(envelope["policy_digest"], guard_policy_fingerprint(None))
         self.assertEqual(result["work_key"], "AUREN:test:agent-assignment")

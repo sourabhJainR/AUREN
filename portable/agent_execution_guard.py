@@ -16,7 +16,7 @@ from typing import Any, Callable, Iterator, Mapping
 
 from .agent_org_runtime import REGISTRY_PATH, load_agent_org_registry
 
-_SCHEMA = "auren-agent-assignment-v2"
+_SCHEMA = "auren-agent-assignment-v3"
 _ASSIGNMENT_KEY = "_auren_agent_assignment"
 _MAX_SCOPE_ITEMS = 100
 _MAX_SCOPE_LENGTH = 512
@@ -82,7 +82,7 @@ def validate_agent_assignment_for_dispatch(
     required = {
         "schema_version", "assignment_id", "role_id", "manager_id", "action_class",
         "scope", "registry_digest", "policy_version", "policy_digest",
-        "assignment_digest", "authorization",
+        "assignment_digest", "work_key", "task_payload_digest", "deadline_seconds", "authorization",
     }
     if set(envelope) != required or envelope.get("schema_version") != _SCHEMA:
         raise AgentAssignmentScopeDenied("agent assignment schema is invalid")
@@ -127,6 +127,34 @@ def validate_agent_assignment_for_dispatch(
         raise AgentAssignmentScopeDenied("assigned work requires a trusted handler action class")
     if action_class != expected_action_class:
         raise AgentAssignmentScopeDenied("assignment action class does not match the registered handler")
+    work_key = envelope.get("work_key")
+    if not isinstance(work_key, str) or not work_key.strip() or len(work_key.strip()) > 256:
+        raise AgentAssignmentScopeDenied("assigned work requires a stable work_key")
+    if payload.get("work_key") != work_key:
+        raise AgentAssignmentScopeDenied("assignment work_key does not match the durable task")
+    resource_binding = payload.get("resource", payload.get("resource_id", payload.get("path", "")))
+    task_payload_digest = hashlib.sha256(_canonical({
+        "resource": resource_binding,
+        "path": payload.get("path"),
+        "budget": payload.get("budget"),
+        "shared_budget": payload.get("shared_budget"),
+        "approval": payload.get("approval"),
+        "approval_evidence": payload.get("approval_evidence"),
+        "approval_id": payload.get("approval_id"),
+        "risk_tier": payload.get("risk_tier"),
+    })).hexdigest()
+    if envelope.get("task_payload_digest") != task_payload_digest:
+        raise AgentAssignmentScopeDenied("assignment task payload digest does not match the durable task")
+    assigned_deadline = envelope.get("deadline_seconds")
+    persisted_deadline = payload.get("_auren_deadline_policy_seconds")
+    if assigned_deadline != persisted_deadline:
+        raise AgentAssignmentScopeDenied("assignment deadline does not match the durable task policy")
+    if assigned_deadline is not None and (
+        isinstance(assigned_deadline, bool) or not isinstance(assigned_deadline, (int, float))
+        or not 0 < assigned_deadline <= 86400
+    ):
+        raise AgentAssignmentScopeDenied("assignment deadline policy is invalid")
+
     body = {
         "schema_version": _SCHEMA,
         "role_id": role_id,
@@ -136,6 +164,9 @@ def validate_agent_assignment_for_dispatch(
         "registry_digest": registry_digest,
         "policy_version": policy_version,
         "policy_digest": policy_digest,
+        "work_key": work_key,
+        "task_payload_digest": task_payload_digest,
+        "deadline_seconds": assigned_deadline,
     }
     digest = hashlib.sha256(_canonical(body)).hexdigest()
     if envelope.get("assignment_digest") != digest:
@@ -155,6 +186,9 @@ def validate_agent_assignment_for_dispatch(
         "policy_version": policy_version,
         "policy_digest": policy_digest,
         "assignment_digest": digest,
+        "work_key": work_key,
+        "task_payload_digest": task_payload_digest,
+        "deadline_seconds": assigned_deadline,
     })
     try:
         authorized = authorization_verifier(verification_request)

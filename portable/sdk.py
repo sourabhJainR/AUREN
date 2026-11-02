@@ -99,12 +99,16 @@ class AurenClient:
         )
 
     def submit(
-        self, handler: str, payload: Mapping[str, Any], *, goal: str | None = None
+        self, handler: str, payload: Mapping[str, Any], *, goal: str | None = None,
+        work_key: str | None = None, deadline_seconds: float | None = None,
     ) -> Any:
         """Persist a task. Submission does not imply that execution has started."""
         if not isinstance(payload, Mapping):
             raise TypeError("payload must be a mapping")
-        return self.controller.submit(handler, dict(payload), goal=goal)
+        return self.controller.submit(
+            handler, dict(payload), goal=goal, work_key=work_key,
+            deadline_seconds=deadline_seconds,
+        )
 
     def run_once(self, task_id: str) -> Any:
         """Ask the canonical controller to process one task attempt."""

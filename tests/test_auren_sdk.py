@@ -57,6 +57,8 @@ class AurenClientTests(unittest.TestCase):
                     manager_id="EM-ENG-01",
                     action_class="edit_assigned_paths",
                     scope=["allowed.txt"],
+                    work_key="AUREN:test:sdk-assigned",
+                    task_payload={"resource": "allowed.txt", "path": "allowed.txt"},
                     authorizer=lambda _request: True,
                     registry_path=REGISTRY_PATH,
                 )
@@ -64,11 +66,11 @@ class AurenClientTests(unittest.TestCase):
                     "resource": "allowed.txt",
                     "path": "allowed.txt",
                     "_auren_agent_assignment": assignment.as_payload(),
-                })
+                }, work_key="AUREN:test:sdk-assigned")
                 client.run_once(task.id)
                 self.assertEqual("completed", client.task(task.id).state)
                 self.assertGreaterEqual(len(verified), 2)
-                self.assertEqual("auren-agent-assignment-v2", verified[0]["schema_version"])
+                self.assertEqual("auren-agent-assignment-v3", verified[0]["schema_version"])
             finally:
                 client.close()
 

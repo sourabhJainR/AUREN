@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import math
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Callable, Mapping, Sequence
@@ -18,7 +19,7 @@ from .organization_guard import POLICY_VERSION, guard_policy_fingerprint, load_g
 
 
 REGISTRY_PATH = Path(__file__).resolve().parents[1] / "config" / "agent_org.v1.json"
-_SCHEMA = "auren-agent-assignment-v2"
+_SCHEMA = "auren-agent-assignment-v3"
 _MAX_REGISTRY_BYTES = 256 * 1024
 _MAX_SCOPE_ITEMS = 100
 _MAX_SCOPE_LENGTH = 512
@@ -55,6 +56,9 @@ class AuthorizedAgentAssignment:
     policy_version: str
     policy_digest: str
     assignment_digest: str
+    work_key: str | None = None
+    task_payload_digest: str | None = None
+    deadline_seconds: float | None = None
 
     def as_payload(self) -> dict[str, Any]:
         """Return the immutable, non-secret assignment envelope stored with the task."""
@@ -69,6 +73,9 @@ class AuthorizedAgentAssignment:
             "policy_version": self.policy_version,
             "policy_digest": self.policy_digest,
             "assignment_digest": self.assignment_digest,
+            "work_key": self.work_key,
+            "task_payload_digest": self.task_payload_digest,
+            "deadline_seconds": self.deadline_seconds,
             "authorization": "host_authorized_before_submission",
         }
 
@@ -129,6 +136,9 @@ def authorize_agent_assignment(
     authorizer: Callable[[Mapping[str, Any]], Any],
     registry_path: str | Path = REGISTRY_PATH,
     policy_path: str | Path | None = None,
+    work_key: str | None = None,
+    task_payload: Mapping[str, Any] | None = None,
+    deadline_seconds: float | None = None,
 ) -> AuthorizedAgentAssignment:
     """Validate the role hierarchy and require host authorization of exact inputs.
 
@@ -176,6 +186,33 @@ def authorize_agent_assignment(
     if action_class.strip() not in role["allowed_action_classes"]:
         raise AgentAssignmentDenied("action class is not permitted by the role contract")
 
+    if (
+        not isinstance(work_key, str) or not work_key.strip() or len(work_key.strip()) > 256
+        or any(not char.isprintable() for char in work_key)
+    ):
+        raise ValueError("assigned work requires a non-empty stable work_key of at most 256 characters")
+    if deadline_seconds is not None and (
+        isinstance(deadline_seconds, bool) or not isinstance(deadline_seconds, (int, float))
+        or not math.isfinite(deadline_seconds) or not 0 < deadline_seconds <= 86400
+    ):
+        raise ValueError("assignment deadline_seconds must be finite, positive, and at most one day")
+    normalized_deadline_seconds = float(deadline_seconds) if deadline_seconds is not None else None
+    if task_payload is not None and not isinstance(task_payload, Mapping):
+        raise TypeError("assignment task_payload must be a mapping")
+    source_payload = dict(task_payload or {})
+    resource = source_payload.get("resource", source_payload.get("resource_id", source_payload.get("path", "")))
+    clean_task_payload = {
+        "resource": resource,
+        "path": source_payload.get("path"),
+        "budget": source_payload.get("budget"),
+        "shared_budget": source_payload.get("shared_budget"),
+        "approval": source_payload.get("approval"),
+        "approval_evidence": source_payload.get("approval_evidence"),
+        "approval_id": source_payload.get("approval_id"),
+        "risk_tier": source_payload.get("risk_tier"),
+    }
+    task_payload_digest = hashlib.sha256(_canonical(clean_task_payload)).hexdigest()
+
     body = {
         "schema_version": _SCHEMA,
         "role_id": role_id.strip(),
@@ -185,6 +222,9 @@ def authorize_agent_assignment(
         "registry_digest": registry_digest,
         "policy_version": policy_version,
         "policy_digest": policy_digest,
+        "work_key": work_key.strip(),
+        "task_payload_digest": task_payload_digest,
+        "deadline_seconds": normalized_deadline_seconds,
     }
     assignment_digest = hashlib.sha256(_canonical(body)).hexdigest()
     request = MappingProxyType({**body, "scope": tuple(clean_scope), "assignment_digest": assignment_digest})
@@ -204,6 +244,9 @@ def authorize_agent_assignment(
         policy_version=policy_version,
         policy_digest=policy_digest,
         assignment_digest=assignment_digest,
+        work_key=body["work_key"],
+        task_payload_digest=task_payload_digest,
+        deadline_seconds=normalized_deadline_seconds,
     )
 
 
@@ -232,6 +275,8 @@ def submit_agent_task(
         raise TypeError("task payload must be a mapping")
     if "_auren_agent_assignment" in payload:
         raise ValueError("payload key '_auren_agent_assignment' is reserved")
+    if not isinstance(work_key, str) or not work_key.strip():
+        raise ValueError("assigned tasks require an explicit stable work_key")
     controller_root = getattr(controller, "root", None)
     policy_path = (
         Path(controller_root) / ".auren" / "guard_policy.json"
@@ -240,7 +285,8 @@ def submit_agent_task(
     assignment = authorize_agent_assignment(
         role_id=role_id, manager_id=manager_id, action_class=action_class,
         scope=scope, authorizer=authorizer, registry_path=registry_path,
-        policy_path=policy_path,
+        policy_path=policy_path, work_key=work_key,
+        task_payload=payload, deadline_seconds=deadline_seconds,
     )
     durable_payload = dict(payload)
     durable_payload["_auren_agent_assignment"] = assignment.as_payload()

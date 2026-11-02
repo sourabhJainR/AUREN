@@ -2159,6 +2159,9 @@ class ExecutionController:
             (datetime.now(timezone.utc) + timedelta(seconds=float(deadline_seconds))).isoformat()
             if deadline_seconds is not None else None
         )
+        normalized_deadline_seconds = (
+            float(deadline_seconds) if deadline_seconds is not None else None
+        )
         execution_class = self._handler_execution_class(handler)
         if not isinstance(payload, Mapping):
             raise TypeError("durable task payload must be a mapping")
@@ -2173,6 +2176,17 @@ class ExecutionController:
                 raise ValueError("approval-gated handler has no trusted gateway/ledger policy")
         self._load_handler(handler)
         payload_copy = dict(payload)
+        assignment_envelope = payload_copy.get("_auren_agent_assignment")
+        if isinstance(assignment_envelope, Mapping):
+            assigned_work_key = assignment_envelope.get("work_key")
+            supplied_work_key = payload_copy.get("work_key")
+            if supplied_work_key is None:
+                payload_copy["work_key"] = assigned_work_key
+            elif supplied_work_key != assigned_work_key:
+                raise WorkKeyConflict("payload work_key does not match the host-authorized agent assignment")
+            if assignment_envelope.get("deadline_seconds") != normalized_deadline_seconds:
+                raise WorkKeyConflict("deadline policy does not match the host-authorized agent assignment")
+            payload_copy["_auren_deadline_policy_seconds"] = normalized_deadline_seconds
         # Never trust caller-supplied supervisor-owned profile fields. A public
         # workflow_profile may override saved preferences for this task only.
         task_profile = payload_copy.pop("workflow_profile", None)
@@ -2226,9 +2240,6 @@ class ExecutionController:
                 expected_policy_digest=guard_policy_fingerprint(current_guard_policy),
             )
         goal_text = goal or f"execute durable handler: {handler}"
-        normalized_deadline_seconds = (
-            float(deadline_seconds) if deadline_seconds is not None else None
-        )
         try:
             payload_json = json.dumps(
                 payload_copy, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,

@@ -7,7 +7,7 @@ from contextlib import closing
 import unittest
 from pathlib import Path
 
-from portable.execution_controller import ExecutionController
+from portable.execution_controller import ExecutionController, WorkKeyConflict
 from portable.guarded_filesystem import write_workspace_text
 
 from portable.agent_execution_guard import (
@@ -26,16 +26,28 @@ def assigned_filesystem_handler(payload):
 
 
 class AgentExecutionGuardTests(unittest.TestCase):
-    def _payload(self, scope=("portable/api.py",), action_class="edit_assigned_paths"):
+    def _payload(
+        self, scope=("portable/api.py",), action_class="edit_assigned_paths",
+        deadline_seconds=None, task_path=None, work_key="AUREN:test:agent-execution-guard",
+    ):
+        assigned_path = task_path if task_path is not None else scope[0]
         assignment = authorize_agent_assignment(
             role_id="BE-01",
             manager_id="EM-ENG-01",
             action_class=action_class,
             scope=list(scope),
+            work_key=work_key,
+            task_payload={"path": assigned_path, "resource": scope[0]},
+            deadline_seconds=deadline_seconds,
             authorizer=lambda _request: True,
             registry_path=REGISTRY_PATH,
         )
-        return {"path": scope[0], "_auren_agent_assignment": assignment.as_payload()}
+        return {
+            "path": assigned_path, "resource": scope[0],
+            "work_key": work_key,
+            "_auren_deadline_policy_seconds": deadline_seconds,
+            "_auren_agent_assignment": assignment.as_payload(),
+        }
 
     def _validate(self, payload, **kwargs):
         expected_policy_version = kwargs.pop("expected_policy_version", POLICY_VERSION)
@@ -88,6 +100,65 @@ class AgentExecutionGuardTests(unittest.TestCase):
                     payload, expected_action_class="edit_assigned_paths", resource="portable/api.py",
                     authorization_verifier=lambda _request: True,
                 )
+
+    def test_assignment_is_bound_to_work_key_budget_and_approval_evidence(self):
+        original = self._payload()
+        tampered_work_key = dict(original)
+        tampered_work_key["work_key"] = "AUREN:test:other-task"
+        with self.assertRaisesRegex(AgentAssignmentScopeDenied, "work_key does not match"):
+            self._validate(
+                tampered_work_key, expected_action_class="edit_assigned_paths",
+                resource="portable/api.py", authorization_verifier=lambda _request: True,
+            )
+
+        for field, value in (
+            ("budget", {"tokens": 10}),
+            ("approval_evidence", {"receipt": "forged"}),
+            ("path", "portable/other.py"),
+        ):
+            tampered = dict(original)
+            tampered[field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(
+                AgentAssignmentScopeDenied, "payload digest does not match"
+            ):
+                self._validate(
+                    tampered, expected_action_class="edit_assigned_paths",
+                    resource="portable/api.py", authorization_verifier=lambda _request: True,
+                )
+
+    def test_controller_rejects_assignment_key_or_deadline_mismatch_before_persistence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            controller = ExecutionController(root, agent_assignment_verifier=lambda _request: True)
+            controller.register_handler(
+                "tests.test_agent_execution_guard.assigned_filesystem_handler",
+                assigned_filesystem_handler,
+                execution_class="read_only",
+                agent_action_class="edit_assigned_paths",
+            )
+            payload = self._payload()
+            with self.assertRaisesRegex(WorkKeyConflict, "conflicts"):
+                controller.submit(
+                    "tests.test_agent_execution_guard.assigned_filesystem_handler",
+                    payload, work_key="AUREN:test:substituted-task",
+                )
+            with self.assertRaisesRegex(WorkKeyConflict, "deadline policy"):
+                controller.submit(
+                    "tests.test_agent_execution_guard.assigned_filesystem_handler",
+                    payload, deadline_seconds=60,
+                )
+            with closing(sqlite3.connect(controller.db_path)) as db, db:
+                count = db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+            self.assertEqual(count, 0)
+
+    def test_assignment_deadline_policy_cannot_be_changed(self):
+        payload = self._payload(deadline_seconds=30)
+        payload["_auren_deadline_policy_seconds"] = 60
+        with self.assertRaisesRegex(AgentAssignmentScopeDenied, "deadline does not match"):
+            self._validate(
+                payload, expected_action_class="edit_assigned_paths",
+                resource="portable/api.py", authorization_verifier=lambda _request: True,
+            )
 
     def test_stale_registry_digest_is_denied(self):
         payload = self._payload()
@@ -163,13 +234,15 @@ class AgentExecutionGuardTests(unittest.TestCase):
                 execution_class="read_only",
                 agent_action_class="edit_assigned_paths",
             )
-            assignment_payload = self._payload(("allowed.txt",))["_auren_agent_assignment"]
+            blocked_assignment = self._payload(("allowed.txt",), task_path="blocked.txt", work_key="AUREN:test:blocked-path")[
+                "_auren_agent_assignment"
+            ]
             blocked = controller.submit("tests.test_agent_execution_guard.assigned_filesystem_handler", {
                 "resource": "allowed.txt",
                 "path": "blocked.txt",
                 "workspace_root": str(root),
                 "content": "must not write",
-                "_auren_agent_assignment": assignment_payload,
+                "_auren_agent_assignment": blocked_assignment,
             })
             # Reconstruct the controller before dispatch: persisted role/scope
             # metadata must be revalidated, not trusted from the prior process.
@@ -181,12 +254,15 @@ class AgentExecutionGuardTests(unittest.TestCase):
             self.assertNotEqual(controller.task(blocked.id).state, "completed")
             self.assertFalse((root / "blocked.txt").exists())
 
+            allowed_assignment = self._payload(("allowed.txt",), task_path="allowed.txt", work_key="AUREN:test:allowed-path")[
+                "_auren_agent_assignment"
+            ]
             allowed = controller.submit("tests.test_agent_execution_guard.assigned_filesystem_handler", {
                 "resource": "allowed.txt",
                 "path": "allowed.txt",
                 "workspace_root": str(root),
                 "content": "allowed",
-                "_auren_agent_assignment": assignment_payload,
+                "_auren_agent_assignment": allowed_assignment,
             })
             controller.run_once(allowed.id)
             self.assertEqual(controller.task(allowed.id).state, "completed")
