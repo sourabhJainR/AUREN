@@ -6,8 +6,9 @@ second scheduler, memory store, progress journal, or policy authority.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 
+from .agent_org_runtime import submit_agent_task as authorize_and_submit_agent_task
 from .engineering_dashboard import EngineeringDashboard
 from .execution_controller import ExecutionController
 from .persistent_memory import PersistentMemory
@@ -108,6 +109,44 @@ class AurenClient:
         return self.controller.submit(
             handler, dict(payload), goal=goal, work_key=work_key,
             deadline_seconds=deadline_seconds,
+        )
+
+    def submit_agent_task(
+        self,
+        handler: str,
+        payload: Mapping[str, Any],
+        *,
+        role_id: str,
+        manager_id: str,
+        action_class: str,
+        scope: Sequence[str],
+        authorizer: Callable[[Mapping[str, Any]], Any],
+        goal: str | None = None,
+        work_key: str | None = None,
+        deadline_seconds: float | None = None,
+        registry_path: str | Path | None = None,
+    ) -> Any:
+        """Authorize and persist a delegated task through the canonical controller.
+
+        The host authorizer authenticates the assigning manager and approves the
+        exact assignment. The separate constructor-supplied verifier rechecks
+        that durable assignment at dispatch and resume. Both are required for
+        successful execution; neither callback is synthesized by the SDK.
+        """
+        request = {
+            "role_id": role_id,
+            "manager_id": manager_id,
+            "action_class": action_class,
+            "scope": scope,
+            "authorizer": authorizer,
+            "goal": goal,
+            "work_key": work_key,
+            "deadline_seconds": deadline_seconds,
+        }
+        if registry_path is not None:
+            request["registry_path"] = registry_path
+        return authorize_and_submit_agent_task(
+            self.controller, handler, payload, **request
         )
 
     def run_once(self, task_id: str) -> Any:
