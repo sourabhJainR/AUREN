@@ -2173,6 +2173,14 @@ class ExecutionController:
                 raise ValueError("approval-gated handler has no trusted gateway/ledger policy")
         self._load_handler(handler)
         payload_copy = dict(payload)
+        assignment_envelope = payload_copy.get("_auren_agent_assignment")
+        if isinstance(assignment_envelope, Mapping):
+            assigned_work_key = assignment_envelope.get("work_key")
+            supplied_work_key = payload_copy.get("work_key")
+            if supplied_work_key is None:
+                payload_copy["work_key"] = assigned_work_key
+            elif supplied_work_key != assigned_work_key:
+                raise WorkKeyConflict("payload work_key does not match the host-authorized agent assignment")
         # Never trust caller-supplied supervisor-owned profile fields. A public
         # workflow_profile may override saved preferences for this task only.
         task_profile = payload_copy.pop("workflow_profile", None)
