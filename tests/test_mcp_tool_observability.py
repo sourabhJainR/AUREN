@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from pathlib import Path
 
 from portable.agency_observability import Trace, bind_trace_context
 from portable.vibe_coding_host import MCPStdioToolAdapter
@@ -14,6 +15,7 @@ class MCPToolObservabilityTests(unittest.TestCase):
             argv=("python", "-c", "pass"),
             tool_name="read_context",
             requires_authority_binding=False,
+            trusted_workspace_root=Path.cwd(),
         )
 
     def test_mcp_tool_success_emits_parented_span_without_payload_capture(self):
