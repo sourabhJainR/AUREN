@@ -6,6 +6,7 @@ remain responsible for checkpointing and validating each returned proposal.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextvars import copy_context
 from typing import Any, Callable, Mapping, Sequence
 
 
@@ -48,8 +49,12 @@ class BoundedCrewDispatcher:
         results: list[Any] = [None] * len(requests)
         with ThreadPoolExecutor(max_workers=min(max_workers, len(requests)),
                                 thread_name_prefix="auren-crew") as pool:
+            # ContextVar-backed authority (including assigned-agent scope) does
+            # not cross ThreadPoolExecutor boundaries automatically. Give each
+            # worker its own context snapshot so concurrent requests cannot share
+            # or overwrite a single Context instance.
             futures = {
-                pool.submit(self._dispatch, request): index
+                pool.submit(copy_context().run, self._dispatch, request): index
                 for index, request in enumerate(requests)
             }
             try:
