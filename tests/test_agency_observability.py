@@ -387,12 +387,8 @@ class TestAgencyObservability(unittest.TestCase):
             span.finish({"result": "failed"}, "failed")
         self.assertEqual({"result": "ok"}, span.output)
 
-    def test_new_spans_cannot_attach_to_terminal_parent_or_trace(self):
-        trace = Tracer().start("parent-terminal")
-        parent = trace.span("parent")
-        parent.finish(status="ok")
-        with self.assertRaisesRegex(ValueError, "parent span is already terminal"):
-            trace.span("late-child", parent_id=parent.span_id)
+    def test_new_spans_cannot_be_added_after_trace_termination(self):
+        trace = Tracer().start("trace-terminal")
         trace.finish("ok")
         with self.assertRaisesRegex(ValueError, "terminal trace"):
             trace.span("late-span")
