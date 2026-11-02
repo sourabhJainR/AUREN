@@ -277,10 +277,7 @@ before merge. It uses a trusted host context resolver to obtain the durable task
 identity and optional shared execution guard, cancellation probe and monotonic
 deadline. Receiver configuration is validated before dispatch. Stage output is
 serialized deterministically, bounded by per-chunk and total-byte limits, and
-delivered through the existing acknowledgement protocol. Only exact receiver
-acknowledgements advance the durable progress cursor. An ambiguous outcome blocks
-unsafe replay; consequential provider operations rely on their durable operation
-ledger to avoid repeating a completed side effect.
+delivered through the existing acknowledgement protocol. Only exact receiver acknowledgements advance the durable progress cursor. An ambiguous outcome writes a task-level replay fence: subsequent delivery attempts for that task are blocked even if a replayed provider receipt serializes to a different response digest or stage. Reconciliation must occur under a new operator-approved task; consequential provider operations separately rely on their durable operation ledger to avoid repeating a completed side effect.
 
 The integration is opt-in and leaves existing behavior unchanged when no receiver
 is configured. MCP atomic frames are not split. Repository tests cover successful
