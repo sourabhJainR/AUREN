@@ -168,7 +168,10 @@ def _record_worker_observations(trace, worker_span, raw: Mapping[str, object], s
         ("rollback_events", "rollback"),
         ("context_events", "context"),
     )
+    max_events = 100
     events: list[Mapping[str, object]] = []
+    truncated_events = 0
+    truncated_sources: list[str] = []
     for key, default_phase in event_sources:
         raw_events = raw.get(key, ())
         if raw_events in (None, ()):
@@ -176,7 +179,12 @@ def _record_worker_observations(trace, worker_span, raw: Mapping[str, object], s
         if not isinstance(raw_events, (list, tuple)):
             trace.metadata["worker_observation_errors"] = int(trace.metadata.get("worker_observation_errors", 0)) + 1
             continue
-        for raw_event in raw_events[:100]:
+        for index, raw_event in enumerate(raw_events):
+            if len(events) >= max_events:
+                truncated_events += len(raw_events) - index
+                if key not in truncated_sources:
+                    truncated_sources.append(key)
+                break
             if not isinstance(raw_event, Mapping):
                 trace.metadata["worker_observation_errors"] = int(trace.metadata.get("worker_observation_errors", 0)) + 1
                 continue
@@ -184,13 +192,25 @@ def _record_worker_observations(trace, worker_span, raw: Mapping[str, object], s
             if default_phase is not None:
                 event.setdefault("phase", default_phase)
             events.append(event)
-            if len(events) >= 100:
-                break
-        if len(events) >= 100:
-            break
+    if truncated_events:
+        trace.metadata["worker_observations_truncated"] = (
+            int(trace.metadata.get("worker_observations_truncated", 0)) + truncated_events
+        )
+        trace.metadata["worker_observation_truncated_sources"] = sorted(set(
+            trace.metadata.get("worker_observation_truncated_sources", ()) + tuple(truncated_sources)
+        ))
+        trace.metadata.setdefault("phase_coverage_gaps", []).append("worker_observations_truncated")
 
     allowed_statuses = {"ok", "error", "blocked", "failed", "cancelled", "timed_out", "unknown", "unscored", "stale"}
-    allowed_phases = {"ideation", "research", "planning", "context", "routing", "tool", "implementation", "verification", "learning", "release", "rollback"}
+    # Keep this vocabulary aligned with the canonical lifecycle phases. Worker
+    # observations are descriptive only, but a valid phase must not be erased
+    # merely because it is produced by a different adapter.
+    allowed_phases = {
+        "ideation", "research", "planning", "context", "routing", "provider",
+        "tool", "implementation", "verification", "review", "evaluation",
+        "learning", "approval", "delivery", "recovery", "supervisor",
+        "attestation", "release", "rollback", "unknown",
+    }
     observed_phases: set[str] = set()
     for event in events:
         name = event.get("name")
