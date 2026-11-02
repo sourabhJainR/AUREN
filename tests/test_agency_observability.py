@@ -71,6 +71,9 @@ class TestAgencyObservability(unittest.TestCase):
         self.assertEqual({root.span_id, child.span_id}, {span.span_id for span in resumed.spans})
         resumed_child = resumed.span("resumed_provider", parent_id=root.span_id, phase="provider")
         resumed_child.finish({"reconciled": True}, "ok")
+        next(span for span in resumed.spans if span.span_id == root.span_id).finish(
+            {"children_reconciled": True}, "ok",
+        )
         tracer.end(resumed)
 
         records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
@@ -352,6 +355,53 @@ class TestAgencyObservability(unittest.TestCase):
         assert len(records) >= 40
         assert all(record.get("trace_id") for record in records)
         assert len({record["trace_id"] for record in records}) == 40
+
+
+    def test_trace_cannot_finish_successfully_with_running_spans(self):
+        tracer = Tracer(LocalExporter(self.tmp_path / "open-span.jsonl", enabled=True))
+        trace = tracer.start("open-span", task_id="task-open-span")
+        span = trace.span("provider", phase="provider")
+        with self.assertRaisesRegex(ValueError, "spans remain running"):
+            tracer.end(trace, "ok")
+        self.assertIsNone(trace.end)
+        span.finish({"reconciled": True}, "ok")
+        tracer.end(trace, "ok")
+        self.assertEqual("ok", trace.status)
+
+    def test_failed_trace_closes_unfinished_spans_as_unknown(self):
+        tracer = Tracer(LocalExporter(self.tmp_path / "partial-span.jsonl", enabled=True))
+        trace = tracer.start("partial-span")
+        span = trace.span("provider", phase="provider")
+        tracer.end(trace, "failed")
+        self.assertEqual("failed", trace.status)
+        self.assertEqual("unknown", span.status)
+        self.assertEqual("trace ended before span completion", span.terminal_reason)
+        self.assertIsNotNone(span.end)
+
+    def test_span_terminal_state_is_immutable_and_idempotent(self):
+        trace = Tracer().start("span-terminal")
+        span = trace.span("provider")
+        span.finish({"result": "ok"}, "ok")
+        span.finish({"ignored": "same terminal event"}, "ok")
+        with self.assertRaisesRegex(ValueError, "different status"):
+            span.finish({"result": "failed"}, "failed")
+        self.assertEqual({"result": "ok"}, span.output)
+
+    def test_terminal_spans_and_traces_cannot_accept_late_scores(self):
+        trace = Tracer().start("late-score")
+        span = trace.span("provider")
+        span.finish(status="ok")
+        with self.assertRaisesRegex(ValueError, "terminal span"):
+            span.score("quality", 1.0)
+        trace.finish("ok")
+        with self.assertRaisesRegex(ValueError, "terminal trace"):
+            trace.score("quality", 1.0)
+
+    def test_new_spans_cannot_be_added_after_trace_termination(self):
+        trace = Tracer().start("trace-terminal")
+        trace.finish("ok")
+        with self.assertRaisesRegex(ValueError, "terminal trace"):
+            trace.span("late-span")
 
 
 
