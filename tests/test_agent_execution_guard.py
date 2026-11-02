@@ -248,23 +248,26 @@ class AgentExecutionGuardTests(unittest.TestCase):
             blocked_assignment = self._payload(("allowed.txt",), task_path="blocked.txt", work_key="AUREN:test:blocked-path")[
                 "_auren_agent_assignment"
             ]
-            blocked = controller.submit("tests.test_agent_execution_guard.assigned_filesystem_handler", {
-                "resource": "allowed.txt",
-                "path": "blocked.txt",
-                "workspace_root": str(root),
-                "content": "must not write",
-                "_auren_agent_assignment": blocked_assignment,
-            })
-            # Reconstruct the controller before dispatch: persisted role/scope
-            # metadata must be revalidated, not trusted from the prior process.
+            with self.assertRaisesRegex(
+                AgentAssignmentScopeDenied, "path selector is outside the assigned scope"
+            ):
+                controller.submit("tests.test_agent_execution_guard.assigned_filesystem_handler", {
+                    "resource": "allowed.txt",
+                    "path": "blocked.txt",
+                    "workspace_root": str(root),
+                    "content": "must not write",
+                    "_auren_agent_assignment": blocked_assignment,
+                })
+            # Reject the alias before creating any durable task or invoking a handler.
+            with closing(sqlite3.connect(controller.db_path)) as db, db:
+                count = db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+            self.assertEqual(count, 0)
+            self.assertFalse((root / "blocked.txt").exists())
+
+            # Reconstruct the controller to keep the allowed path test on a fresh process.
             controller = ExecutionController(
                 root, agent_assignment_verifier=lambda _request: True
             )
-            with self.assertRaises(AgentAssignmentScopeDenied):
-                controller.run_once(blocked.id)
-            self.assertNotEqual(controller.task(blocked.id).state, "completed")
-            self.assertFalse((root / "blocked.txt").exists())
-
             allowed_assignment = self._payload(("allowed.txt",), task_path="allowed.txt", work_key="AUREN:test:allowed-path")[
                 "_auren_agent_assignment"
             ]
