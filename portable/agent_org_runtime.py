@@ -189,11 +189,17 @@ def authorize_agent_assignment(
         raise ValueError("assignment work_key must be non-empty printable text of at most 256 characters")
     if task_payload is not None and not isinstance(task_payload, Mapping):
         raise TypeError("assignment task_payload must be a mapping")
-    clean_task_payload = dict(task_payload or {})
-    clean_task_payload.pop("_auren_agent_assignment", None)
-    clean_task_payload.pop("_auren_workflow_profile", None)
-    clean_task_payload.pop("_auren_workflow_profile_digest", None)
-    clean_task_payload.pop("work_key", None)
+    source_payload = dict(task_payload or {})
+    resource = source_payload.get("resource", source_payload.get("resource_id", source_payload.get("path", "")))
+    clean_task_payload = {
+        "resource": resource,
+        "budget": source_payload.get("budget"),
+        "shared_budget": source_payload.get("shared_budget"),
+        "approval": source_payload.get("approval"),
+        "approval_evidence": source_payload.get("approval_evidence"),
+        "approval_id": source_payload.get("approval_id"),
+        "risk_tier": source_payload.get("risk_tier"),
+    }
     task_payload_digest = hashlib.sha256(_canonical(clean_task_payload)).hexdigest()
 
     body = {
