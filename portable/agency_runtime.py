@@ -214,7 +214,7 @@ def _record_worker_observations(trace, worker_span, raw: Mapping[str, object], s
         "ideation", "research", "planning", "context", "routing", "provider",
         "tool", "implementation", "verification", "review", "evaluation",
         "learning", "approval", "delivery", "recovery", "supervisor",
-        "attestation", "release", "rollback", "unknown",
+        "attestation", "release", "rollback",
     }
     observed_phases: set[str] = set()
     for event in events:
