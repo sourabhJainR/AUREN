@@ -1,6 +1,6 @@
 # Provider operation lifecycle and recovery boundary
 
-Status: lifecycle implementation and supervisor integration added on this branch; exact-head tests and independent review are still required.
+Status: repository implementation merged in PR #1211 at `dbf339fb6482aa94456152691430ed8c087f7ec9`. All seven exact-head workflows passed before merge. This documents repository behavior; production provider receipts, host adapter configuration and external isolation remain post-release acceptance.
 
 ## Invariant
 
