@@ -14,6 +14,7 @@ from portable.execution_controller import ExecutionController
 from portable.engineering_plan_recovery import EngineeringPlanCheckpointMismatch
 from portable.runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
 from portable.trusted_plan_dispatch import TrustedPlanDispatchRoot
+from portable.agent_org_runtime import authorize_agent_assignment
 from tests.test_engineering_plan_dispatch import prepared
 
 
@@ -56,6 +57,15 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         )
         return store, request, record
 
+    def _assignment_resolver(self, context):
+        return authorize_agent_assignment(
+            role_id="BE-01", manager_id="EM-ENG-01",
+            action_class="edit_assigned_paths", scope=self.assignment_scope,
+            authorizer=lambda request: self.assignment_allowed,
+            work_key=context["dispatch_key"], task_payload=context["payload"],
+            deadline_seconds=context["deadline_seconds"],
+        )
+
     def _root(self, controller, store, request, record, guard, *, context):
         admission_checkpoint_digest = guard.snapshot()["digest"]
         return TrustedPlanDispatchRoot(
@@ -70,6 +80,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             approval_resolver=lambda run_id, task_id, handler: {
                 "approval_id": record.approval_id, "request": request,
             },
+            assignment_resolver=self._assignment_resolver,
         )
 
     def setUp(self):
@@ -81,11 +92,56 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         self.plan_store = store
         self.controller = controller
         self.recovery_bridge = bridge.recovery_bridge
+        self.assignment_allowed = True
+        self.assignment_scope = ("repo:write",)
         self.context = {
             "artifact_digest": "1" * 64,
             "evidence_digest": "2" * 64,
             "policy_digest": "3" * 64,
         }
+
+    def test_missing_host_assignment_is_denied_before_queue_insertion(self):
+        approvals, request, record = self._approval(self.controller, context=self.context)
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        self.assignment_allowed = False
+        root = self._root(self.controller, approvals, request, record, guard, context=self.context)
+        with self.assertRaisesRegex(PermissionError, "assignment authorization failed"):
+            root.dispatch(
+                run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-denied",
+                handler="dispatch-test", packet=self.packet,
+            )
+        with sqlite3.connect(self.controller.db_path) as db:
+            self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
+
+    def test_assignment_policy_drift_cannot_replay_an_existing_dispatch(self):
+        from portable.engineering_plan_dispatch import DispatchConflict
+        approvals, request, record = self._approval(self.controller, context=self.context)
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        root = self._root(self.controller, approvals, request, record, guard, context=self.context)
+        first = root.dispatch(
+            run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-policy-replay",
+            handler="dispatch-test", packet=self.packet,
+        )
+        self.assignment_scope = ("repo:read",)
+        with self.assertRaises(DispatchConflict):
+            root.dispatch(
+                run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-policy-replay",
+                handler="dispatch-test", packet=self.packet,
+            )
+        self.assertEqual("repo:write", first.payload["_auren_agent_assignment"]["scope"][0])
+
+    def test_revoked_assignment_is_rejected_at_worker_preflight(self):
+        from portable.engineering_plan_recovery import EngineeringPlanCheckpointMismatch
+        approvals, request, record = self._approval(self.controller, context=self.context)
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        root = self._root(self.controller, approvals, request, record, guard, context=self.context)
+        task = root.dispatch(
+            run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-revocation",
+            handler="dispatch-test", packet=self.packet,
+        )
+        self.assignment_allowed = False
+        with self.assertRaisesRegex(EngineeringPlanCheckpointMismatch, "revoked"):
+            self.controller._verify_engineering_plan_dispatch_checkpoint(task)
 
     def test_root_resolves_live_budget_and_approved_record_and_binds_them(self):
         approvals, request, record = self._approval(self.controller, context=self.context)
@@ -161,6 +217,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                 "checkpoint_digest": guard.snapshot()["digest"], "policy_digest": "a" * 64,
             },
             approval_resolver=lambda run_id, task_id, handler: {"approval_id": record.approval_id, "request": request},
+            assignment_resolver=self._assignment_resolver,
         )
         with self.assertRaisesRegex(PermissionError, "not approved"):
             root.dispatch(
@@ -185,6 +242,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                 approval_resolver=lambda run_id, task_id, handler: {
                     "approval_id": record.approval_id, "request": request,
                 },
+                assignment_resolver=self._assignment_resolver,
             ).dispatch(
                 run_id=self.plan.run_id, task_id="implement", dispatch_key="cancelled-budget",
                 handler="dispatch-test", packet=self.packet,
@@ -244,6 +302,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                 approval_store=approvals,
                 budget_resolver=lambda run_id, task_id, handler: {},
                 approval_resolver=lambda run_id, task_id, handler: None,
+                assignment_resolver=self._assignment_resolver,
             )
             self.assertIs(runtime.trusted_plan_dispatch_root, root)
             self.assertIsNotNone(runtime.execution_controller._trusted_plan_dispatch_token)
@@ -378,6 +437,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                 "checkpoint_digest": guard.snapshot()["digest"], "policy_digest": "a" * 64,
             },
             approval_resolver=lambda run_id, task_id, handler: None,
+            assignment_resolver=self._assignment_resolver,
         )
         with self.assertRaisesRegex(PermissionError, "requires a canonical durable approval"):
             root.dispatch(
@@ -469,6 +529,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                 "checkpoint_digest": admission_digest, "policy_digest": "a" * 64,
             },
             approval_resolver=resolve_approval,
+            assignment_resolver=self._assignment_resolver,
         )
         with self.assertRaises(ExecutionBudgetExceeded):
             root.dispatch(
