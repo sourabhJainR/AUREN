@@ -177,7 +177,7 @@ def _parse_profile(raw: Any, roles: Mapping[str, Mapping[str, Any]]) -> AgentPro
     ):
         raise AgentProfileError("workspace_policy must inherit canonical task assignment scope")
     memory_namespace = _text(raw["memory_namespace"], "memory_namespace")
-    if memory_namespace != f"agent-profile:{profile_id}":
+    if memory_namespace != f"agent-profile:{profile_id}:r{revision}":
         raise AgentProfileError("memory_namespace must be isolated to the profile identity")
     budget = raw["budget_defaults"]
     if not isinstance(budget, dict) or set(budget) != {"max_tokens", "max_tool_calls", "max_wall_seconds"}:
@@ -270,6 +270,10 @@ def _validate_templates(raw_templates: Any, profiles: Mapping[tuple[str, int], A
 
         for member_id in by_id:
             visit(member_id)
+        positions = {member["member_id"]: index for index, member in enumerate(members)}
+        for member in members:
+            if any(positions[dependency] >= positions[member["member_id"]] for dependency in member["depends_on"]):
+                raise AgentProfileError("team template dependencies must precede their dependent members")
         key = (template_id, revision)
         if key in result:
             raise AgentProfileError(f"duplicate team template revision: {template_id}@{revision}")
@@ -324,6 +328,8 @@ def resolve_agent_profile(
     profile_path: str | Path = DEFAULT_PROFILE_PATH,
     organization_registry_path: str | Path = DEFAULT_ORGANIZATION_PATH,
 ) -> AgentProfile:
+    profile_id = _text(profile_id, "profile_id", pattern=r"[a-z][a-z0-9_]{1,63}")
+    revision = _positive_int(revision, "revision", 1000000)
     normalized, _ = load_agent_profile_registry(
         profile_path, organization_registry_path=organization_registry_path,
     )
@@ -345,6 +351,43 @@ def resolve_agent_profile(
     raise AgentProfileError(f"unknown profile revision: {profile_id}@{revision}")
 
 
+
+def profile_binding(profile: AgentProfile) -> dict[str, Any]:
+    """Return the minimal immutable profile identity pinned to a task intent."""
+    if not isinstance(profile, AgentProfile):
+        raise TypeError("profile must be a validated AgentProfile")
+    return {
+        "profile_id": profile.profile_id,
+        "revision": profile.revision,
+        "digest": profile.digest,
+    }
+
+
+def validate_profile_binding(
+    binding: Any,
+    *,
+    role_id: str,
+    manager_role_id: str,
+    action_class: str,
+) -> AgentProfile:
+    """Resolve the exact current profile revision and prove it cannot expand role authority."""
+    if not isinstance(binding, Mapping) or set(binding) != {"profile_id", "revision", "digest"}:
+        raise AgentProfileError("agent profile binding is malformed")
+    profile_id = _text(binding.get("profile_id"), "profile_id")
+    revision = _positive_int(binding.get("revision"), "profile revision", 1000000)
+    digest = binding.get("digest")
+    if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        raise AgentProfileError("agent profile digest is malformed")
+    profile = resolve_agent_profile(profile_id, revision=revision)
+    if profile.digest != digest:
+        raise AgentProfileError("agent profile revision digest is stale or changed")
+    if profile.role_id != role_id or profile.manager_role_id != manager_role_id:
+        raise AgentProfileError("agent profile role or manager does not match the durable assignment")
+    if action_class not in profile.action_classes:
+        raise AgentProfileError("agent profile does not permit the durable assignment action class")
+    return profile
+
+
 def resolve_team_template(
     template_id: str,
     *,
@@ -352,6 +395,8 @@ def resolve_team_template(
     profile_path: str | Path = DEFAULT_PROFILE_PATH,
     organization_registry_path: str | Path = DEFAULT_ORGANIZATION_PATH,
 ) -> dict[str, Any]:
+    template_id = _text(template_id, "template_id", pattern=r"[a-z][a-z0-9_]{1,63}")
+    revision = _positive_int(revision, "template revision", 1000000)
     normalized, _ = load_agent_profile_registry(
         profile_path, organization_registry_path=organization_registry_path,
     )

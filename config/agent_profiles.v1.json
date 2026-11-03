@@ -11,7 +11,7 @@
       "provider_preferences": ["strong_code_reasoning"],
       "tool_preferences": ["repository_read", "scoped_file_edit", "scoped_test_runner"],
       "workspace_policy": {"mode": "task_scoped", "scope_source": "canonical_assignment"},
-      "memory_namespace": "agent-profile:backend_implementer",
+      "memory_namespace": "agent-profile:backend_implementer:r1",
       "budget_defaults": {"max_tokens": 24000, "max_tool_calls": 80, "max_wall_seconds": 3600},
       "deadline_seconds": 3600,
       "approval_policy": "manager_before_external_effect"
@@ -26,7 +26,7 @@
       "provider_preferences": ["strong_reasoning"],
       "tool_preferences": ["repository_read", "dependency_graph", "design_review"],
       "workspace_policy": {"mode": "read_only", "scope_source": "canonical_assignment"},
-      "memory_namespace": "agent-profile:principal_architect",
+      "memory_namespace": "agent-profile:principal_architect:r1",
       "budget_defaults": {"max_tokens": 18000, "max_tool_calls": 60, "max_wall_seconds": 2400},
       "deadline_seconds": 2400,
       "approval_policy": "inherit_role"
@@ -41,7 +41,7 @@
       "provider_preferences": ["strong_reasoning"],
       "tool_preferences": ["test_runner", "coverage_report", "artifact_inspection"],
       "workspace_policy": {"mode": "task_scoped", "scope_source": "canonical_assignment"},
-      "memory_namespace": "agent-profile:qa_reviewer",
+      "memory_namespace": "agent-profile:qa_reviewer:r1",
       "budget_defaults": {"max_tokens": 20000, "max_tool_calls": 90, "max_wall_seconds": 3600},
       "deadline_seconds": 3600,
       "approval_policy": "independent_review_before_release"
@@ -56,7 +56,7 @@
       "provider_preferences": ["strong_reasoning"],
       "tool_preferences": ["static_analysis", "dependency_audit", "secret_scan", "test_runner"],
       "workspace_policy": {"mode": "read_only", "scope_source": "canonical_assignment"},
-      "memory_namespace": "agent-profile:security_reviewer",
+      "memory_namespace": "agent-profile:security_reviewer:r1",
       "budget_defaults": {"max_tokens": 20000, "max_tool_calls": 80, "max_wall_seconds": 3600},
       "deadline_seconds": 3600,
       "approval_policy": "independent_review_before_release"
