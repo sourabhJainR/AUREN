@@ -79,7 +79,14 @@ class TestPreImplementationReview(unittest.TestCase):
             Node("api_implementation", NodeKind.DETERMINISTIC, lambda state: calls.append("api_implementation"), depends_on=("api_contract",), critical=True),
             Node("documentation", NodeKind.DETERMINISTIC, lambda state: calls.append("documentation"), critical=False),
         ])
-        run = Orchestrator(graph).run(
+        run = Orchestrator(
+            graph,
+            conflict_scope_verifier=lambda review, mapping, graph_digest: (
+                bool(review["unresolved_contradictions"])
+                and set(mapping) == {"compatibility-vs-breaking-change"}
+                and len(graph_digest) == 64
+            ),
+        ).run(
             "scoped-conflict-task", "Preserve compatibility while changing the API",
             context={
                 "requirements": ["Preserve backward compatibility", "Introduce a breaking change"],
@@ -96,6 +103,28 @@ class TestPreImplementationReview(unittest.TestCase):
         progress = next(item for item in run.evidence if item.kind == "independent-graph-progress")
         self.assertIn("documentation", progress.summary)
         self.assertIn("api_contract", progress.summary)
+
+    def test_scoped_conflict_requires_trusted_host_verification(self):
+        calls = []
+        graph = Graph([
+            Node("api_contract", NodeKind.DETERMINISTIC, lambda state: calls.append("api_contract"), critical=True),
+            Node("documentation", NodeKind.DETERMINISTIC, lambda state: calls.append("documentation"), critical=False),
+        ])
+        run = Orchestrator(
+            graph,
+            conflict_scope_verifier=lambda _review, _mapping, _digest: False,
+        ).run(
+            "untrusted-scope-task", "Preserve compatibility while changing the API",
+            context={
+                "requirements": ["Preserve backward compatibility", "Introduce a breaking change"],
+                "preimplementation_conflict_nodes": {
+                    "compatibility-vs-breaking-change": ["api_contract"],
+                },
+            },
+        )
+        self.assertEqual(run.status, RunStatus.BLOCKED)
+        self.assertEqual(calls, [])
+        self.assertIn("conflict-to-task mapping", run.stop_reason)
 
     def test_scoped_conflict_mapping_must_cover_every_unresolved_conflict(self):
         calls = []
