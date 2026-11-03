@@ -232,6 +232,41 @@ def test_usage_settlement_failure_keeps_reservation_and_blocks_success(tmp_path:
     assert [item["operation_key"] for item in unresolved] == ["unverified-usage"]
 
 
+def test_usage_overrun_blocks_adapter_success_and_member(tmp_path: Path):
+    controller = ExecutionController(
+        tmp_path,
+        team_budget_settlement_verifier=lambda receipt: receipt["usage_evidence"],
+    )
+    task = _team(controller, tmp_path)
+    enforcer = TeamBudgetAdapterEnforcer(
+        controller,
+        context_resolver=lambda request: {
+            "task_id": task,
+            "run_id": "run-acceptance",
+            "member_id": request["principal_id"],
+            "principal_id": request["principal_id"],
+            "operation_key": "overrun-provider",
+            "tokens": 10,
+            "tool_calls": 1,
+            "wall_seconds": 30,
+        },
+        usage_evidence_resolver=lambda _request: {
+            "tokens": 11, "tool_calls": 1, "wall_seconds": 1,
+        },
+    )
+    with agent_assignment_scope(
+        ("src/app.py",), role_id="BE-01", principal_id="implementer",
+    ):
+        with pytest.raises(TeamBudgetAdapterDenied, match="operation is overrun"):
+            enforcer.execute("provider", "provider-a", {}, lambda: {"ok": True})
+    member = next(
+        item for item in controller.team_members(task, "run-acceptance")
+        if item["member_id"] == "implementer"
+    )
+    assert member["state"] == "blocked"
+    assert controller.unresolved_team_budget_operations(task, "run-acceptance") == ()
+
+
 def test_release_readiness_blocks_unknown_provider_outcome(tmp_path: Path):
     controller = ExecutionController(tmp_path)
     task_id = _team(controller, tmp_path)
