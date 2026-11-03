@@ -272,8 +272,8 @@ class TrustedPlanDispatchRoot:
         }
         return self._verified_approval_record(
             approval_id, request, expected_plan_binding,
-            implementer_principal_id=assignment.principal_id,
-            implementer_role_id=assignment.role_id,
+            implementer_principal_id=assignment.get("principal_id"),
+            implementer_role_id=assignment.get("role_id"),
         )
 
     def _verify_controller_approval(
