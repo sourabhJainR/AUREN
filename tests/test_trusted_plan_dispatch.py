@@ -93,7 +93,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         self.plan_store = store
         self.controller = controller
         self.controller.register_handler(
-            "dispatch-test", "tests.test_engineering_plan_dispatch.dispatch_test_handler",
+            "dispatch-test", "tests.test_engineering_plan_dispatch:dispatch_test_handler",
             execution_class="read_only", agent_action_class="edit_assigned_paths",
         )
         self.recovery_bridge = bridge.recovery_bridge
@@ -190,7 +190,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             agent_assignment_verifier=lambda _request: self.assignment_allowed,
         )
         fresh_controller.register_handler(
-            "dispatch-test", "tests.test_engineering_plan_dispatch.dispatch_test_handler",
+            "dispatch-test", "tests.test_engineering_plan_dispatch:dispatch_test_handler",
             execution_class="read_only", agent_action_class="edit_assigned_paths",
         )
         EngineeringPlanDispatch(
