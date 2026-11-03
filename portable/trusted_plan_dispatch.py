@@ -264,7 +264,7 @@ class TrustedPlanDispatchRoot:
             raise PermissionError("assigned plan tasks require an explicit resource, resource_id, or path")
         assigned_scope = set(assignment.scope)
         for resource in (*assignment.scope, *resource_selectors):
-            if not isinstance(resource, str) or not resource.strip() or "\\\\" in resource:
+            if not isinstance(resource, str) or not resource.strip() or chr(92) in resource:
                 raise PermissionError("assignment scope and resource selectors must be normalized relative paths")
             normalized = PurePosixPath(resource).as_posix()
             if (
