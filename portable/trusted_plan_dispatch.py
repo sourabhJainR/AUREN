@@ -123,8 +123,15 @@ class TrustedPlanDispatchRoot:
         approval_id: str,
         request: ActionRequest,
         expected_plan_binding: Mapping[str, Any],
+        *,
+        implementer_principal_id: str,
+        implementer_role_id: str,
     ) -> dict[str, str]:
-        """Recompute an approval receipt from durable state and live host authority."""
+        """Recompute a durable approval bound to the authenticated implementer principal."""
+        if not isinstance(implementer_principal_id, str) or not implementer_principal_id.strip():
+            raise PermissionError("authenticated implementer principal is required for independent review")
+        if not isinstance(implementer_role_id, str) or not implementer_role_id.strip():
+            raise PermissionError("authenticated implementer role is required for independent review")
         record = self.approval_store.get(approval_id)
         if record.status != "approved":
             raise PermissionError(f"durable approval is {record.status}, not approved")
@@ -140,6 +147,8 @@ class TrustedPlanDispatchRoot:
             raise PermissionError("durable approval is expired")
         if request.task_id != record.task_id or request.fingerprint() != record.request_fingerprint:
             raise PermissionError("durable approval is not bound to the resolved operation")
+        if record.requester_id != implementer_principal_id:
+            raise PermissionError("approval requester does not match the authenticated implementer principal")
         checkpoint = self.approval_store.checkpoint_for(approval_id)
         if any(checkpoint.get(name) != value for name, value in expected_plan_binding.items()):
             raise PermissionError("durable approval checkpoint is not bound to this exact plan task revision")
@@ -191,8 +200,8 @@ class TrustedPlanDispatchRoot:
             vote_scope = vote.get("scope")
             if not isinstance(approver_id, str) or not approver_id.strip():
                 raise PermissionError("durable approval contains an invalid approver identity")
-            if record.separation_of_duties and approver_id == record.requester_id:
-                raise PermissionError("requester self-approval is not permitted")
+            if approver_id == implementer_principal_id or approver_id == record.requester_id:
+                raise PermissionError("implementer self-approval is not permitted")
             if not isinstance(roles, tuple) or record.required_role not in roles or vote_scope != record.scope:
                 raise PermissionError("durable approval vote role or scope does not match the required authority")
             try:
@@ -213,6 +222,9 @@ class TrustedPlanDispatchRoot:
             "evidence_digest": record.evidence_digest,
             "policy_digest": record.policy_digest,
             "requester_id": record.requester_id,
+            "implementer_principal_id": implementer_principal_id,
+            "implementer_role_id": implementer_role_id,
+            "reviewer_principal_ids": sorted(set(approvers)),
             "required_role": record.required_role,
             "scope": record.scope,
             "version": record.version,
@@ -228,11 +240,13 @@ class TrustedPlanDispatchRoot:
             "policy_digest": record.policy_digest,
             "approver_id": ",".join(approvers),
             "approver_role": record.required_role,
+            "implementer_principal_id": implementer_principal_id,
             "decision": "approved",
         }
 
     def _approval_binding(
         self, run_id: str, task_id: str, handler: str, packet: EngineeringContextPacket,
+        assignment: Any,
     ) -> dict[str, str] | None:
         resolved = self.approval_resolver(run_id, task_id, handler)
         execution_class = self.controller._handler_execution_class(handler)
@@ -256,7 +270,11 @@ class TrustedPlanDispatchRoot:
             "run_revision": packet.run_revision,
             "source_revision": packet.source_revision,
         }
-        return self._verified_approval_record(approval_id, request, expected_plan_binding)
+        return self._verified_approval_record(
+            approval_id, request, expected_plan_binding,
+            implementer_principal_id=assignment.principal_id,
+            implementer_role_id=assignment.role_id,
+        )
 
     def _verify_controller_approval(
         self, metadata: Mapping[str, Any], evidence: Mapping[str, Any],
@@ -281,6 +299,19 @@ class TrustedPlanDispatchRoot:
                 or not isinstance(request, ActionRequest)
             ):
                 return False
+            assignment_evidence = metadata.get("assignment_evidence")
+            if not isinstance(assignment_evidence, Mapping):
+                return False
+            implementer_principal_id = assignment_evidence.get("principal_id")
+            implementer_role_id = assignment_evidence.get("role_id")
+            if (
+                assignment_evidence.get("schema_version") != "auren-agent-assignment-v4"
+                or not isinstance(implementer_principal_id, str)
+                or not implementer_principal_id.strip()
+                or not isinstance(implementer_role_id, str)
+                or not implementer_role_id.strip()
+            ):
+                return False
             expected_plan_binding = {
                 "plan_run_id": run_id,
                 "plan_task_id": task_id,
@@ -288,7 +319,11 @@ class TrustedPlanDispatchRoot:
                 "run_revision": metadata.get("run_revision"),
                 "source_revision": metadata.get("source_revision"),
             }
-            current = self._verified_approval_record(approval_id, request, expected_plan_binding)
+            current = self._verified_approval_record(
+                approval_id, request, expected_plan_binding,
+                implementer_principal_id=implementer_principal_id,
+                implementer_role_id=implementer_role_id,
+            )
             return current == dict(evidence)
         except Exception:
             return False
@@ -307,6 +342,13 @@ class TrustedPlanDispatchRoot:
             raise PermissionError("host agent assignment authorization failed closed") from exc
         if not isinstance(assignment, AuthorizedAgentAssignment):
             raise PermissionError("host assignment resolver must return AuthorizedAgentAssignment")
+        if (
+            not isinstance(assignment.principal_id, str)
+            or not assignment.principal_id.strip()
+            or len(assignment.principal_id) > 256
+            or not assignment.principal_id.isprintable()
+        ):
+            raise PermissionError("trusted assignment must bind an authenticated principal identity")
         task_payload = context.get("payload")
         profile_metadata = task_payload.get("_auren_agent_profile") if isinstance(task_payload, Mapping) else None
         if profile_metadata is not None:
@@ -473,10 +515,8 @@ class TrustedPlanDispatchRoot:
             raise PermissionError("payload work_key differs from the trusted dispatch identity")
         safe_payload["work_key"] = dispatch_key
         budget, guard = self._budget_binding(run_id, task_id, handler)
-        approval = self._approval_binding(run_id, task_id, handler, packet)
-        # Approval resolution may take time. Re-check the same live supervisor
-        # guard immediately before queue insertion so cancellation or deadline
-        # tightening during approval cannot admit stale work.
+        # Authenticate the implementation principal before resolving the reviewer.
+        # The reviewer receipt must be bound to this exact host-authorized identity.
         guard.check()
         live_snapshot = guard.snapshot()
         RuntimeExecutionGuard.resume(live_snapshot)
@@ -531,6 +571,21 @@ class TrustedPlanDispatchRoot:
             # the durable task is shortened to the remaining live time, never extended.
             if deadline_seconds is not None:
                 deadline_seconds = min(deadline_seconds, float(remaining_after_assignment))
+        approval = self._approval_binding(run_id, task_id, handler, packet, assignment)
+        # Approval is a second host boundary. Re-check the live guard after it.
+        guard.check()
+        approval_snapshot = guard.snapshot()
+        RuntimeExecutionGuard.resume(approval_snapshot)
+        approval_remaining = approval_snapshot.get("remaining_seconds")
+        if approval_remaining is not None and (
+            isinstance(approval_remaining, bool)
+            or not isinstance(approval_remaining, (int, float))
+            or not math.isfinite(approval_remaining)
+            or approval_remaining <= 0
+        ):
+            raise PermissionError("canonical supervisor deadline expired during reviewer authorization")
+        if approval_remaining is not None and deadline_seconds is not None:
+            deadline_seconds = min(deadline_seconds, float(approval_remaining))
         safe_payload["_auren_agent_assignment"] = assignment
         safe_payload["_auren_assignment_deadline_seconds"] = assignment.get("deadline_seconds")
         return EngineeringPlanDispatch(
