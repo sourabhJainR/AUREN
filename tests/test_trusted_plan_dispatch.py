@@ -574,10 +574,10 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
 
     def test_approval_requester_must_match_authenticated_implementer_before_queue(self):
         store, request, record = self._approval(
-            self.controller, context=self.approval_context, requester_id="different-worker",
+            self.controller, context=self.context, requester_id="different-worker",
         )
         guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
-        root = self._root(self.controller, store, request, record, guard, context=self.approval_context)
+        root = self._root(self.controller, store, request, record, guard, context=self.context)
         with self.assertRaisesRegex(PermissionError, "requester does not match the authenticated implementer"):
             root.dispatch(
                 run_id=self.plan.run_id, task_id="implement",
@@ -591,12 +591,12 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
 
     def test_implementer_cannot_self_approve_even_when_legacy_separation_flag_is_false(self):
         store, request, record = self._approval(
-            self.controller, context=self.approval_context,
+            self.controller, context=self.context,
             requester_id="worker-1", approver_id="worker-1",
             separation_of_duties=False,
         )
         guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
-        root = self._root(self.controller, store, request, record, guard, context=self.approval_context)
+        root = self._root(self.controller, store, request, record, guard, context=self.context)
         with self.assertRaisesRegex(PermissionError, "implementer self-approval is not permitted"):
             root.dispatch(
                 run_id=self.plan.run_id, task_id="implement",
