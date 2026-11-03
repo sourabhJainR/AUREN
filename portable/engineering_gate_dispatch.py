@@ -64,6 +64,17 @@ def build_gate_engineering_plan(
             risk="critical" if gate.external_evidence_required else "high",
             owner_role_id=_GATE_TASK_OWNERS[gate.gate_id][0],
             manager_role_id=_GATE_TASK_OWNERS[gate.gate_id][1],
+            priority={
+                "durable_plan_dispatch": "P0",
+                "runtime_isolation_reconciliation": "P0",
+                "guarded_promotion": "P0",
+                "operator_migration_rollback": "P0",
+                "independent_arena_campaign": "P0",
+                "post_merge_evidence": "P1",
+                "provenance_learning": "P1",
+                "safe_parallel_execution": "P1",
+                "unified_dashboard": "P2",
+            }[gate.gate_id],
         )
         for gate in gates
     )
