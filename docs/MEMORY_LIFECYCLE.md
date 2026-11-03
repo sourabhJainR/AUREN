@@ -4,7 +4,7 @@ The memory system is deliberately split into three layers so execution context d
 
 ## 1. Private working memory
 
-`portable.agent_memory.AgentMemory` belongs to one agent and one run. It is bounded, disposable working state. It is never implicitly promoted to team knowledge.
+`portable.agent_memory.AgentMemory` belongs to one agent and one run. It is bounded, disposable working state. `ProfileAgentMemory` resolves a versioned profile from the canonical registry and partitions the file by profile ID, revision, profile digest, agent ID and run ID. It checks the identity metadata on each read. Graph phase agents select their profile as a memory partition only; this does not grant role or tool authority. Both forms are private working state and are never implicitly promoted to team knowledge.
 
 ## 2. Shared task memory
 
