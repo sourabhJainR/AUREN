@@ -241,6 +241,7 @@ class TrustedPlanDispatchRoot:
             "approver_id": ",".join(approvers),
             "approver_role": record.required_role,
             "implementer_principal_id": implementer_principal_id,
+            "implementer_role_id": implementer_role_id,
             "decision": "approved",
         }
 
