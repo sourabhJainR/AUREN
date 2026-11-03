@@ -36,6 +36,10 @@ class EngineeringGateDispatchPlanTests(unittest.TestCase):
         self.assertEqual("critical", durable.risk)
         self.assertTrue(any("Gate crew-plan digest:" in item for item in plan.requirements))
         self.assertTrue(all(task.owner_role_id and task.manager_role_id for task in plan.tasks))
+        self.assertTrue(all(task.priority in {"P0", "P1", "P2", "P3"} for task in plan.tasks))
+        self.assertEqual(
+            "P0", next(task for task in plan.tasks if task.task_id == "durable_plan_dispatch").priority,
+        )
         self.assertEqual(
             ("SEC-01", "CTO-01"),
             (
