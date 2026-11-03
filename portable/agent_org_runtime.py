@@ -249,6 +249,22 @@ def authorize_agent_assignment(
         "approval_id": source_payload.get("approval_id"),
         "risk_tier": source_payload.get("risk_tier"),
     }
+    if "_auren_agent_profile" in source_payload:
+        from .agent_profiles import validate_profile_binding
+        try:
+            profile = validate_profile_binding(
+                source_payload["_auren_agent_profile"],
+                role_id=role_id.strip(),
+                manager_role_id=manager_id.strip(),
+                action_class=action_class.strip(),
+            )
+        except Exception as exc:
+            raise AgentAssignmentDenied("agent profile is stale or does not match the authorized role") from exc
+        clean_task_payload["agent_profile"] = {
+            "profile_id": profile.profile_id,
+            "revision": profile.revision,
+            "digest": profile.digest,
+        }
     task_payload_digest = hashlib.sha256(_canonical(clean_task_payload)).hexdigest()
 
     body = {
@@ -311,8 +327,9 @@ def submit_agent_task(
     """
     if not isinstance(payload, Mapping):
         raise TypeError("task payload must be a mapping")
-    if "_auren_agent_assignment" in payload:
-        raise ValueError("payload key '_auren_agent_assignment' is reserved")
+    for reserved in ("_auren_agent_assignment", "_auren_agent_profile"):
+        if reserved in payload:
+            raise ValueError(f"payload key {reserved!r} is reserved")
     if not isinstance(work_key, str) or not work_key.strip():
         raise ValueError("assigned tasks require an explicit stable work_key")
     controller_root = getattr(controller, "root", None)
