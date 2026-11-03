@@ -97,6 +97,9 @@ class _ContainerizedStockResearchRunner:
         )
         checks = {
             "user": config.get("User") == "65534:65534",
+            "entrypoint_fixed": config.get("Entrypoint") == ["/usr/local/bin/python"],
+            "command_fixed": config.get("Cmd") == ["-m", "pytest", "-q", "-p", "no:cacheprovider", *TEST_FILES],
+            "working_directory_fixed": config.get("WorkingDir") == "/opt/TradingDYOR",
             "network_none": host.get("NetworkMode") == "none",
             "read_only_root": host.get("ReadonlyRootfs") is True,
             "capabilities_dropped": "ALL" in cap_drop,
@@ -107,6 +110,9 @@ class _ContainerizedStockResearchRunner:
             "no_host_binds": not host.get("Binds"),
             "no_host_mounts": not host.get("Binds") and not host.get("Mounts") and only_temporary_mounts,
             "temporary_paths_only": set(tmpfs) == expected_tmpfs,
+            "host_environment_not_inherited": set(
+                item.split("=", 1)[0] for item in (config.get("Env") or [])
+            ).issubset({"PATH", "PYTHONDONTWRITEBYTECODE", "HOME", "TMPDIR", "TRADINGDYOR_PIT_DB"}),
             "not_privileged": host.get("Privileged") is not True,
         }
         if not all(checks.values()):
@@ -132,9 +138,8 @@ class _ContainerizedStockResearchRunner:
         name = "auren-stock-acceptance-" + uuid.uuid4().hex
         create_payload = {
             "Image": self.image_id,
-            "Cmd": [
-                "python", "-m", "pytest", "-q", "-p", "no:cacheprovider", *TEST_FILES,
-            ],
+            "Entrypoint": ["/usr/local/bin/python"],
+            "Cmd": ["-m", "pytest", "-q", "-p", "no:cacheprovider", *TEST_FILES],
             "WorkingDir": "/opt/TradingDYOR",
             "User": "65534:65534",
             "Tty": True,
