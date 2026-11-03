@@ -592,7 +592,14 @@ class Orchestrator:
                 "minimum_evidence": strategy_profile.minimum_evidence,
             })
         total_attempts = 0
-        critical_failures: list[tuple[RunStatus, str, str]] = []
+        critical_failures: list[tuple[RunStatus, str, str]] = [
+            (
+                RunStatus.BLOCKED,
+                node_name,
+                run.results[node_name].error or "unresolved requirement conflict",
+            )
+            for node_name in sorted(preblocked_nodes)
+        ]
 
         for node in self.graph.order():
             if node.name in preblocked_nodes:
