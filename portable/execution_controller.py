@@ -1731,15 +1731,6 @@ class ExecutionController:
             approval_evidence=approval_evidence,
         )
 
-    def configure_team_budget_enforcer(self, enforcer: Any) -> None:
-        """Install the host-owned budget mediator once during worker bootstrap."""
-        if not callable(getattr(enforcer, "execute", None)):
-            raise TypeError("team budget enforcer must implement execute")
-        current = self._team_budget_enforcer
-        if current is not None and current is not enforcer:
-            raise RuntimeError("shared team-budget enforcer cannot be replaced after configuration")
-        self._team_budget_enforcer = enforcer
-
     def register_provider_operation_adapter(self, handler_name: str, adapter: Any) -> None:
         """Register trusted lookup and evidence-verification capabilities for a handler.
 
