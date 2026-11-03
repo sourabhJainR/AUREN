@@ -193,16 +193,31 @@ class TrustedPlanDispatchRoot:
             supplied = _required_digest(context.get(name), f"current {name}")
             if supplied != getattr(record, name):
                 raise PermissionError(f"durable approval {name} no longer matches current context")
-        votes = [
-            item for item in self.approval_store.events(approval_id)
-            if item["event_type"] == "approval_vote_recorded"
-            and item["event"].get("details", {}).get("decision") == "approve"
-        ]
-        approvers = sorted({str(item["actor"]) for item in votes})
-        if len(approvers) < record.required_approvals:
+        vote_records = self.approval_store.decision_records(approval_id)
+        approved_records = [item for item in vote_records if item.get("decision") == "approve"]
+        approvers: list[str] = []
+        authorizer = self.approval_store.approver_authorizer
+        if not callable(authorizer):
+            raise PermissionError("durable approval has no live host approver authorizer")
+        for vote in approved_records:
+            approver_id = vote.get("approver_id")
+            roles = vote.get("roles")
+            vote_scope = vote.get("scope")
+            if not isinstance(approver_id, str) or not approver_id.strip():
+                raise PermissionError("durable approval contains an invalid approver identity")
+            if record.separation_of_duties and approver_id == record.requester_id:
+                raise PermissionError("requester self-approval is not permitted")
+            if not isinstance(roles, tuple) or record.required_role not in roles or vote_scope != record.scope:
+                raise PermissionError("durable approval vote role or scope does not match the required authority")
+            try:
+                currently_authorized = authorizer(approver_id, record.required_role, record.scope, roles)
+            except Exception as exc:
+                raise PermissionError("current host approver authorization failed closed") from exc
+            if currently_authorized is not True:
+                raise PermissionError("durable approval approver authority has been revoked or changed")
+            approvers.append(approver_id)
+        if len(set(approvers)) < record.required_approvals:
             raise PermissionError("durable approval vote threshold is not met")
-        if record.separation_of_duties and record.requester_id in approvers:
-            raise PermissionError("requester self-approval is not permitted")
         receipt_digest = _canonical_digest({
             "approval_id": record.approval_id,
             "task_id": record.task_id,
