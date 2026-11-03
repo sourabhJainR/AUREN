@@ -9,6 +9,7 @@ import pytest
 from portable.agent_execution_guard import agent_assignment_scope
 from portable.agent_profiles import resolve_agent_profile
 from portable.execution_controller import ExecutionController
+from portable.crew_adapters import ApprovedTool, ApprovedToolRegistry
 from portable.team_budget_adapters import TeamBudgetAdapterDenied, TeamBudgetAdapterEnforcer
 from portable.vibe_coding_host import MCPStdioToolAdapter
 
@@ -111,12 +112,17 @@ def test_provider_and_mcp_tool_calls_share_one_durable_budget(tmp_path: Path):
         tool_result = tool({"symbol": "MTSI"})
         assert tool_result["content"][0]["text"] == "quote"
         assert tool.calls == 1
+        approved_tools = ApprovedToolRegistry(
+            [ApprovedTool("lookup_company", lambda _args: {"found": True}, "read company data")],
+            team_budget_enforcer=enforcer,
+        )
+        assert approved_tools.invoke("lookup_company", {"ticker": "MTSI"}) == {"found": True}
 
     assert provider_started and provider_started[0][0]["state"] == "reserved"
     budget = controller.team_budget(task_id, "run-acceptance")
-    assert budget["charged_tokens"] == 70
-    assert budget["charged_tool_calls"] == 2
-    assert budget["charged_wall_seconds"] == 4
+    assert budget["charged_tokens"] == 105
+    assert budget["charged_tool_calls"] == 3
+    assert budget["charged_wall_seconds"] == 6
     assert budget["reserved_tokens"] == 0
     assert controller.unresolved_team_budget_operations(task_id, "run-acceptance") == ()
 
