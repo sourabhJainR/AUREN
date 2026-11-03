@@ -19,18 +19,19 @@ class Impact:
 # Order is stable for deterministic evidence. Every sensitive source path has
 # a mandatory focused suite; recovery changes also require production hardening.
 _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
-    ("portable/trusted_plan_dispatch.py", ("tests.test_trusted_plan_dispatch", "tests.test_engineering_plan_dispatch", "tests.test_durable_approval", "tests.test_execution_controller_cancellation"), True),
+    ("portable/trusted_plan_dispatch.py", ("tests.test_trusted_plan_dispatch", "tests.test_trusted_plan_profile_binding", "tests.test_engineering_plan_dispatch", "tests.test_durable_approval", "tests.test_execution_controller_cancellation"), True),
     ("tests/test_trusted_plan_dispatch.py", ("tests.test_trusted_plan_dispatch",), True),
+    ("tests/test_trusted_plan_profile_binding.py", ("tests.test_trusted_plan_profile_binding",), True),
     ("tests/test_trusted_plan_approval_preflight.py", ("tests.test_trusted_plan_approval_preflight", "tests.test_trusted_plan_dispatch", "tests.test_durable_approval", "tests.test_execution_controller"), True),
     ("portable/adaptive_runtime.py", ("tests.test_trusted_plan_dispatch", "tests.test_adaptive_runtime_recovery_integration", "tests.test_execution_controller_cancellation"), True),
     ("portable/engineering_plan_dispatch.py", ("tests.test_engineering_plan_dispatch", "tests.test_trusted_plan_dispatch", "tests.test_engineering_plan_recovery"), True),
     ("portable/sdk.py", ("tests.test_auren_sdk", "tests.test_trusted_plan_dispatch", "tests.test_agent_execution_guard", "tests.test_execution_controller_guard_policy"), True),
     ("tests/test_auren_sdk.py", ("tests.test_auren_sdk",), True),
-    ("portable/agent_org_runtime.py", ("tests.test_agent_org_runtime", "tests.test_agent_execution_guard", "tests.test_execution_controller_guard_policy"), True),
+    ("portable/agent_org_runtime.py", ("tests.test_agent_org_runtime", "tests.test_agent_execution_guard", "tests.test_agent_profiles", "tests.test_trusted_plan_profile_binding", "tests.test_execution_controller_guard_policy"), True),
     ("portable/agent_profiles.py", ("tests.test_agent_profiles", "tests.test_agent_org_runtime", "tests.test_agent_execution_guard"), True),
     ("tests/test_agent_profiles.py", ("tests.test_agent_profiles",), True),
     ("tests/test_agent_org_runtime.py", ("tests.test_agent_org_runtime",), True),
-    ("portable/agent_execution_guard.py", ("tests.test_agent_execution_guard", "tests.test_agent_org_runtime", "tests.test_execution_controller_guard_policy"), True),
+    ("portable/agent_execution_guard.py", ("tests.test_agent_execution_guard", "tests.test_agent_org_runtime", "tests.test_agent_profiles", "tests.test_trusted_plan_profile_binding", "tests.test_execution_controller_guard_policy"), True),
     ("tests/test_agent_execution_guard.py", ("tests.test_agent_execution_guard",), True),
     ("portable/agency_observability_ops.py", ("tests.test_agency_observability_ops", "tests.test_agency_observability"), True),
     ("portable/guarded_filesystem.py", ("tests.test_guarded_filesystem", "tests.test_agent_execution_guard", "tests.test_vibe_coding_host", "tests.test_execution_boundary"), True),
