@@ -8,6 +8,7 @@ verifier can convert a host receipt into charged usage.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+import time
 from typing import Any
 
 from .agent_execution_guard import current_agent_assignment_principal_id
@@ -118,9 +119,12 @@ class TeamBudgetAdapterEnforcer:
 
         # Deliberately do not release on exception. A timeout or raised exception
         # does not prove that the remote operation never started.
+        started = time.monotonic()
         result = invoke()
+        elapsed_seconds = max(0.0, time.monotonic() - started)
         evidence_request = {
             **context,
+            "elapsed_seconds": elapsed_seconds,
             "adapter_kind": adapter_kind,
             "adapter_name": adapter_name.strip(),
             "request": dict(request),
