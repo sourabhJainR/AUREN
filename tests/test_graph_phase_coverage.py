@@ -53,3 +53,40 @@ def test_phase_agents_use_role_specific_private_memory_profiles():
     assert team.agents["security-reviewer"].profile_id == "security_reviewer"
     assert team.agents["architecture-reviewer"].profile_id == "principal_architect"
     assert all(agent.profile_revision == 1 for agent in team.agents.values())
+
+
+def test_graph_bridge_uses_durable_manifest_run_id_for_private_memory(tmp_path, monkeypatch):
+    import json
+    import logging
+    import engine
+
+    captured = {}
+
+    def fake_execute(self, **kwargs):
+        captured["run_id"] = kwargs.get("run_id")
+        return {"accepted": True, "agents": {}}
+
+    monkeypatch.setattr(GraphAgentTeam, "execute", fake_execute)
+    run_dir = tmp_path / "stable-run-42"
+    run_dir.mkdir()
+    (run_dir / "manifest.json").write_text(json.dumps({
+        "run_id": "stable-run-42",
+        "task_id": "task-42",
+        "task": "verify durable profile memory scope",
+        "intent_digest": "a" * 64,
+        "route": {"mode": "implement", "risk": "critical"},
+    }), encoding="utf-8")
+    prompt_file = run_dir / "execute.prompt.md"
+    prompt_file.write_text("execute the task", encoding="utf-8")
+
+    engine.invoke(
+        {"name": "test-provider"},
+        prompt_file,
+        "execute",
+        run_dir,
+        10,
+        True,
+        logging.getLogger("graph-profile-memory-test"),
+    )
+
+    assert captured["run_id"] == "stable-run-42"
