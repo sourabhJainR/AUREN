@@ -1,0 +1,12 @@
+.git
+**/.git
+**/.git/**
+external/TradingDYOR/.git
+external/TradingDYOR/.env
+external/TradingDYOR/.env.*
+external/TradingDYOR/.tradingdyor
+external/TradingDYOR/data
+external/TradingDYOR/__pycache__
+external/TradingDYOR/**/__pycache__
+external/TradingDYOR/.pytest_cache
+external/TradingDYOR/**/.pytest_cache
