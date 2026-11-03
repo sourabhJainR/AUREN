@@ -16,6 +16,7 @@ import math
 import re
 import sqlite3
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
 from .action_governance import ActionRequest, ApprovalReceipt
@@ -530,14 +531,14 @@ class DurableApprovalStore:
                 "FROM durable_approval_decisions WHERE approval_id=? ORDER BY approver_id",
                 (approval_id,),
             ).fetchall()
-        return tuple({
+        return tuple(MappingProxyType({
             "approver_id": row["approver_id"],
             "decision": row["decision"],
             "roles": tuple(json.loads(row["roles_json"])),
             "scope": row["scope"],
             "decision_digest": row["decision_digest"],
             "created_at": row["created_at"],
-        } for row in rows)
+        }) for row in rows)
 
     def verify_audit_chain(self) -> bool:
         previous = "0" * 64
