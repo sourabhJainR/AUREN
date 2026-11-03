@@ -31,8 +31,12 @@ class AgentProfileRegistryTests(unittest.TestCase):
         )
         self.assertEqual("BE-01", profile.role_id)
         self.assertEqual(("edit_assigned_paths", "run_scoped_tests", "propose_changes"), profile.action_classes)
-        self.assertEqual("agent-profile:backend_implementer", profile.memory_namespace)
+        self.assertEqual("agent-profile:backend_implementer:r1", profile.memory_namespace)
         self.assertEqual(64, len(profile.digest))
+
+    def test_boolean_revision_is_not_accepted_as_integer_revision(self):
+        with self.assertRaises(AgentProfileError):
+            resolve_agent_profile("backend_implementer", revision=True, profile_path=PROFILE_PATH, organization_registry_path=ROLE_PATH)
 
     def test_unknown_profile_and_stale_revision_fail_closed(self):
         with self.assertRaises(AgentProfileError):
