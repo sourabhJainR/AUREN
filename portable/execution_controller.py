@@ -189,8 +189,8 @@ class ExecutionController:
         if provider_resume_authorizer is not None and not callable(provider_resume_authorizer):
             raise TypeError("provider_resume_authorizer must be callable")
         self._provider_resume_authorizer = provider_resume_authorizer
-        if team_budget_release_verifier is not None and not callable(team_budget_release_verifier):
-            raise TypeError("team_budget_release_verifier must be callable")
+        if team_budget_settlement_verifier is not None and not callable(team_budget_settlement_verifier):
+            raise TypeError("team_budget_settlement_verifier must be callable")
         self._team_budget_settlement_verifier = team_budget_settlement_verifier
         if team_budget_release_verifier is not None and not callable(team_budget_release_verifier):
             raise TypeError("team_budget_release_verifier must be callable")
