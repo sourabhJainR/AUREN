@@ -152,6 +152,12 @@ class EngineeringPlanDispatch:
         for name in required - {'decision'}:
             if not isinstance(result[name], str) or not result[name].strip():
                 raise ValueError('approval evidence fields must be non-empty text')
+        for name in ('implementer_principal_id', 'implementer_role_id'):
+            if name in result and (
+                not isinstance(result[name], str) or not result[name].strip()
+                or len(result[name]) > 256 or not result[name].isprintable()
+            ):
+                raise ValueError('approval implementer identity fields must be bounded printable text')
         for name in ('receipt_digest', 'evidence_digest', 'policy_digest'):
             digest = result[name]
             if len(digest) != 64 or any(c not in '0123456789abcdef' for c in digest):
