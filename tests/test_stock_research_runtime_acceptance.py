@@ -88,6 +88,16 @@ class _ContainerizedStockResearchRunner:
         security = set(host.get("SecurityOpt") or ())
         cap_drop = set(host.get("CapDrop") or ())
         tmpfs = host.get("Tmpfs") or {}
+        actual_env = {
+            item.split("=", 1)[0]: item.split("=", 1)[1]
+            for item in (config.get("Env") or []) if "=" in item
+        }
+        extra_env = set(actual_env) - set(expected_env)
+        environment_matches = (
+            all(actual_env.get(name) == value for name, value in expected_env.items())
+            and extra_env.issubset({"HOSTNAME"})
+            and ("HOSTNAME" not in actual_env or actual_env["HOSTNAME"] == config.get("Hostname"))
+        )
         expected_tmpfs = {
             "/tmp", "/opt/TradingDYOR/data", "/opt/TradingDYOR/.tradingdyor",
         }
@@ -110,10 +120,7 @@ class _ContainerizedStockResearchRunner:
             "no_host_binds": not host.get("Binds"),
             "no_host_mounts": not host.get("Binds") and not host.get("Mounts") and only_temporary_mounts,
             "temporary_paths_only": set(tmpfs) == expected_tmpfs,
-            "host_environment_not_inherited": {
-                item.split("=", 1)[0]: item.split("=", 1)[1]
-                for item in (config.get("Env") or []) if "=" in item
-            } == expected_env,
+            "host_environment_not_inherited": environment_matches,
             "not_privileged": host.get("Privileged") is not True,
         }
         if not all(checks.values()):
