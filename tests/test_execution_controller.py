@@ -2419,3 +2419,68 @@ def test_existing_task_identity_reconciliation_is_idempotent_and_blocks_other_ro
             "tests.durable_handler", {"id": "legacy-task"},
             goal="existing work before shared admission", work_key="deployment:legacy:task",
         )
+
+
+def test_durable_team_member_lifecycle_is_profile_bound_and_resumes_after_restart(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    members = [
+        {"member_id": "implementer", "profile_id": "backend_implementer",
+         "profile_revision": 1, "profile_digest": "a" * 64},
+        {"member_id": "qa", "profile_id": "qa_reviewer",
+         "profile_revision": 1, "profile_digest": "b" * 64},
+    ]
+
+    initial = controller.register_team_members("task-team-1", "run-1", members)
+    assert [member["state"] for member in initial] == ["pending", "pending"]
+    assert controller.register_team_members("task-team-1", "run-1", members) == initial
+
+    assigned = controller.transition_team_member(
+        "task-team-1", "run-1", "implementer",
+        expected_state="pending", new_state="assigned",
+    )
+    assert assigned["state"] == "assigned"
+
+    restarted = ExecutionController(tmp_path)
+    resumed = restarted.team_members("task-team-1", "run-1")
+    implementer = next(member for member in resumed if member["member_id"] == "implementer")
+    assert implementer["state"] == "assigned"
+    assert implementer["profile_digest"] == "a" * 64
+
+    running = restarted.transition_team_member(
+        "task-team-1", "run-1", "implementer",
+        expected_state="assigned", new_state="running",
+    )
+    assert running["state"] == "running"
+    completed = restarted.transition_team_member(
+        "task-team-1", "run-1", "implementer",
+        expected_state="running", new_state="completed",
+    )
+    assert completed["state"] == "completed"
+
+
+def test_durable_team_member_registration_rejects_profile_drift_and_stale_transition(tmp_path: Path):
+    import pytest
+
+    controller = ExecutionController(tmp_path)
+    member = {"member_id": "implementer", "profile_id": "backend_implementer",
+              "profile_revision": 1, "profile_digest": "a" * 64}
+    controller.register_team_members("task-team-2", "run-1", [member])
+
+    changed = {**member, "profile_digest": "c" * 64}
+    with pytest.raises(ValueError, match="profile identity conflict"):
+        controller.register_team_members("task-team-2", "run-1", [changed])
+
+    controller.transition_team_member(
+        "task-team-2", "run-1", "implementer",
+        expected_state="pending", new_state="assigned",
+    )
+    with pytest.raises(ValueError, match="state changed"):
+        controller.transition_team_member(
+            "task-team-2", "run-1", "implementer",
+            expected_state="pending", new_state="running",
+        )
+    with pytest.raises(ValueError, match="terminal"):
+        controller.transition_team_member(
+            "task-team-2", "run-1", "implementer",
+            expected_state="assigned", new_state="completed",
+        )
