@@ -2477,7 +2477,7 @@ def test_durable_team_member_registration_rejects_profile_drift_and_stale_transi
     with pytest.raises(ValueError, match="state changed"):
         controller.transition_team_member(
             "task-team-2", "run-1", "implementer",
-            expected_state="pending", new_state="running",
+            expected_state="pending", new_state="assigned",
         )
     with pytest.raises(ValueError, match="terminal"):
         controller.transition_team_member(
