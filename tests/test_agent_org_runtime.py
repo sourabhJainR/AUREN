@@ -217,3 +217,43 @@ class AgentOrgRuntimeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_authenticated_principal_is_bound_into_v4_assignment_digest(self):
+        seen = []
+
+        def authorize(request):
+            seen.append(dict(request))
+            return request.get("principal_id") == "host:worker-17"
+
+        assignment = authorize_agent_assignment(
+            role_id="BE-01",
+            manager_id="EM-ENG-01",
+            action_class="edit_assigned_paths",
+            scope=["portable/secure.py"],
+            work_key="AUREN:test:principal-bound-assignment",
+            principal_id="host:worker-17",
+            authorizer=authorize,
+            registry_path=REGISTRY,
+        )
+        envelope = assignment.as_payload()
+        self.assertEqual(envelope["schema_version"], "auren-agent-assignment-v4")
+        self.assertEqual(envelope["principal_id"], "host:worker-17")
+        self.assertEqual(assignment.principal_id, "host:worker-17")
+        self.assertEqual(seen[0]["principal_id"], "host:worker-17")
+        self.assertEqual(envelope["assignment_digest"], assignment.assignment_digest)
+
+    def test_invalid_principal_identity_is_rejected_before_host_authorization(self):
+        calls = []
+        with self.assertRaisesRegex(ValueError, "principal_id"):
+            authorize_agent_assignment(
+                role_id="BE-01",
+                manager_id="EM-ENG-01",
+                action_class="edit_assigned_paths",
+                scope=["portable/secure.py"],
+                work_key="AUREN:test:invalid-principal",
+                principal_id="  ",
+                authorizer=lambda request: calls.append(dict(request)) or True,
+                registry_path=REGISTRY,
+            )
+        self.assertEqual(calls, [])
