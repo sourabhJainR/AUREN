@@ -19,6 +19,8 @@ TASK_STATUSES = frozenset({
     "blocked", "failed", "cancelled",
 })
 RISK_LEVELS = frozenset({"low", "medium", "high", "critical"})
+PRIORITY_LEVELS = ("P0", "P1", "P2", "P3")
+_RISK_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 _ALLOWED_TRANSITIONS = {
     "pending": frozenset({"ready", "blocked", "cancelled"}),
     "ready": frozenset({"running", "blocked", "cancelled"}),
@@ -76,6 +78,7 @@ class PlanTask:
     risk: str = "medium"
     owner_role_id: str | None = None
     manager_role_id: str | None = None
+    priority: str = "P2"
 
     def __post_init__(self) -> None:
         _nonempty(self.task_id, "task_id")
@@ -90,6 +93,8 @@ class PlanTask:
         object.__setattr__(self, "depends_on", tuple(self.depends_on))
         if self.risk not in RISK_LEVELS:
             raise ValueError(f"risk must be one of {sorted(RISK_LEVELS)}")
+        if self.priority not in PRIORITY_LEVELS:
+            raise ValueError(f"priority must be one of {PRIORITY_LEVELS}")
         if not self.acceptance_criteria or any(not isinstance(item, str) or not item.strip() for item in self.acceptance_criteria):
             raise ValueError("each task requires non-empty, verifiable acceptance criteria")
         if len(set(self.depends_on)) != len(self.depends_on):
@@ -108,6 +113,9 @@ class PlanTask:
         if self.owner_role_id is not None:
             result["owner_role_id"] = self.owner_role_id
             result["manager_role_id"] = self.manager_role_id
+        # Keep legacy plan digests stable when the default priority is used.
+        if self.priority != "P2":
+            result["priority"] = self.priority
         return result
 
 
@@ -193,6 +201,7 @@ class EngineeringPlan:
                     risk=item.get("risk", "medium"),
                     owner_role_id=item.get("owner_role_id"),
                     manager_role_id=item.get("manager_role_id"),
+                    priority=item.get("priority", "P2"),
                 )
                 for item in payload["tasks"]
             )
@@ -215,11 +224,19 @@ class EngineeringPlan:
         known = {task.task_id for task in self.tasks}
         if not set(completed_task_ids) <= known:
             raise ValueError("completed task set contains IDs outside this plan")
-        return tuple(
-            task.task_id for task in self.tasks
+        ready = [
+            (index, task) for index, task in enumerate(self.tasks)
             if task.task_id not in completed_task_ids
             and set(task.depends_on) <= set(completed_task_ids)
-        )
+        ]
+        # Eat the frog: among currently unblocked work, take the highest-priority
+        # and highest-risk task first. Original plan order is the stable tie-break.
+        ready.sort(key=lambda item: (
+            PRIORITY_LEVELS.index(item[1].priority),
+            _RISK_ORDER[item[1].risk],
+            item[0],
+        ))
+        return tuple(task.task_id for _, task in ready)
 
 
 @dataclass(frozen=True)
@@ -334,6 +351,24 @@ class EngineeringPlanRun:
     @property
     def digest(self) -> str:
         return _digest(self.to_dict())
+
+    def ready_tasks(self, plan: EngineeringPlan) -> tuple[str, ...]:
+        """Return only pending/ready tasks whose dependencies have passed.
+
+        Failed, blocked, running, verifying, passed and cancelled work is never
+        re-enqueued by this projection. Independent ready work can still proceed.
+        """
+        self.verify_against(plan)
+        progress = {item.task_id: item for item in self.tasks}
+        passed = {task_id for task_id, item in progress.items() if item.status == "passed"}
+        eligible = {
+            task_id for task_id, item in progress.items()
+            if item.status in {"pending", "ready"}
+        }
+        return tuple(
+            task_id for task_id in plan.ready_tasks(passed)
+            if task_id in eligible
+        )
 
     def transition_task(
         self, task_id: str, target: str, *, plan: EngineeringPlan, reason: str,

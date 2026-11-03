@@ -77,6 +77,61 @@ class EngineeringPlanTests(unittest.TestCase):
                 owner_role_id="BE-01",
             )
 
+    def test_ready_tasks_prioritize_hard_blockers_then_risk_with_stable_ties(self):
+        plan = EngineeringPlan(
+            run_id="frog-run", goal="prioritize hard blockers", requirements=("highest risk first",),
+            source_revision="revision", tasks=(
+                PlanTask("dashboard", "Dashboard", ("works",), "revert", risk="low", priority="P2"),
+                PlanTask("critical", "Critical trust boundary", ("secure",), "revert", risk="critical", priority="P0"),
+                PlanTask("high", "High risk", ("safe",), "revert", risk="high", priority="P0"),
+                PlanTask("second", "Second P0", ("safe",), "revert", risk="critical", priority="P0"),
+                PlanTask("p1", "P1", ("done",), "revert", risk="critical", priority="P1"),
+            ),
+        )
+        self.assertEqual(
+            ("critical", "second", "high", "p1", "dashboard"),
+            plan.ready_tasks(set()),
+        )
+        self.assertEqual(("p1", "dashboard"), plan.ready_tasks({"critical", "second", "high"}))
+
+    def test_run_ready_tasks_do_not_unlock_failed_dependencies_but_keep_independent_work(self):
+        from portable.engineering_plan import EngineeringPlanRun, TaskProgress
+        plan = EngineeringPlan(
+            run_id="fail-fast-run", goal="preserve independent work", requirements=("no failed dependency unlock",),
+            source_revision="revision", tasks=(
+                PlanTask("blocked-child", "Blocked child", ("done",), "revert", depends_on=("failed-root",), priority="P0"),
+                PlanTask("failed-root", "Failed root", ("done",), "revert", priority="P0"),
+                PlanTask("independent", "Independent work", ("done",), "revert", priority="P1"),
+            ),
+        )
+        run = EngineeringPlanRun(
+            plan_digest=plan.digest, source_revision=plan.source_revision,
+            tasks=(
+                TaskProgress("blocked-child", status="pending"),
+                TaskProgress("failed-root", status="failed"),
+                TaskProgress("independent", status="pending"),
+            ),
+        )
+        self.assertEqual(("independent",), run.ready_tasks(plan))
+
+    def test_priority_is_digest_bound_and_legacy_default_is_omitted(self):
+        base = PlanTask("t", "Task", ("done",), "revert")
+        explicit_default = PlanTask("t", "Task", ("done",), "revert", priority="P2")
+        urgent = PlanTask("t", "Task", ("done",), "revert", priority="P0")
+        self.assertEqual(base.to_dict(), explicit_default.to_dict())
+        plan = EngineeringPlan(
+            run_id="priority-run", goal="priority", requirements=("bound",),
+            source_revision="revision", tasks=(base,),
+        )
+        urgent_plan = EngineeringPlan(
+            run_id="priority-run", goal="priority", requirements=("bound",),
+            source_revision="revision", tasks=(urgent,),
+        )
+        self.assertNotEqual(plan.digest, urgent_plan.digest)
+        self.assertEqual(plan.digest, EngineeringPlan.from_dict(plan.to_dict()).digest)
+        with self.assertRaisesRegex(ValueError, "priority must be one of"):
+            PlanTask("invalid", "Invalid priority", ("done",), "revert", priority="urgent")
+
     def test_rejects_missing_dependencies_and_cycles(self):
         with self.assertRaisesRegex(ValueError, "unknown dependencies"):
             EngineeringPlan(
