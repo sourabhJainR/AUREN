@@ -37,6 +37,7 @@ class AdaptiveRuntimeContextTests(unittest.TestCase):
                 persistent_memory=memory,
                 automation_scheduler=scheduler,
                 session_store=SessionStore(root / "sessions.db"),
+                state_root=root / "state",
                 conflict_scope_verifier=verifier,
             )
             self.assertIs(runtime.orchestrator.conflict_scope_verifier, verifier)
