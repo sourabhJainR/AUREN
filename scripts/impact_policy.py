@@ -31,6 +31,8 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("portable/agent_profiles.py", ("tests.test_agent_profiles", "tests.test_agent_org_runtime", "tests.test_agent_execution_guard"), True),
     ("portable/agent_memory.py", ("tests.test_agent_memory", "tests.test_agent_profiles"), True),
     ("tests/test_agent_memory.py", ("tests.test_agent_memory",), True),
+    ("portable/agent_memory.py", ("tests.test_agent_memory", "tests.test_agent_profiles"), True),
+    ("tests/test_agent_memory.py", ("tests.test_agent_memory",), True),
     ("tests/test_agent_profiles.py", ("tests.test_agent_profiles",), True),
     ("tests/test_agent_org_runtime.py", ("tests.test_agent_org_runtime",), True),
     ("portable/agent_execution_guard.py", ("tests.test_agent_execution_guard", "tests.test_agent_org_runtime", "tests.test_agent_profiles", "tests.test_trusted_plan_profile_binding", "tests.test_execution_controller_guard_policy"), True),
