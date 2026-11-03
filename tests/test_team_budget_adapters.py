@@ -59,7 +59,7 @@ def _team(controller: ExecutionController, root: Path):
     return task.id
 
 
-def _enforcer(controller, *, key_prefix="adapter"):
+def _enforcer(controller, task_id, *, key_prefix="adapter"):
     sequence = {"value": 0}
 
     def resolve_context(request):
@@ -87,13 +87,12 @@ def _enforcer(controller, *, key_prefix="adapter"):
 
 
 def test_provider_and_mcp_tool_calls_share_one_durable_budget(tmp_path: Path):
-    global task_id
     controller = ExecutionController(
         tmp_path,
         team_budget_settlement_verifier=lambda receipt: receipt["usage_evidence"],
     )
     task_id = _team(controller, tmp_path)
-    enforcer = _enforcer(controller)
+    enforcer = _enforcer(controller, task_id)
 
     provider_started = []
     with agent_assignment_scope(
