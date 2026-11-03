@@ -297,6 +297,8 @@ class TrustedPlanDispatchRoot:
         context_for_worker["assignment_deadline_seconds"] = assignment_deadline_seconds
         with self._assignment_contexts_lock:
             self._assignment_contexts[dispatch_key] = context_for_worker
+            while len(self._assignment_contexts) > 512:
+                self._assignment_contexts.pop(next(iter(self._assignment_contexts)))
         return envelope
 
     def _verify_controller_assignment(self, request: Mapping[str, Any]) -> bool:
