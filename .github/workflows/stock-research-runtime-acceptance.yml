@@ -17,6 +17,7 @@ on:
   push:
     branches: [main]
     paths:
+      - ".dockerignore"
       - ".github/workflows/stock-research-runtime-acceptance.yml"
       - "tests/test_stock_research_runtime_acceptance.py"
       - "tests/stock_research/**"
