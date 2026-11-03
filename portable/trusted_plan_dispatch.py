@@ -49,6 +49,7 @@ class TrustedPlanDispatchRoot:
         approval_store: DurableApprovalStore,
         budget_resolver: Callable[[str, str, str], Mapping[str, Any]],
         approval_resolver: Callable[[str, str, str], Mapping[str, Any] | None],
+        assignment_resolver: Callable[[Mapping[str, Any]], Any],
     ) -> None:
         if not isinstance(controller, ExecutionController):
             raise TypeError("controller must be the live ExecutionController")
@@ -58,8 +59,8 @@ class TrustedPlanDispatchRoot:
             raise ValueError("recovery_bridge must validate the same canonical plan store")
         if not isinstance(approval_store, DurableApprovalStore) or approval_store.controller is not controller:
             raise ValueError("approval_store must share the live controller database")
-        if not callable(budget_resolver) or not callable(approval_resolver):
-            raise ValueError("trusted budget and approval resolvers are required")
+        if not callable(budget_resolver) or not callable(approval_resolver) or not callable(assignment_resolver):
+            raise ValueError("trusted budget, approval, and assignment resolvers are required")
         existing = getattr(controller, "_trusted_plan_dispatch_token", None)
         if existing is not None:
             raise RuntimeError("a trusted plan dispatch root is already registered")
@@ -69,7 +70,9 @@ class TrustedPlanDispatchRoot:
         self.approval_store = approval_store
         self.budget_resolver = budget_resolver
         self.approval_resolver = approval_resolver
+        self.assignment_resolver = assignment_resolver
         self._token = object()
+        controller._trusted_plan_assignment_resolver = self._revalidate_assignment
         controller._trusted_plan_dispatch_required = True
         controller._trusted_plan_dispatch_token = self._token
 
@@ -218,6 +221,60 @@ class TrustedPlanDispatchRoot:
             "decision": "approved",
         }
 
+    def _resolve_assignment(self, context: Mapping[str, Any]) -> dict[str, Any]:
+        from .agent_org_runtime import AuthorizedAgentAssignment
+
+        dispatch_key = context.get("dispatch_key")
+        deadline_seconds = context.get("deadline_seconds")
+        assignment_deadline_seconds = context.get("assignment_deadline_seconds", deadline_seconds)
+        assignment_context = dict(context)
+        assignment_context["deadline_seconds"] = assignment_deadline_seconds
+        try:
+            assignment = self.assignment_resolver(assignment_context)
+        except Exception as exc:
+            raise PermissionError("host agent assignment authorization failed closed") from exc
+        if not isinstance(assignment, AuthorizedAgentAssignment):
+            raise PermissionError("host assignment resolver must return AuthorizedAgentAssignment")
+        payload = context.get("payload")
+        if assignment.work_key != dispatch_key:
+            raise PermissionError("agent assignment is not bound to this stable dispatch identity")
+        expected_action_class = self.controller._handler_agent_action_class(str(context.get("handler", "")))
+        if not expected_action_class or assignment.action_class != expected_action_class:
+            raise PermissionError("agent assignment action class does not match the registered handler")
+        if assignment.deadline_seconds != assignment_deadline_seconds:
+            raise PermissionError("agent assignment deadline differs from the host-authorized deadline")
+        if not isinstance(payload, Mapping):
+            raise PermissionError("agent assignment requires the exact task payload")
+        clean_payload = {
+            "resource": payload.get("resource", payload.get("resource_id", payload.get("path", ""))),
+            "path": payload.get("path"),
+            "budget": payload.get("budget"),
+            "shared_budget": payload.get("shared_budget"),
+            "approval": payload.get("approval"),
+            "approval_evidence": payload.get("approval_evidence"),
+            "approval_id": payload.get("approval_id"),
+            "risk_tier": payload.get("risk_tier"),
+        }
+        expected_payload_digest = hashlib.sha256(json.dumps(
+            clean_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
+        ).encode("utf-8")).hexdigest()
+        if assignment.task_payload_digest != expected_payload_digest:
+            raise PermissionError("agent assignment is not bound to the exact task payload")
+        envelope = assignment.as_payload()
+        if not isinstance(envelope, dict) or envelope.get("assignment_digest") != assignment.assignment_digest:
+            raise PermissionError("host assignment envelope is malformed")
+        return envelope
+
+    def _revalidate_assignment(self, context: Mapping[str, Any]) -> dict[str, Any]:
+        recorded = context.get("recorded_assignment")
+        fresh_context = {key: value for key, value in context.items() if key != "recorded_assignment"}
+        if isinstance(recorded, Mapping):
+            fresh_context["assignment_deadline_seconds"] = recorded.get("deadline_seconds")
+        current = self._resolve_assignment(fresh_context)
+        if current != recorded:
+            raise PermissionError("agent assignment was revoked or its policy, scope, or identity changed")
+        return current
+
     def dispatch(
         self,
         *,
@@ -233,6 +290,8 @@ class TrustedPlanDispatchRoot:
         if payload is not None and not isinstance(payload, Mapping):
             raise ValueError("dispatch payload must be a mapping")
         safe_payload = dict(payload or {})
+        if "_auren_agent_assignment" in safe_payload or "_auren_assignment_deadline_seconds" in safe_payload:
+            raise ValueError("trusted assignment metadata keys are reserved for the host")
         budget, guard = self._budget_binding(run_id, task_id, handler)
         approval = self._approval_binding(run_id, task_id, handler, packet)
         # Approval resolution may take time. Re-check the same live supervisor
@@ -268,6 +327,32 @@ class TrustedPlanDispatchRoot:
                 bounded_deadline if deadline_seconds is None
                 else min(deadline_seconds, bounded_deadline)
             )
+        assignment = self._resolve_assignment({
+            "run_id": run_id, "task_id": task_id, "handler": handler,
+            "dispatch_key": dispatch_key, "deadline_seconds": deadline_seconds,
+            "payload": safe_payload, "packet": packet,
+        })
+        # Assignment authorization is a host callback and may take time. Recheck
+        # cancellation and the absolute deadline after it returns, before the
+        # dispatch transaction can create a work unit or queue row.
+        guard.check()
+        post_assignment_snapshot = guard.snapshot()
+        RuntimeExecutionGuard.resume(post_assignment_snapshot)
+        remaining_after_assignment = post_assignment_snapshot.get("remaining_seconds")
+        if remaining_after_assignment is not None:
+            if (
+                isinstance(remaining_after_assignment, bool)
+                or not isinstance(remaining_after_assignment, (int, float))
+                or not math.isfinite(remaining_after_assignment)
+                or remaining_after_assignment <= 0
+            ):
+                raise PermissionError("canonical supervisor deadline expired during assignment authorization")
+            # The assignment may be authorized for the original bounded maximum;
+            # the durable task is shortened to the remaining live time, never extended.
+            if deadline_seconds is not None:
+                deadline_seconds = min(deadline_seconds, float(remaining_after_assignment))
+        safe_payload["_auren_agent_assignment"] = assignment
+        safe_payload["_auren_assignment_deadline_seconds"] = assignment.get("deadline_seconds")
         return EngineeringPlanDispatch(
             store=self.store, controller=self.controller, recovery_bridge=self.recovery_bridge,
         ).dispatch(
@@ -281,6 +366,7 @@ class TrustedPlanDispatchRoot:
             deadline_seconds=deadline_seconds,
             shared_budget_binding=budget,
             approval_evidence=approval,
+            assignment_evidence=assignment,
             _trusted_root_token=self._token,
         )
 

@@ -14,6 +14,7 @@ from portable.execution_controller import ExecutionController
 from portable.engineering_plan_recovery import EngineeringPlanCheckpointMismatch
 from portable.runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
 from portable.trusted_plan_dispatch import TrustedPlanDispatchRoot
+from portable.agent_org_runtime import authorize_agent_assignment
 from tests.test_engineering_plan_dispatch import prepared
 
 
@@ -56,6 +57,22 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         )
         return store, request, record
 
+    def _assignment_resolver(self, context):
+        return authorize_agent_assignment(
+            role_id="BE-01", manager_id="EM-ENG-01",
+            action_class=self.assignment_action_class, scope=self.assignment_scope,
+            authorizer=lambda request: (
+                self.assignment_allowed
+                and (
+                    request.get("scope") == self.allowed_assignment_scope
+                    or self.assignment_allow_scope_widening
+                )
+            ),
+            policy_path=self.assignment_policy_path,
+            work_key=context["dispatch_key"], task_payload=context["payload"],
+            deadline_seconds=context.get("assignment_deadline_seconds", context["deadline_seconds"]),
+        )
+
     def _root(self, controller, store, request, record, guard, *, context):
         admission_checkpoint_digest = guard.snapshot()["digest"]
         return TrustedPlanDispatchRoot(
@@ -70,6 +87,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             approval_resolver=lambda run_id, task_id, handler: {
                 "approval_id": record.approval_id, "request": request,
             },
+            assignment_resolver=self._assignment_resolver,
         )
 
     def setUp(self):
@@ -80,12 +98,146 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         self.packet = packet
         self.plan_store = store
         self.controller = controller
+        self.controller.register_handler(
+            "dispatch-test", "tests.test_engineering_plan_dispatch:dispatch_test_handler",
+            execution_class="read_only", agent_action_class="edit_assigned_paths",
+        )
         self.recovery_bridge = bridge.recovery_bridge
+        self.assignment_allowed = True
+        self.allowed_assignment_scope = ("repo:write",)
+        self.assignment_allow_scope_widening = False
+        self.assignment_action_class = "edit_assigned_paths"
+        self.assignment_scope = ("repo:write",)
+        self.assignment_policy_path = Path(self.temp.name) / "guard_policy.json"
+        self.assignment_policy_path.write_text(
+            '{"schema_version":"auren-guard-v1","default_effect":"allow","rules":[]}',
+            encoding="utf-8",
+        )
         self.context = {
             "artifact_digest": "1" * 64,
             "evidence_digest": "2" * 64,
             "policy_digest": "3" * 64,
         }
+
+    def test_missing_host_assignment_is_denied_before_queue_insertion(self):
+        approvals, request, record = self._approval(self.controller, context=self.context)
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        self.assignment_allowed = False
+        root = self._root(self.controller, approvals, request, record, guard, context=self.context)
+        with self.assertRaisesRegex(PermissionError, "assignment authorization failed"):
+            root.dispatch(
+                run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-denied",
+                handler="dispatch-test", packet=self.packet,
+            )
+        with sqlite3.connect(self.controller.db_path) as db:
+            self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
+
+    def test_handler_action_class_mismatch_is_denied_before_queue_insertion(self):
+        approvals, request, record = self._approval(self.controller, context=self.context)
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        self.assignment_action_class = "run_scoped_tests"
+        root = self._root(self.controller, approvals, request, record, guard, context=self.context)
+        with self.assertRaisesRegex(PermissionError, "action class does not match"):
+            root.dispatch(
+                run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-action-mismatch",
+                handler="dispatch-test", packet=self.packet,
+            )
+        with sqlite3.connect(self.controller.db_path) as db:
+            self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
+
+    def test_assignment_policy_drift_cannot_replay_an_existing_dispatch(self):
+        from portable.engineering_plan_dispatch import DispatchConflict
+        approvals, request, record = self._approval(self.controller, context=self.context)
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        root = self._root(self.controller, approvals, request, record, guard, context=self.context)
+        first = root.dispatch(
+            run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-policy-replay",
+            handler="dispatch-test", packet=self.packet,
+        )
+        self.assignment_policy_path.write_text(
+            '{"schema_version":"auren-guard-v1","default_effect":"deny","rules":[]}',
+            encoding="utf-8",
+        )
+        with self.assertRaises(DispatchConflict):
+            root.dispatch(
+                run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-policy-replay",
+                handler="dispatch-test", packet=self.packet,
+            )
+        self.assertEqual("repo:write", first.payload["_auren_agent_assignment"]["scope"][0])
+
+    def test_host_scope_policy_denies_widened_assignment_before_queue_insert(self):
+        approvals, request, record = self._approval(self.controller, context=self.context)
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        self.assignment_scope = ("repo:write", "secrets")
+        root = self._root(self.controller, approvals, request, record, guard, context=self.context)
+        with self.assertRaisesRegex(PermissionError, "assignment authorization failed"):
+            root.dispatch(
+                run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-scope-denied",
+                handler="dispatch-test", packet=self.packet,
+            )
+        with sqlite3.connect(self.controller.db_path) as db:
+            self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
+
+    def test_scope_widening_cannot_replay_an_existing_assignment(self):
+        from portable.engineering_plan_dispatch import DispatchConflict
+        approvals, request, record = self._approval(self.controller, context=self.context)
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        root = self._root(self.controller, approvals, request, record, guard, context=self.context)
+        first = root.dispatch(
+            run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-scope-widening",
+            handler="dispatch-test", packet=self.packet,
+        )
+        self.assignment_scope = ("repo:write", "secrets")
+        self.assignment_allow_scope_widening = True
+        with self.assertRaises(DispatchConflict):
+            root.dispatch(
+                run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-scope-widening",
+                handler="dispatch-test", packet=self.packet,
+            )
+        self.assertEqual(["repo:write"], first.payload["_auren_agent_assignment"]["scope"])
+
+    def test_revoked_assignment_is_rejected_at_worker_preflight(self):
+        from portable.engineering_plan_recovery import EngineeringPlanCheckpointMismatch
+        approvals, request, record = self._approval(self.controller, context=self.context)
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        root = self._root(self.controller, approvals, request, record, guard, context=self.context)
+        task = root.dispatch(
+            run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-revocation",
+            handler="dispatch-test", packet=self.packet,
+        )
+        # Reconstruct the controller from the same durable root to model a fresh process.
+        self.assignment_allowed = False
+        fresh_controller = ExecutionController(
+            self.controller.root,
+            agent_assignment_verifier=lambda _request: self.assignment_allowed,
+        )
+        fresh_controller.register_handler(
+            "dispatch-test", "tests.test_engineering_plan_dispatch:dispatch_test_handler",
+            execution_class="read_only", agent_action_class="edit_assigned_paths",
+        )
+        EngineeringPlanDispatch(
+            store=self.plan_store,
+            controller=fresh_controller,
+            recovery_bridge=self.recovery_bridge,
+        )
+        TrustedPlanDispatchRoot(
+            controller=fresh_controller,
+            store=self.plan_store,
+            recovery_bridge=self.recovery_bridge,
+            approval_store=DurableApprovalStore(fresh_controller),
+            budget_resolver=lambda run_id, task_id, handler: {
+                "budget_id": "crew:team-a:run-1", "guard": guard,
+                "checkpoint_digest": guard.snapshot()["digest"], "policy_digest": "a" * 64,
+            },
+            approval_resolver=lambda run_id, task_id, handler: {
+                "approval_id": record.approval_id, "request": request,
+            },
+            assignment_resolver=self._assignment_resolver,
+        )
+        with self.assertRaisesRegex(EngineeringPlanCheckpointMismatch, "revoked"):
+            fresh_controller._verify_engineering_plan_dispatch_checkpoint(
+                fresh_controller.task(task.id)
+            )
 
     def test_root_resolves_live_budget_and_approved_record_and_binds_them(self):
         approvals, request, record = self._approval(self.controller, context=self.context)
@@ -103,6 +255,8 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         self.assertEqual(record.evidence_digest, binding["approval_evidence"]["evidence_digest"])
         self.assertEqual("approved", binding["approval_evidence"]["decision"])
         self.assertEqual("manager-1", binding["approval_evidence"]["approver_id"])
+        self.assertEqual("BE-01", binding["assignment_evidence"]["role_id"])
+        self.assertEqual(binding["assignment_evidence"], task.payload["_auren_agent_assignment"])
         self.assertTrue(approvals.verify_audit_chain())
 
     def test_legacy_controller_dispatch_is_fenced_after_root_bootstrap(self):
@@ -161,6 +315,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                 "checkpoint_digest": guard.snapshot()["digest"], "policy_digest": "a" * 64,
             },
             approval_resolver=lambda run_id, task_id, handler: {"approval_id": record.approval_id, "request": request},
+            assignment_resolver=self._assignment_resolver,
         )
         with self.assertRaisesRegex(PermissionError, "not approved"):
             root.dispatch(
@@ -185,6 +340,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                 approval_resolver=lambda run_id, task_id, handler: {
                     "approval_id": record.approval_id, "request": request,
                 },
+                assignment_resolver=self._assignment_resolver,
             ).dispatch(
                 run_id=self.plan.run_id, task_id="implement", dispatch_key="cancelled-budget",
                 handler="dispatch-test", packet=self.packet,
@@ -244,6 +400,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                 approval_store=approvals,
                 budget_resolver=lambda run_id, task_id, handler: {},
                 approval_resolver=lambda run_id, task_id, handler: None,
+                assignment_resolver=self._assignment_resolver,
             )
             self.assertIs(runtime.trusted_plan_dispatch_root, root)
             self.assertIsNotNone(runtime.execution_controller._trusted_plan_dispatch_token)
@@ -378,6 +535,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                 "checkpoint_digest": guard.snapshot()["digest"], "policy_digest": "a" * 64,
             },
             approval_resolver=lambda run_id, task_id, handler: None,
+            assignment_resolver=self._assignment_resolver,
         )
         with self.assertRaisesRegex(PermissionError, "requires a canonical durable approval"):
             root.dispatch(
@@ -469,6 +627,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                 "checkpoint_digest": admission_digest, "policy_digest": "a" * 64,
             },
             approval_resolver=resolve_approval,
+            assignment_resolver=self._assignment_resolver,
         )
         with self.assertRaises(ExecutionBudgetExceeded):
             root.dispatch(

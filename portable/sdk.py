@@ -54,6 +54,7 @@ class AurenClient:
         approval_store: Any,
         budget_resolver: Callable[..., Mapping[str, Any]],
         approval_resolver: Callable[..., Mapping[str, Any] | None],
+        assignment_resolver: Callable[[Mapping[str, Any]], Any],
     ) -> Any:
         """Install host-owned budget and approval resolvers before plan dispatch."""
         if self.trusted_plan_dispatch_root is not None:
@@ -66,6 +67,7 @@ class AurenClient:
             approval_store=approval_store,
             budget_resolver=budget_resolver,
             approval_resolver=approval_resolver,
+            assignment_resolver=assignment_resolver,
         )
         return self.trusted_plan_dispatch_root
 
