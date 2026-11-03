@@ -271,6 +271,8 @@ class ExecutionController:
               reconciliation_reason TEXT,
               updated_at TEXT NOT NULL,
               PRIMARY KEY(task_id, run_id, operation_key));
+            CREATE INDEX IF NOT EXISTS idx_team_budget_unresolved
+              ON team_budget_operations(task_id,run_id,state,operation_key);
             CREATE TABLE IF NOT EXISTS graph_checkpoints(
               task_id TEXT PRIMARY KEY,
               envelope_json TEXT NOT NULL,
@@ -4352,13 +4354,18 @@ class ExecutionController:
         with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             member = db.execute(
-                "SELECT state FROM team_members WHERE task_id=? AND run_id=? AND member_id=?",
+                "SELECT state,profile_id,profile_revision,profile_digest FROM team_members "
+                "WHERE task_id=? AND run_id=? AND member_id=?",
                 (task_id, run_id, member_id),
             ).fetchone()
             if member is None:
                 raise KeyError((task_id, run_id, member_id))
             if member[0] not in {"assigned", "running"}:
                 raise ValueError("team member must be assigned or running before budget reservation")
+            from .agent_profiles import resolve_agent_profile
+            current_profile = resolve_agent_profile(member[1], revision=member[2])
+            if current_profile.digest != member[3]:
+                raise ValueError("team member profile changed after budget registration")
             prior = db.execute(
                 "SELECT member_id,reserved_tokens,reserved_tool_calls,reserved_wall_seconds,"
                 "charged_tokens,charged_tool_calls,charged_wall_seconds,state,updated_at "
