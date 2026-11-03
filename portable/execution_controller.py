@@ -2782,8 +2782,14 @@ class ExecutionController:
                 assignment_envelope.get("role_id")
                 if isinstance(assignment_envelope, Mapping) else None
             )
+            active_principal_id = (
+                assignment_envelope.get("principal_id")
+                if isinstance(assignment_envelope, Mapping) else None
+            )
             handler_started = True
-            with agent_assignment_scope(assignment_scope, role_id=active_role_id):
+            with agent_assignment_scope(
+                assignment_scope, role_id=active_role_id, principal_id=active_principal_id,
+            ):
                 result = handler(payload)
         except BaseException as exc:
             handler_error = exc
