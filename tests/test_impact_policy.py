@@ -13,6 +13,8 @@ class ImpactPolicyTests(unittest.TestCase):
             "portable/sdk.py": {"tests.test_auren_sdk", "tests.test_agent_execution_guard", "tests.test_execution_controller_guard_policy"},
             "tests/test_auren_sdk.py": {"tests.test_auren_sdk"},
             "portable/agent_org_runtime.py": {"tests.test_agent_org_runtime", "tests.test_agent_execution_guard"},
+            "portable/agent_profiles.py": {"tests.test_agent_profiles", "tests.test_agent_org_runtime", "tests.test_agent_execution_guard"},
+            "tests/test_agent_profiles.py": {"tests.test_agent_profiles"},
             "tests/test_agent_org_runtime.py": {"tests.test_agent_org_runtime"},
             "portable/agent_execution_guard.py": {"tests.test_agent_execution_guard", "tests.test_agent_org_runtime"},
             "tests/test_agent_execution_guard.py": {"tests.test_agent_execution_guard"},
