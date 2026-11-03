@@ -4212,12 +4212,34 @@ class ExecutionController:
         # Resolve every profile against the trusted registry. A syntactically valid
         # digest supplied by a caller is not evidence that the profile exists.
         from .agent_profiles import resolve_agent_profile
+        resolved_profiles: dict[str, Any] = {}
         for member in normalized:
             profile = resolve_agent_profile(
                 member["profile_id"], revision=member["profile_revision"],
             )
             if profile.digest != member["profile_digest"]:
                 raise ValueError("team member profile digest does not match the trusted registry")
+            resolved_profiles[member["member_id"]] = profile
+        # Profile ceilings are pooled once into a single run budget. No member
+        # receives a separate copy of the team-wide allowance.
+        limits = {
+            "max_tokens": min(2_000_000, sum(p.budget_defaults["max_tokens"] for p in resolved_profiles.values())),
+            "max_tool_calls": min(10_000, sum(p.budget_defaults["max_tool_calls"] for p in resolved_profiles.values())),
+            "max_wall_seconds": min(86_400, sum(p.budget_defaults["max_wall_seconds"] for p in resolved_profiles.values())),
+            "max_concurrency": min(4, len(normalized)),
+        }
+        budget_identity = {
+            "task_id": task_id, "run_id": run_id,
+            "members": [
+                {"member_id": item["member_id"], "profile_id": item["profile_id"],
+                 "profile_revision": item["profile_revision"], "profile_digest": item["profile_digest"]}
+                for item in sorted(normalized, key=lambda item: item["member_id"])
+            ],
+            "limits": limits,
+        }
+        budget_digest = hashlib.sha256(
+            json.dumps(budget_identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
         now = _now()
         with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
@@ -4243,6 +4265,23 @@ class ExecutionController:
                     )
                 elif tuple(prior) != identity:
                     raise ValueError("durable team member profile identity conflict")
+            prior_budget = db.execute(
+                "SELECT max_tokens,max_tool_calls,max_wall_seconds,max_concurrency,budget_digest "
+                "FROM team_budgets WHERE task_id=? AND run_id=?", (task_id, run_id),
+            ).fetchone()
+            expected_budget = (
+                limits["max_tokens"], limits["max_tool_calls"],
+                limits["max_wall_seconds"], limits["max_concurrency"], budget_digest,
+            )
+            if prior_budget is None:
+                db.execute(
+                    "INSERT INTO team_budgets(task_id,run_id,max_tokens,max_tool_calls,"
+                    "max_wall_seconds,max_concurrency,budget_digest,updated_at) "
+                    "VALUES(?,?,?,?,?,?,?,?)",
+                    (task_id, run_id, *expected_budget, now),
+                )
+            elif tuple(prior_budget) != expected_budget:
+                raise ValueError("durable team budget identity or profile-derived limits conflict")
         return self.team_members(task_id, run_id)
 
 
@@ -4478,6 +4517,20 @@ class ExecutionController:
             raise ValueError("failure_digest must be a lowercase SHA-256 digest")
         with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
+            if new_state == "assigned":
+                concurrency = db.execute(
+                    "SELECT max_concurrency FROM team_budgets WHERE task_id=? AND run_id=?",
+                    (task_id, run_id),
+                ).fetchone()
+                if concurrency is None:
+                    raise ValueError("team budget must be registered before member assignment")
+                active = db.execute(
+                    "SELECT COUNT(*) FROM team_members WHERE task_id=? AND run_id=? "
+                    "AND state IN ('assigned','running')",
+                    (task_id, run_id),
+                ).fetchone()[0]
+                if active >= concurrency[0]:
+                    raise ValueError("shared team concurrency limit reached")
             cursor = db.execute(
                 "UPDATE team_members SET state=?,failure_digest=?,updated_at=? "
                 "WHERE task_id=? AND run_id=? AND member_id=? AND state=?",
