@@ -304,6 +304,22 @@ class DurableApprovalTests(unittest.TestCase):
         ]
         self.assertEqual(sum(first.approval_id in row["message"] for row in events), 1)
 
+    def test_revoked_approver_authority_blocks_operation_claim(self):
+        record = self.create()
+        self.approve(record)
+        self.store.approver_authorizer = lambda approver, role, scope, roles: False
+        with self.assertRaisesRegex(PermissionError, "authority was revoked before operation claim"):
+            self.store.claim_execution(
+                record.approval_id, self.request(),
+                artifact_digest=self.artifact, evidence_digest=self.evidence,
+                policy_digest=self.policy,
+            )
+        self.assertEqual("approved", self.store.get(record.approval_id).status)
+        self.assertFalse(any(
+            event["event_type"] == "approved_operation_claimed"
+            for event in self.store.events(record.approval_id)
+        ))
+
     def test_role_scope_and_separation_of_duties_fail_closed(self):
         record = self.create()
         with self.assertRaises(PermissionError):
