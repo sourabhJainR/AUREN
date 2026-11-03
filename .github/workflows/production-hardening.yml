@@ -88,6 +88,10 @@ jobs:
             echo "===== RUNNING ${test_module} ====="
             python -m unittest "${test_module}" -v 2>&1 | tee "ci-artifacts/${test_module##*.}.log"
           done
+      - name: Run graph phase profile acceptance tests
+        run: |
+          python -m pytest -q tests/test_graph_phase_coverage.py
+
       - name: Run Guard and workflow-profile acceptance tests
         run: |
           python -m pytest -q tests/test_organization_guard.py tests/test_execution_controller_guard_policy.py tests/test_auren_cli_workflow_profile.py tests/test_workflow_profile.py tests/test_workflow_profile_store.py tests/test_workflow_profile_integration.py
