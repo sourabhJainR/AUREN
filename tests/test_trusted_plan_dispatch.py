@@ -59,7 +59,8 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
 
     def _assignment_resolver(self, context):
         return authorize_agent_assignment(
-            role_id="BE-01", manager_id="EM-ENG-01",
+            role_id=getattr(self, "assignment_role_id", "BE-01"),
+            manager_id=getattr(self, "assignment_manager_id", "EM-ENG-01"),
             action_class=self.assignment_action_class, scope=self.assignment_scope,
             authorizer=lambda request: (
                 self.assignment_allowed
@@ -104,6 +105,8 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         )
         self.recovery_bridge = bridge.recovery_bridge
         self.assignment_allowed = True
+        self.assignment_role_id = "BE-01"
+        self.assignment_manager_id = "EM-ENG-01"
         self.allowed_assignment_scope = ("tests",)
         self.assignment_allow_scope_widening = False
         self.assignment_action_class = "edit_assigned_paths"
@@ -119,6 +122,70 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             "evidence_digest": "2" * 64,
             "policy_digest": "3" * 64,
         }
+
+    def test_declared_plan_owner_must_match_host_authorized_role_before_queue_insert(self):
+        approvals, request, record = self._approval(self.controller, context=self.context)
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        self.assignment_role_id = "QA-01"
+        root = self._root(self.controller, approvals, request, record, guard, context=self.context)
+        with self.assertRaisesRegex(PermissionError, "does not match the declared plan task owner"):
+            root.dispatch(
+                run_id=self.plan.run_id, task_id="implement", dispatch_key="owner-role-mismatch",
+                handler="dispatch-test", packet=self.packet, payload={"resource": "tests"},
+            )
+        with sqlite3.connect(self.controller.db_path) as db:
+            self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
+
+    def test_declared_plan_manager_must_match_host_authorized_manager_before_queue_insert(self):
+        approvals, request, record = self._approval(self.controller, context=self.context)
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        # The task declares CTO ownership, while the host authorizer correctly
+        # identifies EM-ENG-01 as the reporting manager for BE-01.
+        task = next(item for item in self.plan.tasks if item.task_id == "implement")
+        from portable.engineering_plan import EngineeringPlan, PlanTask
+        changed_tasks = tuple(
+            PlanTask(
+                item.task_id, item.title, item.acceptance_criteria, item.rollback_plan,
+                depends_on=item.depends_on, risk=item.risk,
+                owner_role_id=item.owner_role_id,
+                manager_role_id="CTO-01" if item.task_id == "implement" else item.manager_role_id,
+            ) for item in self.plan.tasks
+        )
+        changed_plan = EngineeringPlan(
+            run_id=self.plan.run_id, goal=self.plan.goal, requirements=self.plan.requirements,
+            tasks=changed_tasks, source_revision=self.plan.source_revision,
+            policy_digest=self.plan.policy_digest, budget=self.plan.budget,
+        )
+        # A fresh store avoids mutating an existing plan revision in place.
+        from portable.engineering_plan_store import EngineeringPlanStore
+        changed_store = EngineeringPlanStore(self.temp.name + "/changed-plans.sqlite3")
+        from portable.engineering_plan import new_plan_run
+        changed_store.create(changed_plan, new_plan_run(changed_plan))
+        from portable.engineering_plan_recovery import EngineeringPlanRecoveryBridge
+        from portable.engineering_recovery import EngineeringRecoveryLedger
+        changed_bridge = EngineeringPlanRecoveryBridge(
+            store=changed_store,
+            ledger=EngineeringRecoveryLedger(Path(self.temp.name) / "changed-recovery.sqlite3"),
+        )
+        root = TrustedPlanDispatchRoot(
+            controller=self.controller, store=changed_store, recovery_bridge=changed_bridge,
+            approval_store=approvals,
+            budget_resolver=lambda run_id, task_id, handler: {
+                "budget_id": "crew:team-a:run-1", "guard": guard,
+                "checkpoint_digest": guard.snapshot()["digest"], "policy_digest": "a" * 64,
+            },
+            approval_resolver=lambda run_id, task_id, handler: {
+                "approval_id": record.approval_id, "request": request,
+            },
+            assignment_resolver=self._assignment_resolver,
+        )
+        with self.assertRaisesRegex(PermissionError, "does not match the declared plan task manager"):
+            root.dispatch(
+                run_id=changed_plan.run_id, task_id="implement", dispatch_key="owner-manager-mismatch",
+                handler="dispatch-test", packet=self.packet, payload={"resource": "tests"},
+            )
+        with sqlite3.connect(self.controller.db_path) as db:
+            self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
 
     def test_missing_host_assignment_is_denied_before_queue_insertion(self):
         approvals, request, record = self._approval(self.controller, context=self.context)
