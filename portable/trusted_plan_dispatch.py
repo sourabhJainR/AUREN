@@ -232,11 +232,12 @@ class TrustedPlanDispatchRoot:
             raise PermissionError("host assignment resolver must return AuthorizedAgentAssignment")
         dispatch_key = context.get("dispatch_key")
         deadline_seconds = context.get("deadline_seconds")
+        assignment_deadline_seconds = context.get("assignment_deadline_seconds", deadline_seconds)
         payload = context.get("payload")
         if assignment.work_key != dispatch_key:
             raise PermissionError("agent assignment is not bound to this stable dispatch identity")
-        if assignment.deadline_seconds != deadline_seconds:
-            raise PermissionError("agent assignment deadline differs from the admitted task deadline")
+        if assignment.deadline_seconds != assignment_deadline_seconds:
+            raise PermissionError("agent assignment deadline differs from the host-authorized deadline")
         if not isinstance(payload, Mapping):
             raise PermissionError("agent assignment requires the exact task payload")
         clean_payload = {
@@ -262,6 +263,8 @@ class TrustedPlanDispatchRoot:
     def _revalidate_assignment(self, context: Mapping[str, Any]) -> dict[str, Any]:
         recorded = context.get("recorded_assignment")
         fresh_context = {key: value for key, value in context.items() if key != "recorded_assignment"}
+        if isinstance(recorded, Mapping):
+            fresh_context["assignment_deadline_seconds"] = recorded.get("deadline_seconds")
         current = self._resolve_assignment(fresh_context)
         if current != recorded:
             raise PermissionError("agent assignment was revoked or its policy, scope, or identity changed")
@@ -331,14 +334,18 @@ class TrustedPlanDispatchRoot:
         post_assignment_snapshot = guard.snapshot()
         RuntimeExecutionGuard.resume(post_assignment_snapshot)
         remaining_after_assignment = post_assignment_snapshot.get("remaining_seconds")
-        if remaining_after_assignment is not None and (
-            isinstance(remaining_after_assignment, bool)
-            or not isinstance(remaining_after_assignment, (int, float))
-            or not math.isfinite(remaining_after_assignment)
-            or remaining_after_assignment <= 0
-            or (deadline_seconds is not None and deadline_seconds > remaining_after_assignment)
-        ):
-            raise PermissionError("canonical supervisor deadline changed or expired during assignment authorization")
+        if remaining_after_assignment is not None:
+            if (
+                isinstance(remaining_after_assignment, bool)
+                or not isinstance(remaining_after_assignment, (int, float))
+                or not math.isfinite(remaining_after_assignment)
+                or remaining_after_assignment <= 0
+            ):
+                raise PermissionError("canonical supervisor deadline expired during assignment authorization")
+            # The assignment may be authorized for the original bounded maximum;
+            # the durable task is shortened to the remaining live time, never extended.
+            if deadline_seconds is not None:
+                deadline_seconds = min(deadline_seconds, float(remaining_after_assignment))
         safe_payload["_auren_agent_assignment"] = assignment
         return EngineeringPlanDispatch(
             store=self.store, controller=self.controller, recovery_bridge=self.recovery_bridge,
