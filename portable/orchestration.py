@@ -346,12 +346,22 @@ class Graph:
 class Orchestrator:
     """Execute a graph whose agentic nodes contain bounded local loops."""
 
-    def __init__(self, graph: Graph, *, max_total_attempts: int = 32, allow_self_improvement: bool = True) -> None:
+    def __init__(
+        self,
+        graph: Graph,
+        *,
+        max_total_attempts: int = 32,
+        allow_self_improvement: bool = True,
+        conflict_scope_verifier: Callable[[Mapping[str, Any], Mapping[str, tuple[str, ...]], str], bool] | None = None,
+    ) -> None:
         if max_total_attempts < 1:
             raise ValueError("max_total_attempts must be positive")
         self.graph = graph
         self.max_total_attempts = max_total_attempts
         self.allow_self_improvement = allow_self_improvement
+        # This verifier is injected by the trusted host composition root. A
+        # planner's node mapping is descriptive input, never authority by itself.
+        self.conflict_scope_verifier = conflict_scope_verifier
 
     @staticmethod
     def intent_digest(intent: str) -> str:
@@ -434,7 +444,11 @@ class Orchestrator:
                 for item in preflight["unresolved_contradictions"]
                 if isinstance(item, Mapping)
             }
-            valid_mapping = isinstance(raw_mapping, Mapping) and bool(unresolved_ids)
+            valid_mapping = (
+                isinstance(raw_mapping, Mapping)
+                and bool(unresolved_ids)
+                and callable(self.conflict_scope_verifier)
+            )
             normalized_mapping: dict[str, tuple[str, ...]] = {}
             if valid_mapping:
                 valid_mapping = set(raw_mapping.keys()) == unresolved_ids
@@ -449,6 +463,13 @@ class Orchestrator:
                         valid_mapping = False
                         break
                     normalized_mapping[conflict_id] = tuple(targets)
+            if valid_mapping:
+                try:
+                    valid_mapping = bool(self.conflict_scope_verifier(
+                        preflight, normalized_mapping, self.graph.digest(),
+                    ))
+                except Exception:
+                    valid_mapping = False
             if not valid_mapping:
                 run.status = RunStatus.BLOCKED
                 run.stop_reason = (
