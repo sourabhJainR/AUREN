@@ -169,6 +169,19 @@ def test_assigned_mcp_call_without_budget_mediation_is_denied_before_launch(tmp_
     assert adapter.calls == 0
 
 
+def test_assigned_approved_tool_without_budget_mediation_is_denied(tmp_path: Path):
+    calls = []
+    registry = ApprovedToolRegistry([
+        ApprovedTool("read_internal", lambda _args: calls.append("called") or {"ok": True}, "read internal data")
+    ])
+    with agent_assignment_scope(
+        ("src/app.py",), role_id="BE-01", principal_id="implementer",
+    ):
+        with pytest.raises(PermissionError, match="requires the host-configured shared team-budget enforcer"):
+            registry.invoke("read_internal", {})
+    assert calls == []
+
+
 def test_usage_settlement_failure_keeps_reservation_and_blocks_success(tmp_path: Path):
     controller = ExecutionController(
         tmp_path,
