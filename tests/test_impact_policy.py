@@ -14,6 +14,8 @@ class ImpactPolicyTests(unittest.TestCase):
             "tests/test_auren_sdk.py": {"tests.test_auren_sdk"},
             "portable/agent_org_runtime.py": {"tests.test_agent_org_runtime", "tests.test_agent_execution_guard", "tests.test_agent_profiles", "tests.test_trusted_plan_profile_binding"},
             "portable/agent_profiles.py": {"tests.test_agent_profiles", "tests.test_agent_org_runtime", "tests.test_agent_execution_guard"},
+            "portable/agent_memory.py": {"tests.test_agent_memory", "tests.test_agent_profiles"},
+            "tests/test_agent_memory.py": {"tests.test_agent_memory"},
             "tests/test_agent_profiles.py": {"tests.test_agent_profiles"},
             "tests/test_agent_org_runtime.py": {"tests.test_agent_org_runtime"},
             "portable/agent_execution_guard.py": {"tests.test_agent_execution_guard", "tests.test_agent_org_runtime", "tests.test_agent_profiles", "tests.test_trusted_plan_profile_binding"},
