@@ -2565,17 +2565,26 @@ def test_shared_team_budget_is_aggregated_idempotent_and_restart_safe(tmp_path: 
     assert [item["operation_key"] for item in restarted.unresolved_team_budget_operations(task_id, "run-1")] == [
         "uncertain-after-crash"
     ]
-    with pytest.raises(ValueError, match="confirmed_not_started"):
+    with pytest.raises(PermissionError, match="verifier is not configured"):
         restarted.release_team_budget_reservation(
             task_id, "run-1", "uncertain-after-crash",
-            confirmed_not_started=False, reason="outcome unknown",
+            release_evidence={"host_outcome": "not_started"},
+            reason="unverified caller assertion",
         )
-    released = restarted.release_team_budget_reservation(
+    verified_restart = ExecutionController(
+        tmp_path,
+        team_budget_release_verifier=lambda receipt: (
+            receipt["release_evidence"].get("host_outcome") == "not_started"
+        ),
+    )
+    released = verified_restart.release_team_budget_reservation(
         task_id, "run-1", "uncertain-after-crash",
-        confirmed_not_started=True, reason="host receipt proves provider was never invoked",
+        release_evidence={"host_outcome": "not_started"},
+        reason="trusted host receipt proves provider was never invoked",
     )
     assert released["state"] == "released"
-    assert restarted.team_budget(task_id, "run-1")["reserved_tokens"] == 0
+    assert len(released["release_evidence_digest"]) == 64
+    assert verified_restart.team_budget(task_id, "run-1")["reserved_tokens"] == 0
 
 
 def test_shared_team_budget_overrun_is_recorded_and_blocks_member(tmp_path: Path):
