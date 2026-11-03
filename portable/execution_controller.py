@@ -175,6 +175,8 @@ class ExecutionController:
         evidence_signer: Callable[[bytes], Mapping[str, str]] | None = None,
         provider_resume_authorizer: Callable[[str, str, str, str], bool] | None = None,
         agent_assignment_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
+        team_budget_settlement_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
+        team_budget_release_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
         workflow_profile_path: str | Path | None = None,
         max_pending_tasks: int | None = None,
         deployment_admission_coordinator: Any | None = None,
@@ -187,6 +189,12 @@ class ExecutionController:
         if provider_resume_authorizer is not None and not callable(provider_resume_authorizer):
             raise TypeError("provider_resume_authorizer must be callable")
         self._provider_resume_authorizer = provider_resume_authorizer
+        if team_budget_settlement_verifier is not None and not callable(team_budget_settlement_verifier):
+            raise TypeError("team_budget_settlement_verifier must be callable")
+        self._team_budget_settlement_verifier = team_budget_settlement_verifier
+        if team_budget_release_verifier is not None and not callable(team_budget_release_verifier):
+            raise TypeError("team_budget_release_verifier must be callable")
+        self._team_budget_release_verifier = team_budget_release_verifier
         if deployment_admission_coordinator is not None and (
             not isinstance(deployment_instance_id, str) or not deployment_instance_id.strip()
         ):
@@ -246,6 +254,35 @@ class ExecutionController:
               failure_digest TEXT,
               updated_at TEXT NOT NULL,
               PRIMARY KEY(task_id, run_id, member_id));
+            CREATE TABLE IF NOT EXISTS team_budgets(
+              task_id TEXT NOT NULL,
+              run_id TEXT NOT NULL,
+              max_tokens INTEGER NOT NULL CHECK(max_tokens > 0),
+              max_tool_calls INTEGER NOT NULL CHECK(max_tool_calls > 0),
+              max_wall_seconds INTEGER NOT NULL CHECK(max_wall_seconds > 0),
+              max_concurrency INTEGER NOT NULL CHECK(max_concurrency > 0),
+              budget_digest TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              PRIMARY KEY(task_id, run_id));
+            CREATE TABLE IF NOT EXISTS team_budget_operations(
+              task_id TEXT NOT NULL,
+              run_id TEXT NOT NULL,
+              operation_key TEXT NOT NULL,
+              member_id TEXT NOT NULL,
+              reserved_tokens INTEGER NOT NULL CHECK(reserved_tokens >= 0),
+              reserved_tool_calls INTEGER NOT NULL CHECK(reserved_tool_calls >= 0),
+              reserved_wall_seconds INTEGER NOT NULL CHECK(reserved_wall_seconds >= 0),
+              charged_tokens INTEGER NOT NULL DEFAULT 0 CHECK(charged_tokens >= 0),
+              charged_tool_calls INTEGER NOT NULL DEFAULT 0 CHECK(charged_tool_calls >= 0),
+              charged_wall_seconds INTEGER NOT NULL DEFAULT 0 CHECK(charged_wall_seconds >= 0),
+              state TEXT NOT NULL CHECK(state IN ('reserved','settled','overrun','released')),
+              reconciliation_reason TEXT,
+              reconciliation_evidence_digest TEXT,
+              settlement_evidence_digest TEXT,
+              updated_at TEXT NOT NULL,
+              PRIMARY KEY(task_id, run_id, operation_key));
+            CREATE INDEX IF NOT EXISTS idx_team_budget_unresolved
+              ON team_budget_operations(task_id,run_id,state,operation_key);
             CREATE TABLE IF NOT EXISTS graph_checkpoints(
               task_id TEXT PRIMARY KEY,
               envelope_json TEXT NOT NULL,
@@ -4188,12 +4225,34 @@ class ExecutionController:
         # Resolve every profile against the trusted registry. A syntactically valid
         # digest supplied by a caller is not evidence that the profile exists.
         from .agent_profiles import resolve_agent_profile
+        resolved_profiles: dict[str, Any] = {}
         for member in normalized:
             profile = resolve_agent_profile(
                 member["profile_id"], revision=member["profile_revision"],
             )
             if profile.digest != member["profile_digest"]:
                 raise ValueError("team member profile digest does not match the trusted registry")
+            resolved_profiles[member["member_id"]] = profile
+        # Profile ceilings are pooled once into a single run budget. No member
+        # receives a separate copy of the team-wide allowance.
+        limits = {
+            "max_tokens": min(2_000_000, sum(p.budget_defaults["max_tokens"] for p in resolved_profiles.values())),
+            "max_tool_calls": min(10_000, sum(p.budget_defaults["max_tool_calls"] for p in resolved_profiles.values())),
+            "max_wall_seconds": min(86_400, sum(p.budget_defaults["max_wall_seconds"] for p in resolved_profiles.values())),
+            "max_concurrency": min(4, len(normalized)),
+        }
+        budget_identity = {
+            "task_id": task_id, "run_id": run_id,
+            "members": [
+                {"member_id": item["member_id"], "profile_id": item["profile_id"],
+                 "profile_revision": item["profile_revision"], "profile_digest": item["profile_digest"]}
+                for item in sorted(normalized, key=lambda item: item["member_id"])
+            ],
+            "limits": limits,
+        }
+        budget_digest = hashlib.sha256(
+            json.dumps(budget_identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
         now = _now()
         with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
@@ -4219,7 +4278,287 @@ class ExecutionController:
                     )
                 elif tuple(prior) != identity:
                     raise ValueError("durable team member profile identity conflict")
+            prior_budget = db.execute(
+                "SELECT max_tokens,max_tool_calls,max_wall_seconds,max_concurrency,budget_digest "
+                "FROM team_budgets WHERE task_id=? AND run_id=?", (task_id, run_id),
+            ).fetchone()
+            expected_budget = (
+                limits["max_tokens"], limits["max_tool_calls"],
+                limits["max_wall_seconds"], limits["max_concurrency"], budget_digest,
+            )
+            if prior_budget is None:
+                db.execute(
+                    "INSERT INTO team_budgets(task_id,run_id,max_tokens,max_tool_calls,"
+                    "max_wall_seconds,max_concurrency,budget_digest,updated_at) "
+                    "VALUES(?,?,?,?,?,?,?,?)",
+                    (task_id, run_id, *expected_budget, now),
+                )
+            elif tuple(prior_budget) != expected_budget:
+                raise ValueError("durable team budget identity or profile-derived limits conflict")
         return self.team_members(task_id, run_id)
+
+
+    @staticmethod
+    def _team_budget_amount(value: Any, field: str, *, allow_zero: bool = True) -> int:
+        minimum = 0 if allow_zero else 1
+        if type(value) is not int or value < minimum:
+            raise ValueError(f"{field} must be an integer greater than or equal to {minimum}")
+        return value
+
+    def _team_budget_snapshot_from_db(
+        self, db: sqlite3.Connection, task_id: str, run_id: str,
+    ) -> dict[str, Any]:
+        db.row_factory = sqlite3.Row
+        row = db.execute(
+            "SELECT task_id,run_id,max_tokens,max_tool_calls,max_wall_seconds,"
+            "max_concurrency,budget_digest,updated_at FROM team_budgets "
+            "WHERE task_id=? AND run_id=?", (task_id, run_id),
+        ).fetchone()
+        if row is None:
+            raise KeyError((task_id, run_id))
+        totals = db.execute(
+            "SELECT "
+            "COALESCE(SUM(CASE WHEN state='reserved' THEN reserved_tokens ELSE 0 END),0),"
+            "COALESCE(SUM(CASE WHEN state IN ('settled','overrun') THEN charged_tokens ELSE 0 END),0),"
+            "COALESCE(SUM(CASE WHEN state='reserved' THEN reserved_tool_calls ELSE 0 END),0),"
+            "COALESCE(SUM(CASE WHEN state IN ('settled','overrun') THEN charged_tool_calls ELSE 0 END),0),"
+            "COALESCE(SUM(CASE WHEN state='reserved' THEN reserved_wall_seconds ELSE 0 END),0),"
+            "COALESCE(SUM(CASE WHEN state IN ('settled','overrun') THEN charged_wall_seconds ELSE 0 END),0) "
+            "FROM team_budget_operations WHERE task_id=? AND run_id=?",
+            (task_id, run_id),
+        ).fetchone()
+        result = dict(row)
+        result.update({
+            "reserved_tokens": totals[0], "charged_tokens": totals[1],
+            "reserved_tool_calls": totals[2], "charged_tool_calls": totals[3],
+            "reserved_wall_seconds": totals[4], "charged_wall_seconds": totals[5],
+            "remaining_tokens": max(0, row["max_tokens"] - totals[0] - totals[1]),
+            "remaining_tool_calls": max(0, row["max_tool_calls"] - totals[2] - totals[3]),
+            "remaining_wall_seconds": max(0, row["max_wall_seconds"] - totals[4] - totals[5]),
+        })
+        return result
+
+    def team_budget(self, task_id: str, run_id: str) -> dict[str, Any]:
+        """Read one supervisor-owned aggregate budget for a team run."""
+        if not isinstance(task_id, str) or not task_id.strip() or not isinstance(run_id, str) or not run_id.strip():
+            raise ValueError("task_id and run_id are required")
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db:
+            return self._team_budget_snapshot_from_db(db, task_id, run_id)
+
+    def reserve_team_budget(
+        self, task_id: str, run_id: str, member_id: str, operation_key: str, *,
+        tokens: int = 0, tool_calls: int = 0, wall_seconds: int = 0,
+    ) -> dict[str, Any]:
+        """Atomically reserve shared run capacity; duplicate keys never reserve twice."""
+        if not isinstance(operation_key, str) or not operation_key.strip() or len(operation_key) > 256:
+            raise ValueError("operation_key must be non-empty text of at most 256 characters")
+        if not isinstance(member_id, str) or not member_id.strip():
+            raise ValueError("member_id is required")
+        amounts = (
+            self._team_budget_amount(tokens, "tokens"),
+            self._team_budget_amount(tool_calls, "tool_calls"),
+            self._team_budget_amount(wall_seconds, "wall_seconds"),
+        )
+        if not any(amounts):
+            raise ValueError("a team budget reservation must request a non-zero amount")
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            prior = db.execute(
+                "SELECT member_id,reserved_tokens,reserved_tool_calls,reserved_wall_seconds,"
+                "charged_tokens,charged_tool_calls,charged_wall_seconds,state,updated_at "
+                "FROM team_budget_operations WHERE task_id=? AND run_id=? AND operation_key=?",
+                (task_id, run_id, operation_key),
+            ).fetchone()
+            if prior is not None:
+                if tuple(prior[:4]) != (member_id, *amounts):
+                    raise ValueError("team budget operation key conflicts with an existing reservation")
+                return {
+                    "task_id": task_id, "run_id": run_id, "operation_key": operation_key,
+                    "member_id": prior[0], "reserved_tokens": prior[1],
+                    "reserved_tool_calls": prior[2], "reserved_wall_seconds": prior[3],
+                    "charged_tokens": prior[4], "charged_tool_calls": prior[5],
+                    "charged_wall_seconds": prior[6], "state": prior[7], "updated_at": prior[8],
+                }
+            member = db.execute(
+                "SELECT state,profile_id,profile_revision,profile_digest FROM team_members "
+                "WHERE task_id=? AND run_id=? AND member_id=?",
+                (task_id, run_id, member_id),
+            ).fetchone()
+            if member is None:
+                raise KeyError((task_id, run_id, member_id))
+            if member[0] not in {"assigned", "running"}:
+                raise ValueError("team member must be assigned or running before budget reservation")
+            from .agent_profiles import resolve_agent_profile
+            current_profile = resolve_agent_profile(member[1], revision=member[2])
+            if current_profile.digest != member[3]:
+                raise ValueError("team member profile changed after budget registration")
+            budget = self._team_budget_snapshot_from_db(db, task_id, run_id)
+            for resource, requested in zip(
+                ("tokens", "tool_calls", "wall_seconds"), amounts,
+            ):
+                if requested > budget[f"remaining_{resource}"]:
+                    raise ValueError(f"shared team {resource} budget exhausted")
+            reserved_at = _now()
+            db.execute(
+                "INSERT INTO team_budget_operations(task_id,run_id,operation_key,member_id,"
+                "reserved_tokens,reserved_tool_calls,reserved_wall_seconds,state,updated_at) "
+                "VALUES(?,?,?,?,?,?,?,'reserved',?)",
+                (task_id, run_id, operation_key, member_id, *amounts, reserved_at),
+            )
+            return {
+                "task_id": task_id, "run_id": run_id, "operation_key": operation_key,
+                "member_id": member_id, "reserved_tokens": amounts[0],
+                "reserved_tool_calls": amounts[1], "reserved_wall_seconds": amounts[2],
+                "charged_tokens": 0, "charged_tool_calls": 0,
+                "charged_wall_seconds": 0, "state": "reserved", "updated_at": reserved_at,
+            }
+
+    def settle_team_budget(
+        self, task_id: str, run_id: str, operation_key: str, *,
+        usage_evidence: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Settle once from usage metrics authenticated by the trusted host."""
+        verifier = self._team_budget_settlement_verifier
+        if not callable(verifier):
+            raise PermissionError("trusted team-budget settlement verifier is not configured")
+        if not isinstance(usage_evidence, Mapping) or not usage_evidence:
+            raise ValueError("usage_evidence must be a non-empty host receipt")
+        try:
+            evidence_bytes = json.dumps(
+                dict(usage_evidence), sort_keys=True, separators=(",", ":"), allow_nan=False,
+            ).encode("utf-8")
+        except (TypeError, ValueError) as exc:
+            raise ValueError("usage_evidence must be canonical JSON data") from exc
+        evidence_digest = hashlib.sha256(evidence_bytes).hexdigest()
+        verified_usage = verifier({
+            "task_id": task_id, "run_id": run_id, "operation_key": operation_key,
+            "usage_evidence": dict(usage_evidence), "usage_evidence_digest": evidence_digest,
+        })
+        if not isinstance(verified_usage, Mapping) or set(verified_usage) != {
+            "tokens", "tool_calls", "wall_seconds",
+        }:
+            raise PermissionError("trusted host did not return verified usage metrics")
+        actual = (
+            self._team_budget_amount(verified_usage["tokens"], "tokens"),
+            self._team_budget_amount(verified_usage["tool_calls"], "tool_calls"),
+            self._team_budget_amount(verified_usage["wall_seconds"], "wall_seconds"),
+        )
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT member_id,reserved_tokens,reserved_tool_calls,reserved_wall_seconds,"
+                "charged_tokens,charged_tool_calls,charged_wall_seconds,state,settlement_evidence_digest "
+                "FROM team_budget_operations WHERE task_id=? AND run_id=? AND operation_key=?",
+                (task_id, run_id, operation_key),
+            ).fetchone()
+            if row is None:
+                raise KeyError((task_id, run_id, operation_key))
+            if row[7] in {"settled", "overrun"}:
+                if tuple(row[4:7]) != actual or row[8] != evidence_digest:
+                    raise ValueError("settled team budget operation cannot be rewritten")
+                return {
+                    "task_id": task_id, "run_id": run_id, "operation_key": operation_key,
+                    "member_id": row[0], "reserved_tokens": row[1],
+                    "reserved_tool_calls": row[2], "reserved_wall_seconds": row[3],
+                    "charged_tokens": row[4], "charged_tool_calls": row[5],
+                    "charged_wall_seconds": row[6], "state": row[7],
+                    "settlement_evidence_digest": row[8],
+                }
+            if row[7] != "reserved":
+                raise ValueError("only unresolved team budget reservations can be settled")
+            overrun = any(actual[i] > row[i + 1] for i in range(3))
+            state = "overrun" if overrun else "settled"
+            db.execute(
+                "UPDATE team_budget_operations SET charged_tokens=?,charged_tool_calls=?,"
+                "charged_wall_seconds=?,state=?,settlement_evidence_digest=?,updated_at=? "
+                "WHERE task_id=? AND run_id=? AND operation_key=? AND state='reserved'",
+                (*actual, state, evidence_digest, _now(), task_id, run_id, operation_key),
+            )
+            if overrun:
+                failure_digest = hashlib.sha256(
+                    json.dumps({"operation_key": operation_key, "reserved": row[1:4],
+                                "actual": actual, "usage_evidence_digest": evidence_digest},
+                               sort_keys=True, separators=(",", ":")).encode()
+                ).hexdigest()
+                db.execute(
+                    "UPDATE team_members SET state='blocked',failure_digest=?,updated_at=? "
+                    "WHERE task_id=? AND run_id=? AND member_id=? AND state IN ('assigned','running')",
+                    (failure_digest, _now(), task_id, run_id, row[0]),
+                )
+        return {
+            "task_id": task_id, "run_id": run_id, "operation_key": operation_key,
+            "member_id": row[0], "reserved_tokens": row[1],
+            "reserved_tool_calls": row[2], "reserved_wall_seconds": row[3],
+            "charged_tokens": actual[0], "charged_tool_calls": actual[1],
+            "charged_wall_seconds": actual[2], "state": state,
+            "settlement_evidence_digest": evidence_digest,
+        }
+
+    def release_team_budget_reservation(
+        self, task_id: str, run_id: str, operation_key: str, *,
+        release_evidence: Mapping[str, Any], reason: str,
+    ) -> dict[str, Any]:
+        """Release capacity only after a trusted host verifier proves no dispatch occurred."""
+        verifier = self._team_budget_release_verifier
+        if not callable(verifier):
+            raise PermissionError("trusted team-budget release verifier is not configured")
+        if not isinstance(release_evidence, Mapping) or not release_evidence:
+            raise ValueError("release_evidence must be a non-empty host receipt")
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > 512:
+            raise ValueError("reservation release requires a bounded reconciliation reason")
+        try:
+            evidence_bytes = json.dumps(
+                dict(release_evidence), sort_keys=True, separators=(",", ":"), allow_nan=False,
+            ).encode("utf-8")
+        except (TypeError, ValueError) as exc:
+            raise ValueError("release_evidence must be canonical JSON data") from exc
+        evidence_digest = hashlib.sha256(evidence_bytes).hexdigest()
+        verification = verifier({
+            "task_id": task_id, "run_id": run_id, "operation_key": operation_key,
+            "release_evidence": dict(release_evidence), "release_evidence_digest": evidence_digest,
+            "reason": reason.strip(),
+        })
+        if verification is not True:
+            raise PermissionError("trusted host did not verify that the operation never started")
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT member_id,reserved_tokens,reserved_tool_calls,reserved_wall_seconds,"
+                "charged_tokens,charged_tool_calls,charged_wall_seconds,state "
+                "FROM team_budget_operations WHERE task_id=? AND run_id=? AND operation_key=?",
+                (task_id, run_id, operation_key),
+            ).fetchone()
+            if row is None:
+                raise KeyError((task_id, run_id, operation_key))
+            if row[7] == "released":
+                return {"operation_key": operation_key, "state": "released", "member_id": row[0]}
+            if row[7] != "reserved":
+                raise ValueError("only unresolved reservations can be released")
+            db.execute(
+                "UPDATE team_budget_operations SET state='released',reconciliation_reason=?,"
+                "reconciliation_evidence_digest=?,updated_at=? "
+                "WHERE task_id=? AND run_id=? AND operation_key=? AND state='reserved'",
+                (reason.strip(), evidence_digest, _now(), task_id, run_id, operation_key),
+            )
+        return {
+            "operation_key": operation_key, "state": "released", "member_id": row[0],
+            "reason": reason.strip(), "release_evidence_digest": evidence_digest,
+        }
+
+    def unresolved_team_budget_operations(
+        self, task_id: str, run_id: str,
+    ) -> tuple[dict[str, Any], ...]:
+        """Return crash-surviving reservations; unknown outcomes remain charged against capacity."""
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
+            db.row_factory = sqlite3.Row
+            rows = db.execute(
+                "SELECT task_id,run_id,operation_key,member_id,reserved_tokens,"
+                "reserved_tool_calls,reserved_wall_seconds,state,updated_at "
+                "FROM team_budget_operations WHERE task_id=? AND run_id=? "
+                "AND state='reserved' ORDER BY operation_key",
+                (task_id, run_id),
+            ).fetchall()
+        return tuple(dict(row) for row in rows)
 
     def transition_team_member(
         self, task_id: str, run_id: str, member_id: str, *,
@@ -4240,6 +4579,20 @@ class ExecutionController:
             raise ValueError("failure_digest must be a lowercase SHA-256 digest")
         with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
+            if new_state == "assigned":
+                concurrency = db.execute(
+                    "SELECT max_concurrency FROM team_budgets WHERE task_id=? AND run_id=?",
+                    (task_id, run_id),
+                ).fetchone()
+                if concurrency is None:
+                    raise ValueError("team budget must be registered before member assignment")
+                active = db.execute(
+                    "SELECT COUNT(*) FROM team_members WHERE task_id=? AND run_id=? "
+                    "AND state IN ('assigned','running')",
+                    (task_id, run_id),
+                ).fetchone()[0]
+                if active >= concurrency[0]:
+                    raise ValueError("shared team concurrency limit reached")
             cursor = db.execute(
                 "UPDATE team_members SET state=?,failure_digest=?,updated_at=? "
                 "WHERE task_id=? AND run_id=? AND member_id=? AND state=?",

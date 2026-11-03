@@ -2445,18 +2445,18 @@ def test_durable_team_member_lifecycle_is_profile_bound_and_resumes_after_restar
     assert assigned["state"] == "assigned"
 
     restarted = ExecutionController(tmp_path)
-    resumed = restarted.team_members("task-team-1", "run-1")
+    resumed = restarted.team_members(task.id, "run-1")
     implementer = next(member for member in resumed if member["member_id"] == "implementer")
     assert implementer["state"] == "assigned"
     assert implementer["profile_digest"] == members[0]["profile_digest"]
 
     running = restarted.transition_team_member(
-        "task-team-1", "run-1", "implementer",
+        task.id, "run-1", "implementer",
         expected_state="assigned", new_state="running",
     )
     assert running["state"] == "running"
     completed = restarted.transition_team_member(
-        "task-team-1", "run-1", "implementer",
+        task.id, "run-1", "implementer",
         expected_state="running", new_state="completed",
     )
     assert completed["state"] == "completed"
@@ -2484,11 +2484,203 @@ def test_durable_team_member_registration_rejects_profile_drift_and_stale_transi
     )
     with pytest.raises(ValueError, match="state changed"):
         controller.transition_team_member(
-            "task-team-2", "run-1", "implementer",
+            task.id, "run-1", "implementer",
             expected_state="pending", new_state="assigned",
         )
     with pytest.raises(ValueError, match="terminal"):
         controller.transition_team_member(
-            "task-team-2", "run-1", "implementer",
+            task.id, "run-1", "implementer",
             expected_state="assigned", new_state="completed",
         )
+
+
+def _register_test_team(controller, task_id, run_id, profile_members):
+    from portable.agent_profiles import resolve_agent_profile
+
+    controller.register_handler("durable_handler", durable_handler, execution_class="read_only")
+    task = controller.submit("durable_handler", {"id": task_id}, goal="shared team budget")
+    members = []
+    for member_id, profile_id in profile_members:
+        profile = resolve_agent_profile(profile_id, revision=1)
+        members.append({
+            "member_id": member_id, "profile_id": profile_id,
+            "profile_revision": 1, "profile_digest": profile.digest,
+        })
+    controller.register_team_members(task.id, run_id, members)
+    return task.id, members
+
+
+def test_shared_team_budget_is_aggregated_idempotent_and_restart_safe(tmp_path: Path):
+    import pytest
+
+    controller = ExecutionController(
+        tmp_path, team_budget_settlement_verifier=lambda receipt: receipt["usage_evidence"],
+    )
+    task_id, members = _register_test_team(
+        controller, "shared-budget-task", "run-1",
+        [("implementer", "backend_implementer"), ("qa", "qa_reviewer")],
+    )
+    budget = controller.team_budget(task_id, "run-1")
+    assert budget["max_tokens"] == 44_000
+    assert budget["max_tool_calls"] == 170
+    assert budget["max_wall_seconds"] == 7_200
+    assert budget["max_concurrency"] == 2
+
+    controller.transition_team_member(
+        task_id, "run-1", "implementer",
+        expected_state="pending", new_state="assigned",
+    )
+    controller.transition_team_member(
+        task_id, "run-1", "qa",
+        expected_state="pending", new_state="assigned",
+    )
+    first = controller.reserve_team_budget(
+        task_id, "run-1", "implementer", "provider-call-1", tokens=20_000,
+    )
+    assert first["state"] == "reserved"
+    assert controller.reserve_team_budget(
+        task_id, "run-1", "implementer", "provider-call-1", tokens=20_000,
+    ) == first
+    with pytest.raises(ValueError, match="shared team tokens budget exhausted"):
+        controller.reserve_team_budget(
+            task_id, "run-1", "qa", "provider-call-2", tokens=25_000,
+        )
+    with pytest.raises(ValueError, match="operation key conflicts"):
+        controller.reserve_team_budget(
+            task_id, "run-1", "implementer", "provider-call-1", tokens=19_999,
+        )
+
+    usage_receipt = {"tokens": 18_000, "tool_calls": 0, "wall_seconds": 0}
+    settled = controller.settle_team_budget(
+        task_id, "run-1", "provider-call-1", usage_evidence=usage_receipt,
+    )
+    assert settled["state"] == "settled"
+    assert controller.settle_team_budget(
+        task_id, "run-1", "provider-call-1", usage_evidence=usage_receipt,
+    ) == settled
+
+    controller.reserve_team_budget(
+        task_id, "run-1", "implementer", "uncertain-after-crash",
+        tokens=1_000, tool_calls=5,
+    )
+    restarted = ExecutionController(tmp_path)
+    recovered = restarted.team_budget(task_id, "run-1")
+    assert recovered["charged_tokens"] == 18_000
+    assert recovered["reserved_tokens"] == 1_000
+    assert [item["operation_key"] for item in restarted.unresolved_team_budget_operations(task_id, "run-1")] == [
+        "uncertain-after-crash"
+    ]
+    with pytest.raises(PermissionError, match="settlement verifier is not configured"):
+        restarted.settle_team_budget(
+            task_id, "run-1", "uncertain-after-crash",
+            usage_evidence={"tokens": 0, "tool_calls": 0, "wall_seconds": 0},
+        )
+    with pytest.raises(PermissionError, match="verifier is not configured"):
+        restarted.release_team_budget_reservation(
+            task_id, "run-1", "uncertain-after-crash",
+            release_evidence={"host_outcome": "not_started"},
+            reason="unverified caller assertion",
+        )
+    verified_restart = ExecutionController(
+        tmp_path,
+        team_budget_settlement_verifier=lambda receipt: receipt["usage_evidence"],
+        team_budget_release_verifier=lambda receipt: (
+            receipt["release_evidence"].get("host_outcome") == "not_started"
+        ),
+    )
+    released = verified_restart.release_team_budget_reservation(
+        task_id, "run-1", "uncertain-after-crash",
+        release_evidence={"host_outcome": "not_started"},
+        reason="trusted host receipt proves provider was never invoked",
+    )
+    assert released["state"] == "released"
+    assert len(released["release_evidence_digest"]) == 64
+    assert verified_restart.team_budget(task_id, "run-1")["reserved_tokens"] == 0
+
+
+def test_shared_team_budget_overrun_is_recorded_and_blocks_member(tmp_path: Path):
+    controller = ExecutionController(
+        tmp_path, team_budget_settlement_verifier=lambda receipt: receipt["usage_evidence"],
+    )
+    task_id, _members = _register_test_team(
+        controller, "budget-overrun-task", "run-1",
+        [("implementer", "backend_implementer")],
+    )
+    controller.transition_team_member(
+        task_id, "run-1", "implementer",
+        expected_state="pending", new_state="assigned",
+    )
+    controller.transition_team_member(
+        task_id, "run-1", "implementer",
+        expected_state="assigned", new_state="running",
+    )
+    controller.reserve_team_budget(
+        task_id, "run-1", "implementer", "overrun-op", tokens=10,
+    )
+    outcome = controller.settle_team_budget(
+        task_id, "run-1", "overrun-op",
+        usage_evidence={"tokens": 11, "tool_calls": 0, "wall_seconds": 0},
+    )
+    assert outcome["state"] == "overrun"
+    member = controller.team_members(task_id, "run-1")[0]
+    assert member["state"] == "blocked"
+    assert member["failure_digest"]
+    replayed = controller.reserve_team_budget(
+        task_id, "run-1", "implementer", "overrun-op", tokens=10,
+    )
+    assert replayed["state"] == "overrun"
+
+
+def test_shared_team_concurrency_is_bounded_by_supervisor(tmp_path: Path):
+    import pytest
+
+    controller = ExecutionController(tmp_path)
+    task_id, _members = _register_test_team(
+        controller, "team-concurrency-task", "run-1",
+        [(f"member_{index}", "backend_implementer") for index in range(5)],
+    )
+    for index in range(4):
+        controller.transition_team_member(
+            task_id, "run-1", f"member_{index}",
+            expected_state="pending", new_state="assigned",
+        )
+    with pytest.raises(ValueError, match="shared team concurrency limit reached"):
+        controller.transition_team_member(
+            task_id, "run-1", "member_4",
+            expected_state="pending", new_state="assigned",
+        )
+
+
+def test_concurrent_members_cannot_overreserve_shared_team_budget(tmp_path: Path):
+    from threading import Barrier
+
+    controller = ExecutionController(tmp_path)
+    task_id, _members = _register_test_team(
+        controller, "concurrent-budget-task", "run-1",
+        [("implementer", "backend_implementer"), ("qa", "qa_reviewer")],
+    )
+    for member_id in ("implementer", "qa"):
+        controller.transition_team_member(
+            task_id, "run-1", member_id,
+            expected_state="pending", new_state="assigned",
+        )
+
+    barrier = Barrier(2)
+
+    def reserve(member_id):
+        barrier.wait(timeout=5)
+        try:
+            return controller.reserve_team_budget(
+                task_id, "run-1", member_id, f"parallel-{member_id}", tokens=30_000,
+            )["state"]
+        except ValueError as exc:
+            return str(exc)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(reserve, ("implementer", "qa")))
+
+    assert outcomes.count("reserved") == 1
+    assert outcomes.count("shared team tokens budget exhausted") == 1
+    budget = controller.team_budget(task_id, "run-1")
+    assert budget["reserved_tokens"] == 30_000
+    assert budget["remaining_tokens"] == 14_000
