@@ -198,6 +198,19 @@ class SharedTaskMemory:
             packed,_strategy=bounded_text(packed,limit)
         return packed
 
+def _profile_memory_run_id(run_id: str, intent_digest: str, supervisor_task_id: str | None = None) -> str:
+    """Choose a stable task-run identity without sharing the default graph label."""
+    if supervisor_task_id is not None:
+        if not isinstance(supervisor_task_id, str) or not supervisor_task_id.strip():
+            raise ValueError("supervisor_task_id must be non-empty text when provided")
+        return supervisor_task_id
+    if isinstance(run_id, str) and run_id.strip() and run_id != "graph-agent-team":
+        return run_id
+    if not isinstance(intent_digest, str) or not intent_digest.strip():
+        raise ValueError("intent_digest is required when no durable task/run id is supplied")
+    return intent_digest
+
+
 def _private_memory(output):
     active=False; lines=[]
     for raw in str(output).splitlines():
@@ -754,7 +767,7 @@ class GraphAgentTeam:
                 relevant=set(agent.depends_on); relevant.add("planner")
                 shared_context=memory.compact_text(relevant_agents=relevant,limit=context_limit)
                 historical=guidance(memory.project_root,task,limit=2400)
-                private_run_id = run_id if agent.profile_id is not None else intent_digest
+                private_run_id = _profile_memory_run_id(run_id, intent_digest, supervisor_task_id) if agent.profile_id is not None else intent_digest
                 private=self._private_memory(memory.project_root,agent,private_run_id).read(limit=2200)
                 focus=LearningSteward(memory.project_root,run_id=intent_digest,task=task).prompt() if agent.name=="learning-steward" else ""
                 resource_note=json.dumps(local_payload,sort_keys=True) if local_payload else "No local execution evidence was produced; continue with the agent/cloud lane."
@@ -877,7 +890,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     output += "\n[task retry budget exhausted; escalation required]"
                 note=_private_memory(output)
                 if note:
-                    private_run_id = run_id if agent.profile_id is not None else intent_digest
+                    private_run_id = _profile_memory_run_id(run_id, intent_digest, supervisor_task_id) if agent.profile_id is not None else intent_digest
                     self._private_memory(memory.project_root,agent,private_run_id).remember(note)
                 status="passed" if code==0 else "failed"
                 if local is not None and local.status not in {"passed"} and agent.role=="verifier":
