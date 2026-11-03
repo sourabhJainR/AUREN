@@ -224,8 +224,10 @@ class TrustedPlanDispatchRoot:
     def _resolve_assignment(self, context: Mapping[str, Any]) -> dict[str, Any]:
         from .agent_org_runtime import AuthorizedAgentAssignment
 
+        assignment_context = dict(context)
+        assignment_context["deadline_seconds"] = assignment_deadline_seconds
         try:
-            assignment = self.assignment_resolver(dict(context))
+            assignment = self.assignment_resolver(assignment_context)
         except Exception as exc:
             raise PermissionError("host agent assignment authorization failed closed") from exc
         if not isinstance(assignment, AuthorizedAgentAssignment):
