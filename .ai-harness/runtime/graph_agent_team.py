@@ -10,7 +10,7 @@ from portable.agency_state_graph import Checkpoint,CheckpointStore,StateGraph
 from portable.identity_compat import canonicalize_auren_checkpoint_state, get_auren_env, project_state_dir
 from portable.state_graph import build_crew_plan, default_crew_definitions, _dispatch_crew_proposal
 from portable.crew_adapters import GraphHandoffController,TaskRetryBudget, merge_retry_budget_snapshots
-from portable.agent_memory import AgentMemory
+from portable.agent_memory import AgentMemory, ProfileAgentMemory
 from portable.context_engine import ContextEngine,ContextPolicy,handoff_from_output
 from portable.adaptive_resource_handling import adaptive_context_limit, bounded_text
 from portable.dream_memory import DreamMemory
@@ -94,6 +94,8 @@ class AgentSpec:
     evidence_value:float=0.7
     isolation_required:bool=False
     capabilities:tuple[str,...]=()
+    profile_id:str|None=None
+    profile_revision:int|None=None
 
 @dataclass
 class AgentResult:
@@ -239,6 +241,12 @@ class GraphAgentTeam:
         self.agents={a.name:a for a in agents}
         if not self.agents: raise ValueError("graph agent team requires at least one agent")
         if len(self.agents)>max_agents: raise ValueError("graph agent team exceeds agent budget")
+        from portable.agent_profiles import resolve_agent_profile
+        for agent in self.agents.values():
+            if (agent.profile_id is None) != (agent.profile_revision is None):
+                raise ValueError(f"agent {agent.name} must specify both profile_id and profile_revision")
+            if agent.profile_id is not None:
+                resolve_agent_profile(agent.profile_id, revision=agent.profile_revision)
         if type(require_crew_adapters) is not bool: raise ValueError("require_crew_adapters must be a boolean")
         self.max_parallel_read_only=max(1,int(max_parallel_read_only)); self.context_policy=context_policy or ContextPolicy()
         self.resource_budget=(resource_budget or ResourceBudget(max_workers=self.max_parallel_read_only)).normalized()
@@ -267,6 +275,17 @@ class GraphAgentTeam:
         self.independent_handoff_reviewer_id=independent_handoff_reviewer_id.strip() if independent_handoff_reviewer_id else None
         self.independent_handoff_reviewer_version=independent_handoff_reviewer_version.strip() if independent_handoff_reviewer_version else None
         self._plan=self._build_task_plan()
+    def _private_memory(self, project_root: Path, agent: AgentSpec, run_id: str):
+        if agent.profile_id is None:
+            return AgentMemory(project_root, agent.name, run_id=run_id)
+        return ProfileAgentMemory(
+            project_root,
+            profile_id=agent.profile_id,
+            profile_revision=agent.profile_revision,
+            agent_id=agent.name,
+            run_id=run_id,
+        )
+
     def _build_task_plan(self):
         return TaskPlan([Task(id=a.name,title=a.role,description=a.focus,dependencies=list(a.depends_on),tags=["graph-agent"],acceptance=["agent execution completes successfully"],metadata={"read_only":a.read_only,"critical":a.critical,"local_offload":bool(a.local_command)}) for a in self.agents.values()])
     def _validate(self): self._plan.validate()
@@ -734,7 +753,7 @@ class GraphAgentTeam:
                 relevant=set(agent.depends_on); relevant.add("planner")
                 shared_context=memory.compact_text(relevant_agents=relevant,limit=context_limit)
                 historical=guidance(memory.project_root,task,limit=2400)
-                private=AgentMemory(memory.project_root,agent.name,run_id=intent_digest).read(limit=2200)
+                private=self._private_memory(memory.project_root,agent,intent_digest).read(limit=2200)
                 focus=LearningSteward(memory.project_root,run_id=intent_digest,task=task).prompt() if agent.name=="learning-steward" else ""
                 resource_note=json.dumps(local_payload,sort_keys=True) if local_payload else "No local execution evidence was produced; continue with the agent/cloud lane."
                 crew_context=json.dumps(state.get("auren_crew_execution", {}), sort_keys=True)
@@ -855,7 +874,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 elif code != 0 and retry_choice.selected == "retry" and agent.read_only:
                     output += "\n[task retry budget exhausted; escalation required]"
                 note=_private_memory(output)
-                if note: AgentMemory(memory.project_root,agent.name,run_id=intent_digest).remember(note)
+                if note: self._private_memory(memory.project_root,agent,intent_digest).remember(note)
                 status="passed" if code==0 else "failed"
                 if local is not None and local.status not in {"passed"} and agent.role=="verifier":
                     status="failed"
