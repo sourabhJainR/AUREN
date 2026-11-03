@@ -8,7 +8,9 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import threading
 from datetime import datetime, timezone
+from pathlib import PurePosixPath
 from typing import Any, Callable, Mapping
 
 from .action_governance import ActionRequest
@@ -72,7 +74,14 @@ class TrustedPlanDispatchRoot:
         self.approval_resolver = approval_resolver
         self.assignment_resolver = assignment_resolver
         self._token = object()
+        self._assignment_contexts: dict[str, dict[str, Any]] = {}
+        self._assignment_contexts_lock = threading.RLock()
+        self._previous_assignment_verifier = controller._agent_assignment_verifier
         controller._trusted_plan_assignment_resolver = self._revalidate_assignment
+        # The same host resolver is the controller's assignment verifier. This
+        # closes the gap between durable-plan preflight and the controller's
+        # ordinary resource/action checks at the final handler boundary.
+        controller._agent_assignment_verifier = self._verify_controller_assignment
         controller._trusted_plan_dispatch_required = True
         controller._trusted_plan_dispatch_token = self._token
 
@@ -245,6 +254,26 @@ class TrustedPlanDispatchRoot:
             raise PermissionError("agent assignment deadline differs from the host-authorized deadline")
         if not isinstance(payload, Mapping):
             raise PermissionError("agent assignment requires the exact task payload")
+        if payload.get("work_key") != dispatch_key:
+            raise PermissionError("durable task work_key must equal the trusted dispatch identity")
+        resource_selectors = [
+            payload[name] for name in ("resource", "resource_id", "path")
+            if name in payload and payload[name] is not None
+        ]
+        if not resource_selectors:
+            raise PermissionError("assigned plan tasks require an explicit resource, resource_id, or path")
+        assigned_scope = set(assignment.scope)
+        for resource in (*assignment.scope, *resource_selectors):
+            if not isinstance(resource, str) or not resource.strip() or "\\\\" in resource:
+                raise PermissionError("assignment scope and resource selectors must be normalized relative paths")
+            normalized = PurePosixPath(resource).as_posix()
+            if (
+                normalized != resource or normalized.startswith("/")
+                or any(part in {"", ".", ".."} for part in resource.split("/"))
+            ):
+                raise PermissionError("assignment scope and resource selectors contain unsafe path components")
+        if any(resource not in assigned_scope for resource in resource_selectors):
+            raise PermissionError("task resource selector is outside the host-authorized assignment scope")
         clean_payload = {
             "resource": payload.get("resource", payload.get("resource_id", payload.get("path", ""))),
             "path": payload.get("path"),
@@ -263,7 +292,36 @@ class TrustedPlanDispatchRoot:
         envelope = assignment.as_payload()
         if not isinstance(envelope, dict) or envelope.get("assignment_digest") != assignment.assignment_digest:
             raise PermissionError("host assignment envelope is malformed")
+        context_for_worker = dict(context)
+        context_for_worker.pop("recorded_assignment", None)
+        context_for_worker["assignment_deadline_seconds"] = assignment_deadline_seconds
+        with self._assignment_contexts_lock:
+            self._assignment_contexts[dispatch_key] = context_for_worker
         return envelope
+
+    def _verify_controller_assignment(self, request: Mapping[str, Any]) -> bool:
+        """Reauthorize the exact plan assignment at each controller boundary."""
+        if not isinstance(request, Mapping):
+            return False
+        work_key = request.get("work_key")
+        with self._assignment_contexts_lock:
+            context = self._assignment_contexts.get(work_key) if isinstance(work_key, str) else None
+        if context is None:
+            previous = self._previous_assignment_verifier
+            if not callable(previous):
+                return False
+            try:
+                return previous(request) is True
+            except Exception:
+                return False
+        try:
+            current = self._resolve_assignment(context)
+        except Exception:
+            return False
+        expected = {name: current[name] for name in request}
+        if "scope" in expected:
+            expected["scope"] = tuple(expected["scope"])
+        return expected == dict(request)
 
     def _revalidate_assignment(self, context: Mapping[str, Any]) -> dict[str, Any]:
         recorded = context.get("recorded_assignment")
@@ -292,6 +350,10 @@ class TrustedPlanDispatchRoot:
         safe_payload = dict(payload or {})
         if "_auren_agent_assignment" in safe_payload or "_auren_assignment_deadline_seconds" in safe_payload:
             raise ValueError("trusted assignment metadata keys are reserved for the host")
+        supplied_work_key = safe_payload.get("work_key")
+        if supplied_work_key is not None and supplied_work_key != dispatch_key:
+            raise PermissionError("payload work_key differs from the trusted dispatch identity")
+        safe_payload["work_key"] = dispatch_key
         budget, guard = self._budget_binding(run_id, task_id, handler)
         approval = self._approval_binding(run_id, task_id, handler, packet)
         # Approval resolution may take time. Re-check the same live supervisor
