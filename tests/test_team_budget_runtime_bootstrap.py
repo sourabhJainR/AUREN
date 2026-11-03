@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+import pytest
+
 from portable.adaptive_runtime import AdaptiveRuntime
 from portable.orchestration import Graph, Node, NodeKind
+
+
+def _graph():
+    return Graph([Node("bootstrap", NodeKind.DETERMINISTIC, lambda _state: {"ok": True})])
 
 
 def test_adaptive_runtime_passes_host_budget_verifiers_to_controller(tmp_path):
     settlement_verifier = lambda _receipt: False
     release_verifier = lambda _receipt: False
     runtime = AdaptiveRuntime(
-        Graph([Node("bootstrap", NodeKind.DETERMINISTIC, lambda _state: {"ok": True})]),
+        _graph(),
         state_root=tmp_path,
         team_budget_settlement_verifier=settlement_verifier,
         team_budget_release_verifier=release_verifier,
@@ -17,22 +23,32 @@ def test_adaptive_runtime_passes_host_budget_verifiers_to_controller(tmp_path):
     assert runtime.execution_controller._team_budget_release_verifier is release_verifier
 
 
-def test_controller_budget_enforcer_can_only_be_installed_once(tmp_path):
-    controller = AdaptiveRuntime(
-        Graph([Node("bootstrap", NodeKind.DETERMINISTIC, lambda _state: {"ok": True})]),
-        state_root=tmp_path,
-    ).execution_controller
-
+def test_adaptive_runtime_installs_enforcer_inside_composition_root(tmp_path):
     class Enforcer:
         def execute(self, *_args, **_kwargs):
             return None
 
-    first = Enforcer()
-    controller.configure_team_budget_enforcer(first)
-    controller.configure_team_budget_enforcer(first)
-    try:
-        controller.configure_team_budget_enforcer(Enforcer())
-    except RuntimeError as exc:
-        assert "cannot be replaced" in str(exc)
-    else:
-        raise AssertionError("configured team-budget enforcer was replaceable")
+    enforcer = Enforcer()
+    factory_calls = []
+
+    def factory(controller):
+        factory_calls.append(controller)
+        return enforcer
+
+    runtime = AdaptiveRuntime(
+        _graph(),
+        state_root=tmp_path,
+        team_budget_enforcer_factory=factory,
+    )
+    assert factory_calls == [runtime.execution_controller]
+    assert runtime.execution_controller._team_budget_enforcer is enforcer
+    assert not hasattr(runtime.execution_controller, "configure_team_budget_enforcer")
+
+
+def test_adaptive_runtime_rejects_invalid_enforcer_factory_result(tmp_path):
+    with pytest.raises(TypeError, match="must return an adapter enforcer"):
+        AdaptiveRuntime(
+            _graph(),
+            state_root=tmp_path,
+            team_budget_enforcer_factory=lambda _controller: object(),
+        )
