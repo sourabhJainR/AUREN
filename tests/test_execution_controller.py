@@ -2439,7 +2439,7 @@ def test_durable_team_member_lifecycle_is_profile_bound_and_resumes_after_restar
     assert controller.register_team_members(task.id, "run-1", members) == initial
 
     assigned = controller.transition_team_member(
-        "task-team-1", "run-1", "implementer",
+        task.id, "run-1", "implementer",
         expected_state="pending", new_state="assigned",
     )
     assert assigned["state"] == "assigned"
@@ -2448,7 +2448,7 @@ def test_durable_team_member_lifecycle_is_profile_bound_and_resumes_after_restar
     resumed = restarted.team_members("task-team-1", "run-1")
     implementer = next(member for member in resumed if member["member_id"] == "implementer")
     assert implementer["state"] == "assigned"
-    assert implementer["profile_digest"] == "a" * 64
+    assert implementer["profile_digest"] == members[0]["profile_digest"]
 
     running = restarted.transition_team_member(
         "task-team-1", "run-1", "implementer",
@@ -2475,11 +2475,11 @@ def test_durable_team_member_registration_rejects_profile_drift_and_stale_transi
     controller.register_team_members(task.id, "run-1", [member])
 
     changed = {**member, "profile_digest": "c" * 64}
-    with pytest.raises(ValueError, match="profile identity conflict"):
+    with pytest.raises(ValueError, match="profile digest does not match"):
         controller.register_team_members(task.id, "run-1", [changed])
 
     controller.transition_team_member(
-        "task-team-2", "run-1", "implementer",
+        task.id, "run-1", "implementer",
         expected_state="pending", new_state="assigned",
     )
     with pytest.raises(ValueError, match="state changed"):
