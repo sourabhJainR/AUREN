@@ -43,7 +43,7 @@ This is a durable accounting and admission foundation. It does not yet wire ever
 
 ### Provider and tool adapter enforcement
 
-The supervisor exposes `TeamBudgetAdapterEnforcer` in `portable/team_budget_adapters.py`. Host bootstrap creates it with two host-owned callbacks:
+The supervisor exposes `TeamBudgetAdapterEnforcer` in `portable/team_budget_adapters.py`. Pass the host-owned `team_budget_settlement_verifier` and `team_budget_release_verifier` into `AdaptiveRuntime` at construction. After runtime creation, build the enforcer around `runtime.execution_controller` and install it once with `controller.configure_team_budget_enforcer(enforcer)`. Host bootstrap creates it with two host-owned callbacks:
 
 - `context_resolver` maps the active authenticated assignment principal to the canonical controller task, team run, member ID, stable operation key and bounded reservation amounts. It must ignore caller-supplied identity, budget and operation-key claims.
 - `usage_evidence_resolver` returns the provider/tool host receipt for the completed call. The controller's separately configured `team_budget_settlement_verifier` must authenticate that receipt and return exactly the verified token, tool-call and wall-second metrics.
