@@ -264,6 +264,32 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         with sqlite3.connect(self.controller.db_path) as db:
             self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
 
+    def test_revoked_approver_authority_blocks_dispatch_before_queue_insert(self):
+        approvals, request, record = self._approval(self.controller, context=self.context)
+        approvals.approver_authorizer = lambda approver, role, scope, roles: False
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        root = self._root(self.controller, approvals, request, record, guard, context=self.context)
+        with self.assertRaisesRegex(PermissionError, "authority has been revoked or changed"):
+            root.dispatch(
+                run_id=self.plan.run_id, task_id="implement", dispatch_key="revoked-approver",
+                handler="dispatch-test", packet=self.packet, payload={"resource": "tests"},
+            )
+        with sqlite3.connect(self.controller.db_path) as db:
+            self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
+
+    def test_ceo_cannot_be_substituted_as_worker_manager_before_dispatch(self):
+        approvals, request, record = self._approval(self.controller, context=self.context)
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        self.assignment_manager_id = "CEO-01"
+        root = self._root(self.controller, approvals, request, record, guard, context=self.context)
+        with self.assertRaisesRegex(PermissionError, "assignment authorization failed closed"):
+            root.dispatch(
+                run_id=self.plan.run_id, task_id="implement", dispatch_key="ceo-manager-bypass",
+                handler="dispatch-test", packet=self.packet, payload={"resource": "tests"},
+            )
+        with sqlite3.connect(self.controller.db_path) as db:
+            self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
+
     def test_missing_host_assignment_is_denied_before_queue_insertion(self):
         approvals, request, record = self._approval(self.controller, context=self.context)
         guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
