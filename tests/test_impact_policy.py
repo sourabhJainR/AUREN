@@ -44,6 +44,7 @@ class ImpactPolicyTests(unittest.TestCase):
             "tests/test_agency_team_orchestrator.py": {"tests.test_agency_team_orchestrator", "tests.test_execution_boundary"},
             "tests/test_execution_boundary.py": {"tests.test_execution_boundary", "tests.test_durable_approval", "tests.test_side_effect_ledger"},
             "portable/durable_approval.py": {"tests.test_durable_approval", "tests.test_side_effect_ledger", "tests.test_execution_controller"},
+            "tests/test_trusted_plan_approval_preflight.py": {"tests.test_trusted_plan_approval_preflight", "tests.test_trusted_plan_dispatch", "tests.test_durable_approval", "tests.test_execution_controller"},
             "portable/provider_operation_lifecycle.py": {"tests.test_provider_operation_lifecycle", "tests.test_side_effect_ledger"},
             "portable/subprocess_provider.py": {"tests.test_subprocess_provider", "tests.test_bounded_subprocess_fault_injection"},
             "tests/test_subprocess_provider.py": {"tests.test_subprocess_provider"},
