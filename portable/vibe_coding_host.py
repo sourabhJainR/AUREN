@@ -1214,6 +1214,7 @@ class MCPStdioToolAdapter:
             if self.team_budget_enforcer is not None:
                 result = self.team_budget_enforcer.execute(
                     "tool", self.tool_name, request, lambda: self._call_untraced(request),
+                    require_assignment_scope=True,
                 )
             else:
                 result = self._call_untraced(request)
