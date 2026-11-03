@@ -81,7 +81,7 @@ class _ContainerizedStockResearchRunner:
         return status, payload
 
     @staticmethod
-    def _verify_container_config(container: dict) -> dict[str, object]:
+    def _verify_container_config(container: dict, expected_env: dict[str, str]) -> dict[str, object]:
         config = container.get("Config") or {}
         host = container.get("HostConfig") or {}
         mounts = container.get("Mounts") or []
@@ -110,9 +110,10 @@ class _ContainerizedStockResearchRunner:
             "no_host_binds": not host.get("Binds"),
             "no_host_mounts": not host.get("Binds") and not host.get("Mounts") and only_temporary_mounts,
             "temporary_paths_only": set(tmpfs) == expected_tmpfs,
-            "host_environment_not_inherited": set(
-                item.split("=", 1)[0] for item in (config.get("Env") or [])
-            ).issubset({"PATH", "PYTHONDONTWRITEBYTECODE", "HOME", "TMPDIR", "TRADINGDYOR_PIT_DB"}),
+            "host_environment_not_inherited": {
+                item.split("=", 1)[0]: item.split("=", 1)[1]
+                for item in (config.get("Env") or []) if "=" in item
+            } == expected_env,
             "not_privileged": host.get("Privileged") is not True,
         }
         if not all(checks.values()):
@@ -182,7 +183,12 @@ class _ContainerizedStockResearchRunner:
             )
             container_id = json.loads(created)["Id"]
             _, inspected = self._request("GET", f"/v1.43/containers/{container_id}/json", timeout=15)
-            sandbox_checks = self._verify_container_config(json.loads(inspected))
+            image_env = (image_info.get("Config") or {}).get("Env") or []
+            expected_env = {
+                item.split("=", 1)[0]: item.split("=", 1)[1]
+                for item in [*image_env, *create_payload["Env"]] if "=" in item
+            }
+            sandbox_checks = self._verify_container_config(json.loads(inspected), expected_env)
             self._request("POST", f"/v1.43/containers/{container_id}/start")
             _, waited = self._request(
                 "POST", f"/v1.43/containers/{container_id}/wait?condition=not-running",
