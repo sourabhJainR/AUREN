@@ -107,6 +107,7 @@ class TeamBudgetAdapterEnforcer:
                 context["task_id"], context["run_id"], context["member_id"],
                 context["operation_key"], tokens=amounts["tokens"],
                 tool_calls=amounts["tool_calls"], wall_seconds=amounts["wall_seconds"],
+                reject_existing=True,
             )
         except Exception as exc:
             raise TeamBudgetAdapterDenied("shared team budget denied adapter dispatch") from exc
