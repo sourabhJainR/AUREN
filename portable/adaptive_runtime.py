@@ -7,7 +7,7 @@ import os
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from .adaptive_learning import AdaptiveLearningStore, DeferredLearningJob
 from .adaptive_tuning import AdaptiveTuner, MaintenanceReceipt
