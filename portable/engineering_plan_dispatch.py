@@ -18,6 +18,8 @@ from uuid import uuid4
 from .engineering_context_packet import EngineeringContextPacket
 from .engineering_plan import EngineeringPlan, EngineeringPlanRun
 from .engineering_plan_store import EngineeringPlanStore
+from .workflow_profile import resolve_profile
+from .workflow_profile_store import load_profile
 
 
 class DispatchConflict(RuntimeError):
@@ -155,6 +157,19 @@ class EngineeringPlanDispatch:
                 raise ValueError('approval evidence digests must be lowercase SHA-256')
         return result
 
+    def _bind_workflow_profile(self, payload: dict[str, Any]) -> None:
+        """Bind the current host-owned profile exactly as ExecutionController.submit does."""
+        task_profile = payload.pop("workflow_profile", None)
+        payload.pop("_auren_workflow_profile", None)
+        payload.pop("_auren_workflow_profile_digest", None)
+        saved_profile = load_profile(self.controller.workflow_profile_path)
+        effective_profile = resolve_profile(
+            task=task_profile,
+            saved=saved_profile.as_dict() if saved_profile is not None else None,
+        )
+        payload["_auren_workflow_profile"] = effective_profile.as_dict()
+        payload["_auren_workflow_profile_digest"] = effective_profile.digest
+
     @staticmethod
     def _normalize_assignment_evidence(value):
         if value is None:
@@ -282,6 +297,7 @@ class EngineeringPlanDispatch:
             raise ValueError("payload key 'auren_dispatch' is reserved for trusted dispatch metadata")
         if assignment_binding is not None and safe_payload.get("_auren_agent_assignment") != assignment_binding:
             raise PermissionError("durable task assignment envelope differs from the trusted assignment binding")
+        self._bind_workflow_profile(safe_payload)
         self._validate_payload_keys(safe_payload)
         encoded_payload = json.dumps(safe_payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
         with sqlite3.connect(self.database_path, timeout=10) as db:
@@ -322,11 +338,6 @@ class EngineeringPlanDispatch:
         if execution_class not in {"read_only", "ci_gated", "consequential"}:
             raise ValueError("dispatch handler must have an explicit executable class")
         self.controller._load_handler(handler_name)
-        if payload is not None and not isinstance(payload, Mapping):
-            raise ValueError("dispatch payload must be a mapping")
-        safe_payload = dict(payload or {})
-        self._validate_payload_keys(safe_payload)
-        encoded_payload = json.dumps(safe_payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
         binding = {
             "run_id": run_id, "task_id": task_id, "plan_digest": plan.digest,
             "run_revision": run.revision, "source_revision": plan.source_revision,
