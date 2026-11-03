@@ -15,7 +15,7 @@ from portable.engineering_plan_recovery import EngineeringPlanCheckpointMismatch
 from portable.runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
 from portable.trusted_plan_dispatch import TrustedPlanDispatchRoot
 from portable.agent_org_runtime import authorize_agent_assignment
-from tests.test_engineering_plan_dispatch import prepared
+from tests.test_engineering_plan_dispatch import DISPATCH_HANDLER_CALLS, prepared
 
 
 class TrustedPlanDispatchRootTests(unittest.TestCase):
@@ -104,11 +104,12 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         )
         self.recovery_bridge = bridge.recovery_bridge
         self.assignment_allowed = True
-        self.allowed_assignment_scope = ("repo:write",)
+        self.allowed_assignment_scope = ("tests",)
         self.assignment_allow_scope_widening = False
         self.assignment_action_class = "edit_assigned_paths"
-        self.assignment_scope = ("repo:write",)
-        self.assignment_policy_path = Path(self.temp.name) / "guard_policy.json"
+        self.assignment_scope = ("tests",)
+        self.assignment_policy_path = self.controller.root / ".auren" / "guard_policy.json"
+        self.assignment_policy_path.parent.mkdir(parents=True, exist_ok=True)
         self.assignment_policy_path.write_text(
             '{"schema_version":"auren-guard-v1","default_effect":"allow","rules":[]}',
             encoding="utf-8",
@@ -128,6 +129,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             root.dispatch(
                 run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-denied",
                 handler="dispatch-test", packet=self.packet,
+                payload={"resource": "tests"},
             )
         with sqlite3.connect(self.controller.db_path) as db:
             self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
@@ -141,6 +143,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             root.dispatch(
                 run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-action-mismatch",
                 handler="dispatch-test", packet=self.packet,
+                payload={"resource": "tests"},
             )
         with sqlite3.connect(self.controller.db_path) as db:
             self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
@@ -153,6 +156,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         first = root.dispatch(
             run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-policy-replay",
             handler="dispatch-test", packet=self.packet,
+                payload={"resource": "tests"},
         )
         self.assignment_policy_path.write_text(
             '{"schema_version":"auren-guard-v1","default_effect":"deny","rules":[]}',
@@ -162,18 +166,20 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             root.dispatch(
                 run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-policy-replay",
                 handler="dispatch-test", packet=self.packet,
+                payload={"resource": "tests"},
             )
-        self.assertEqual("repo:write", first.payload["_auren_agent_assignment"]["scope"][0])
+        self.assertEqual("tests", first.payload["_auren_agent_assignment"]["scope"][0])
 
     def test_host_scope_policy_denies_widened_assignment_before_queue_insert(self):
         approvals, request, record = self._approval(self.controller, context=self.context)
         guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
-        self.assignment_scope = ("repo:write", "secrets")
+        self.assignment_scope = ("tests", "secrets")
         root = self._root(self.controller, approvals, request, record, guard, context=self.context)
         with self.assertRaisesRegex(PermissionError, "assignment authorization failed"):
             root.dispatch(
                 run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-scope-denied",
                 handler="dispatch-test", packet=self.packet,
+                payload={"resource": "tests"},
             )
         with sqlite3.connect(self.controller.db_path) as db:
             self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
@@ -186,6 +192,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         first = root.dispatch(
             run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-scope-widening",
             handler="dispatch-test", packet=self.packet,
+                payload={"resource": "tests"},
         )
         self.assignment_scope = ("repo:write", "secrets")
         self.assignment_allow_scope_widening = True
@@ -193,8 +200,9 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             root.dispatch(
                 run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-scope-widening",
                 handler="dispatch-test", packet=self.packet,
+                payload={"resource": "tests"},
             )
-        self.assertEqual(["repo:write"], first.payload["_auren_agent_assignment"]["scope"])
+        self.assertEqual(["tests"], first.payload["_auren_agent_assignment"]["scope"])
 
     def test_revoked_assignment_is_rejected_at_worker_preflight(self):
         from portable.engineering_plan_recovery import EngineeringPlanCheckpointMismatch
@@ -204,6 +212,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         task = root.dispatch(
             run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-revocation",
             handler="dispatch-test", packet=self.packet,
+                payload={"resource": "tests"},
         )
         # Reconstruct the controller from the same durable root to model a fresh process.
         self.assignment_allowed = False
@@ -239,13 +248,29 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                 fresh_controller.task(task.id)
             )
 
+    def test_assigned_plan_task_runs_through_full_controller_preflight(self):
+        approvals, request, record = self._approval(self.controller, context=self.context)
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        root = self._root(self.controller, approvals, request, record, guard, context=self.context)
+        DISPATCH_HANDLER_CALLS.clear()
+        task = root.dispatch(
+            run_id=self.plan.run_id, task_id="implement", dispatch_key="full-worker-assignment",
+            handler="dispatch-test", packet=self.packet, payload={"resource": "tests"},
+        )
+        self.assertEqual("full-worker-assignment", task.payload["work_key"])
+        self.assertEqual("full-worker-assignment", task.payload["_auren_agent_assignment"]["work_key"])
+        self.assertEqual("full-worker-assignment", self.controller.task(task.id).payload["work_key"])
+        self.controller.run_once(task.id)
+        self.assertEqual("completed", self.controller.task(task.id).state)
+        self.assertEqual(1, len(DISPATCH_HANDLER_CALLS))
+
     def test_root_resolves_live_budget_and_approved_record_and_binds_them(self):
         approvals, request, record = self._approval(self.controller, context=self.context)
         guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
         root = self._root(self.controller, approvals, request, record, guard, context=self.context)
         task = root.dispatch(
             run_id=self.plan.run_id, task_id="implement", dispatch_key="trusted-dispatch-1",
-            handler="dispatch-test", packet=self.packet, payload={"change": "small"},
+            handler="dispatch-test", packet=self.packet, payload={"resource": "tests", "change": "small"},
         )
         binding = task.payload["auren_dispatch"]
         self.assertEqual("crew:team-a:run-1", binding["shared_budget_binding"]["budget_id"])
@@ -321,6 +346,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             root.dispatch(
                 run_id=self.plan.run_id, task_id="implement", dispatch_key="pending-approval",
                 handler="dispatch-test", packet=self.packet,
+                payload={"resource": "tests"},
             )
         with sqlite3.connect(self.controller.db_path) as db:
             self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
@@ -344,6 +370,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             ).dispatch(
                 run_id=self.plan.run_id, task_id="implement", dispatch_key="cancelled-budget",
                 handler="dispatch-test", packet=self.packet,
+                payload={"resource": "tests"},
             )
 
     def test_direct_dispatch_cannot_supply_forged_receipt_after_root_registration(self):
@@ -357,6 +384,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             ).dispatch(
                 run_id=self.plan.run_id, task_id="implement", dispatch_key="direct-forged",
                 handler="dispatch-test", packet=self.packet,
+                payload={"resource": "tests"},
                 shared_budget_binding={
                     "budget_id": "fake", "checkpoint_digest": "f" * 64, "policy_digest": "e" * 64,
                 },
@@ -387,6 +415,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                 runtime.dispatch_engineering_plan_task(
                     run_id="run", task_id="task", dispatch_key="key",
                     handler="dispatch-test", packet=self.packet,
+                payload={"resource": "tests"},
                 )
             with self.assertRaisesRegex(PermissionError, "trusted plan dispatch composition root"):
                 runtime.execution_controller.dispatch_engineering_plan_task(
@@ -417,6 +446,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             root.dispatch(
                 run_id=self.plan.run_id, task_id="implement", dispatch_key="wrong-task-approval",
                 handler="dispatch-test", packet=self.packet,
+                payload={"resource": "tests"},
             )
         with sqlite3.connect(self.controller.db_path) as db:
             self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
@@ -437,6 +467,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             root.dispatch(
                 run_id=self.plan.run_id, task_id="implement", dispatch_key="expired-approval",
                 handler="dispatch-test", packet=self.packet,
+                payload={"resource": "tests"},
             )
         with sqlite3.connect(self.controller.db_path) as db:
             self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
@@ -515,6 +546,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             root.dispatch(
                 run_id=self.plan.run_id, task_id="implement", dispatch_key="changed-approval-context",
                 handler="dispatch-test", packet=self.packet,
+                payload={"resource": "tests"},
             )
         with sqlite3.connect(self.controller.db_path) as db:
             self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
@@ -541,6 +573,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             root.dispatch(
                 run_id=self.plan.run_id, task_id="implement", dispatch_key="missing-approval",
                 handler="dispatch-test", packet=self.packet,
+                payload={"resource": "tests"},
             )
         with sqlite3.connect(self.controller.db_path) as db:
             self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
@@ -554,12 +587,14 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         first = root.dispatch(
             run_id=self.plan.run_id, task_id="implement", dispatch_key="stable-budget-replay",
             handler="dispatch-test", packet=self.packet,
+                payload={"resource": "tests"},
         )
         admission_digest = first.payload["auren_dispatch"]["shared_budget_binding"]["checkpoint_digest"]
         self.assertTrue(guard.charge_attempt("specialist:implementation"))
         replay = root.dispatch(
             run_id=self.plan.run_id, task_id="implement", dispatch_key="stable-budget-replay",
             handler="dispatch-test", packet=self.packet,
+                payload={"resource": "tests"},
         )
         self.assertEqual(first.id, replay.id)
         self.assertEqual(
@@ -585,6 +620,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             root.dispatch(
                 run_id=self.plan.run_id, task_id="implement", dispatch_key="tampered-expiry",
                 handler="dispatch-test", packet=self.packet,
+                payload={"resource": "tests"},
             )
 
     def test_approval_state_row_cannot_diverge_from_audit_chain(self):
@@ -603,6 +639,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             root.dispatch(
                 run_id=self.plan.run_id, task_id="implement", dispatch_key="tampered-state",
                 handler="dispatch-test", packet=self.packet,
+                payload={"resource": "tests"},
             )
 
 
@@ -633,6 +670,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             root.dispatch(
                 run_id=self.plan.run_id, task_id="implement", dispatch_key="cancel-during-approval",
                 handler="dispatch-test", packet=self.packet,
+                payload={"resource": "tests"},
             )
         with sqlite3.connect(self.controller.db_path) as db:
             self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
