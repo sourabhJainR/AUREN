@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import hashlib
 import http.client
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -22,6 +23,8 @@ from portable.engineering_plan_recovery import EngineeringPlanRecoveryBridge
 from portable.engineering_plan_store import EngineeringPlanStore
 from portable.orchestration import Graph, Node, NodeKind
 from portable.runtime_recovery import RuntimeExecutionGuard
+from portable.agent_profiles import resolve_agent_profile
+from portable.team_budget_adapters import TeamBudgetAdapterEnforcer
 
 
 TEST_FILES = (
@@ -33,6 +36,7 @@ TEST_FILES = (
     "tests/test_market_intelligence.py",
 )
 _HANDLER_REPORTS: dict[str, dict[str, object]] = {}
+_STOCK_RESEARCH_BUDGET_ENFORCER: TeamBudgetAdapterEnforcer | None = None
 
 
 class _DockerUnixConnection(http.client.HTTPConnection):
@@ -298,6 +302,19 @@ def run_stock_research_acceptance(payload):
     }
 
 
+def run_stock_research_acceptance_budgeted(payload):
+    """Run the isolated app suite through the assigned QA member's shared budget."""
+    enforcer = _STOCK_RESEARCH_BUDGET_ENFORCER
+    if enforcer is None:
+        raise RuntimeError("host shared-budget enforcer was not installed for stock research acceptance")
+    return enforcer.execute(
+        "tool",
+        "stock-research-isolated-runner",
+        payload,
+        lambda: run_stock_research_acceptance(payload),
+    )
+
+
 @unittest.skipUnless(
     all(os.environ.get(name) for name in (
         "AUREN_SOURCE_SHA", "TRADINGDYOR_REPO_PATH", "TRADINGDYOR_SOURCE_SHA",
@@ -333,6 +350,7 @@ class StockResearchCanonicalRuntimeAcceptanceTests(unittest.TestCase):
             "tests/test_point_in_time.py passes, including source-availability ordering.",
             "tests/test_market_intelligence.py passes, including insider, earnings, corporate-action and sector signals.",
             "The test image is pinned to the exact TradingDYOR source SHA and runs with no network, no host mounts and a read-only root filesystem.",
+            "The QA member reserves and settles the shared team budget before the isolated runner executes; release remains blocked without independent approval.",
         )
         review = EngineeringDesignGuard.review_request(
             intent="Exercise the TradingDYOR one-page stock research application through AUREN's canonical supervisor and trusted plan dispatch.",
@@ -369,7 +387,7 @@ class StockResearchCanonicalRuntimeAcceptanceTests(unittest.TestCase):
         )
         controller.register_handler(
             "stock-research-acceptance",
-            f"{__name__}:run_stock_research_acceptance",
+            f"{__name__}:run_stock_research_acceptance_budgeted",
             execution_class="read_only",
             agent_action_class="run_tests",
         )
@@ -479,19 +497,83 @@ class StockResearchCanonicalRuntimeAcceptanceTests(unittest.TestCase):
             deadline_seconds=900,
         )
 
+        profile = resolve_agent_profile("qa_reviewer", revision=1)
+        controller.register_team_members(task.id, run_id, [{
+            "member_id": "stock-research-qa",
+            "profile_id": "qa_reviewer",
+            "profile_revision": 1,
+            "profile_digest": profile.digest,
+        }])
+        controller.transition_team_member(
+            task.id, run_id, "stock-research-qa",
+            expected_state="pending", new_state="assigned",
+        )
+        controller.transition_team_member(
+            task.id, run_id, "stock-research-qa",
+            expected_state="assigned", new_state="running",
+        )
+
+        expected_receipt_id = "stock-research-runner:" + run_id
+
+        def verify_team_usage(receipt):
+            evidence = receipt.get("usage_evidence", {})
+            usage = evidence.get("usage") if isinstance(evidence, dict) else None
+            if not isinstance(evidence, dict) or evidence.get("host_receipt_id") != expected_receipt_id:
+                return False
+            if not isinstance(usage, dict) or set(usage) != {"tokens", "tool_calls", "wall_seconds"}:
+                return False
+            return usage
+
+        controller._team_budget_settlement_verifier = verify_team_usage
+        budget_enforcer = TeamBudgetAdapterEnforcer(
+            controller,
+            context_resolver=lambda request: {
+                "task_id": task.id,
+                "run_id": run_id,
+                "member_id": request["principal_id"],
+                "principal_id": request["principal_id"],
+                "operation_key": expected_receipt_id,
+                "tokens": 0,
+                "tool_calls": 1,
+                "wall_seconds": 900,
+            } if request.get("principal_id") == "stock-research-qa" else {},
+            usage_evidence_resolver=lambda request: {
+                "host_receipt_id": expected_receipt_id,
+                "usage": {
+                    "tokens": 0,
+                    "tool_calls": 1,
+                    "wall_seconds": max(1, min(900, math.ceil(request["elapsed_seconds"]))),
+                },
+            },
+        )
+        controller.configure_team_budget_enforcer(budget_enforcer)
+        global _STOCK_RESEARCH_BUDGET_ENFORCER
+        _STOCK_RESEARCH_BUDGET_ENFORCER = budget_enforcer
         execution_error = None
         try:
             controller.run_once(task.id)
         except Exception as exc:
             execution_error = f"{type(exc).__name__}: {exc}"
+        finally:
+            _STOCK_RESEARCH_BUDGET_ENFORCER = None
         durable_task = controller.task(task.id)
         handler_report = _HANDLER_REPORTS.pop(dispatch_key, None)
-        successful = (
+        handler_success = (
             durable_task is not None
             and durable_task.state == "completed"
             and isinstance(handler_report, dict)
             and handler_report.get("success") is True
         )
+        controller.transition_team_member(
+            task.id, run_id, "stock-research-qa",
+            expected_state="running",
+            new_state="completed" if handler_success else "failed",
+            failure_digest=None if handler_success else hashlib.sha256(
+                (execution_error or str((handler_report or {}).get("error", "acceptance failed"))).encode("utf-8")
+            ).hexdigest(),
+        )
+        team_readiness = controller.team_delivery_release_readiness(task.id, run_id)
+        successful = handler_success and team_readiness["delivery_ready"]
         evidence_refs = tuple(handler_report.get("evidence", ())) if isinstance(handler_report, dict) else ()
         if successful:
             recovery.transition_task(
@@ -516,7 +598,7 @@ class StockResearchCanonicalRuntimeAcceptanceTests(unittest.TestCase):
             {"requirement": requirements[2], "acceptance_criteria": [acceptance[1], acceptance[4]], "test_files": [TEST_FILES[1], TEST_FILES[4]]},
             {"requirement": requirements[3], "acceptance_criteria": [acceptance[0], acceptance[1]], "test_files": [TEST_FILES[0], TEST_FILES[1]]},
             {"requirement": requirements[4], "acceptance_criteria": [acceptance[1], acceptance[2], acceptance[3]], "test_files": [TEST_FILES[1], TEST_FILES[2], TEST_FILES[3]]},
-            {"requirement": requirements[5], "acceptance_criteria": [acceptance[6]], "test_files": list(TEST_FILES)},
+            {"requirement": requirements[5], "acceptance_criteria": [acceptance[6], acceptance[7]], "test_files": list(TEST_FILES)},
         ]
         for item in requirement_evidence:
             item["status"] = "passed" if successful else "failed"
@@ -538,7 +620,7 @@ class StockResearchCanonicalRuntimeAcceptanceTests(unittest.TestCase):
             "release_decision": "fixture_acceptance_only; production release not authorized",
             "live_provider_validation": "not_exercised; provider credentials and licensing remain external gates",
             "learning_promotion": "not_attempted; one application run is not generalization evidence",
-            "independent_reviewer": "not included in this slice; independent QA/security review remains open",
+            "independent_reviewer": "no independent release approver is included; release remains blocked",
             "container_image_ref": image_ref,
             "container_image_id": image_id,
             "plan_run_id": run_id,
@@ -558,6 +640,7 @@ class StockResearchCanonicalRuntimeAcceptanceTests(unittest.TestCase):
             "dispatch_binding_digest": task.payload["auren_dispatch"]["binding_digest"],
             "recovery_checkpoint_status": checkpoint.status if checkpoint else "missing",
             "test_result": handler_report or {"error": execution_error or "handler report missing"},
+            "team_delivery_release_readiness": team_readiness,
             "limitations": [
                 "Fixture-based contract tests only; no live provider or quote validation.",
                 "No provider credentials, licensing or redistribution claims are included.",
@@ -568,6 +651,11 @@ class StockResearchCanonicalRuntimeAcceptanceTests(unittest.TestCase):
         artifact_path.parent.mkdir(parents=True, exist_ok=True)
         artifact_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
         self.assertTrue(successful, json.dumps(report, indent=2))
+        self.assertTrue(team_readiness["delivery_ready"], json.dumps(team_readiness, indent=2))
+        self.assertFalse(team_readiness["release_ready"], "fixture acceptance must not bypass independent release approval")
+        self.assertFalse(team_readiness["release_authorized"])
+        self.assertEqual(1, team_readiness["budget"]["charged_tool_calls"])
+        self.assertEqual([], team_readiness["unresolved_operations"])
         self.assertEqual("passed", next(item.status for item in verified_run.tasks if item.task_id == task_id))
         self.assertEqual("verified", checkpoint.status if checkpoint else None)
 
