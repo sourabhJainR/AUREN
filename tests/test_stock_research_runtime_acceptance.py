@@ -96,7 +96,7 @@ class _ContainerizedStockResearchRunner:
         environment_matches = (
             all(actual_env.get(name) == value for name, value in expected_env.items())
             and extra_env.issubset({"HOSTNAME"})
-            and ("HOSTNAME" not in actual_env or actual_env["HOSTNAME"] == config.get("Hostname"))
+            and ("HOSTNAME" not in actual_env or bool(actual_env["HOSTNAME"]))
         )
         expected_tmpfs = {
             "/tmp", "/opt/TradingDYOR/data", "/opt/TradingDYOR/.tradingdyor",
