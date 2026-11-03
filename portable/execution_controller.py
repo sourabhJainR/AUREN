@@ -175,6 +175,7 @@ class ExecutionController:
         evidence_signer: Callable[[bytes], Mapping[str, str]] | None = None,
         provider_resume_authorizer: Callable[[str, str, str, str], bool] | None = None,
         agent_assignment_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
+        team_budget_settlement_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
         team_budget_release_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
         workflow_profile_path: str | Path | None = None,
         max_pending_tasks: int | None = None,
@@ -188,6 +189,9 @@ class ExecutionController:
         if provider_resume_authorizer is not None and not callable(provider_resume_authorizer):
             raise TypeError("provider_resume_authorizer must be callable")
         self._provider_resume_authorizer = provider_resume_authorizer
+        if team_budget_release_verifier is not None and not callable(team_budget_release_verifier):
+            raise TypeError("team_budget_release_verifier must be callable")
+        self._team_budget_settlement_verifier = team_budget_settlement_verifier
         if team_budget_release_verifier is not None and not callable(team_budget_release_verifier):
             raise TypeError("team_budget_release_verifier must be callable")
         self._team_budget_release_verifier = team_budget_release_verifier
@@ -274,6 +278,7 @@ class ExecutionController:
               state TEXT NOT NULL CHECK(state IN ('reserved','settled','overrun','released')),
               reconciliation_reason TEXT,
               reconciliation_evidence_digest TEXT,
+              settlement_evidence_digest TEXT,
               updated_at TEXT NOT NULL,
               PRIMARY KEY(task_id, run_id, operation_key));
             CREATE INDEX IF NOT EXISTS idx_team_budget_unresolved
@@ -4410,26 +4415,46 @@ class ExecutionController:
 
     def settle_team_budget(
         self, task_id: str, run_id: str, operation_key: str, *,
-        tokens: int, tool_calls: int, wall_seconds: int,
+        usage_evidence: Mapping[str, Any],
     ) -> dict[str, Any]:
-        """Persist actual usage once; over-reservation is recorded and blocks the member."""
+        """Settle once from usage metrics authenticated by the trusted host."""
+        verifier = self._team_budget_settlement_verifier
+        if not callable(verifier):
+            raise PermissionError("trusted team-budget settlement verifier is not configured")
+        if not isinstance(usage_evidence, Mapping) or not usage_evidence:
+            raise ValueError("usage_evidence must be a non-empty host receipt")
+        try:
+            evidence_bytes = json.dumps(
+                dict(usage_evidence), sort_keys=True, separators=(",", ":"), allow_nan=False,
+            ).encode("utf-8")
+        except (TypeError, ValueError) as exc:
+            raise ValueError("usage_evidence must be canonical JSON data") from exc
+        evidence_digest = hashlib.sha256(evidence_bytes).hexdigest()
+        verified_usage = verifier({
+            "task_id": task_id, "run_id": run_id, "operation_key": operation_key,
+            "usage_evidence": dict(usage_evidence), "usage_evidence_digest": evidence_digest,
+        })
+        if not isinstance(verified_usage, Mapping) or set(verified_usage) != {
+            "tokens", "tool_calls", "wall_seconds",
+        }:
+            raise PermissionError("trusted host did not return verified usage metrics")
         actual = (
-            self._team_budget_amount(tokens, "tokens"),
-            self._team_budget_amount(tool_calls, "tool_calls"),
-            self._team_budget_amount(wall_seconds, "wall_seconds"),
+            self._team_budget_amount(verified_usage["tokens"], "tokens"),
+            self._team_budget_amount(verified_usage["tool_calls"], "tool_calls"),
+            self._team_budget_amount(verified_usage["wall_seconds"], "wall_seconds"),
         )
         with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 "SELECT member_id,reserved_tokens,reserved_tool_calls,reserved_wall_seconds,"
-                "charged_tokens,charged_tool_calls,charged_wall_seconds,state "
+                "charged_tokens,charged_tool_calls,charged_wall_seconds,state,settlement_evidence_digest "
                 "FROM team_budget_operations WHERE task_id=? AND run_id=? AND operation_key=?",
                 (task_id, run_id, operation_key),
             ).fetchone()
             if row is None:
                 raise KeyError((task_id, run_id, operation_key))
             if row[7] in {"settled", "overrun"}:
-                if tuple(row[4:7]) != actual:
+                if tuple(row[4:7]) != actual or row[8] != evidence_digest:
                     raise ValueError("settled team budget operation cannot be rewritten")
                 return {
                     "task_id": task_id, "run_id": run_id, "operation_key": operation_key,
@@ -4437,6 +4462,7 @@ class ExecutionController:
                     "reserved_tool_calls": row[2], "reserved_wall_seconds": row[3],
                     "charged_tokens": row[4], "charged_tool_calls": row[5],
                     "charged_wall_seconds": row[6], "state": row[7],
+                    "settlement_evidence_digest": row[8],
                 }
             if row[7] != "reserved":
                 raise ValueError("only unresolved team budget reservations can be settled")
@@ -4444,14 +4470,15 @@ class ExecutionController:
             state = "overrun" if overrun else "settled"
             db.execute(
                 "UPDATE team_budget_operations SET charged_tokens=?,charged_tool_calls=?,"
-                "charged_wall_seconds=?,state=?,updated_at=? "
+                "charged_wall_seconds=?,state=?,settlement_evidence_digest=?,updated_at=? "
                 "WHERE task_id=? AND run_id=? AND operation_key=? AND state='reserved'",
-                (*actual, state, _now(), task_id, run_id, operation_key),
+                (*actual, state, evidence_digest, _now(), task_id, run_id, operation_key),
             )
             if overrun:
                 failure_digest = hashlib.sha256(
                     json.dumps({"operation_key": operation_key, "reserved": row[1:4],
-                                "actual": actual}, sort_keys=True, separators=(",", ":")).encode()
+                                "actual": actual, "usage_evidence_digest": evidence_digest},
+                               sort_keys=True, separators=(",", ":")).encode()
                 ).hexdigest()
                 db.execute(
                     "UPDATE team_members SET state='blocked',failure_digest=?,updated_at=? "
@@ -4464,6 +4491,7 @@ class ExecutionController:
             "reserved_tool_calls": row[2], "reserved_wall_seconds": row[3],
             "charged_tokens": actual[0], "charged_tool_calls": actual[1],
             "charged_wall_seconds": actual[2], "state": state,
+            "settlement_evidence_digest": evidence_digest,
         }
 
     def release_team_budget_reservation(
