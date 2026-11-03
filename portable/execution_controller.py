@@ -4608,6 +4608,11 @@ class ExecutionController:
             for member in members
         ):
             reasons.append("independent_qa_delivery_missing")
+        try:
+            budget_snapshot = self.team_budget(task_id, run_id)
+        except KeyError:
+            budget_snapshot = None
+            reasons.append("team_budget_missing")
         unresolved = self.unresolved_team_budget_operations(task_id, run_id)
         if unresolved:
             reasons.append("team_budget_operations_unresolved")
@@ -4662,6 +4667,7 @@ class ExecutionController:
                 and member["state"] == "completed"
                 for member in members
             )
+            and budget_snapshot is not None
             and not unresolved
             and not states.get("overrun", 0)
             and all(state in {"settled", "released"} for state in states)
@@ -4673,7 +4679,7 @@ class ExecutionController:
             "delivery_ready": delivery_ready,
             "release_ready": release_ready,
             "release_authorized": False,
-            "budget": self.team_budget(task_id, run_id),
+            "budget": budget_snapshot,
             "member_states": {member["member_id"]: member["state"] for member in members},
             "budget_operation_states": states,
             "unresolved_operations": [item["operation_key"] for item in unresolved],
