@@ -194,7 +194,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             handler="dispatch-test", packet=self.packet,
                 payload={"resource": "tests"},
         )
-        self.assignment_scope = ("repo:write", "secrets")
+        self.assignment_scope = ("tests", "secrets")
         self.assignment_allow_scope_widening = True
         with self.assertRaises(DispatchConflict):
             root.dispatch(
