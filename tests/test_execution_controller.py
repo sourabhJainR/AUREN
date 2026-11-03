@@ -2640,3 +2640,38 @@ def test_shared_team_concurrency_is_bounded_by_supervisor(tmp_path: Path):
             task_id, "run-1", "member_4",
             expected_state="pending", new_state="assigned",
         )
+
+
+def test_concurrent_members_cannot_overreserve_shared_team_budget(tmp_path: Path):
+    from threading import Barrier
+
+    controller = ExecutionController(tmp_path)
+    task_id, _members = _register_test_team(
+        controller, "concurrent-budget-task", "run-1",
+        [("implementer", "backend_implementer"), ("qa", "qa_reviewer")],
+    )
+    for member_id in ("implementer", "qa"):
+        controller.transition_team_member(
+            task_id, "run-1", member_id,
+            expected_state="pending", new_state="assigned",
+        )
+
+    barrier = Barrier(2)
+
+    def reserve(member_id):
+        barrier.wait(timeout=5)
+        try:
+            return controller.reserve_team_budget(
+                task_id, "run-1", member_id, f"parallel-{member_id}", tokens=30_000,
+            )["state"]
+        except ValueError as exc:
+            return str(exc)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(reserve, ("implementer", "qa")))
+
+    assert outcomes.count("reserved") == 1
+    assert outcomes.count("shared team tokens budget exhausted") == 1
+    budget = controller.team_budget(task_id, "run-1")
+    assert budget["reserved_tokens"] == 30_000
+    assert budget["remaining_tokens"] == 14_000
