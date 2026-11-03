@@ -345,6 +345,43 @@ def resolve_agent_profile(
     raise AgentProfileError(f"unknown profile revision: {profile_id}@{revision}")
 
 
+
+def profile_binding(profile: AgentProfile) -> dict[str, Any]:
+    """Return the minimal immutable profile identity pinned to a task intent."""
+    if not isinstance(profile, AgentProfile):
+        raise TypeError("profile must be a validated AgentProfile")
+    return {
+        "profile_id": profile.profile_id,
+        "revision": profile.revision,
+        "digest": profile.digest,
+    }
+
+
+def validate_profile_binding(
+    binding: Any,
+    *,
+    role_id: str,
+    manager_role_id: str,
+    action_class: str,
+) -> AgentProfile:
+    """Resolve the exact current profile revision and prove it cannot expand role authority."""
+    if not isinstance(binding, Mapping) or set(binding) != {"profile_id", "revision", "digest"}:
+        raise AgentProfileError("agent profile binding is malformed")
+    profile_id = _text(binding.get("profile_id"), "profile_id")
+    revision = _positive_int(binding.get("revision"), "profile revision", 1000000)
+    digest = binding.get("digest")
+    if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        raise AgentProfileError("agent profile digest is malformed")
+    profile = resolve_agent_profile(profile_id, revision=revision)
+    if profile.digest != digest:
+        raise AgentProfileError("agent profile revision digest is stale or changed")
+    if profile.role_id != role_id or profile.manager_role_id != manager_role_id:
+        raise AgentProfileError("agent profile role or manager does not match the durable assignment")
+    if action_class not in profile.action_classes:
+        raise AgentProfileError("agent profile does not permit the durable assignment action class")
+    return profile
+
+
 def resolve_team_template(
     template_id: str,
     *,
