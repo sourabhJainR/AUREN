@@ -5,11 +5,11 @@ import sqlite3
 import tempfile
 import unittest
 
-from portable.agent_execution_guard import AgentAssignmentScopeDenied
 from portable.agent_org_runtime import authorize_agent_assignment
 from portable.durable_approval import DurableApprovalStore
 from portable.engineering_plan_dispatch import EngineeringPlanDispatch
 from portable.execution_controller import ExecutionController
+from portable.engineering_plan_recovery import EngineeringPlanCheckpointMismatch
 from portable.trusted_plan_dispatch import TrustedPlanDispatchRoot
 from portable.runtime_recovery import RuntimeExecutionGuard
 from tests.test_engineering_plan_dispatch import DISPATCH_HANDLER_CALLS, prepared
@@ -127,7 +127,7 @@ class TrustedPlanProfileBindingTests(unittest.TestCase):
         )
         self._root(fresh)
         DISPATCH_HANDLER_CALLS.clear()
-        with self.assertRaises(AgentAssignmentScopeDenied):
+        with self.assertRaises(EngineeringPlanCheckpointMismatch):
             fresh.run_once(task.id)
         self.assertEqual([], DISPATCH_HANDLER_CALLS)
 
