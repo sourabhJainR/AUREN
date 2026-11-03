@@ -155,7 +155,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         with self.assertRaisesRegex(PermissionError, "explicit resource"):
             root.dispatch(
                 run_id=self.plan.run_id, task_id="implement", dispatch_key="missing-resource",
-                handler="dispatch-test", packet=self.packet, payload={"change": "small"},
+                handler="dispatch-test", packet=self.packet, payload={"resource": "tests", "change": "small"},
             )
         with self.assertRaisesRegex(PermissionError, "outside the host-authorized assignment scope"):
             root.dispatch(
@@ -502,7 +502,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         root = self._root(self.controller, approvals, request, record, guard, context=self.context)
         task = root.dispatch(
             run_id=self.plan.run_id, task_id="implement", dispatch_key="bounded-supervisor-deadline",
-            handler="dispatch-test", packet=self.packet, deadline_seconds=300,
+            handler="dispatch-test", packet=self.packet, payload={"resource": "tests"}, deadline_seconds=300,
         )
         with sqlite3.connect(self.controller.db_path) as db:
             deadline_seconds = db.execute(
