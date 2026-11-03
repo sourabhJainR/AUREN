@@ -876,7 +876,7 @@ class DurableApprovalStore:
         except Exception as exc:
             raise PermissionError("outcome reconciliation failed closed") from exc
         if not verified:
-            raise PermissionError("provider outcome evidence was rejected")
+            raise PermissionError("outcome reconciliation failed closed: provider outcome evidence was rejected")
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT * FROM durable_approvals WHERE approval_id=?", (approval_id,)).fetchone()
