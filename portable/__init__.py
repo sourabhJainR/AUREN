@@ -17,7 +17,7 @@ from .task_planner import PRIORITIES, STATUSES, Task, TaskPlan
 from .capability_fabric import CAPABILITIES, Capability, CapabilityFabric, ProviderAdapter, ProviderAdapterRegistry
 from .persistent_memory import MemoryRecord, PersistentMemory
 from .memory_orchestrator import MemoryEnvelope, MemoryOrchestrator, MemoryRecall, MemoryWriteResult, MemoryBudgetError
-from .agent_memory import AgentMemory
+from .agent_memory import AgentMemory, ProfileAgentMemory
 from .context_engine import ContextEngine, ContextItem, ContextPolicy, Handoff, handoff_from_output
 from .dream_memory import DreamMemory
 from .automation_scheduler import AutomationScheduler, Schedule
