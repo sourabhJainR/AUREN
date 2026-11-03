@@ -32,7 +32,6 @@ TEST_FILES = (
     "tests/test_point_in_time.py",
     "tests/test_market_intelligence.py",
 )
-_ACTIVE_CONTAINER_RUNNER = None
 _HANDLER_REPORTS: dict[str, dict[str, object]] = {}
 
 
@@ -246,9 +245,14 @@ class _ContainerizedStockResearchRunner:
 
 def run_stock_research_acceptance(payload):
     """Importable QA handler dispatched only by AUREN's trusted plan root."""
-    runner = _ACTIVE_CONTAINER_RUNNER
-    if not isinstance(runner, _ContainerizedStockResearchRunner):
-        return {"success": False, "detail": "host-pinned container runner is not configured"}
+    try:
+        runner = _ContainerizedStockResearchRunner(
+            image_ref=os.environ["AUREN_STOCK_RESEARCH_IMAGE_REF"],
+            image_id=os.environ["AUREN_STOCK_RESEARCH_IMAGE_ID"],
+            source_revision=os.environ["TRADINGDYOR_SOURCE_SHA"],
+        )
+    except Exception as exc:
+        return {"success": False, "detail": f"host-pinned container runner unavailable: {type(exc).__name__}: {exc}"}
     work_key = payload.get("work_key")
     source_revision = payload.get("source_revision")
     if not isinstance(work_key, str) or not work_key:
@@ -284,8 +288,6 @@ def run_stock_research_acceptance(payload):
 )
 class StockResearchCanonicalRuntimeAcceptanceTests(unittest.TestCase):
     def test_stock_research_application_runs_through_trusted_plan_dispatch(self):
-        global _ACTIVE_CONTAINER_RUNNER
-
         repo_root = Path(__file__).resolve().parents[1]
         expected_repo = (repo_root / "external" / "TradingDYOR").resolve()
         configured_repo = Path(os.environ["TRADINGDYOR_REPO_PATH"]).resolve()
@@ -296,10 +298,6 @@ class StockResearchCanonicalRuntimeAcceptanceTests(unittest.TestCase):
         source_revision = os.environ["TRADINGDYOR_SOURCE_SHA"]
         image_ref = os.environ["AUREN_STOCK_RESEARCH_IMAGE_REF"]
         image_id = os.environ["AUREN_STOCK_RESEARCH_IMAGE_ID"]
-        _ACTIVE_CONTAINER_RUNNER = _ContainerizedStockResearchRunner(
-            image_ref=image_ref, image_id=image_id, source_revision=source_revision,
-        )
-
         requirements = (
             "The screener and ticker research contract must expose market, company and source evidence.",
             "The one-page brief must combine fundamentals, recommendation, news, sentiment and provenance.",
