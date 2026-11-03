@@ -88,10 +88,7 @@ jobs:
             echo "===== RUNNING ${test_module} ====="
             python -m unittest "${test_module}" -v 2>&1 | tee "ci-artifacts/${test_module##*.}.log"
           done
-      - name: Run graph phase profile acceptance tests
-        run: |
-          python -m pytest -q tests/test_graph_phase_coverage.py
-
+      # Required suite mapping: tests.test_graph_phase_coverage
       - name: Run graph phase profile acceptance tests
         run: |
           python -m pytest -q tests/test_graph_phase_coverage.py
