@@ -2528,6 +2528,10 @@ def test_shared_team_budget_is_aggregated_idempotent_and_restart_safe(tmp_path: 
         task_id, "run-1", "implementer",
         expected_state="pending", new_state="assigned",
     )
+    controller.transition_team_member(
+        task_id, "run-1", "qa",
+        expected_state="pending", new_state="assigned",
+    )
     first = controller.reserve_team_budget(
         task_id, "run-1", "implementer", "provider-call-1", tokens=20_000,
     )
