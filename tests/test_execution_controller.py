@@ -2492,3 +2492,130 @@ def test_durable_team_member_registration_rejects_profile_drift_and_stale_transi
             "task-team-2", "run-1", "implementer",
             expected_state="assigned", new_state="completed",
         )
+
+
+def _register_test_team(controller, task_id, run_id, profile_members):
+    from portable.agent_profiles import resolve_agent_profile
+
+    controller.register_handler("durable_handler", durable_handler, execution_class="read_only")
+    task = controller.submit("durable_handler", {"id": task_id}, goal="shared team budget")
+    members = []
+    for member_id, profile_id in profile_members:
+        profile = resolve_agent_profile(profile_id, revision=1)
+        members.append({
+            "member_id": member_id, "profile_id": profile_id,
+            "profile_revision": 1, "profile_digest": profile.digest,
+        })
+    controller.register_team_members(task.id, run_id, members)
+    return task.id, members
+
+
+def test_shared_team_budget_is_aggregated_idempotent_and_restart_safe(tmp_path: Path):
+    import pytest
+
+    controller = ExecutionController(tmp_path)
+    task_id, members = _register_test_team(
+        controller, "shared-budget-task", "run-1",
+        [("implementer", "backend_implementer"), ("qa", "qa_reviewer")],
+    )
+    budget = controller.team_budget(task_id, "run-1")
+    assert budget["max_tokens"] == 44_000
+    assert budget["max_tool_calls"] == 170
+    assert budget["max_wall_seconds"] == 7_200
+    assert budget["max_concurrency"] == 2
+
+    controller.transition_team_member(
+        task_id, "run-1", "implementer",
+        expected_state="pending", new_state="assigned",
+    )
+    first = controller.reserve_team_budget(
+        task_id, "run-1", "implementer", "provider-call-1", tokens=20_000,
+    )
+    assert first["state"] == "reserved"
+    assert controller.reserve_team_budget(
+        task_id, "run-1", "implementer", "provider-call-1", tokens=20_000,
+    ) == first
+    with pytest.raises(ValueError, match="shared team tokens budget exhausted"):
+        controller.reserve_team_budget(
+            task_id, "run-1", "qa", "provider-call-2", tokens=25_000,
+        )
+
+    settled = controller.settle_team_budget(
+        task_id, "run-1", "provider-call-1",
+        tokens=18_000, tool_calls=0, wall_seconds=0,
+    )
+    assert settled["state"] == "settled"
+    assert controller.settle_team_budget(
+        task_id, "run-1", "provider-call-1",
+        tokens=18_000, tool_calls=0, wall_seconds=0,
+    ) == settled
+
+    controller.reserve_team_budget(
+        task_id, "run-1", "implementer", "uncertain-after-crash",
+        tokens=1_000, tool_calls=5,
+    )
+    restarted = ExecutionController(tmp_path)
+    recovered = restarted.team_budget(task_id, "run-1")
+    assert recovered["charged_tokens"] == 18_000
+    assert recovered["reserved_tokens"] == 1_000
+    assert [item["operation_key"] for item in restarted.unresolved_team_budget_operations(task_id, "run-1")] == [
+        "uncertain-after-crash"
+    ]
+    with pytest.raises(ValueError, match="confirmed_not_started"):
+        restarted.release_team_budget_reservation(
+            task_id, "run-1", "uncertain-after-crash",
+            confirmed_not_started=False, reason="outcome unknown",
+        )
+    released = restarted.release_team_budget_reservation(
+        task_id, "run-1", "uncertain-after-crash",
+        confirmed_not_started=True, reason="host receipt proves provider was never invoked",
+    )
+    assert released["state"] == "released"
+    assert restarted.team_budget(task_id, "run-1")["reserved_tokens"] == 0
+
+
+def test_shared_team_budget_overrun_is_recorded_and_blocks_member(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    task_id, _members = _register_test_team(
+        controller, "budget-overrun-task", "run-1",
+        [("implementer", "backend_implementer")],
+    )
+    controller.transition_team_member(
+        task_id, "run-1", "implementer",
+        expected_state="pending", new_state="assigned",
+    )
+    controller.transition_team_member(
+        task_id, "run-1", "implementer",
+        expected_state="assigned", new_state="running",
+    )
+    controller.reserve_team_budget(
+        task_id, "run-1", "implementer", "overrun-op", tokens=10,
+    )
+    outcome = controller.settle_team_budget(
+        task_id, "run-1", "overrun-op",
+        tokens=11, tool_calls=0, wall_seconds=0,
+    )
+    assert outcome["state"] == "overrun"
+    member = controller.team_members(task_id, "run-1")[0]
+    assert member["state"] == "blocked"
+    assert member["failure_digest"]
+
+
+def test_shared_team_concurrency_is_bounded_by_supervisor(tmp_path: Path):
+    import pytest
+
+    controller = ExecutionController(tmp_path)
+    task_id, _members = _register_test_team(
+        controller, "team-concurrency-task", "run-1",
+        [(f"member_{index}", "backend_implementer") for index in range(5)],
+    )
+    for index in range(4):
+        controller.transition_team_member(
+            task_id, "run-1", f"member_{index}",
+            expected_state="pending", new_state="assigned",
+        )
+    with pytest.raises(ValueError, match="shared team concurrency limit reached"):
+        controller.transition_team_member(
+            task_id, "run-1", "member_4",
+            expected_state="pending", new_state="assigned",
+        )
