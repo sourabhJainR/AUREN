@@ -3148,6 +3148,7 @@ class ExecutionController:
                     "run_id": run_id, "task_id": plan_task_id, "handler": task.handler,
                     "dispatch_key": dispatch_key,
                     "deadline_seconds": deadline_policy_seconds,
+                    "assignment_deadline_seconds": recorded_assignment.get("deadline_seconds"),
                     "payload": assignment_payload, "recorded_assignment": dict(recorded_assignment),
                 })
             except Exception as exc:
