@@ -63,7 +63,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             action_class="edit_assigned_paths", scope=self.assignment_scope,
             authorizer=lambda request: self.assignment_allowed,
             work_key=context["dispatch_key"], task_payload=context["payload"],
-            deadline_seconds=context["deadline_seconds"],
+            deadline_seconds=context.get("assignment_deadline_seconds", context["deadline_seconds"]),
         )
 
     def _root(self, controller, store, request, record, guard, *, context):
