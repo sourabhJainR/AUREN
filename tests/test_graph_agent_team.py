@@ -94,6 +94,45 @@ class AdaptiveResourceHandlingTests(unittest.TestCase):
 
 
 class GraphAgentTeamTests(unittest.TestCase):
+    def test_shared_task_memory_preserves_explicit_repository_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repository"
+            run_dir = root / ".ai-harness" / "runs" / "run-1"
+            run_dir.mkdir(parents=True)
+            memory = SharedTaskMemory(
+                run_dir / "graph-team-memory.jsonl",
+                "a" * 64,
+                project_root=root,
+            )
+            self.assertEqual(root.resolve(), memory.project_root)
+
+    def test_profile_bound_agent_uses_isolated_private_memory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            team = GraphAgentTeam([
+                AgentSpec(
+                    "builder", "builder",
+                    profile_id="backend_implementer",
+                    profile_revision=1,
+                ),
+            ])
+            agent = team.agents["builder"]
+            memory = team._private_memory(Path(tmp), agent, "run-profile-memory")
+            self.assertEqual(memory.profile_id, "backend_implementer")
+            memory.remember("private builder context")
+
+            resumed = team._private_memory(Path(tmp), agent, "run-profile-memory")
+            other_run = team._private_memory(Path(tmp), agent, "different-run")
+            self.assertEqual(resumed.read(), "private builder context")
+            self.assertEqual(other_run.read(), "")
+
+    def test_graph_agent_rejects_partial_or_unknown_profile_binding(self):
+        with self.assertRaises(ValueError):
+            GraphAgentTeam([AgentSpec("builder", "builder", profile_id="backend_implementer")])
+        with self.assertRaises(ValueError):
+            GraphAgentTeam([
+                AgentSpec("builder", "builder", profile_id="missing_profile", profile_revision=1),
+            ])
+
     def test_resume_migrates_legacy_checkpoint_keys_before_runtime_reads_and_writes(self):
         with tempfile.TemporaryDirectory() as tmp:
             checkpoint = InMemoryCheckpointStore()
