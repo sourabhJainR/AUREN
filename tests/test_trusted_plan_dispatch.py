@@ -61,7 +61,13 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         return authorize_agent_assignment(
             role_id="BE-01", manager_id="EM-ENG-01",
             action_class=self.assignment_action_class, scope=self.assignment_scope,
-            authorizer=lambda request: self.assignment_allowed,
+            authorizer=lambda request: (
+                self.assignment_allowed
+                and (
+                    request.get("scope") == self.allowed_assignment_scope
+                    or self.assignment_allow_scope_widening
+                )
+            ),
             policy_path=self.assignment_policy_path,
             work_key=context["dispatch_key"], task_payload=context["payload"],
             deadline_seconds=context.get("assignment_deadline_seconds", context["deadline_seconds"]),
@@ -98,6 +104,8 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         )
         self.recovery_bridge = bridge.recovery_bridge
         self.assignment_allowed = True
+        self.allowed_assignment_scope = ("repo:write",)
+        self.assignment_allow_scope_widening = False
         self.assignment_action_class = "edit_assigned_paths"
         self.assignment_scope = ("repo:write",)
         self.assignment_policy_path = Path(self.temp.name) / "guard_policy.json"
@@ -157,6 +165,19 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             )
         self.assertEqual("repo:write", first.payload["_auren_agent_assignment"]["scope"][0])
 
+    def test_host_scope_policy_denies_widened_assignment_before_queue_insert(self):
+        approvals, request, record = self._approval(self.controller, context=self.context)
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        self.assignment_scope = ("repo:write", "secrets")
+        root = self._root(self.controller, approvals, request, record, guard, context=self.context)
+        with self.assertRaisesRegex(PermissionError, "assignment authorization failed"):
+            root.dispatch(
+                run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-scope-denied",
+                handler="dispatch-test", packet=self.packet,
+            )
+        with sqlite3.connect(self.controller.db_path) as db:
+            self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
+
     def test_scope_widening_cannot_replay_an_existing_assignment(self):
         from portable.engineering_plan_dispatch import DispatchConflict
         approvals, request, record = self._approval(self.controller, context=self.context)
@@ -167,6 +188,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             handler="dispatch-test", packet=self.packet,
         )
         self.assignment_scope = ("repo:write", "secrets")
+        self.assignment_allow_scope_widening = True
         with self.assertRaises(DispatchConflict):
             root.dispatch(
                 run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-scope-widening",
