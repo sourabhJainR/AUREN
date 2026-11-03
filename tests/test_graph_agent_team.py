@@ -94,6 +94,18 @@ class AdaptiveResourceHandlingTests(unittest.TestCase):
 
 
 class GraphAgentTeamTests(unittest.TestCase):
+    def test_shared_task_memory_preserves_explicit_repository_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repository"
+            run_dir = root / ".ai-harness" / "runs" / "run-1"
+            run_dir.mkdir(parents=True)
+            memory = SharedTaskMemory(
+                run_dir / "graph-team-memory.jsonl",
+                "a" * 64,
+                project_root=root,
+            )
+            self.assertEqual(root.resolve(), memory.project_root)
+
     def test_profile_bound_agent_uses_isolated_private_memory(self):
         with tempfile.TemporaryDirectory() as tmp:
             team = GraphAgentTeam([
