@@ -116,8 +116,9 @@ class _ContainerizedStockResearchRunner:
             "no_new_privileges": "no-new-privileges:true" in security,
             "pids_limit": host.get("PidsLimit") == 64,
             "memory_limit": host.get("Memory") == 2 * 1024 * 1024 * 1024,
+            "swap_disabled": host.get("MemorySwap") == 2 * 1024 * 1024 * 1024,
             "cpu_limit": host.get("NanoCpus") == 2_000_000_000,
-            "no_host_binds": not host.get("Binds"),
+            "no_host_binds": not host.get("Binds") and not host.get("VolumesFrom") and not host.get("Devices"),
             "no_host_mounts": not host.get("Binds") and not host.get("Mounts") and only_temporary_mounts,
             "temporary_paths_only": set(tmpfs) == expected_tmpfs,
             "host_environment_not_inherited": environment_matches,
@@ -132,7 +133,7 @@ class _ContainerizedStockResearchRunner:
         if source_revision != self.source_revision:
             raise PermissionError("task source revision differs from the host-pinned test image")
         _, image_payload = self._request(
-            "GET", "/v1.43/images/" + quote(self.image_ref, safe="") + "/json", timeout=15,
+            "GET", "/v1.43/images/" + quote(self.image_ref, safe=":") + "/json", timeout=15,
         )
         image_info = json.loads(image_payload)
         labels = (image_info.get("Config") or {}).get("Labels") or {}
