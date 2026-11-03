@@ -30,8 +30,14 @@ def prepared(tmp: str, *, budget=None):
         requirements=("dispatch is idempotent",), source_revision="revision-abc",
         budget=budget or {},
         tasks=(
-            PlanTask("implement", "Implement bounded change", ("tests pass",), "revert bounded change"),
-            PlanTask("review", "Review bounded change", ("review passes",), "revert review"),
+            PlanTask(
+                "implement", "Implement bounded change", ("tests pass",), "revert bounded change",
+                owner_role_id="BE-01", manager_role_id="EM-ENG-01",
+            ),
+            PlanTask(
+                "review", "Review bounded change", ("review passes",), "revert review",
+                owner_role_id="QA-01", manager_role_id="EM-ENG-01",
+            ),
         ),
     )
     run = new_plan_run(plan)
