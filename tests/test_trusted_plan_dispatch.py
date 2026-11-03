@@ -155,7 +155,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         with self.assertRaisesRegex(PermissionError, "explicit resource"):
             root.dispatch(
                 run_id=self.plan.run_id, task_id="implement", dispatch_key="missing-resource",
-                handler="dispatch-test", packet=self.packet, payload={"resource": "tests", "change": "small"},
+                handler="dispatch-test", packet=self.packet, payload={"change": "small"},
             )
         with self.assertRaisesRegex(PermissionError, "outside the host-authorized assignment scope"):
             root.dispatch(
