@@ -94,6 +94,26 @@ class EngineeringPlanTests(unittest.TestCase):
         )
         self.assertEqual(("p1", "dashboard"), plan.ready_tasks({"critical", "second", "high"}))
 
+    def test_run_ready_tasks_do_not_unlock_failed_dependencies_but_keep_independent_work(self):
+        from portable.engineering_plan import EngineeringPlanRun, TaskProgress
+        plan = EngineeringPlan(
+            run_id="fail-fast-run", goal="preserve independent work", requirements=("no failed dependency unlock",),
+            source_revision="revision", tasks=(
+                PlanTask("blocked-child", "Blocked child", ("done",), "revert", depends_on=("failed-root",), priority="P0"),
+                PlanTask("failed-root", "Failed root", ("done",), "revert", priority="P0"),
+                PlanTask("independent", "Independent work", ("done",), "revert", priority="P1"),
+            ),
+        )
+        run = EngineeringPlanRun(
+            plan_digest=plan.digest, source_revision=plan.source_revision,
+            tasks=(
+                TaskProgress("blocked-child", status="pending"),
+                TaskProgress("failed-root", status="failed"),
+                TaskProgress("independent", status="pending"),
+            ),
+        )
+        self.assertEqual(("independent",), run.ready_tasks(plan))
+
     def test_priority_is_digest_bound_and_legacy_default_is_omitted(self):
         base = PlanTask("t", "Task", ("done",), "revert")
         explicit_default = PlanTask("t", "Task", ("done",), "revert", priority="P2")
