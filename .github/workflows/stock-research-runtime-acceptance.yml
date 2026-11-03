@@ -1,0 +1,112 @@
+name: Stock Research Canonical Runtime Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/stock-research-runtime-acceptance.yml"
+      - "tests/test_stock_research_runtime_acceptance.py"
+      - "tests/stock_research/**"
+      - "portable/adaptive_runtime.py"
+      - "portable/trusted_plan_dispatch.py"
+      - "portable/engineering_plan_dispatch.py"
+      - "portable/execution_controller.py"
+      - "portable/engineering_plan_recovery.py"
+      - "portable/agent_org_runtime.py"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/stock-research-runtime-acceptance.yml"
+      - "tests/test_stock_research_runtime_acceptance.py"
+      - "tests/stock_research/**"
+      - "portable/adaptive_runtime.py"
+      - "portable/trusted_plan_dispatch.py"
+      - "portable/engineering_plan_dispatch.py"
+      - "portable/execution_controller.py"
+      - "portable/engineering_plan_recovery.py"
+      - "portable/agent_org_runtime.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stock-research-runtime-acceptance-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  stock-research-runtime-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout AUREN candidate
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Record AUREN candidate revision
+        id: auren-source
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHA="$(git rev-parse HEAD)"
+          test "${#SHA}" -eq 40
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout pinned stock research application
+        id: tradingdyor
+        uses: actions/checkout@v7
+        with:
+          repository: sourabhJainR/TradingDYOR
+          ref: main
+          path: external/TradingDYOR
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Record application source revision
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHA="$(git -C external/TradingDYOR rev-parse HEAD)"
+          test "${#SHA}" -eq 40
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Verify Docker host is available
+        run: docker info
+
+      - name: Build immutable no-network application test image
+        id: image
+        shell: bash
+        env:
+          TRADINGDYOR_SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          IMAGE_REF="auren-stock-research-acceptance:${GITHUB_SHA}"
+          docker build --pull \
+            --build-arg TRADINGDYOR_SOURCE_SHA="$TRADINGDYOR_SOURCE_SHA" \
+            --file tests/stock_research/Dockerfile \
+            --tag "$IMAGE_REF" .
+          IMAGE_ID="$(docker image inspect --format '{{.Id}}' "$IMAGE_REF")"
+          test -n "$IMAGE_ID"
+          echo "image_ref=$IMAGE_REF" >> "$GITHUB_OUTPUT"
+          echo "image_id=$IMAGE_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Run stock application through AUREN trusted plan dispatch
+        env:
+          AUREN_SOURCE_SHA: ${{ steps.auren-source.outputs.sha }}
+          TRADINGDYOR_REPO_PATH: ${{ github.workspace }}/external/TradingDYOR
+          TRADINGDYOR_SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          AUREN_STOCK_RESEARCH_IMAGE_REF: ${{ steps.image.outputs.image_ref }}
+          AUREN_STOCK_RESEARCH_IMAGE_ID: ${{ steps.image.outputs.image_id }}
+          AUREN_DOCKER_SOCKET: /var/run/docker.sock
+        run: python -m unittest tests.test_stock_research_runtime_acceptance -v
+
+      - name: Retain requirement-to-evidence acceptance report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: stock-research-acceptance-${{ github.sha }}
+          path: artifacts/stock-research-acceptance.json
+          if-no-files-found: warn
