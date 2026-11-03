@@ -44,3 +44,12 @@ def test_high_risk_phases_add_security_and_architecture_review():
         assert "architecture-reviewer" in team.agents
         assert "security-reviewer" in team.agents["synthesizer"].depends_on
         assert "architecture-reviewer" in team.agents["synthesizer"].depends_on
+
+
+def test_phase_agents_use_role_specific_private_memory_profiles():
+    team = _phase_team({"mode": "implement", "risk": "critical"}, "execute", (AgentSpec, GraphAgentTeam))
+    assert team.agents["builder"].profile_id == "backend_implementer"
+    assert team.agents["verifier"].profile_id == "qa_reviewer"
+    assert team.agents["security-reviewer"].profile_id == "security_reviewer"
+    assert team.agents["architecture-reviewer"].profile_id == "principal_architect"
+    assert all(agent.profile_revision == 1 for agent in team.agents.values())
