@@ -182,6 +182,23 @@ def test_assigned_approved_tool_without_budget_mediation_is_denied(tmp_path: Pat
     assert calls == []
 
 
+def test_budgeted_approved_tool_rejects_missing_assignment_context(tmp_path: Path):
+    controller = ExecutionController(
+        tmp_path,
+        team_budget_settlement_verifier=lambda receipt: receipt["usage_evidence"],
+    )
+    task = _team(controller, tmp_path)
+    enforcer = _enforcer(controller, task)
+    calls = []
+    registry = ApprovedToolRegistry(
+        [ApprovedTool("read_internal", lambda _args: calls.append("called") or {"ok": True}, "read internal data")],
+        team_budget_enforcer=enforcer,
+    )
+    with pytest.raises(TeamBudgetAdapterDenied, match="active authenticated assignment context is required"):
+        registry.invoke("read_internal", {})
+    assert calls == []
+
+
 def test_usage_settlement_failure_keeps_reservation_and_blocks_success(tmp_path: Path):
     controller = ExecutionController(
         tmp_path,
