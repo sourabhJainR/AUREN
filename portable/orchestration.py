@@ -465,9 +465,9 @@ class Orchestrator:
                     normalized_mapping[conflict_id] = tuple(targets)
             if valid_mapping:
                 try:
-                    valid_mapping = bool(self.conflict_scope_verifier(
+                    valid_mapping = self.conflict_scope_verifier(
                         preflight, normalized_mapping, self.graph.digest(),
-                    ))
+                    ) is True
                 except Exception:
                     valid_mapping = False
             if not valid_mapping:
