@@ -332,6 +332,7 @@ class ApprovedToolRegistry:
             if self._team_budget_enforcer is not None:
                 result = self._team_budget_enforcer.execute(
                     "tool", name, dict(arguments), invoke_approved_tool,
+                    require_assignment_scope=True,
                 )
             else:
                 result = invoke_approved_tool()
