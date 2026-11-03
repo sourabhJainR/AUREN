@@ -64,6 +64,8 @@ class AdaptiveRuntime:
         state_root: Path | str | None = None,
         legacy_state_root: Path | str | None = None,
         conflict_scope_verifier: Callable[[Mapping[str, Any], Mapping[str, tuple[str, ...]], str], bool] | None = None,
+        team_budget_settlement_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
+        team_budget_release_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
     ) -> None:
         if maintenance_interval_seconds < 1:
             raise ValueError("maintenance_interval_seconds must be positive")
@@ -104,7 +106,11 @@ class AdaptiveRuntime:
         self.last_deferred_learning_job: DeferredLearningJob | None = None
         self.last_maintenance_receipt: MaintenanceReceipt | None = None
         from .execution_controller import ExecutionController
-        self.execution_controller = ExecutionController(state / "executive")
+        self.execution_controller = ExecutionController(
+            state / "executive",
+            team_budget_settlement_verifier=team_budget_settlement_verifier,
+            team_budget_release_verifier=team_budget_release_verifier,
+        )
         self.execution_controller._trusted_plan_dispatch_required = True
         self.trusted_plan_dispatch_root = None
         self.recovery_ledger = EngineeringRecoveryLedger(
