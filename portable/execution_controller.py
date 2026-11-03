@@ -4358,19 +4358,6 @@ class ExecutionController:
             raise ValueError("a team budget reservation must request a non-zero amount")
         with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
-            member = db.execute(
-                "SELECT state,profile_id,profile_revision,profile_digest FROM team_members "
-                "WHERE task_id=? AND run_id=? AND member_id=?",
-                (task_id, run_id, member_id),
-            ).fetchone()
-            if member is None:
-                raise KeyError((task_id, run_id, member_id))
-            if member[0] not in {"assigned", "running"}:
-                raise ValueError("team member must be assigned or running before budget reservation")
-            from .agent_profiles import resolve_agent_profile
-            current_profile = resolve_agent_profile(member[1], revision=member[2])
-            if current_profile.digest != member[3]:
-                raise ValueError("team member profile changed after budget registration")
             prior = db.execute(
                 "SELECT member_id,reserved_tokens,reserved_tool_calls,reserved_wall_seconds,"
                 "charged_tokens,charged_tool_calls,charged_wall_seconds,state,updated_at "
@@ -4387,6 +4374,19 @@ class ExecutionController:
                     "charged_tokens": prior[4], "charged_tool_calls": prior[5],
                     "charged_wall_seconds": prior[6], "state": prior[7], "updated_at": prior[8],
                 }
+            member = db.execute(
+                "SELECT state,profile_id,profile_revision,profile_digest FROM team_members "
+                "WHERE task_id=? AND run_id=? AND member_id=?",
+                (task_id, run_id, member_id),
+            ).fetchone()
+            if member is None:
+                raise KeyError((task_id, run_id, member_id))
+            if member[0] not in {"assigned", "running"}:
+                raise ValueError("team member must be assigned or running before budget reservation")
+            from .agent_profiles import resolve_agent_profile
+            current_profile = resolve_agent_profile(member[1], revision=member[2])
+            if current_profile.digest != member[3]:
+                raise ValueError("team member profile changed after budget registration")
             budget = self._team_budget_snapshot_from_db(db, task_id, run_id)
             for resource, requested in zip(
                 ("tokens", "tool_calls", "wall_seconds"), amounts,
