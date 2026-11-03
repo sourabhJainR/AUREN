@@ -12,6 +12,8 @@ from portable.guarded_filesystem import write_workspace_text
 
 from portable.agent_execution_guard import (
     AgentAssignmentScopeDenied,
+    agent_assignment_scope,
+    current_agent_assignment_principal_id,
     validate_agent_assignment_for_dispatch,
 )
 from portable.agent_org_runtime import REGISTRY_PATH, authorize_agent_assignment
@@ -29,6 +31,7 @@ class AgentExecutionGuardTests(unittest.TestCase):
     def _payload(
         self, scope=("portable/api.py",), action_class="edit_assigned_paths",
         deadline_seconds=None, task_path=None, work_key="AUREN:test:agent-execution-guard",
+        principal_id=None,
     ):
         assigned_path = task_path if task_path is not None else scope[0]
         assignment = authorize_agent_assignment(
@@ -39,6 +42,7 @@ class AgentExecutionGuardTests(unittest.TestCase):
             work_key=work_key,
             task_payload={"path": assigned_path, "resource": scope[0]},
             deadline_seconds=deadline_seconds,
+            principal_id=principal_id,
             authorizer=lambda _request: True,
             registry_path=REGISTRY_PATH,
         )
@@ -58,6 +62,30 @@ class AgentExecutionGuardTests(unittest.TestCase):
             expected_policy_digest=expected_policy_digest,
             **kwargs,
         )
+
+    def test_authenticated_principal_is_verified_and_bound_to_execution_context(self):
+        payload = self._payload(principal_id="host:worker-17")
+        verified = []
+        self._validate(
+            payload,
+            expected_action_class="edit_assigned_paths",
+            resource=payload["path"],
+            authorization_verifier=lambda request: (
+                verified.append(dict(request))
+                or request.get("principal_id") == "host:worker-17"
+            ),
+        )
+        self.assertEqual("host:worker-17", verified[0]["principal_id"])
+        with agent_assignment_scope(
+            ("portable/api.py",), role_id="BE-01", principal_id="host:worker-17",
+        ):
+            self.assertEqual("host:worker-17", current_agent_assignment_principal_id())
+            with self.assertRaisesRegex(AgentAssignmentScopeDenied, "cannot replace its active principal"):
+                with agent_assignment_scope(
+                    ("portable/api.py",), role_id="BE-01", principal_id="host:other",
+                ):
+                    pass
+        self.assertIsNone(current_agent_assignment_principal_id())
 
     def test_assigned_resource_within_scope_passes(self):
         payload = self._payload()

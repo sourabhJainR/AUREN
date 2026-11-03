@@ -2,6 +2,16 @@
 
 TrustedPlanDispatchRoot is the only supported plan-to-worker dispatch path when a host has enabled durable plan execution. It resolves authority at the host boundary immediately before the dispatch intent is persisted.
 
+### Independent implementer and reviewer identity
+
+Trusted assignments that enter this path use assignment schema v4. The host assignment resolver must provide an authenticated `principal_id`; the host authorizer must validate that identity. The principal ID is included in the assignment digest and durable assignment envelope, revalidated on worker restart, and exposed only inside the active handler execution context. A changed or missing principal denies resumed work.
+
+For a dispatch requiring durable approval, the approval request's `requester_id` must equal the authenticated implementer principal. Every approving principal must be different from that implementer, even when a legacy approval record disables its separation-of-duties flag. The host approver authorizer must still confirm the reviewer's current role and scope. The resulting approval receipt binds the implementer principal, reviewer principal(s), artifact digest, evidence digest, policy digest, plan revision and append-only approval events.
+
+The approval is resolved only after the implementer assignment is authenticated, and the supervisor deadline/cancellation guard is checked again after reviewer authorization. Mismatched requester identity or implementer self-approval is rejected before a work unit or durable task is created. The worker repeats assignment and approval verification before handler execution.
+
+The older persona workflow's role and agent labels remain useful for planning and review routing, but are not authentication evidence and cannot replace this trusted boundary.
+
 ## Host bootstrap
 
 Create the canonical ExecutionController, EngineeringPlanStore, EngineeringPlanRecoveryBridge, and DurableApprovalStore first. The approval store must share the controller database. Then configure the root through AdaptiveRuntime.configure_trusted_plan_dispatch() or AurenClient.configure_trusted_plan_dispatch().
