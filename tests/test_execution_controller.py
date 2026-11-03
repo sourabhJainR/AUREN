@@ -2419,3 +2419,76 @@ def test_existing_task_identity_reconciliation_is_idempotent_and_blocks_other_ro
             "tests.durable_handler", {"id": "legacy-task"},
             goal="existing work before shared admission", work_key="deployment:legacy:task",
         )
+
+
+def test_durable_team_member_lifecycle_is_profile_bound_and_resumes_after_restart(tmp_path: Path):
+    from portable.agent_profiles import resolve_agent_profile
+
+    controller = ExecutionController(tmp_path)
+    controller.register_handler("durable_handler", durable_handler, execution_class="read_only")
+    task = controller.submit("durable_handler", {"id": "team-task-1"}, goal="team lifecycle")
+    members = [
+        {"member_id": "implementer", "profile_id": "backend_implementer",
+         "profile_revision": 1, "profile_digest": resolve_agent_profile("backend_implementer", revision=1).digest},
+        {"member_id": "qa", "profile_id": "qa_reviewer",
+         "profile_revision": 1, "profile_digest": resolve_agent_profile("qa_reviewer", revision=1).digest},
+    ]
+
+    initial = controller.register_team_members(task.id, "run-1", members)
+    assert [member["state"] for member in initial] == ["pending", "pending"]
+    assert controller.register_team_members(task.id, "run-1", members) == initial
+
+    assigned = controller.transition_team_member(
+        task.id, "run-1", "implementer",
+        expected_state="pending", new_state="assigned",
+    )
+    assert assigned["state"] == "assigned"
+
+    restarted = ExecutionController(tmp_path)
+    resumed = restarted.team_members("task-team-1", "run-1")
+    implementer = next(member for member in resumed if member["member_id"] == "implementer")
+    assert implementer["state"] == "assigned"
+    assert implementer["profile_digest"] == members[0]["profile_digest"]
+
+    running = restarted.transition_team_member(
+        "task-team-1", "run-1", "implementer",
+        expected_state="assigned", new_state="running",
+    )
+    assert running["state"] == "running"
+    completed = restarted.transition_team_member(
+        "task-team-1", "run-1", "implementer",
+        expected_state="running", new_state="completed",
+    )
+    assert completed["state"] == "completed"
+
+
+def test_durable_team_member_registration_rejects_profile_drift_and_stale_transition(tmp_path: Path):
+    import pytest
+
+    from portable.agent_profiles import resolve_agent_profile
+
+    controller = ExecutionController(tmp_path)
+    controller.register_handler("durable_handler", durable_handler, execution_class="read_only")
+    task = controller.submit("durable_handler", {"id": "team-task-2"}, goal="team lifecycle")
+    member = {"member_id": "implementer", "profile_id": "backend_implementer",
+              "profile_revision": 1, "profile_digest": resolve_agent_profile("backend_implementer", revision=1).digest}
+    controller.register_team_members(task.id, "run-1", [member])
+
+    changed = {**member, "profile_digest": "c" * 64}
+    with pytest.raises(ValueError, match="profile digest does not match"):
+        controller.register_team_members(task.id, "run-1", [changed])
+
+    controller.transition_team_member(
+        task.id, "run-1", "implementer",
+        expected_state="pending", new_state="assigned",
+    )
+    with pytest.raises(ValueError, match="state changed"):
+        controller.transition_team_member(
+            "task-team-2", "run-1", "implementer",
+            expected_state="pending", new_state="assigned",
+        )
+    with pytest.raises(ValueError, match="terminal"):
+        controller.transition_team_member(
+            "task-team-2", "run-1", "implementer",
+            expected_state="assigned", new_state="completed",
+        )
