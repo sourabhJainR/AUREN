@@ -136,7 +136,7 @@ def validate_agent_assignment_for_dispatch(
     if payload.get("work_key") != work_key:
         raise AgentAssignmentScopeDenied("assignment work_key does not match the durable task")
     resource_binding = payload.get("resource", payload.get("resource_id", payload.get("path", "")))
-    task_payload_digest = hashlib.sha256(_canonical({
+    clean_task_payload = {
         "resource": resource_binding,
         "path": payload.get("path"),
         "budget": payload.get("budget"),
@@ -145,7 +145,24 @@ def validate_agent_assignment_for_dispatch(
         "approval_evidence": payload.get("approval_evidence"),
         "approval_id": payload.get("approval_id"),
         "risk_tier": payload.get("risk_tier"),
-    })).hexdigest()
+    }
+    if "_auren_agent_profile" in payload:
+        from .agent_profiles import validate_profile_binding
+        try:
+            profile = validate_profile_binding(
+                payload["_auren_agent_profile"],
+                role_id=role_id,
+                manager_role_id=manager_id,
+                action_class=action_class,
+            )
+        except Exception as exc:
+            raise AgentAssignmentScopeDenied("agent profile binding is stale or mismatched") from exc
+        clean_task_payload["agent_profile"] = {
+            "profile_id": profile.profile_id,
+            "revision": profile.revision,
+            "digest": profile.digest,
+        }
+    task_payload_digest = hashlib.sha256(_canonical(clean_task_payload)).hexdigest()
     if envelope.get("task_payload_digest") != task_payload_digest:
         raise AgentAssignmentScopeDenied("assignment task payload digest does not match the durable task")
     assigned_deadline = envelope.get("deadline_seconds")
