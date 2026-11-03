@@ -4388,18 +4388,19 @@ class ExecutionController:
             ):
                 if requested > budget[f"remaining_{resource}"]:
                     raise ValueError(f"shared team {resource} budget exhausted")
+            reserved_at = _now()
             db.execute(
                 "INSERT INTO team_budget_operations(task_id,run_id,operation_key,member_id,"
                 "reserved_tokens,reserved_tool_calls,reserved_wall_seconds,state,updated_at) "
                 "VALUES(?,?,?,?,?,?,?,'reserved',?)",
-                (task_id, run_id, operation_key, member_id, *amounts, _now()),
+                (task_id, run_id, operation_key, member_id, *amounts, reserved_at),
             )
             return {
                 "task_id": task_id, "run_id": run_id, "operation_key": operation_key,
                 "member_id": member_id, "reserved_tokens": amounts[0],
                 "reserved_tool_calls": amounts[1], "reserved_wall_seconds": amounts[2],
                 "charged_tokens": 0, "charged_tool_calls": 0,
-                "charged_wall_seconds": 0, "state": "reserved",
+                "charged_wall_seconds": 0, "state": "reserved", "updated_at": reserved_at,
             }
 
     def settle_team_budget(
