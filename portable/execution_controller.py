@@ -4585,6 +4585,102 @@ class ExecutionController:
             ).fetchall()
         return tuple(dict(row) for row in rows)
 
+    def team_delivery_release_readiness(self, task_id: str, run_id: str) -> dict[str, Any]:
+        """Evaluate durable team delivery and independent-approval gates without releasing.
+
+        A ready result requires a completed controller task, every assigned team
+        member completed, a completed QA profile, no unresolved/overrun budget
+        operations, and a fresh host verification of the immutable approval receipt.
+        This method never performs a release or promotion.
+        """
+        reasons: list[str] = []
+        task = self.task(task_id)
+        if task is None or task.state != "completed":
+            reasons.append("supervisor_task_not_completed")
+        members = self.team_members(task_id, run_id)
+        if not members:
+            reasons.append("team_membership_missing")
+        if any(member["state"] != "completed" for member in members):
+            reasons.append("team_member_not_completed")
+        if not any(
+            member["profile_id"] in {"qa_reviewer", "security_reviewer"}
+            and member["state"] == "completed"
+            for member in members
+        ):
+            reasons.append("independent_qa_delivery_missing")
+        unresolved = self.unresolved_team_budget_operations(task_id, run_id)
+        if unresolved:
+            reasons.append("team_budget_operations_unresolved")
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db:
+            states = {
+                str(state): int(count)
+                for state, count in db.execute(
+                    "SELECT state,COUNT(*) FROM team_budget_operations "
+                    "WHERE task_id=? AND run_id=? GROUP BY state",
+                    (task_id, run_id),
+                ).fetchall()
+            }
+        if states.get("overrun", 0):
+            reasons.append("team_budget_overrun")
+        if any(state not in {"settled", "released"} for state in states):
+            reasons.append("team_budget_operation_not_reconciled")
+
+        metadata = task.payload.get("auren_dispatch") if task is not None else None
+        approval_evidence = metadata.get("approval_evidence") if isinstance(metadata, Mapping) else None
+        assignment_evidence = metadata.get("assignment_evidence") if isinstance(metadata, Mapping) else None
+        approval_verifier = getattr(self, "_trusted_plan_approval_verifier", None)
+        approval_verified = False
+        if (
+            isinstance(metadata, Mapping)
+            and isinstance(approval_evidence, Mapping)
+            and isinstance(assignment_evidence, Mapping)
+            and callable(approval_verifier)
+        ):
+            implementer = assignment_evidence.get("principal_id")
+            reviewer_ids = approval_evidence.get("reviewer_principal_ids")
+            if reviewer_ids is None:
+                reviewer_id = approval_evidence.get("approver_id")
+                reviewer_ids = [reviewer_id] if isinstance(reviewer_id, str) else []
+            identities_separate = (
+                isinstance(implementer, str) and bool(implementer.strip())
+                and isinstance(reviewer_ids, (list, tuple)) and bool(reviewer_ids)
+                and all(isinstance(item, str) and item.strip() and item != implementer for item in reviewer_ids)
+            )
+            try:
+                approval_verified = identities_separate and approval_verifier(metadata, approval_evidence) is True
+            except Exception:
+                approval_verified = False
+        if not approval_verified:
+            reasons.append("independent_approval_not_verified")
+
+        delivery_ready = (
+            task is not None and task.state == "completed"
+            and bool(members)
+            and all(member["state"] == "completed" for member in members)
+            and any(
+                member["profile_id"] in {"qa_reviewer", "security_reviewer"}
+                and member["state"] == "completed"
+                for member in members
+            )
+            and not unresolved
+            and not states.get("overrun", 0)
+            and all(state in {"settled", "released"} for state in states)
+        )
+        release_ready = delivery_ready and approval_verified
+        return {
+            "task_id": task_id,
+            "run_id": run_id,
+            "delivery_ready": delivery_ready,
+            "release_ready": release_ready,
+            "release_authorized": False,
+            "budget": self.team_budget(task_id, run_id),
+            "member_states": {member["member_id"]: member["state"] for member in members},
+            "budget_operation_states": states,
+            "unresolved_operations": [item["operation_key"] for item in unresolved],
+            "approval_verified": approval_verified,
+            "blocking_reasons": reasons,
+        }
+
     def transition_team_member(
         self, task_id: str, run_id: str, member_id: str, *,
         expected_state: str, new_state: str, failure_digest: str | None = None,
