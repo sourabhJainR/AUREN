@@ -390,6 +390,8 @@ class StockResearchCanonicalRuntimeAcceptanceTests(unittest.TestCase):
                         "and leave the external application repository unchanged."
                     ),
                     risk="high",
+                    owner_role_id="QA-01",
+                    manager_role_id="EM-ENG-01",
                 ),
             ),
             source_revision=source_revision,
