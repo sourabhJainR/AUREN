@@ -379,6 +379,18 @@ class TrustedPlanDispatchRoot:
             "approval_id": payload.get("approval_id"),
             "risk_tier": payload.get("risk_tier"),
         }
+        if "_auren_agent_profile" in payload:
+            profile = validate_profile_binding(
+                payload["_auren_agent_profile"],
+                role_id=assignment.role_id,
+                manager_role_id=assignment.manager_id,
+                action_class=assignment.action_class,
+            )
+            clean_payload["agent_profile"] = {
+                "profile_id": profile.profile_id,
+                "revision": profile.revision,
+                "digest": profile.digest,
+            }
         expected_payload_digest = hashlib.sha256(json.dumps(
             clean_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
         ).encode("utf-8")).hexdigest()
