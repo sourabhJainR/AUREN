@@ -2489,7 +2489,7 @@ def test_durable_team_member_registration_rejects_profile_drift_and_stale_transi
         )
     with pytest.raises(ValueError, match="terminal"):
         controller.transition_team_member(
-            "task-team-2", "run-1", "implementer",
+            task.id, "run-1", "implementer",
             expected_state="assigned", new_state="completed",
         )
 
@@ -2538,6 +2538,10 @@ def test_shared_team_budget_is_aggregated_idempotent_and_restart_safe(tmp_path: 
     with pytest.raises(ValueError, match="shared team tokens budget exhausted"):
         controller.reserve_team_budget(
             task_id, "run-1", "qa", "provider-call-2", tokens=25_000,
+        )
+    with pytest.raises(ValueError, match="operation key conflicts"):
+        controller.reserve_team_budget(
+            task_id, "run-1", "implementer", "provider-call-1", tokens=19_999,
         )
 
     settled = controller.settle_team_budget(
