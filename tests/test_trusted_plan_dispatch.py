@@ -1085,7 +1085,11 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
 
         def resolve_assignment(context):
             assignment = original_resolver(context)
-            guard.tighten_deadline(0.000001)
+            guard.tighten_deadline(0.001)
+            # Let the monotonic deadline elapse on Windows and Unix alike;
+            # a sub-microsecond sleep is not a portable scheduling guarantee.
+            import time
+            time.sleep(0.02)
             return assignment
 
         root = TrustedPlanDispatchRoot(
