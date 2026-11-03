@@ -37,7 +37,10 @@ from .durable_approval import ApprovalPending, InvalidApprovalTransition
 from .workflow_profile import WorkflowProfile, delivery_mode_allows, infer_delivery_action, resolve_profile
 from .workflow_profile_store import load_profile
 from .organization_guard import POLICY_VERSION, GuardDecision, GuardPolicyError, evaluate_guard_policy, guard_policy_fingerprint, load_guard_policy
-from .agent_execution_guard import agent_assignment_scope, validate_agent_assignment_for_dispatch
+from .agent_execution_guard import (
+    agent_assignment_scope, current_agent_assignment_principal_id,
+    validate_agent_assignment_for_dispatch,
+)
 from .agent_org_runtime import load_agent_org_registry
 
 Handler = Callable[[Mapping[str, Any]], Any]
@@ -177,6 +180,7 @@ class ExecutionController:
         agent_assignment_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
         team_budget_settlement_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
         team_budget_release_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
+        team_budget_enforcer: Any | None = None,
         workflow_profile_path: str | Path | None = None,
         max_pending_tasks: int | None = None,
         deployment_admission_coordinator: Any | None = None,
@@ -195,6 +199,9 @@ class ExecutionController:
         if team_budget_release_verifier is not None and not callable(team_budget_release_verifier):
             raise TypeError("team_budget_release_verifier must be callable")
         self._team_budget_release_verifier = team_budget_release_verifier
+        if team_budget_enforcer is not None and not callable(getattr(team_budget_enforcer, "execute", None)):
+            raise TypeError("team_budget_enforcer must implement execute")
+        self._team_budget_enforcer = team_budget_enforcer
         if deployment_admission_coordinator is not None and (
             not isinstance(deployment_instance_id, str) or not deployment_instance_id.strip()
         ):
@@ -3496,7 +3503,19 @@ class ExecutionController:
                 }
                 if "auren_deadline_epoch" in runtime_payload:
                     handler_payload["auren_deadline_epoch"] = runtime_payload["auren_deadline_epoch"]
-                return handler(self._handler_payload(task, handler_payload))
+                def invoke_registered_provider():
+                    return handler(self._handler_payload(task, handler_payload))
+
+                principal_id = current_agent_assignment_principal_id()
+                if principal_id is not None and self._team_budget_enforcer is None:
+                    raise RuntimeError(
+                        "assigned provider dispatch requires the host-configured shared team-budget enforcer"
+                    )
+                if self._team_budget_enforcer is not None:
+                    return self._team_budget_enforcer.execute(
+                        "provider", provider_name, handler_payload, invoke_registered_provider,
+                    )
+                return invoke_registered_provider()
 
             value = self._invoke_with_lease_heartbeat(task, invoke_provider_handler)
             if not isinstance(value, Mapping):
