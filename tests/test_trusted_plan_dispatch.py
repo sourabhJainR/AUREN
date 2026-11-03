@@ -1035,6 +1035,89 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         )
 
 
+    def test_supervisor_cancellation_during_assignment_authorization_blocks_queue_insert(self):
+        approvals, request, record = self._approval(self.controller, context=self.context)
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        admission_digest = guard.snapshot()["digest"]
+        original_resolver = self._assignment_resolver
+
+        def resolve_assignment(context):
+            assignment = original_resolver(context)
+            guard.cancel("cancelled while host assignment authorization was resolving")
+            return assignment
+
+        root = TrustedPlanDispatchRoot(
+            controller=self.controller,
+            store=self.plan_store,
+            recovery_bridge=self.recovery_bridge,
+            approval_store=approvals,
+            budget_resolver=lambda _run, _task, _handler: {
+                "budget_id": "crew:team-a:run-1",
+                "guard": guard,
+                "checkpoint_digest": admission_digest,
+                "policy_digest": "a" * 64,
+            },
+            approval_resolver=lambda _run, _task, _handler: {
+                "approval_id": record.approval_id,
+                "request": request,
+            },
+            assignment_resolver=resolve_assignment,
+        )
+        with self.assertRaises(ExecutionBudgetExceeded):
+            root.dispatch(
+                run_id=self.plan.run_id,
+                task_id="implement",
+                dispatch_key="cancel-during-assignment",
+                handler="dispatch-test",
+                packet=self.packet,
+                payload={"resource": "tests"},
+            )
+        with sqlite3.connect(self.controller.db_path) as db:
+            self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
+
+    def test_expired_supervisor_deadline_during_assignment_blocks_queue_insert(self):
+        approvals, request, record = self._approval(self.controller, context=self.context)
+        guard = RuntimeExecutionGuard(
+            max_steps=8, max_attempts=4, deadline_seconds=30,
+        )
+        admission_digest = guard.snapshot()["digest"]
+        original_resolver = self._assignment_resolver
+
+        def resolve_assignment(context):
+            assignment = original_resolver(context)
+            guard.tighten_deadline(0.000001)
+            return assignment
+
+        root = TrustedPlanDispatchRoot(
+            controller=self.controller,
+            store=self.plan_store,
+            recovery_bridge=self.recovery_bridge,
+            approval_store=approvals,
+            budget_resolver=lambda _run, _task, _handler: {
+                "budget_id": "crew:team-a:run-1",
+                "guard": guard,
+                "checkpoint_digest": admission_digest,
+                "policy_digest": "a" * 64,
+            },
+            approval_resolver=lambda _run, _task, _handler: {
+                "approval_id": record.approval_id,
+                "request": request,
+            },
+            assignment_resolver=resolve_assignment,
+        )
+        with self.assertRaises(ExecutionBudgetExceeded):
+            root.dispatch(
+                run_id=self.plan.run_id,
+                task_id="implement",
+                dispatch_key="deadline-during-assignment",
+                handler="dispatch-test",
+                packet=self.packet,
+                payload={"resource": "tests"},
+            )
+        with sqlite3.connect(self.controller.db_path) as db:
+            self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
+
+
 
 if __name__ == "__main__":
     unittest.main()
