@@ -215,10 +215,6 @@ class AgentOrgRuntimeTests(unittest.TestCase):
                 load_agent_org_registry(path)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
     def test_authenticated_principal_is_bound_into_v4_assignment_digest(self):
         seen = []
 
@@ -257,3 +253,7 @@ if __name__ == "__main__":
                 registry_path=REGISTRY,
             )
         self.assertEqual(calls, [])
+
+
+if __name__ == "__main__":
+    unittest.main()
