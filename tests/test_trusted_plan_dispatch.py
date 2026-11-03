@@ -593,6 +593,26 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         with sqlite3.connect(self.controller.company.db_path) as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM work_units").fetchone()[0], 0)
 
+    def test_tampered_approval_requester_row_cannot_override_audit_actor(self):
+        store, request, record = self._approval(
+            self.controller, context=self.context, requester_id="different-worker",
+        )
+        with sqlite3.connect(self.controller.db_path) as db:
+            db.execute(
+                "UPDATE durable_approvals SET requester_id=? WHERE approval_id=?",
+                ("worker-1", record.approval_id),
+            )
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        root = self._root(self.controller, store, request, record, guard, context=self.context)
+        with self.assertRaisesRegex(PermissionError, "requester differs from its immutable audit actor"):
+            root.dispatch(
+                run_id=self.plan.run_id, task_id="implement",
+                dispatch_key="tampered-requester-audit-actor",
+                handler="dispatch-test", packet=self.packet, payload={"resource": "tests"},
+            )
+        with sqlite3.connect(self.controller.db_path) as db:
+            self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
+
     def test_implementer_cannot_self_approve_even_when_legacy_separation_flag_is_false(self):
         store, request, record = self._approval(
             self.controller, context=self.context,
