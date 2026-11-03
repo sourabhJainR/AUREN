@@ -3098,7 +3098,7 @@ class ExecutionController:
         # dispatch is not rejected before its handler starts. Preserve the historical
         # digest shape for older intents that predate these optional fields.
         extension_fields = {
-            "deadline_policy_seconds", "shared_budget_binding", "approval_evidence",
+            "deadline_policy_seconds", "shared_budget_binding", "approval_evidence", "assignment_evidence",
         }
         present_extension_fields = extension_fields.intersection(metadata)
         if present_extension_fields and present_extension_fields != extension_fields:
@@ -3130,10 +3130,39 @@ class ExecutionController:
                 raise EngineeringPlanCheckpointMismatch(
                     "queued dispatch budget or approval binding is invalid"
                 ) from exc
+            assignment_evidence = metadata.get("assignment_evidence")
+            recorded_assignment = task.payload.get("_auren_agent_assignment")
+            if not isinstance(assignment_evidence, Mapping) or dict(assignment_evidence) != recorded_assignment:
+                raise EngineeringPlanCheckpointMismatch(
+                    "queued task assignment envelope differs from its immutable dispatch binding"
+                )
+            resolver = getattr(self, "_trusted_plan_assignment_resolver", None)
+            if not callable(resolver):
+                raise EngineeringPlanCheckpointMismatch(
+                    "trusted assignment authority is not configured in this worker; refusing task execution"
+                )
+            assignment_payload = dict(safe_payload)
+            assignment_payload.pop("_auren_agent_assignment", None)
+            try:
+                refreshed_assignment = resolver({
+                    "run_id": run_id, "task_id": plan_task_id, "handler": task.handler,
+                    "dispatch_key": dispatch_key,
+                    "deadline_seconds": deadline_policy_seconds,
+                    "payload": assignment_payload, "recorded_assignment": dict(recorded_assignment),
+                })
+            except Exception as exc:
+                raise EngineeringPlanCheckpointMismatch(
+                    "queued specialist assignment is revoked or no longer authorized"
+                ) from exc
+            if refreshed_assignment != dict(recorded_assignment):
+                raise EngineeringPlanCheckpointMismatch(
+                    "queued specialist assignment changed after dispatch"
+                )
             binding.update({
                 "deadline_policy_seconds": deadline_policy_seconds,
                 "shared_budget_binding": shared_budget_binding,
                 "approval_evidence": approval_evidence,
+                "assignment_evidence": dict(assignment_evidence),
             })
         binding_digest = hashlib.sha256(
             json.dumps(binding, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
@@ -3151,7 +3180,7 @@ class ExecutionController:
         # precise while still fencing every otherwise-valid task before its handler
         # can run. No worker-provided metadata can satisfy this host-owned token.
         trusted_binding_fields = {
-            "deadline_policy_seconds", "shared_budget_binding", "approval_evidence",
+            "deadline_policy_seconds", "shared_budget_binding", "approval_evidence", "assignment_evidence",
         }
         if (
             (
