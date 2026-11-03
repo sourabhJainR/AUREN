@@ -224,6 +224,9 @@ class TrustedPlanDispatchRoot:
     def _resolve_assignment(self, context: Mapping[str, Any]) -> dict[str, Any]:
         from .agent_org_runtime import AuthorizedAgentAssignment
 
+        dispatch_key = context.get("dispatch_key")
+        deadline_seconds = context.get("deadline_seconds")
+        assignment_deadline_seconds = context.get("assignment_deadline_seconds", deadline_seconds)
         assignment_context = dict(context)
         assignment_context["deadline_seconds"] = assignment_deadline_seconds
         try:
@@ -232,9 +235,6 @@ class TrustedPlanDispatchRoot:
             raise PermissionError("host agent assignment authorization failed closed") from exc
         if not isinstance(assignment, AuthorizedAgentAssignment):
             raise PermissionError("host assignment resolver must return AuthorizedAgentAssignment")
-        dispatch_key = context.get("dispatch_key")
-        deadline_seconds = context.get("deadline_seconds")
-        assignment_deadline_seconds = context.get("assignment_deadline_seconds", deadline_seconds)
         payload = context.get("payload")
         if assignment.work_key != dispatch_key:
             raise PermissionError("agent assignment is not bound to this stable dispatch identity")
