@@ -588,6 +588,22 @@ class DurableApprovalTests(unittest.TestCase):
         self.assertEqual(reconciled.status, "completed")
         self.assertEqual(calls, ["remote accepted"])
 
+    def test_truthy_non_boolean_reconciliation_verifier_is_rejected(self):
+        record = self.create()
+        self.approve(record)
+        self.store.claim_execution(
+            record.approval_id, self.request(), artifact_digest=self.artifact,
+            evidence_digest=self.evidence, policy_digest=self.policy,
+        )
+        self.store.mark_outcome(record.approval_id, "outcome_unknown")
+        self.store.reconciliation_verifier = lambda _record, _outcome, _ref: "yes"
+        with self.assertRaisesRegex(PermissionError, "reconciliation failed closed"):
+            self.store.reconcile_outcome(
+                record.approval_id, outcome="completed",
+                evidence_ref="https://evidence.example/provider-operation/forged",
+            )
+        self.assertEqual(self.store.get(record.approval_id).status, "outcome_unknown")
+
     def test_interrupted_execution_becomes_unknown_not_retryable(self):
         record = self.create()
         self.approve(record)
