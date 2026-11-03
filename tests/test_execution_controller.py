@@ -2513,7 +2513,9 @@ def _register_test_team(controller, task_id, run_id, profile_members):
 def test_shared_team_budget_is_aggregated_idempotent_and_restart_safe(tmp_path: Path):
     import pytest
 
-    controller = ExecutionController(tmp_path)
+    controller = ExecutionController(
+        tmp_path, team_budget_settlement_verifier=lambda receipt: receipt["usage_evidence"],
+    )
     task_id, members = _register_test_team(
         controller, "shared-budget-task", "run-1",
         [("implementer", "backend_implementer"), ("qa", "qa_reviewer")],
@@ -2548,14 +2550,13 @@ def test_shared_team_budget_is_aggregated_idempotent_and_restart_safe(tmp_path: 
             task_id, "run-1", "implementer", "provider-call-1", tokens=19_999,
         )
 
+    usage_receipt = {"tokens": 18_000, "tool_calls": 0, "wall_seconds": 0}
     settled = controller.settle_team_budget(
-        task_id, "run-1", "provider-call-1",
-        tokens=18_000, tool_calls=0, wall_seconds=0,
+        task_id, "run-1", "provider-call-1", usage_evidence=usage_receipt,
     )
     assert settled["state"] == "settled"
     assert controller.settle_team_budget(
-        task_id, "run-1", "provider-call-1",
-        tokens=18_000, tool_calls=0, wall_seconds=0,
+        task_id, "run-1", "provider-call-1", usage_evidence=usage_receipt,
     ) == settled
 
     controller.reserve_team_budget(
@@ -2569,6 +2570,11 @@ def test_shared_team_budget_is_aggregated_idempotent_and_restart_safe(tmp_path: 
     assert [item["operation_key"] for item in restarted.unresolved_team_budget_operations(task_id, "run-1")] == [
         "uncertain-after-crash"
     ]
+    with pytest.raises(PermissionError, match="settlement verifier is not configured"):
+        restarted.settle_team_budget(
+            task_id, "run-1", "uncertain-after-crash",
+            usage_evidence={"tokens": 0, "tool_calls": 0, "wall_seconds": 0},
+        )
     with pytest.raises(PermissionError, match="verifier is not configured"):
         restarted.release_team_budget_reservation(
             task_id, "run-1", "uncertain-after-crash",
@@ -2577,6 +2583,7 @@ def test_shared_team_budget_is_aggregated_idempotent_and_restart_safe(tmp_path: 
         )
     verified_restart = ExecutionController(
         tmp_path,
+        team_budget_settlement_verifier=lambda receipt: receipt["usage_evidence"],
         team_budget_release_verifier=lambda receipt: (
             receipt["release_evidence"].get("host_outcome") == "not_started"
         ),
@@ -2592,7 +2599,9 @@ def test_shared_team_budget_is_aggregated_idempotent_and_restart_safe(tmp_path: 
 
 
 def test_shared_team_budget_overrun_is_recorded_and_blocks_member(tmp_path: Path):
-    controller = ExecutionController(tmp_path)
+    controller = ExecutionController(
+        tmp_path, team_budget_settlement_verifier=lambda receipt: receipt["usage_evidence"],
+    )
     task_id, _members = _register_test_team(
         controller, "budget-overrun-task", "run-1",
         [("implementer", "backend_implementer")],
@@ -2610,7 +2619,7 @@ def test_shared_team_budget_overrun_is_recorded_and_blocks_member(tmp_path: Path
     )
     outcome = controller.settle_team_budget(
         task_id, "run-1", "overrun-op",
-        tokens=11, tool_calls=0, wall_seconds=0,
+        usage_evidence={"tokens": 11, "tool_calls": 0, "wall_seconds": 0},
     )
     assert outcome["state"] == "overrun"
     member = controller.team_members(task_id, "run-1")[0]
