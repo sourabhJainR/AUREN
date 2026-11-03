@@ -501,8 +501,8 @@ class StockResearchCanonicalRuntimeAcceptanceTests(unittest.TestCase):
         _, verified_run = recovery.load_verified(run_id)
         checkpoint = recovery.ledger.get_checkpoint(run_id, recovery.PHASE)
         requirement_evidence = [
-            {"requirement": requirements[0], "acceptance_criteria": [acceptance[0]], "test_files": [TEST_FILES[0]]},
-            {"requirement": requirements[1], "acceptance_criteria": [acceptance[0]], "test_files": [TEST_FILES[0]]},
+            {"requirement": requirements[0], "acceptance_criteria": [acceptance[0], acceptance[3]], "test_files": [TEST_FILES[0], TEST_FILES[3]]},
+            {"requirement": requirements[1], "acceptance_criteria": [acceptance[0], acceptance[1]], "test_files": [TEST_FILES[0], TEST_FILES[1]]},
             {"requirement": requirements[2], "acceptance_criteria": [acceptance[1], acceptance[4]], "test_files": [TEST_FILES[1], TEST_FILES[4]]},
             {"requirement": requirements[3], "acceptance_criteria": [acceptance[0], acceptance[1]], "test_files": [TEST_FILES[0], TEST_FILES[1]]},
             {"requirement": requirements[4], "acceptance_criteria": [acceptance[1], acceptance[2], acceptance[3]], "test_files": [TEST_FILES[1], TEST_FILES[2], TEST_FILES[3]]},
