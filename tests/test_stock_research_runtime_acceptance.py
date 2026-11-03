@@ -420,6 +420,7 @@ class StockResearchCanonicalRuntimeAcceptanceTests(unittest.TestCase):
             team_budget_enforcer_factory=build_budget_enforcer,
         )
         controller = runtime.execution_controller
+        self.assertIs(controller._team_budget_enforcer, budget_binding["enforcer"])
         guard_policy_path = controller.root / ".auren" / "guard_policy.json"
         guard_policy_path.parent.mkdir(parents=True, exist_ok=True)
         guard_policy_path.write_text(
