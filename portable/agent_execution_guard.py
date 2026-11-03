@@ -149,7 +149,14 @@ def validate_agent_assignment_for_dispatch(
     if envelope.get("task_payload_digest") != task_payload_digest:
         raise AgentAssignmentScopeDenied("assignment task payload digest does not match the durable task")
     assigned_deadline = envelope.get("deadline_seconds")
-    persisted_deadline = payload.get("_auren_deadline_policy_seconds")
+    # Trusted plan dispatch may shorten the executable task deadline after
+    # assignment authorization. Keep the original authorization deadline as
+    # separate immutable host metadata so it is not confused with that tighter
+    # execution deadline during dispatch/restart preflight.
+    persisted_deadline = payload.get(
+        "_auren_assignment_deadline_seconds",
+        payload.get("_auren_deadline_policy_seconds"),
+    )
     if assigned_deadline != persisted_deadline:
         raise AgentAssignmentScopeDenied("assignment deadline does not match the durable task policy")
     if assigned_deadline is not None and (
