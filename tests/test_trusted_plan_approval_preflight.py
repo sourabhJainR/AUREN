@@ -155,6 +155,11 @@ class TrustedPlanApprovalPreflightTests(unittest.TestCase):
             execution_class="read_only",
             agent_action_class="edit_assigned_paths",
         )
+        EngineeringPlanDispatch(
+            store=self.plan_store,
+            controller=fresh_controller,
+            recovery_bridge=self.recovery_bridge,
+        )
         fresh_approvals = DurableApprovalStore(
             fresh_controller,
             approver_authorizer=lambda approver, role, scope, roles: (
