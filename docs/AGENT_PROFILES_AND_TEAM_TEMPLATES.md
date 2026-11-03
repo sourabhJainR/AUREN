@@ -31,7 +31,7 @@ The loader rejects unknown roles, reporting-hierarchy drift, action-class expans
 
 ## Execution and rollout boundary
 
-This first slice adds the typed registry, digest calculation, canonical role validation and dependency-checked team templates. It does not silently activate profiles or change existing task dispatch. Before profiles are enabled for execution, a follow-up must bind the exact profile ID, revision and digest into durable task intent and revalidate that binding before worker resume. It must also prove profile-specific memory isolation and keep implementer/reviewer authority separate.
+This implementation adds the typed registry, digest calculation, canonical role validation and dependency-checked team templates. Trusted plan dispatch can pin the exact profile ID, revision and digest into durable task intent. The assignment digest includes that pin, and the worker guard resolves and checks it again before handler execution, including after a fresh controller process resumes the task. A profile-role/action mismatch or stale digest fails closed. Profiles are still not enabled as an automatic team scheduler: profile-specific memory isolation, durable team-member lifecycle, and independently enforced implementer/reviewer separation remain required before that activation.
 
 Rollback: stop resolving the profile registry and retain the last-known-good configuration. Existing durable tasks and role assignments remain unchanged. Do not rewrite historical task evidence when a profile revision is retired.
 
