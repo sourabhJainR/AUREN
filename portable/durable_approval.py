@@ -517,6 +517,28 @@ class DurableApprovalStore:
             "event_digest": row["event_digest"], "created_at": row["created_at"],
         } for row in rows)
 
+    def decision_records(self, approval_id: str) -> tuple[Mapping[str, Any], ...]:
+        """Return immutable vote facts for live host-authority revalidation.
+
+        The caller must verify the append-only audit chain before trusting these
+        records. Roles and scope are claims captured at vote time, not credentials.
+        """
+        approval_id = _required(approval_id, "approval_id")
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT approver_id,decision,roles_json,scope,decision_digest,created_at "
+                "FROM durable_approval_decisions WHERE approval_id=? ORDER BY approver_id",
+                (approval_id,),
+            ).fetchall()
+        return tuple({
+            "approver_id": row["approver_id"],
+            "decision": row["decision"],
+            "roles": tuple(json.loads(row["roles_json"])),
+            "scope": row["scope"],
+            "decision_digest": row["decision_digest"],
+            "created_at": row["created_at"],
+        } for row in rows)
+
     def verify_audit_chain(self) -> bool:
         previous = "0" * 64
         recorded_decision_digests: set[str] = set()
