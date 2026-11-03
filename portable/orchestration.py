@@ -17,6 +17,7 @@ import json
 import os
 import py_compile
 import tempfile
+import threading
 import time
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
@@ -362,6 +363,22 @@ class Orchestrator:
         # This verifier is injected by the trusted host composition root. A
         # planner's node mapping is descriptive input, never authority by itself.
         self.conflict_scope_verifier = conflict_scope_verifier
+        self._configuration_lock = threading.RLock()
+        self._execution_started = False
+
+    def configure_conflict_scope_verifier(
+        self,
+        verifier: Callable[[Mapping[str, Any], Mapping[str, tuple[str, ...]], str], bool],
+    ) -> None:
+        """Install the host verifier once, before this orchestrator executes any graph."""
+        if not callable(verifier):
+            raise TypeError("conflict-scope verifier must be callable")
+        with self._configuration_lock:
+            if self._execution_started:
+                raise RuntimeError("conflict-scope verifier must be configured before graph execution")
+            if self.conflict_scope_verifier is not None and self.conflict_scope_verifier is not verifier:
+                raise RuntimeError("conflict-scope verifier is already configured")
+            self.conflict_scope_verifier = verifier
 
     @staticmethod
     def intent_digest(intent: str) -> str:
@@ -373,6 +390,8 @@ class Orchestrator:
         return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
 
     def run(self, task_id: str, intent: str, context: Mapping[str, Any] | None = None) -> OrchestrationRun:
+        with self._configuration_lock:
+            self._execution_started = True
         run = OrchestrationRun(task_id=task_id, intent_digest=self.intent_digest(intent), environment_fingerprint=self.environment_fingerprint(context))
         state: dict[str, Any] = dict(context or {})
         raw_guard = state.get("_auren_runtime_execution_guard")

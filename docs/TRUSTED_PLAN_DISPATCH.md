@@ -6,11 +6,13 @@ TrustedPlanDispatchRoot is the only supported plan-to-worker dispatch path when 
 
 Create the canonical ExecutionController, EngineeringPlanStore, EngineeringPlanRecoveryBridge, and DurableApprovalStore first. The approval store must share the controller database. Then configure the root through AdaptiveRuntime.configure_trusted_plan_dispatch() or AurenClient.configure_trusted_plan_dispatch().
 
-The host must provide three trusted resolver callbacks:
+The host must provide three required trusted resolver callbacks:
 
 - budget_resolver(run_id, plan_task_id, handler) returns the live supervisor-owned RuntimeExecutionGuard, a stable budget ID, the immutable admission checkpoint digest, and the policy digest. The checkpoint digest must be read from the canonical supervisor budget ledger and remain stable for idempotent replay after budget charges; the live guard snapshot is separately checked for cancellation/deadline validity. Do not construct a fresh budget or read budget claims from worker payloads.
 - approval_resolver(run_id, plan_task_id, handler) returns the durable approval ID and the exact ActionRequest for that plan action. It must resolve using host-owned task identity and policy, not agent-supplied approver, scope, approval ID, or payload metadata.
 - assignment_resolver(context) returns an AuthorizedAgentAssignment produced by the host organization authority. The context includes plan/run/task identity, registered handler, stable dispatch key, bounded deadline, immutable packet and exact task payload. The resolver must resolve role, manager, action class and scope from host-owned policy, call the host authorizer on every invocation, and return a fresh assignment. It must not trust the recorded assignment as proof of current authority.
+
+The host may also pass `conflict_scope_verifier(review, mapping, graph_digest)` to `AdaptiveRuntime.configure_trusted_plan_dispatch()`. This callback is installed on the existing canonical Orchestrator before execution begins. It receives the pre-implementation review, the normalized conflict-to-node mapping, and the current graph digest. It must validate the mapping against host-controlled review and graph policy and return the boolean `True` exactly; exceptions, truthy non-booleans, missing callbacks, or invalid mappings keep selective continuation blocked. The callback cannot be replaced after the first graph run. If it is omitted, AUREN keeps the conservative whole-graph fail-closed path for unresolved conflicts. This host admission check is not an independent QA/security review and does not establish external evaluator independence.
 
 The root writes the stable dispatch key into the durable task payload and the controller task row. A caller-supplied work_key may be omitted, but if present it must equal the dispatch key. Every assigned plan task must include an explicit resource, resource_id, or path selector. Each selector must be a normalized relative path and must be present in the host-authorized scope; broad labels such as repo:write are not resource paths and are rejected. The assignment work key must equal the stable dispatch key. Its task-payload digest binds the assignment's scope-relevant payload projection; the full serialized task payload digest is independently included in the immutable dispatch binding. The assignment action class must match the operator-registered handler action class before queue insertion.
 
@@ -29,6 +31,7 @@ Example host flow:
         budget_resolver=resolve_supervisor_budget,
         approval_resolver=resolve_exact_action_approval,
         assignment_resolver=resolve_and_authorize_plan_assignment,
+        conflict_scope_verifier=verify_conflict_scope_mapping,
     )
     task = runtime.dispatch_engineering_plan_task(
         run_id=plan_run_id,
@@ -53,7 +56,7 @@ After root registration, direct calls to EngineeringPlanDispatch.dispatch() and 
 
 ## Validation and rollback
 
-tests/test_trusted_plan_dispatch.py covers approved/pending/changed-context cases, exact plan-task/revision binding, cancelled budgets, direct-dispatch bypass, and the AdaptiveRuntime bootstrap path. Existing tests/test_execution_controller_cancellation.py covers supervisor-to-graph-to-crew-to-model-router cancellation and absolute-deadline propagation. Existing crew handoff tests cover independent review receipts and rejection.
+tests/test_trusted_plan_dispatch.py covers approved/pending/changed-context cases, exact plan-task/revision binding, cancelled budgets, direct-dispatch bypass, and the AdaptiveRuntime bootstrap path. `tests/test_trusted_conflict_scope_composition.py` covers host-root verifier installation, scoped independent-branch continuation, missing-verifier denial, and rejection of late verifier changes. Existing tests/test_execution_controller_cancellation.py covers supervisor-to-graph-to-crew-to-model-router cancellation and absolute-deadline propagation. Existing crew handoff tests cover independent review receipts and rejection.
 
 Rollback by reverting the root module, the dispatch token fence, AdaptiveRuntime/SDK integration, and the focused tests together. Retain existing task, plan, approval and recovery databases; no durable rows are rewritten or deleted.
 

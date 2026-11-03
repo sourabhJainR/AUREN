@@ -130,10 +130,17 @@ class AdaptiveRuntime:
         budget_resolver: Any,
         approval_resolver: Any,
         assignment_resolver: Any,
+        conflict_scope_verifier: Callable[[Mapping[str, Any], Mapping[str, tuple[str, ...]], str], bool] | None = None,
     ) -> Any:
-        """Install the trusted host resolvers before engineering-plan workers can dispatch."""
+        """Install host authority and conflict verification before engineering work starts.
+
+        When supplied, the conflict verifier is frozen on the canonical orchestrator.
+        When omitted, unresolved conflicts cannot use selective continuation.
+        """
         if self.trusted_plan_dispatch_root is not None:
             raise RuntimeError("trusted plan dispatch is already configured")
+        if conflict_scope_verifier is not None:
+            self.orchestrator.configure_conflict_scope_verifier(conflict_scope_verifier)
         from .trusted_plan_dispatch import TrustedPlanDispatchRoot
         self.trusted_plan_dispatch_root = TrustedPlanDispatchRoot(
             controller=self.execution_controller,
