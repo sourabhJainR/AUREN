@@ -3520,9 +3520,10 @@ class ExecutionController:
                     raise RuntimeError(
                         "assigned provider dispatch requires the host-configured shared team-budget enforcer"
                     )
-                if self._team_budget_enforcer is not None:
+                if principal_id is not None:
                     return self._team_budget_enforcer.execute(
                         "provider", provider_name, handler_payload, invoke_registered_provider,
+                        require_assignment_scope=True,
                     )
                 return invoke_registered_provider()
 
