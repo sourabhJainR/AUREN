@@ -126,6 +126,7 @@ class TrustedPlanApprovalPreflightTests(unittest.TestCase):
             assignment_resolver=self._assignment_resolver,
         )
 
+    # Approval must be recomputed before a resumed handler can perform any work.
     def test_approver_revocation_after_enqueue_blocks_fresh_process_preflight(self):
         approvals, request, record = self._approval(self.controller)
         guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
