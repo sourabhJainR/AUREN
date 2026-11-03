@@ -56,6 +56,8 @@ class TeamBudgetAdapterEnforcer:
         adapter_name: str,
         request: Mapping[str, Any],
         invoke: Callable[[], Any],
+        *,
+        require_assignment_scope: bool = False,
     ) -> Any:
         """Reserve before invoking; settle before returning a successful result.
 
@@ -71,8 +73,12 @@ class TeamBudgetAdapterEnforcer:
         if not isinstance(request, Mapping) or not callable(invoke):
             raise TypeError("request mapping and invoke callback are required")
 
+        if type(require_assignment_scope) is not bool:
+            raise TypeError("require_assignment_scope must be a boolean")
         principal_id = current_agent_assignment_principal_id()
         if principal_id is None:
+            if require_assignment_scope:
+                raise TeamBudgetAdapterDenied("active authenticated assignment context is required")
             return invoke()
 
         lookup = {
