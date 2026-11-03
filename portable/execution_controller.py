@@ -235,6 +235,18 @@ class ExecutionController:
               lease_generation INTEGER NOT NULL DEFAULT 0, lease_token TEXT,
               quota_provider TEXT, quota_reason TEXT, quota_attempts INTEGER NOT NULL DEFAULT 0,
               next_retry_at TEXT, quota_blocked INTEGER NOT NULL DEFAULT 0);
+            CREATE TABLE IF NOT EXISTS team_members(
+              task_id TEXT NOT NULL,
+              run_id TEXT NOT NULL,
+              member_id TEXT NOT NULL,
+              profile_id TEXT NOT NULL,
+              profile_revision INTEGER NOT NULL,
+              profile_digest TEXT NOT NULL,
+              state TEXT NOT NULL,
+              attempt INTEGER NOT NULL DEFAULT 0,
+              failure_digest TEXT,
+              updated_at TEXT NOT NULL,
+              PRIMARY KEY(task_id, run_id, member_id));
             CREATE TABLE IF NOT EXISTS graph_checkpoints(
               task_id TEXT PRIMARY KEY,
               envelope_json TEXT NOT NULL,
@@ -4125,6 +4137,127 @@ class ExecutionController:
                 (task_id,),
             ).fetchone()
         return DurableTask(row[0], row[1], json.loads(row[2]), row[3], int(row[4]), row[5], deadline_at=row[6]) if row else None
+
+
+    @staticmethod
+    def _validate_team_member_identity(
+        task_id: str, run_id: str, member_id: str, profile_id: str,
+        profile_revision: int, profile_digest: str,
+    ) -> None:
+        for name, value in (
+            ("task_id", task_id), ("run_id", run_id),
+            ("member_id", member_id), ("profile_id", profile_id),
+        ):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"team member {name} must be non-empty text")
+        if type(profile_revision) is not int or profile_revision < 1:
+            raise ValueError("team member profile_revision must be a positive integer")
+        if (
+            not isinstance(profile_digest, str) or len(profile_digest) != 64
+            or any(char not in "0123456789abcdef" for char in profile_digest)
+        ):
+            raise ValueError("team member profile_digest must be a lowercase SHA-256 digest")
+
+    def register_team_members(
+        self, task_id: str, run_id: str, members: list[Mapping[str, Any]],
+    ) -> tuple[dict[str, Any], ...]:
+        """Persist immutable profile-bound team membership before execution.
+
+        Repeating the same registration is idempotent. Reusing a member identity
+        with a different profile revision or digest is rejected.
+        """
+        if not isinstance(members, list) or not members or len(members) > 32:
+            raise ValueError("team members must contain between 1 and 32 entries")
+        normalized: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for member in members:
+            if not isinstance(member, Mapping):
+                raise ValueError("each team member must be a mapping")
+            member_id = member.get("member_id")
+            profile_id = member.get("profile_id")
+            revision = member.get("profile_revision")
+            digest = member.get("profile_digest")
+            self._validate_team_member_identity(task_id, run_id, member_id, profile_id, revision, digest)
+            if member_id in seen:
+                raise ValueError("team member IDs must be unique within a run")
+            seen.add(member_id)
+            normalized.append({
+                "task_id": task_id, "run_id": run_id, "member_id": member_id,
+                "profile_id": profile_id, "profile_revision": revision,
+                "profile_digest": digest,
+            })
+        now = _now()
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            for member in normalized:
+                prior = db.execute(
+                    "SELECT profile_id,profile_revision,profile_digest FROM team_members "
+                    "WHERE task_id=? AND run_id=? AND member_id=?",
+                    (task_id, run_id, member["member_id"]),
+                ).fetchone()
+                identity = (
+                    member["profile_id"], member["profile_revision"], member["profile_digest"],
+                )
+                if prior is None:
+                    db.execute(
+                        "INSERT INTO team_members(task_id,run_id,member_id,profile_id,"
+                        "profile_revision,profile_digest,state,attempt,updated_at) "
+                        "VALUES(?,?,?,?,?,?, 'pending',0,?)",
+                        (task_id, run_id, member["member_id"], member["profile_id"],
+                         member["profile_revision"], member["profile_digest"], now),
+                    )
+                elif tuple(prior) != identity:
+                    raise ValueError("durable team member profile identity conflict")
+        return self.team_members(task_id, run_id)
+
+    def transition_team_member(
+        self, task_id: str, run_id: str, member_id: str, *,
+        expected_state: str, new_state: str, failure_digest: str | None = None,
+    ) -> dict[str, Any]:
+        """Compare-and-set one durable member transition; terminal states cannot reopen."""
+        transitions = {
+            "pending": frozenset({"assigned", "cancelled", "blocked"}),
+            "assigned": frozenset({"running", "cancelled", "blocked"}),
+            "running": frozenset({"completed", "failed", "cancelled", "blocked"}),
+        }
+        if new_state not in transitions.get(expected_state, frozenset()):
+            raise ValueError("invalid or terminal team member lifecycle transition")
+        if failure_digest is not None and (
+            not isinstance(failure_digest, str) or len(failure_digest) != 64
+            or any(char not in "0123456789abcdef" for char in failure_digest)
+        ):
+            raise ValueError("failure_digest must be a lowercase SHA-256 digest")
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            cursor = db.execute(
+                "UPDATE team_members SET state=?,failure_digest=?,"
+                "attempt=attempt+CASE WHEN ?='assigned' AND state='failed' THEN 1 ELSE 0 END,"
+                "updated_at=? WHERE task_id=? AND run_id=? AND member_id=? AND state=?",
+                (new_state, failure_digest, new_state, _now(), task_id, run_id, member_id, expected_state),
+            )
+            if cursor.rowcount != 1:
+                row = db.execute(
+                    "SELECT state FROM team_members WHERE task_id=? AND run_id=? AND member_id=?",
+                    (task_id, run_id, member_id),
+                ).fetchone()
+                if row is None:
+                    raise KeyError((task_id, run_id, member_id))
+                raise ValueError(f"team member state changed; expected {expected_state}, found {row[0]}")
+        return next(row for row in self.team_members(task_id, run_id) if row["member_id"] == member_id)
+
+    def team_members(self, task_id: str, run_id: str) -> tuple[dict[str, Any], ...]:
+        """Read the supervisor-owned member snapshot in stable member-ID order."""
+        if not isinstance(task_id, str) or not task_id.strip() or not isinstance(run_id, str) or not run_id.strip():
+            raise ValueError("task_id and run_id are required")
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
+            db.row_factory = sqlite3.Row
+            rows = db.execute(
+                "SELECT task_id,run_id,member_id,profile_id,profile_revision,profile_digest,"
+                "state,attempt,failure_digest,updated_at FROM team_members "
+                "WHERE task_id=? AND run_id=? ORDER BY member_id",
+                (task_id, run_id),
+            ).fetchall()
+        return tuple(dict(row) for row in rows)
 
     def queue_admission_snapshot(self) -> dict[str, Any]:
         """Return the persisted pending-queue policy and current durable occupancy."""
