@@ -324,6 +324,21 @@ class TrustedPlanDispatchRoot:
             "dispatch_key": dispatch_key, "deadline_seconds": deadline_seconds,
             "payload": safe_payload, "packet": packet,
         })
+        # Assignment authorization is a host callback and may take time. Recheck
+        # cancellation and the absolute deadline after it returns, before the
+        # dispatch transaction can create a work unit or queue row.
+        guard.check()
+        post_assignment_snapshot = guard.snapshot()
+        RuntimeExecutionGuard.resume(post_assignment_snapshot)
+        remaining_after_assignment = post_assignment_snapshot.get("remaining_seconds")
+        if remaining_after_assignment is not None and (
+            isinstance(remaining_after_assignment, bool)
+            or not isinstance(remaining_after_assignment, (int, float))
+            or not math.isfinite(remaining_after_assignment)
+            or remaining_after_assignment <= 0
+            or (deadline_seconds is not None and deadline_seconds > remaining_after_assignment)
+        ):
+            raise PermissionError("canonical supervisor deadline changed or expired during assignment authorization")
         safe_payload["_auren_agent_assignment"] = assignment
         return EngineeringPlanDispatch(
             store=self.store, controller=self.controller, recovery_bridge=self.recovery_bridge,
