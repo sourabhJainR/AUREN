@@ -243,7 +243,6 @@ class ExecutionController:
               profile_revision INTEGER NOT NULL,
               profile_digest TEXT NOT NULL,
               state TEXT NOT NULL,
-              attempt INTEGER NOT NULL DEFAULT 0,
               failure_digest TEXT,
               updated_at TEXT NOT NULL,
               PRIMARY KEY(task_id, run_id, member_id));
@@ -4186,9 +4185,21 @@ class ExecutionController:
                 "profile_id": profile_id, "profile_revision": revision,
                 "profile_digest": digest,
             })
+        # Resolve every profile against the trusted registry. A syntactically valid
+        # digest supplied by a caller is not evidence that the profile exists.
+        from .agent_profiles import resolve_agent_profile
+        for member in normalized:
+            profile = resolve_agent_profile(
+                member["profile_id"], revision=member["profile_revision"],
+            )
+            if profile.digest != member["profile_digest"]:
+                raise ValueError("team member profile digest does not match the trusted registry")
         now = _now()
         with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
+            task_row = db.execute("SELECT id FROM tasks WHERE id=?", (task_id,)).fetchone()
+            if task_row is None:
+                raise KeyError(f"durable task does not exist: {task_id}")
             for member in normalized:
                 prior = db.execute(
                     "SELECT profile_id,profile_revision,profile_digest FROM team_members "
@@ -4201,8 +4212,8 @@ class ExecutionController:
                 if prior is None:
                     db.execute(
                         "INSERT INTO team_members(task_id,run_id,member_id,profile_id,"
-                        "profile_revision,profile_digest,state,attempt,updated_at) "
-                        "VALUES(?,?,?,?,?,?, 'pending',0,?)",
+                        "profile_revision,profile_digest,state,updated_at) "
+                        "VALUES(?,?,?,?,?,?, 'pending',?)",
                         (task_id, run_id, member["member_id"], member["profile_id"],
                          member["profile_revision"], member["profile_digest"], now),
                     )
@@ -4252,7 +4263,7 @@ class ExecutionController:
             db.row_factory = sqlite3.Row
             rows = db.execute(
                 "SELECT task_id,run_id,member_id,profile_id,profile_revision,profile_digest,"
-                "state,attempt,failure_digest,updated_at FROM team_members "
+                "state,failure_digest,updated_at FROM team_members "
                 "WHERE task_id=? AND run_id=? ORDER BY member_id",
                 (task_id, run_id),
             ).fetchall()
