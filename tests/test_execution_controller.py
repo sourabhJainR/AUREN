@@ -2456,7 +2456,7 @@ def test_durable_team_member_lifecycle_is_profile_bound_and_resumes_after_restar
     )
     assert running["state"] == "running"
     completed = restarted.transition_team_member(
-        "task-team-1", "run-1", "implementer",
+        task.id, "run-1", "implementer",
         expected_state="running", new_state="completed",
     )
     assert completed["state"] == "completed"
