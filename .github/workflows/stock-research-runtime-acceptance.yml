@@ -6,6 +6,9 @@ on:
     paths:
       - ".dockerignore"
       - ".github/workflows/stock-research-runtime-acceptance.yml"
+      - "portable/orchestration.py"
+      - "portable/state_graph.py"
+      - "tests/test_orchestration.py"
       - "tests/test_stock_research_runtime_acceptance.py"
       - "tests/stock_research/**"
       - "portable/adaptive_runtime.py"
@@ -19,6 +22,9 @@ on:
     paths:
       - ".dockerignore"
       - ".github/workflows/stock-research-runtime-acceptance.yml"
+      - "portable/orchestration.py"
+      - "portable/state_graph.py"
+      - "tests/test_orchestration.py"
       - "tests/test_stock_research_runtime_acceptance.py"
       - "tests/stock_research/**"
       - "portable/adaptive_runtime.py"
