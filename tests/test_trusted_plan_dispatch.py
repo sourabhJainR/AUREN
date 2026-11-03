@@ -518,7 +518,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         root = self._root(self.controller, approvals, request, record, guard, context=self.context)
         task = root.dispatch(
             run_id=self.plan.run_id, task_id="implement", dispatch_key="resume-root-required",
-            handler="dispatch-test", packet=self.packet, payload={"change": "small"},
+            handler="dispatch-test", packet=self.packet, payload={"resource": "tests", "change": "small"},
         )
         token = self.controller._trusted_plan_dispatch_token
         # Simulate a fresh low-level controller: no in-memory root-required flag
@@ -537,7 +537,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         root = self._root(self.controller, approvals, request, record, guard, context=self.context)
         task = root.dispatch(
             run_id=self.plan.run_id, task_id="implement", dispatch_key="trusted-preflight",
-            handler="dispatch-test", packet=self.packet, payload={"change": "small"},
+            handler="dispatch-test", packet=self.packet, payload={"resource": "tests", "change": "small"},
         )
 
         # The real controller preflight must reproduce the root's full binding,
