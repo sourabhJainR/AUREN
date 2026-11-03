@@ -148,6 +148,24 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         with sqlite3.connect(self.controller.db_path) as db:
             self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
 
+    def test_missing_or_conflicting_resource_selectors_are_denied_before_queue_insertion(self):
+        approvals, request, record = self._approval(self.controller, context=self.context)
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        root = self._root(self.controller, approvals, request, record, guard, context=self.context)
+        with self.assertRaisesRegex(PermissionError, "explicit resource"):
+            root.dispatch(
+                run_id=self.plan.run_id, task_id="implement", dispatch_key="missing-resource",
+                handler="dispatch-test", packet=self.packet, payload={"change": "small"},
+            )
+        with self.assertRaisesRegex(PermissionError, "outside the host-authorized assignment scope"):
+            root.dispatch(
+                run_id=self.plan.run_id, task_id="implement", dispatch_key="conflicting-resource-alias",
+                handler="dispatch-test", packet=self.packet,
+                payload={"resource": "tests", "path": "secrets"},
+            )
+        with sqlite3.connect(self.controller.db_path) as db:
+            self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
+
     def test_assignment_policy_drift_cannot_replay_an_existing_dispatch(self):
         from portable.engineering_plan_dispatch import DispatchConflict
         approvals, request, record = self._approval(self.controller, context=self.context)
@@ -243,10 +261,15 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             },
             assignment_resolver=self._assignment_resolver,
         )
+        DISPATCH_HANDLER_CALLS.clear()
         with self.assertRaisesRegex(EngineeringPlanCheckpointMismatch, "revoked"):
             fresh_controller._verify_engineering_plan_dispatch_checkpoint(
                 fresh_controller.task(task.id)
             )
+        with self.assertRaisesRegex(EngineeringPlanCheckpointMismatch, "revoked"):
+            fresh_controller.run_once(task.id)
+        self.assertEqual("failed", fresh_controller.task(task.id).state)
+        self.assertEqual([], DISPATCH_HANDLER_CALLS)
 
     def test_assigned_plan_task_runs_through_full_controller_preflight(self):
         approvals, request, record = self._approval(self.controller, context=self.context)
