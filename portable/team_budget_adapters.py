@@ -140,10 +140,18 @@ class TeamBudgetAdapterEnforcer:
             usage_evidence = self.usage_evidence_resolver(evidence_request)
             if not isinstance(usage_evidence, Mapping) or not usage_evidence:
                 raise ValueError("host usage evidence is missing")
-            self.controller.settle_team_budget(
+            settlement = self.controller.settle_team_budget(
                 context["task_id"], context["run_id"], context["operation_key"],
                 usage_evidence=usage_evidence,
             )
+            if not isinstance(settlement, Mapping) or settlement.get("state") != "settled":
+                if isinstance(settlement, Mapping) and settlement.get("state") == "overrun":
+                    raise TeamBudgetAdapterDenied(
+                        "trusted usage exceeded the reservation; operation is overrun and the member is blocked"
+                    )
+                raise ValueError("trusted usage settlement did not reach the settled state")
+        except TeamBudgetAdapterDenied:
+            raise
         except Exception as exc:
             raise TeamBudgetAdapterDenied(
                 "adapter returned but trusted usage settlement failed; reservation remains held"
