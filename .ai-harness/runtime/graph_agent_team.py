@@ -138,13 +138,14 @@ class ResourceDecision:
 
 class SharedTaskMemory:
     """Run-scoped working memory with hard entry/size limits and cross-process writes."""
-    def __init__(self,path:Path,intent_digest:str,*,max_entries:int=256,max_chars:int=200_000,context_policy:ContextPolicy|None=None)->None:
+    def __init__(self,path:Path,intent_digest:str,*,project_root:Path|None=None,max_entries:int=256,max_chars:int=200_000,context_policy:ContextPolicy|None=None)->None:
         if max_entries<1 or max_chars<1: raise ValueError("memory budgets must be positive")
         self.path=Path(path); self.intent_digest=intent_digest; self.max_entries=max_entries; self.max_chars=max_chars
+        self._project_root=Path(project_root).resolve() if project_root is not None else self.path.parent.parent
         self.context=ContextEngine(context_policy); self._lock=threading.RLock(); self._process_lock=self.path.with_suffix(self.path.suffix+".lock")
         self.path.parent.mkdir(parents=True,exist_ok=True)
     @property
-    def project_root(self)->Path: return self.path.parent.parent
+    def project_root(self)->Path: return self._project_root
     @staticmethod
     def _size(rows): return sum(len(json.dumps(r,ensure_ascii=False,sort_keys=True))+1 for r in rows)
     def publish(self,*,agent,role,kind,text,evidence=None,confidence=0.0)->str:
