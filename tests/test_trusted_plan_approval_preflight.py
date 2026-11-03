@@ -98,7 +98,11 @@ class TrustedPlanApprovalPreflightTests(unittest.TestCase):
             manager_id="EM-ENG-01",
             action_class="edit_assigned_paths",
             scope=self.assignment_scope,
-            authorizer=lambda request: request.get("scope") == self.assignment_scope,
+            principal_id="worker-1",
+            authorizer=lambda request: (
+                request.get("principal_id") == "worker-1"
+                and request.get("scope") == self.assignment_scope
+            ),
             policy_path=self.assignment_policy_path,
             work_key=context["dispatch_key"],
             task_payload=context["payload"],
