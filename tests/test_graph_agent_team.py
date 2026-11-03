@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 HARNESS = ROOT / ".ai-harness"
 sys.path.insert(0, str(HARNESS))
 
-from runtime.graph_agent_team import AgentSpec, GraphAgentTeam, SharedTaskMemory, team_for_route
+from runtime.graph_agent_team import AgentSpec, GraphAgentTeam, SharedTaskMemory, _profile_memory_run_id, team_for_route
 
 
 def principle_verification_receipt(intent_digest: str, code_revision: str) -> dict[str, object]:
@@ -40,6 +40,21 @@ def principle_verification_receipt(intent_digest: str, code_revision: str) -> di
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
     return payload
+
+
+class ProfileMemoryRunIdentityTests(unittest.TestCase):
+    def test_default_graph_label_falls_back_to_intent_digest(self):
+        self.assertEqual(_profile_memory_run_id("graph-agent-team", "intent-a"), "intent-a")
+
+    def test_durable_supervisor_identity_takes_precedence(self):
+        self.assertEqual(_profile_memory_run_id("graph-agent-team", "intent-a", "task-123"), "task-123")
+
+    def test_explicit_non_default_run_id_is_preserved(self):
+        self.assertEqual(_profile_memory_run_id("run-456", "intent-a"), "run-456")
+
+    def test_missing_fallback_identity_fails_closed(self):
+        with self.assertRaises(ValueError):
+            _profile_memory_run_id("graph-agent-team", "")
 
 
 class AdaptiveResourceHandlingTests(unittest.TestCase):
