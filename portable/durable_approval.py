@@ -701,6 +701,41 @@ class DurableApprovalStore:
             if row["status"] != "approved":
                 db.rollback()
                 raise InvalidApprovalTransition(f"approval is {row['status']}, not approved")
+            # Reauthorize the recorded voters at the operation-claim boundary.
+            # A vote that was valid yesterday must not authorize an effect after
+            # its manager loses the required role, scope, or host trust.
+            if self.approver_authorizer is None:
+                db.rollback()
+                raise PermissionError("trusted approver authorization is not configured at execution")
+            vote_rows = db.execute(
+                "SELECT approver_id,decision,roles_json,scope FROM durable_approval_decisions "
+                "WHERE approval_id=? AND decision='approve' ORDER BY approver_id",
+                (approval_id,),
+            ).fetchall()
+            if len(vote_rows) < int(row["required_approvals"]):
+                db.rollback()
+                raise PermissionError("durable approval vote threshold is not met at execution")
+            for vote in vote_rows:
+                approver_id = vote["approver_id"]
+                roles = tuple(json.loads(vote["roles_json"]))
+                if (
+                    row["separation_of_duties"] and approver_id == row["requester_id"]
+                ):
+                    db.rollback()
+                    raise PermissionError("requester self-approval is not permitted at execution")
+                if row["required_role"] not in roles or vote["scope"] != row["scope"]:
+                    db.rollback()
+                    raise PermissionError("approval vote role or scope no longer matches the operation")
+                try:
+                    authorized = self.approver_authorizer(
+                        approver_id, row["required_role"], row["scope"], roles
+                    )
+                except Exception as exc:
+                    db.rollback()
+                    raise PermissionError("trusted approver authorization failed closed at execution") from exc
+                if authorized is not True:
+                    db.rollback()
+                    raise PermissionError("approver authority was revoked before operation claim")
             try:
                 self._assert_binding(_record(row), request, artifact_digest=artifact_digest,
                                      evidence_digest=evidence_digest, policy_digest=policy_digest)
