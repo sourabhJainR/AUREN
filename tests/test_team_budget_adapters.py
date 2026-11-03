@@ -121,6 +121,38 @@ def test_provider_and_mcp_tool_calls_share_one_durable_budget(tmp_path: Path):
     assert controller.unresolved_team_budget_operations(task_id, "run-acceptance") == ()
 
 
+def test_adapter_replay_cannot_reinvoke_an_unresolved_operation(tmp_path: Path):
+    controller = ExecutionController(
+        tmp_path,
+        team_budget_settlement_verifier=lambda receipt: receipt["usage_evidence"],
+    )
+    task = _team(controller, tmp_path)
+    enforcer = TeamBudgetAdapterEnforcer(
+        controller,
+        context_resolver=lambda request: {
+            "task_id": task,
+            "run_id": "run-acceptance",
+            "member_id": request["principal_id"],
+            "principal_id": request["principal_id"],
+            "operation_key": "same-operation",
+            "tokens": 100,
+            "tool_calls": 1,
+            "wall_seconds": 30,
+        },
+        usage_evidence_resolver=lambda _request: {
+            "tokens": 1, "tool_calls": 1, "wall_seconds": 1,
+        },
+    )
+    calls = []
+    with agent_assignment_scope(
+        ("src/app.py",), role_id="BE-01", principal_id="implementer",
+    ):
+        enforcer.execute("provider", "provider-a", {}, lambda: calls.append("first") or {"ok": True})
+        with pytest.raises(TeamBudgetAdapterDenied, match="shared team budget denied adapter dispatch"):
+            enforcer.execute("provider", "provider-a", {}, lambda: calls.append("replay") or {"ok": True})
+    assert calls == ["first"]
+
+
 def test_assigned_mcp_call_without_budget_mediation_is_denied_before_launch(tmp_path: Path):
     adapter = _StubMCPAdapter()
     with agent_assignment_scope(
