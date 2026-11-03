@@ -126,11 +126,55 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
     def test_declared_plan_owner_must_match_host_authorized_role_before_queue_insert(self):
         approvals, request, record = self._approval(self.controller, context=self.context)
         guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
-        self.assignment_role_id = "QA-01"
+        self.assignment_role_id = "FE-01"
         root = self._root(self.controller, approvals, request, record, guard, context=self.context)
         with self.assertRaisesRegex(PermissionError, "does not match the declared plan task owner"):
             root.dispatch(
                 run_id=self.plan.run_id, task_id="implement", dispatch_key="owner-role-mismatch",
+                handler="dispatch-test", packet=self.packet, payload={"resource": "tests"},
+            )
+        with sqlite3.connect(self.controller.db_path) as db:
+            self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
+
+    def test_ownerless_legacy_plan_task_is_denied_before_queue_insert(self):
+        approvals, request, record = self._approval(self.controller, context=self.context)
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        from portable.engineering_plan import EngineeringPlan, PlanTask, new_plan_run
+        from portable.engineering_plan_store import EngineeringPlanStore
+        from portable.engineering_plan_recovery import EngineeringPlanRecoveryBridge
+        from portable.engineering_recovery import EngineeringRecoveryLedger
+        ownerless_tasks = tuple(
+            PlanTask(
+                item.task_id, item.title, item.acceptance_criteria, item.rollback_plan,
+                depends_on=item.depends_on, risk=item.risk,
+            ) for item in self.plan.tasks
+        )
+        ownerless_plan = EngineeringPlan(
+            run_id=self.plan.run_id, goal=self.plan.goal, requirements=self.plan.requirements,
+            tasks=ownerless_tasks, source_revision=self.plan.source_revision,
+            policy_digest=self.plan.policy_digest, budget=self.plan.budget,
+        )
+        ownerless_store = EngineeringPlanStore(self.temp.name + "/ownerless-plans.sqlite3")
+        ownerless_store.create(ownerless_plan, new_plan_run(ownerless_plan))
+        ownerless_bridge = EngineeringPlanRecoveryBridge(
+            store=ownerless_store,
+            ledger=EngineeringRecoveryLedger(Path(self.temp.name) / "ownerless-recovery.sqlite3"),
+        )
+        root = TrustedPlanDispatchRoot(
+            controller=self.controller, store=ownerless_store, recovery_bridge=ownerless_bridge,
+            approval_store=approvals,
+            budget_resolver=lambda run_id, task_id, handler: {
+                "budget_id": "crew:team-a:run-1", "guard": guard,
+                "checkpoint_digest": guard.snapshot()["digest"], "policy_digest": "a" * 64,
+            },
+            approval_resolver=lambda run_id, task_id, handler: {
+                "approval_id": record.approval_id, "request": request,
+            },
+            assignment_resolver=self._assignment_resolver,
+        )
+        with self.assertRaisesRegex(PermissionError, "must declare an immutable owner_role_id"):
+            root.dispatch(
+                run_id=ownerless_plan.run_id, task_id="implement", dispatch_key="ownerless-plan-task",
                 handler="dispatch-test", packet=self.packet, payload={"resource": "tests"},
             )
         with sqlite3.connect(self.controller.db_path) as db:
