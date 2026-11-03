@@ -14,6 +14,7 @@ from pathlib import PurePosixPath
 from typing import Any, Callable, Mapping
 
 from .action_governance import ActionRequest
+from .agent_profiles import profile_binding, resolve_agent_profile, validate_profile_binding
 from .durable_approval import DurableApprovalStore
 from .engineering_context_packet import EngineeringContextPacket
 from .engineering_plan_dispatch import EngineeringPlanDispatch
@@ -306,6 +307,18 @@ class TrustedPlanDispatchRoot:
             raise PermissionError("host agent assignment authorization failed closed") from exc
         if not isinstance(assignment, AuthorizedAgentAssignment):
             raise PermissionError("host assignment resolver must return AuthorizedAgentAssignment")
+        task_payload = context.get("payload")
+        profile_metadata = task_payload.get("_auren_agent_profile") if isinstance(task_payload, Mapping) else None
+        if profile_metadata is not None:
+            try:
+                validate_profile_binding(
+                    profile_metadata,
+                    role_id=assignment.role_id,
+                    manager_role_id=assignment.manager_id,
+                    action_class=assignment.action_class,
+                )
+            except Exception as exc:
+                raise PermissionError("agent profile does not match the trusted assignment") from exc
         # A host-authorized assignment is not enough on its own: it must match
         # the immutable owner and manager declared by this exact plan task.
         run_id = context.get("run_id")
@@ -428,12 +441,21 @@ class TrustedPlanDispatchRoot:
         payload: Mapping[str, Any] | None = None,
         goal: str | None = None,
         deadline_seconds: float | None = None,
+        profile_id: str | None = None,
+        profile_revision: int | None = None,
     ):
         if payload is not None and not isinstance(payload, Mapping):
             raise ValueError("dispatch payload must be a mapping")
         safe_payload = dict(payload or {})
-        if "_auren_agent_assignment" in safe_payload or "_auren_assignment_deadline_seconds" in safe_payload:
-            raise ValueError("trusted assignment metadata keys are reserved for the host")
+        if any(key in safe_payload for key in (
+            "_auren_agent_assignment", "_auren_assignment_deadline_seconds", "_auren_agent_profile",
+        )):
+            raise ValueError("trusted assignment and profile metadata keys are reserved for the host")
+        if (profile_id is None) != (profile_revision is None):
+            raise ValueError("profile_id and profile_revision must be supplied together")
+        if profile_id is not None:
+            profile = resolve_agent_profile(profile_id, revision=profile_revision)
+            safe_payload["_auren_agent_profile"] = profile_binding(profile)
         supplied_work_key = safe_payload.get("work_key")
         if supplied_work_key is not None and supplied_work_key != dispatch_key:
             raise PermissionError("payload work_key differs from the trusted dispatch identity")
