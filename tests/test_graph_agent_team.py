@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 HARNESS = ROOT / ".ai-harness"
 sys.path.insert(0, str(HARNESS))
 
-from runtime.graph_agent_team import AgentSpec, GraphAgentTeam, SharedTaskMemory, team_for_route
+from runtime.graph_agent_team import AgentSpec, GraphAgentTeam, SharedTaskMemory, _profile_memory_run_id, team_for_route
 
 
 def principle_verification_receipt(intent_digest: str, code_revision: str) -> dict[str, object]:
@@ -40,6 +40,21 @@ def principle_verification_receipt(intent_digest: str, code_revision: str) -> di
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
     return payload
+
+
+class ProfileMemoryRunIdentityTests(unittest.TestCase):
+    def test_default_graph_label_falls_back_to_intent_digest(self):
+        self.assertEqual(_profile_memory_run_id("graph-agent-team", "intent-a"), "intent-a")
+
+    def test_durable_supervisor_identity_takes_precedence(self):
+        self.assertEqual(_profile_memory_run_id("graph-agent-team", "intent-a", "task-123"), "task-123")
+
+    def test_explicit_non_default_run_id_is_preserved(self):
+        self.assertEqual(_profile_memory_run_id("run-456", "intent-a"), "run-456")
+
+    def test_missing_fallback_identity_fails_closed(self):
+        with self.assertRaises(ValueError):
+            _profile_memory_run_id("graph-agent-team", "")
 
 
 class AdaptiveResourceHandlingTests(unittest.TestCase):
@@ -94,6 +109,45 @@ class AdaptiveResourceHandlingTests(unittest.TestCase):
 
 
 class GraphAgentTeamTests(unittest.TestCase):
+    def test_shared_task_memory_preserves_explicit_repository_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repository"
+            run_dir = root / ".ai-harness" / "runs" / "run-1"
+            run_dir.mkdir(parents=True)
+            memory = SharedTaskMemory(
+                run_dir / "graph-team-memory.jsonl",
+                "a" * 64,
+                project_root=root,
+            )
+            self.assertEqual(root.resolve(), memory.project_root)
+
+    def test_profile_bound_agent_uses_isolated_private_memory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            team = GraphAgentTeam([
+                AgentSpec(
+                    "builder", "builder",
+                    profile_id="backend_implementer",
+                    profile_revision=1,
+                ),
+            ])
+            agent = team.agents["builder"]
+            memory = team._private_memory(Path(tmp), agent, "run-profile-memory")
+            self.assertEqual(memory.profile_id, "backend_implementer")
+            memory.remember("private builder context")
+
+            resumed = team._private_memory(Path(tmp), agent, "run-profile-memory")
+            other_run = team._private_memory(Path(tmp), agent, "different-run")
+            self.assertEqual(resumed.read(), "private builder context")
+            self.assertEqual(other_run.read(), "")
+
+    def test_graph_agent_rejects_partial_or_unknown_profile_binding(self):
+        with self.assertRaises(ValueError):
+            GraphAgentTeam([AgentSpec("builder", "builder", profile_id="backend_implementer")])
+        with self.assertRaises(ValueError):
+            GraphAgentTeam([
+                AgentSpec("builder", "builder", profile_id="missing_profile", profile_revision=1),
+            ])
+
     def test_resume_migrates_legacy_checkpoint_keys_before_runtime_reads_and_writes(self):
         with tempfile.TemporaryDirectory() as tmp:
             checkpoint = InMemoryCheckpointStore()
