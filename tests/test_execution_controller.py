@@ -2616,6 +2616,10 @@ def test_shared_team_budget_overrun_is_recorded_and_blocks_member(tmp_path: Path
     member = controller.team_members(task_id, "run-1")[0]
     assert member["state"] == "blocked"
     assert member["failure_digest"]
+    replayed = controller.reserve_team_budget(
+        task_id, "run-1", "implementer", "overrun-op", tokens=10,
+    )
+    assert replayed["state"] == "overrun"
 
 
 def test_shared_team_concurrency_is_bounded_by_supervisor(tmp_path: Path):
