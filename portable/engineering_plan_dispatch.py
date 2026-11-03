@@ -144,10 +144,11 @@ class EngineeringPlanDispatch:
             return None
         if not isinstance(value, Mapping):
             raise ValueError('approval_evidence must be a mapping')
-        required = {'approval_id', 'receipt_digest', 'evidence_digest', 'policy_digest', 'approver_id', 'approver_role', 'implementer_principal_id', 'decision'}
-        if not required.issubset(value) or value.get('decision') != 'approved':
+        required = {'approval_id', 'receipt_digest', 'evidence_digest', 'policy_digest', 'approver_id', 'approver_role', 'decision'}
+        allowed = required | {'implementer_principal_id'}
+        if not required.issubset(value) or not set(value).issubset(allowed) or value.get('decision') != 'approved':
             raise ValueError('approval evidence must be a complete approved durable receipt')
-        result = {name: value[name] for name in required}
+        result = {name: value[name] for name in value}
         for name in required - {'decision'}:
             if not isinstance(result[name], str) or not result[name].strip():
                 raise ValueError('approval evidence fields must be non-empty text')
@@ -296,6 +297,12 @@ class EngineeringPlanDispatch:
         assignment_binding = self._normalize_assignment_evidence(assignment_evidence)
         if root_required and assignment_binding is None:
             raise PermissionError("trusted plan dispatch requires a host-authorized specialist assignment")
+        if root_required and approval_binding is not None and (
+            "implementer_principal_id" not in approval_binding
+            or not isinstance(approval_binding["implementer_principal_id"], str)
+            or not approval_binding["implementer_principal_id"].strip()
+        ):
+            raise PermissionError("trusted approval evidence must bind the authenticated implementer principal")
 
         # A retry must be able to retrieve its original task after the plan has
         # advanced. Validate the immutable packet/plan binding first, but do not
