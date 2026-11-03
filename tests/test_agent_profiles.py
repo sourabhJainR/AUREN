@@ -68,6 +68,16 @@ class AgentProfileRegistryTests(unittest.TestCase):
             with self.assertRaisesRegex(AgentProfileError, "unknown canonical role"):
                 load_agent_profile_registry(path, organization_registry_path=ROLE_PATH)
 
+
+    def test_manager_hierarchy_mismatch_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "profiles.json"
+            data = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
+            data["profiles"][0]["manager_role_id"] = "CTO-01"
+            path.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaisesRegex(AgentProfileError, "manager_role_id"):
+                load_agent_profile_registry(path, organization_registry_path=ROLE_PATH)
+
     def test_invalid_budget_and_unbounded_deadline_are_rejected(self):
         for field, value in (("budget_defaults", {"max_tokens": -1, "max_tool_calls": 1, "max_wall_seconds": 1}),
                              ("deadline_seconds", 90000)):
