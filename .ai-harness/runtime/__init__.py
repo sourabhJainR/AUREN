@@ -479,7 +479,7 @@ def _install_graph_team_bridge() -> None:
                 task_id=supervisor_task_id, task=task,
             )
             team = _phase_team(route, phase, (AgentSpec, GraphAgentTeam))
-            memory = SharedTaskMemory(run_dir / "graph-team-memory.jsonl", intent_digest)
+            memory = SharedTaskMemory(run_dir / "graph-team-memory.jsonl", intent_digest, project_root=project_root)
             started = engine.time.monotonic()
 
             def invoke_agent(agent, prompt):
