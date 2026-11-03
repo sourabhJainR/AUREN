@@ -17,6 +17,7 @@ from typing import Any, Callable, Iterator, Mapping
 from .agent_org_runtime import REGISTRY_PATH, load_agent_org_registry
 
 _SCHEMA = "auren-agent-assignment-v3"
+_SCHEMA_WITH_PRINCIPAL = "auren-agent-assignment-v4"
 _ASSIGNMENT_KEY = "_auren_agent_assignment"
 _MAX_SCOPE_ITEMS = 100
 _MAX_SCOPE_LENGTH = 512
@@ -25,6 +26,9 @@ _ACTIVE_ASSIGNMENT_SCOPE: ContextVar[tuple[str, ...] | None] = ContextVar(
 )
 _ACTIVE_ASSIGNMENT_ROLE: ContextVar[str | None] = ContextVar(
     "auren_active_agent_assignment_role", default=None
+)
+_ACTIVE_ASSIGNMENT_PRINCIPAL: ContextVar[str | None] = ContextVar(
+    "auren_active_agent_assignment_principal", default=None
 )
 
 
@@ -82,13 +86,26 @@ def validate_agent_assignment_for_dispatch(
         raise AgentAssignmentScopeDenied(
             "legacy agent assignment requires reauthorization under the current Guard policy"
         )
-    required = {
+    base_required = {
         "schema_version", "assignment_id", "role_id", "manager_id", "action_class",
         "scope", "registry_digest", "policy_version", "policy_digest",
         "assignment_digest", "work_key", "task_payload_digest", "deadline_seconds", "authorization",
     }
-    if set(envelope) != required or envelope.get("schema_version") != _SCHEMA:
+    schema = envelope.get("schema_version")
+    if schema == _SCHEMA:
+        required = base_required
+    elif schema == _SCHEMA_WITH_PRINCIPAL:
+        required = base_required | {"principal_id"}
+    else:
         raise AgentAssignmentScopeDenied("agent assignment schema is invalid")
+    if set(envelope) != required:
+        raise AgentAssignmentScopeDenied("agent assignment schema is invalid")
+    principal_id = envelope.get("principal_id") if schema == _SCHEMA_WITH_PRINCIPAL else None
+    if schema == _SCHEMA_WITH_PRINCIPAL and (
+        not isinstance(principal_id, str) or not principal_id.strip()
+        or len(principal_id) > 256 or not principal_id.isprintable()
+    ):
+        raise AgentAssignmentScopeDenied("agent assignment principal identity is invalid")
     if envelope.get("authorization") != "host_authorized_before_submission":
         raise AgentAssignmentScopeDenied("agent assignment authorization marker is invalid")
     role_id, manager_id, action_class = (
@@ -183,7 +200,7 @@ def validate_agent_assignment_for_dispatch(
         raise AgentAssignmentScopeDenied("assignment deadline policy is invalid")
 
     body = {
-        "schema_version": _SCHEMA,
+        "schema_version": schema,
         "role_id": role_id,
         "manager_id": manager_id,
         "action_class": action_class,
@@ -195,6 +212,8 @@ def validate_agent_assignment_for_dispatch(
         "task_payload_digest": task_payload_digest,
         "deadline_seconds": assigned_deadline,
     }
+    if principal_id is not None:
+        body["principal_id"] = principal_id
     digest = hashlib.sha256(_canonical(body)).hexdigest()
     if envelope.get("assignment_digest") != digest:
         raise AgentAssignmentScopeDenied("agent assignment digest does not match its contents")
@@ -219,8 +238,8 @@ def validate_agent_assignment_for_dispatch(
         raise AgentAssignmentScopeDenied("task resource is outside the assigned scope")
     if not callable(authorization_verifier):
         raise AgentAssignmentScopeDenied("host-owned assignment authorization verifier is required")
-    verification_request = MappingProxyType({
-        "schema_version": _SCHEMA,
+    verification_payload = {
+        "schema_version": schema,
         "assignment_id": envelope["assignment_id"],
         "role_id": role_id,
         "manager_id": manager_id,
@@ -233,7 +252,10 @@ def validate_agent_assignment_for_dispatch(
         "work_key": work_key,
         "task_payload_digest": task_payload_digest,
         "deadline_seconds": assigned_deadline,
-    })
+    }
+    if principal_id is not None:
+        verification_payload["principal_id"] = principal_id
+    verification_request = MappingProxyType(verification_payload)
     try:
         authorized = authorization_verifier(verification_request)
     except Exception as exc:
@@ -261,21 +283,31 @@ def deny_unscoped_subprocess_for_assigned_agent() -> None:
 @contextmanager
 def agent_assignment_scope(
     scope: tuple[str, ...] | None, *, role_id: str | None = None,
+    principal_id: str | None = None,
 ) -> Iterator[None]:
-    """Bind verified scope and role identity; an active assignment cannot widen or change it."""
+    """Bind verified scope, role and principal; nested work cannot replace identity."""
     active_scope = _ACTIVE_ASSIGNMENT_SCOPE.get()
     active_role = _ACTIVE_ASSIGNMENT_ROLE.get()
-    if active_scope is not None and (scope != active_scope or role_id != active_role):
+    active_principal = _ACTIVE_ASSIGNMENT_PRINCIPAL.get()
+    if active_scope is not None and (
+        scope != active_scope or role_id != active_role or principal_id != active_principal
+    ):
         raise AgentAssignmentScopeDenied(
-            "an assigned handler cannot replace its active role identity or resource scope"
+            "an assigned handler cannot replace its active principal, role identity or resource scope"
         )
-    if scope is None and role_id is not None:
-        raise AgentAssignmentScopeDenied("an active agent role requires a verified assignment scope")
+    if scope is None and (role_id is not None or principal_id is not None):
+        raise AgentAssignmentScopeDenied("an active agent identity requires a verified assignment scope")
+    if principal_id is not None and (
+        not isinstance(principal_id, str) or not principal_id.strip() or len(principal_id) > 256
+    ):
+        raise AgentAssignmentScopeDenied("active assignment principal identity is invalid")
     scope_token: Token[tuple[str, ...] | None] = _ACTIVE_ASSIGNMENT_SCOPE.set(scope)
     role_token: Token[str | None] = _ACTIVE_ASSIGNMENT_ROLE.set(role_id)
+    principal_token: Token[str | None] = _ACTIVE_ASSIGNMENT_PRINCIPAL.set(principal_id)
     try:
         yield
     finally:
+        _ACTIVE_ASSIGNMENT_PRINCIPAL.reset(principal_token)
         _ACTIVE_ASSIGNMENT_ROLE.reset(role_token)
         _ACTIVE_ASSIGNMENT_SCOPE.reset(scope_token)
 
@@ -290,6 +322,11 @@ def current_agent_assignment_role() -> str | None:
     return _ACTIVE_ASSIGNMENT_ROLE.get()
 
 
+def current_agent_assignment_principal_id() -> str | None:
+    """Return the host-authenticated principal installed by the active dispatch."""
+    return _ACTIVE_ASSIGNMENT_PRINCIPAL.get()
+
+
 def enforce_agent_resource_scope(relative_path: Any) -> None:
     """Deny guarded filesystem access outside the current verified assignment."""
     active = _ACTIVE_ASSIGNMENT_SCOPE.get()
@@ -302,7 +339,8 @@ def enforce_agent_resource_scope(relative_path: Any) -> None:
 
 __all__ = [
     "AgentAssignmentScopeDenied", "agent_assignment_scope",
-    "current_agent_assignment_role", "current_agent_assignment_scope",
+    "current_agent_assignment_principal_id", "current_agent_assignment_role",
+    "current_agent_assignment_scope",
     "deny_unscoped_subprocess_for_assigned_agent",
     "enforce_agent_resource_scope", "validate_agent_assignment_for_dispatch",
 ]
