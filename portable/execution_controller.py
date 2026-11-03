@@ -4230,10 +4230,9 @@ class ExecutionController:
         with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             cursor = db.execute(
-                "UPDATE team_members SET state=?,failure_digest=?,"
-                "attempt=attempt+CASE WHEN ?='assigned' AND state='failed' THEN 1 ELSE 0 END,"
-                "updated_at=? WHERE task_id=? AND run_id=? AND member_id=? AND state=?",
-                (new_state, failure_digest, new_state, _now(), task_id, run_id, member_id, expected_state),
+                "UPDATE team_members SET state=?,failure_digest=?,updated_at=? "
+                "WHERE task_id=? AND run_id=? AND member_id=? AND state=?",
+                (new_state, failure_digest, _now(), task_id, run_id, member_id, expected_state),
             )
             if cursor.rowcount != 1:
                 row = db.execute(
