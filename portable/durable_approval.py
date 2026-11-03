@@ -872,7 +872,7 @@ class DurableApprovalStore:
         if self.reconciliation_verifier is None:
             raise PermissionError("trusted outcome reconciliation verifier is required")
         try:
-            verified = bool(self.reconciliation_verifier(record, outcome, evidence_ref))
+            verified = self.reconciliation_verifier(record, outcome, evidence_ref) is True
         except Exception as exc:
             raise PermissionError("outcome reconciliation failed closed") from exc
         if not verified:
