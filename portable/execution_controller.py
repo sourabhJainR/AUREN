@@ -3159,6 +3159,22 @@ class ExecutionController:
                 raise EngineeringPlanCheckpointMismatch(
                     "queued specialist assignment changed after dispatch"
                 )
+            if approval_evidence is not None:
+                approval_verifier = getattr(self, "_trusted_plan_approval_verifier", None)
+                if not callable(approval_verifier):
+                    raise EngineeringPlanCheckpointMismatch(
+                        "trusted approval authority is not configured in this worker; refusing task execution"
+                    )
+                try:
+                    approval_is_current = approval_verifier(metadata, approval_evidence)
+                except Exception as exc:
+                    raise EngineeringPlanCheckpointMismatch(
+                        "queued approval is revoked, expired, or no longer authorized"
+                    ) from exc
+                if approval_is_current is not True:
+                    raise EngineeringPlanCheckpointMismatch(
+                        "queued approval is revoked, expired, or no longer authorized"
+                    )
             binding.update({
                 "deadline_policy_seconds": deadline_policy_seconds,
                 "shared_budget_binding": shared_budget_binding,
