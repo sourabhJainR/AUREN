@@ -14,7 +14,7 @@ import hashlib
 import importlib.util
 import json
 import threading
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -365,6 +365,23 @@ def _phase_team(route: dict[str, Any], phase: str, graph_types):
 
     final_deps = tuple(a.name for a in agents if a.name in review_names) or (agents[-1].name,)
     agents.append(AgentSpec("synthesizer", "team synthesizer", depends_on=final_deps, read_only=True, focus="Synthesize evidence, decisions, unresolved risks and the recommended next action for this phase."))
+    # Profiles select private-memory partitions only. Trusted assignment and
+    # handler authorization remain owned by the canonical dispatch boundary.
+    for index, agent in enumerate(agents):
+        if agent.name == "builder" or agent.name.endswith("-builder"):
+            profile_id = "backend_implementer"
+        elif agent.name == "security-reviewer":
+            profile_id = "security_reviewer"
+        elif "architecture" in agent.name and "reviewer" in agent.name:
+            profile_id = "principal_architect"
+        elif (
+            "reviewer" in agent.name or "verifier" in agent.name
+            or agent.name in {"context-auditor", "risk-reviewer", "phase-reviewer"}
+        ):
+            profile_id = "qa_reviewer"
+        else:
+            profile_id = "principal_architect"
+        agents[index] = replace(agent, profile_id=profile_id, profile_revision=1)
     return GraphAgentTeam(
         agents,
         crew_adapters=_CREW_ADAPTERS,
@@ -447,6 +464,14 @@ def _install_graph_team_bridge() -> None:
             supervisor_task_id = manifest.get("task_id") or manifest.get("run_id") or run_dir.name
             if not isinstance(supervisor_task_id, str) or not supervisor_task_id.strip():
                 raise ValueError("stable supervisor task identity is required for task-aware routing")
+            # Private profile memory and graph checkpoints use the durable harness
+            # run identity. The run directory name is stable across resume and
+            # unique across separate invocations, unlike the intent digest.
+            graph_run_id = manifest.get("run_id")
+            if not isinstance(graph_run_id, str) or not graph_run_id.strip():
+                graph_run_id = run_dir.name
+            if not isinstance(graph_run_id, str) or not graph_run_id.strip():
+                raise ValueError("stable graph run identity is required for private memory isolation")
             project_root = Path(__file__).resolve().parents[2]
             task_context_router = _default_task_context_router(project_root)
             base_prompt = _build_task_context_prompt(
@@ -454,7 +479,7 @@ def _install_graph_team_bridge() -> None:
                 task_id=supervisor_task_id, task=task,
             )
             team = _phase_team(route, phase, (AgentSpec, GraphAgentTeam))
-            memory = SharedTaskMemory(run_dir / "graph-team-memory.jsonl", intent_digest)
+            memory = SharedTaskMemory(run_dir / "graph-team-memory.jsonl", intent_digest, project_root=project_root)
             started = engine.time.monotonic()
 
             def invoke_agent(agent, prompt):
@@ -471,7 +496,7 @@ def _install_graph_team_bridge() -> None:
                 principle_inputs["code_revision"] = _final_revision_binding(manifest)
             result = team.execute(
                 task=task, intent_digest=intent_digest, base_prompt=base_prompt,
-                memory=memory, invoke_agent=invoke_agent, **principle_inputs,
+                memory=memory, invoke_agent=invoke_agent, run_id=graph_run_id, **principle_inputs,
                 final_verification=(
                     phase == "review" and isinstance(manifest.get("principle_verification"), dict)
                 ),
