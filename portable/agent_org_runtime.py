@@ -20,6 +20,7 @@ from .organization_guard import POLICY_VERSION, guard_policy_fingerprint, load_g
 
 REGISTRY_PATH = Path(__file__).resolve().parents[1] / "config" / "agent_org.v1.json"
 _SCHEMA = "auren-agent-assignment-v3"
+_SCHEMA_WITH_PRINCIPAL = "auren-agent-assignment-v4"
 _MAX_REGISTRY_BYTES = 256 * 1024
 _MAX_SCOPE_ITEMS = 100
 _MAX_SCOPE_LENGTH = 512
@@ -59,11 +60,12 @@ class AuthorizedAgentAssignment:
     work_key: str | None = None
     task_payload_digest: str | None = None
     deadline_seconds: float | None = None
+    principal_id: str | None = None
 
     def as_payload(self) -> dict[str, Any]:
         """Return the immutable, non-secret assignment envelope stored with the task."""
-        return {
-            "schema_version": _SCHEMA,
+        payload = {
+            "schema_version": _SCHEMA_WITH_PRINCIPAL if self.principal_id else _SCHEMA,
             "assignment_id": self.assignment_id,
             "role_id": self.role_id,
             "manager_id": self.manager_id,
@@ -78,6 +80,9 @@ class AuthorizedAgentAssignment:
             "deadline_seconds": self.deadline_seconds,
             "authorization": "host_authorized_before_submission",
         }
+        if self.principal_id is not None:
+            payload["principal_id"] = self.principal_id
+        return payload
 
 
 def load_agent_org_registry(path: str | Path = REGISTRY_PATH) -> tuple[dict[str, Any], str]:
@@ -153,6 +158,7 @@ def authorize_agent_assignment(
     work_key: str | None = None,
     task_payload: Mapping[str, Any] | None = None,
     deadline_seconds: float | None = None,
+    principal_id: str | None = None,
 ) -> AuthorizedAgentAssignment:
     """Validate the role hierarchy and require host authorization of exact inputs.
 
@@ -161,6 +167,11 @@ def authorize_agent_assignment(
     """
     if not callable(authorizer):
         raise AgentAssignmentDenied("host assignment authorizer is required")
+    if principal_id is not None and (
+        not isinstance(principal_id, str) or not principal_id.strip()
+        or len(principal_id.strip()) > 256 or not principal_id.isprintable()
+    ):
+        raise ValueError("principal_id must be non-empty printable text of at most 256 characters")
     for value, field in ((role_id, "role_id"), (manager_id, "manager_id"),
                          (action_class, "action_class")):
         if not isinstance(value, str) or not value.strip() or not value.isprintable():
@@ -268,7 +279,7 @@ def authorize_agent_assignment(
     task_payload_digest = hashlib.sha256(_canonical(clean_task_payload)).hexdigest()
 
     body = {
-        "schema_version": _SCHEMA,
+        "schema_version": _SCHEMA_WITH_PRINCIPAL if principal_id is not None else _SCHEMA,
         "role_id": role_id.strip(),
         "manager_id": manager_id.strip(),
         "action_class": action_class.strip(),
@@ -280,6 +291,8 @@ def authorize_agent_assignment(
         "task_payload_digest": task_payload_digest,
         "deadline_seconds": normalized_deadline_seconds,
     }
+    if principal_id is not None:
+        body["principal_id"] = principal_id.strip()
     assignment_digest = hashlib.sha256(_canonical(body)).hexdigest()
     request = MappingProxyType({**body, "scope": tuple(clean_scope), "assignment_digest": assignment_digest})
     try:
@@ -301,6 +314,7 @@ def authorize_agent_assignment(
         work_key=body["work_key"],
         task_payload_digest=task_payload_digest,
         deadline_seconds=normalized_deadline_seconds,
+        principal_id=body.get("principal_id"),
     )
 
 
@@ -317,6 +331,7 @@ def submit_agent_task(
     goal: str | None = None,
     work_key: str | None = None,
     deadline_seconds: float | None = None,
+    principal_id: str | None = None,
     registry_path: str | Path = REGISTRY_PATH,
 ) -> Any:
     """Authorize a manager-to-agent assignment, then persist it with the task.
@@ -342,6 +357,7 @@ def submit_agent_task(
         scope=scope, authorizer=authorizer, registry_path=registry_path,
         policy_path=policy_path, work_key=work_key,
         task_payload=payload, deadline_seconds=deadline_seconds,
+        principal_id=principal_id,
     )
     durable_payload = dict(payload)
     durable_payload["_auren_agent_assignment"] = assignment.as_payload()
