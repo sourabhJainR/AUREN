@@ -489,15 +489,21 @@ class StockResearchCanonicalRuntimeAcceptanceTests(unittest.TestCase):
             and handler_report.get("success") is True
         )
         evidence_refs = tuple(handler_report.get("evidence", ())) if isinstance(handler_report, dict) else ()
-        recovery.transition_task(
-            run_id,
-            task_id,
-            "passed" if successful else "failed",
-            reason="isolated stock research acceptance passed" if successful else (
-                execution_error or str((handler_report or {}).get("error", "stock research acceptance failed"))
-            ),
-            evidence_refs=evidence_refs if successful else (),
-        )
+        if successful:
+            recovery.transition_task(
+                run_id, task_id, "verifying",
+                reason="controller task completed; host is checking the isolated test receipt",
+            )
+            recovery.transition_task(
+                run_id, task_id, "passed",
+                reason="isolated stock research acceptance passed",
+                evidence_refs=evidence_refs,
+            )
+        else:
+            recovery.transition_task(
+                run_id, task_id, "failed",
+                reason=execution_error or str((handler_report or {}).get("error", "stock research acceptance failed")),
+            )
         _, verified_run = recovery.load_verified(run_id)
         checkpoint = recovery.ledger.get_checkpoint(run_id, recovery.PHASE)
         requirement_evidence = [
