@@ -268,6 +268,7 @@ class ExecutionController:
               charged_tool_calls INTEGER NOT NULL DEFAULT 0 CHECK(charged_tool_calls >= 0),
               charged_wall_seconds INTEGER NOT NULL DEFAULT 0 CHECK(charged_wall_seconds >= 0),
               state TEXT NOT NULL CHECK(state IN ('reserved','settled','overrun','released')),
+              reconciliation_reason TEXT,
               updated_at TEXT NOT NULL,
               PRIMARY KEY(task_id, run_id, operation_key));
             CREATE TABLE IF NOT EXISTS graph_checkpoints(
@@ -4476,9 +4477,9 @@ class ExecutionController:
             if row[7] != "reserved":
                 raise ValueError("only unresolved reservations can be released")
             db.execute(
-                "UPDATE team_budget_operations SET state='released',updated_at=? "
+                "UPDATE team_budget_operations SET state='released',reconciliation_reason=?,updated_at=? "
                 "WHERE task_id=? AND run_id=? AND operation_key=? AND state='reserved'",
-                (_now(), task_id, run_id, operation_key),
+                (reason.strip(), _now(), task_id, run_id, operation_key),
             )
         return {"operation_key": operation_key, "state": "released", "member_id": row[0],
                 "reason": reason.strip()}
