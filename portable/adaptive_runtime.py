@@ -124,6 +124,7 @@ class AdaptiveRuntime:
         approval_store: Any,
         budget_resolver: Any,
         approval_resolver: Any,
+        assignment_resolver: Any,
     ) -> Any:
         """Install the trusted host resolvers before engineering-plan workers can dispatch."""
         if self.trusted_plan_dispatch_root is not None:
@@ -136,6 +137,7 @@ class AdaptiveRuntime:
             approval_store=approval_store,
             budget_resolver=budget_resolver,
             approval_resolver=approval_resolver,
+            assignment_resolver=assignment_resolver,
         )
         return self.trusted_plan_dispatch_root
 
