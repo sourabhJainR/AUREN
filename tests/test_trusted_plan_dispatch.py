@@ -139,7 +139,12 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-revocation",
             handler="dispatch-test", packet=self.packet,
         )
+        # Re-bootstrap the trusted root as a fresh worker process would do.
+        self.controller._trusted_plan_dispatch_required = False
+        self.controller._trusted_plan_dispatch_token = None
+        self.controller._trusted_plan_assignment_resolver = None
         self.assignment_allowed = False
+        self._root(self.controller, approvals, request, record, guard, context=self.context)
         with self.assertRaisesRegex(EngineeringPlanCheckpointMismatch, "revoked"):
             self.controller._verify_engineering_plan_dispatch_checkpoint(task)
 
@@ -159,6 +164,8 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         self.assertEqual(record.evidence_digest, binding["approval_evidence"]["evidence_digest"])
         self.assertEqual("approved", binding["approval_evidence"]["decision"])
         self.assertEqual("manager-1", binding["approval_evidence"]["approver_id"])
+        self.assertEqual("BE-01", binding["assignment_evidence"]["role_id"])
+        self.assertEqual(binding["assignment_evidence"], task.payload["_auren_agent_assignment"])
         self.assertTrue(approvals.verify_audit_chain())
 
     def test_legacy_controller_dispatch_is_fenced_after_root_bootstrap(self):
