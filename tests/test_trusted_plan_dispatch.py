@@ -60,7 +60,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
     def _assignment_resolver(self, context):
         return authorize_agent_assignment(
             role_id="BE-01", manager_id="EM-ENG-01",
-            action_class="edit_assigned_paths", scope=self.assignment_scope,
+            action_class=self.assignment_action_class, scope=self.assignment_scope,
             authorizer=lambda request: self.assignment_allowed,
             policy_path=self.assignment_policy_path,
             work_key=context["dispatch_key"], task_payload=context["payload"],
@@ -92,8 +92,13 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         self.packet = packet
         self.plan_store = store
         self.controller = controller
+        self.controller.register_handler(
+            "dispatch-test", "tests.test_engineering_plan_dispatch.dispatch_test_handler",
+            execution_class="read_only", agent_action_class="edit_assigned_paths",
+        )
         self.recovery_bridge = bridge.recovery_bridge
         self.assignment_allowed = True
+        self.assignment_action_class = "edit_assigned_paths"
         self.assignment_scope = ("repo:write",)
         self.assignment_policy_path = Path(self.temp.name) / "guard_policy.json"
         self.assignment_policy_path.write_text(
@@ -114,6 +119,19 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         with self.assertRaisesRegex(PermissionError, "assignment authorization failed"):
             root.dispatch(
                 run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-denied",
+                handler="dispatch-test", packet=self.packet,
+            )
+        with sqlite3.connect(self.controller.db_path) as db:
+            self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
+
+    def test_handler_action_class_mismatch_is_denied_before_queue_insertion(self):
+        approvals, request, record = self._approval(self.controller, context=self.context)
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        self.assignment_action_class = "run_scoped_tests"
+        root = self._root(self.controller, approvals, request, record, guard, context=self.context)
+        with self.assertRaisesRegex(PermissionError, "action class does not match"):
+            root.dispatch(
+                run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-action-mismatch",
                 handler="dispatch-test", packet=self.packet,
             )
         with sqlite3.connect(self.controller.db_path) as db:
