@@ -25,6 +25,24 @@ class AdaptiveRuntimeContextTests(unittest.TestCase):
         sessions = SessionStore(root / "sessions.db")
         return AdaptiveRuntime(graph, persistent_memory=memory, automation_scheduler=scheduler, session_store=sessions), memory, scheduler
 
+    def test_adaptive_runtime_injects_trusted_conflict_scope_verifier(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            graph = Graph([Node("work", NodeKind.DETERMINISTIC, lambda _state: "ok")])
+            verifier = lambda _review, _mapping, _digest: True
+            memory = PersistentMemory(root / "memory.db", require_approval=False)
+            scheduler = AutomationScheduler(root / "automation.db")
+            runtime = AdaptiveRuntime(
+                graph,
+                persistent_memory=memory,
+                automation_scheduler=scheduler,
+                session_store=SessionStore(root / "sessions.db"),
+                conflict_scope_verifier=verifier,
+            )
+            self.assertIs(runtime.orchestrator.conflict_scope_verifier, verifier)
+            scheduler.close()
+            memory.close()
+
     def test_runtime_resolves_context_without_bypassing_orchestrator(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
