@@ -62,8 +62,10 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             role_id=getattr(self, "assignment_role_id", "BE-01"),
             manager_id=getattr(self, "assignment_manager_id", "EM-ENG-01"),
             action_class=self.assignment_action_class, scope=self.assignment_scope,
+            principal_id=getattr(self, "assignment_principal_id", "worker-1"),
             authorizer=lambda request: (
                 self.assignment_allowed
+                and request.get("principal_id") == getattr(self, "assignment_principal_id", "worker-1")
                 and (
                     request.get("scope") == self.allowed_assignment_scope
                     or self.assignment_allow_scope_widening
