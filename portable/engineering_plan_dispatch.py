@@ -295,8 +295,11 @@ class EngineeringPlanDispatch:
         safe_payload = dict(payload or {})
         if "auren_dispatch" in safe_payload:
             raise ValueError("payload key 'auren_dispatch' is reserved for trusted dispatch metadata")
-        if assignment_binding is not None and safe_payload.get("_auren_agent_assignment") != assignment_binding:
-            raise PermissionError("durable task assignment envelope differs from the trusted assignment binding")
+        if assignment_binding is not None:
+            if safe_payload.get("_auren_agent_assignment") != assignment_binding:
+                raise PermissionError("durable task assignment envelope differs from the trusted assignment binding")
+            if safe_payload.get("work_key") != key:
+                raise PermissionError("durable task work_key must equal the trusted dispatch identity")
         self._bind_workflow_profile(safe_payload)
         self._validate_payload_keys(safe_payload)
         encoded_payload = json.dumps(safe_payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
@@ -436,9 +439,9 @@ class EngineeringPlanDispatch:
                 # the committed intent before it can create an orphan work unit.
                 work = self.controller.company.start(goal or f"engineering plan {run_id}: {task_id}")
                 db.execute(
-                    "INSERT INTO tasks(id,handler,payload,state,attempts,work_unit_id,created_at,updated_at,heartbeat_at,lease_until,deadline_at,deadline_seconds) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (task_identifier, handler_name, task_json, "pending", 0, work.id,
+                    "INSERT INTO tasks(id,handler,payload,work_key,state,attempts,work_unit_id,created_at,updated_at,heartbeat_at,lease_until,deadline_at,deadline_seconds) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (task_identifier, handler_name, task_json, key, "pending", 0, work.id,
                      timestamp, timestamp, timestamp, timestamp, deadline_at, deadline_policy_seconds),
                 )
                 db.execute(
