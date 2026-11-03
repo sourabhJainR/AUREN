@@ -77,6 +77,39 @@ class EngineeringPlanTests(unittest.TestCase):
                 owner_role_id="BE-01",
             )
 
+    def test_ready_tasks_prioritize_hard_blockers_then_risk_with_stable_ties(self):
+        plan = EngineeringPlan(
+            run_id="frog-run", goal="prioritize hard blockers", requirements=("highest risk first",),
+            source_revision="revision", tasks=(
+                PlanTask("dashboard", "Dashboard", ("works",), "revert", risk="low", priority="P2"),
+                PlanTask("critical", "Critical trust boundary", ("secure",), "revert", risk="critical", priority="P0"),
+                PlanTask("high", "High risk", ("safe",), "revert", risk="high", priority="P0"),
+                PlanTask("second", "Second P0", ("safe",), "revert", risk="critical", priority="P0"),
+                PlanTask("p1", "P1", ("done",), "revert", risk="critical", priority="P1"),
+            ),
+        )
+        self.assertEqual(
+            ("critical", "second", "high", "p1", "dashboard"),
+            plan.ready_tasks(set()),
+        )
+        self.assertEqual(("p1", "dashboard"), plan.ready_tasks({"critical", "second", "high"}))
+
+    def test_priority_is_digest_bound_and_legacy_default_is_omitted(self):
+        base = PlanTask("t", "Task", ("done",), "revert")
+        explicit_default = PlanTask("t", "Task", ("done",), "revert", priority="P2")
+        urgent = PlanTask("t", "Task", ("done",), "revert", priority="P0")
+        self.assertEqual(base.to_dict(), explicit_default.to_dict())
+        plan = EngineeringPlan(
+            run_id="priority-run", goal="priority", requirements=("bound",),
+            source_revision="revision", tasks=(base,),
+        )
+        urgent_plan = EngineeringPlan(
+            run_id="priority-run", goal="priority", requirements=("bound",),
+            source_revision="revision", tasks=(urgent,),
+        )
+        self.assertNotEqual(plan.digest, urgent_plan.digest)
+        self.assertEqual(plan.digest, EngineeringPlan.from_dict(plan.to_dict()).digest)
+
     def test_rejects_missing_dependencies_and_cycles(self):
         with self.assertRaisesRegex(ValueError, "unknown dependencies"):
             EngineeringPlan(
