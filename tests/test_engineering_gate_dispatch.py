@@ -35,6 +35,14 @@ class EngineeringGateDispatchPlanTests(unittest.TestCase):
         self.assertIn("durable_plan_dispatch", durable.depends_on)
         self.assertEqual("critical", durable.risk)
         self.assertTrue(any("Gate crew-plan digest:" in item for item in plan.requirements))
+        self.assertTrue(all(task.owner_role_id and task.manager_role_id for task in plan.tasks))
+        self.assertEqual(
+            ("SEC-01", "CTO-01"),
+            (
+                next(task for task in plan.tasks if task.task_id == "runtime_isolation_reconciliation").owner_role_id,
+                next(task for task in plan.tasks if task.task_id == "runtime_isolation_reconciliation").manager_role_id,
+            ),
+        )
 
     def test_gate_plan_is_deterministic_for_identical_inputs(self):
         kwargs = dict(

@@ -12,6 +12,22 @@ from .engineering_gate_crew_plan import build_gate_crew_plan, gate_definitions, 
 from .engineering_plan import EngineeringPlan, EngineeringPlanRun, PlanTask, new_plan_run
 
 
+# Each durable gate has one accountable role and its configured reporting manager.
+# The gate's specialist crew remains in the crew-plan evidence; it does not grant
+# those proposal adapters execution authority.
+_GATE_TASK_OWNERS = {
+    "post_merge_evidence": ("QA-01", "EM-ENG-01"),
+    "durable_plan_dispatch": ("BE-01", "EM-ENG-01"),
+    "runtime_isolation_reconciliation": ("SEC-01", "CTO-01"),
+    "provenance_learning": ("BE-01", "EM-ENG-01"),
+    "safe_parallel_execution": ("BE-01", "EM-ENG-01"),
+    "guarded_promotion": ("SEC-01", "CTO-01"),
+    "unified_dashboard": ("BE-01", "EM-ENG-01"),
+    "operator_migration_rollback": ("SRE-01", "EM-ENG-01"),
+    "independent_arena_campaign": ("SEC-01", "CTO-01"),
+}
+
+
 def build_gate_engineering_plan(
     *,
     run_id: str,
@@ -46,6 +62,8 @@ def build_gate_engineering_plan(
             ),
             depends_on=gate.depends_on,
             risk="critical" if gate.external_evidence_required else "high",
+            owner_role_id=_GATE_TASK_OWNERS[gate.gate_id][0],
+            manager_role_id=_GATE_TASK_OWNERS[gate.gate_id][1],
         )
         for gate in gates
     )

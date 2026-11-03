@@ -51,6 +51,32 @@ class EngineeringPlanTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "acceptance criteria"):
             PlanTask("t", "title", (), "rollback")
 
+    def test_task_owner_and_manager_are_immutable_plan_digest_inputs(self):
+        task = PlanTask(
+            "owned", "Owned task", ("tests pass",), "revert",
+            owner_role_id="BE-01", manager_role_id="EM-ENG-01",
+        )
+        plan = EngineeringPlan(
+            run_id="owned-run", goal="verify ownership", requirements=("owner is enforced",),
+            source_revision="revision", tasks=(task,),
+        )
+        restored = EngineeringPlan.from_dict(plan.to_dict())
+        self.assertEqual(plan.digest, restored.digest)
+        changed_owner = EngineeringPlan(
+            run_id="owned-run", goal="verify ownership", requirements=("owner is enforced",),
+            source_revision="revision",
+            tasks=(PlanTask(
+                "owned", "Owned task", ("tests pass",), "revert",
+                owner_role_id="QA-01", manager_role_id="EM-ENG-01",
+            ),),
+        )
+        self.assertNotEqual(plan.digest, changed_owner.digest)
+        with self.assertRaisesRegex(ValueError, "supplied together"):
+            PlanTask(
+                "partial", "Partial owner", ("tests pass",), "revert",
+                owner_role_id="BE-01",
+            )
+
     def test_rejects_missing_dependencies_and_cycles(self):
         with self.assertRaisesRegex(ValueError, "unknown dependencies"):
             EngineeringPlan(

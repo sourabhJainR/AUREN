@@ -74,11 +74,18 @@ class PlanTask:
     rollback_plan: str
     depends_on: tuple[str, ...] = ()
     risk: str = "medium"
+    owner_role_id: str | None = None
+    manager_role_id: str | None = None
 
     def __post_init__(self) -> None:
         _nonempty(self.task_id, "task_id")
         _nonempty(self.title, "title")
         _nonempty(self.rollback_plan, "rollback_plan")
+        if (self.owner_role_id is None) != (self.manager_role_id is None):
+            raise ValueError("task owner_role_id and manager_role_id must be supplied together")
+        if self.owner_role_id is not None:
+            _nonempty(self.owner_role_id, "owner_role_id")
+            _nonempty(self.manager_role_id, "manager_role_id")
         object.__setattr__(self, "acceptance_criteria", tuple(self.acceptance_criteria))
         object.__setattr__(self, "depends_on", tuple(self.depends_on))
         if self.risk not in RISK_LEVELS:
@@ -91,12 +98,17 @@ class PlanTask:
             raise ValueError(f"task {self.task_id} cannot depend on itself")
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "task_id": self.task_id, "title": self.title,
             "acceptance_criteria": list(self.acceptance_criteria),
             "rollback_plan": self.rollback_plan, "depends_on": list(self.depends_on),
             "risk": self.risk,
         }
+        # Omit absent authority fields so pre-v1 ownerless plan digests remain readable.
+        if self.owner_role_id is not None:
+            result["owner_role_id"] = self.owner_role_id
+            result["manager_role_id"] = self.manager_role_id
+        return result
 
 
 @dataclass(frozen=True)
@@ -179,6 +191,8 @@ class EngineeringPlan:
                     rollback_plan=item["rollback_plan"],
                     depends_on=tuple(item.get("depends_on", ())),
                     risk=item.get("risk", "medium"),
+                    owner_role_id=item.get("owner_role_id"),
+                    manager_role_id=item.get("manager_role_id"),
                 )
                 for item in payload["tasks"]
             )
