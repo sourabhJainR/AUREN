@@ -155,6 +155,40 @@ class EngineeringPlanDispatch:
                 raise ValueError('approval evidence digests must be lowercase SHA-256')
         return result
 
+    @staticmethod
+    def _normalize_assignment_evidence(value):
+        if value is None:
+            return None
+        if not isinstance(value, Mapping):
+            raise ValueError("assignment_evidence must be a mapping")
+        required = {
+            "schema_version", "assignment_id", "role_id", "manager_id", "action_class",
+            "scope", "registry_digest", "policy_version", "policy_digest",
+            "assignment_digest", "work_key", "task_payload_digest", "deadline_seconds",
+            "authorization",
+        }
+        if set(value) != required or value.get("schema_version") != "auren-agent-assignment-v3":
+            raise ValueError("assignment evidence is incomplete or has an unsupported schema")
+        if value.get("authorization") != "host_authorized_before_submission":
+            raise ValueError("assignment evidence lacks host authorization")
+        for name in ("assignment_id", "role_id", "manager_id", "action_class", "policy_version", "work_key"):
+            if not isinstance(value.get(name), str) or not value[name].strip():
+                raise ValueError("assignment evidence identity fields must be non-empty text")
+        scope = value.get("scope")
+        if not isinstance(scope, list) or not scope or any(not isinstance(item, str) or not item.strip() for item in scope):
+            raise ValueError("assignment evidence scope must be a non-empty string list")
+        for name in ("registry_digest", "policy_digest", "assignment_digest", "task_payload_digest"):
+            digest = value.get(name)
+            if not isinstance(digest, str) or len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
+                raise ValueError("assignment evidence digests must be lowercase SHA-256")
+        deadline = value.get("deadline_seconds")
+        if deadline is not None and (
+            isinstance(deadline, bool) or not isinstance(deadline, (int, float))
+            or not math.isfinite(deadline) or not 0 < deadline <= 86400
+        ):
+            raise ValueError("assignment evidence deadline is invalid")
+        return {name: value[name] for name in required}
+
     def _load_plan_state(self, run_id: str) -> tuple[EngineeringPlan, EngineeringPlanRun]:
         """Never load plan state for dispatch without its canonical checkpoint."""
         return self.recovery_bridge.load_verified(run_id)
@@ -203,6 +237,7 @@ class EngineeringPlanDispatch:
         deadline_seconds: float | None = None,
         shared_budget_binding: Mapping[str, Any] | None = None,
         approval_evidence: Mapping[str, Any] | None = None,
+        assignment_evidence: Mapping[str, Any] | None = None,
         _trusted_root_token: object | None = None,
     ):
         """Persist an idempotent dispatch intent before the handler can run.
@@ -229,6 +264,9 @@ class EngineeringPlanDispatch:
         deadline_policy_seconds = float(deadline_seconds) if deadline_seconds is not None else None
         budget_binding = self._normalize_budget_binding(shared_budget_binding)
         approval_binding = self._normalize_approval_evidence(approval_evidence)
+        assignment_binding = self._normalize_assignment_evidence(assignment_evidence)
+        if root_required and assignment_binding is None:
+            raise PermissionError("trusted plan dispatch requires a host-authorized specialist assignment")
 
         # A retry must be able to retrieve its original task after the plan has
         # advanced. Validate the immutable packet/plan binding first, but do not
@@ -242,6 +280,8 @@ class EngineeringPlanDispatch:
         safe_payload = dict(payload or {})
         if "auren_dispatch" in safe_payload:
             raise ValueError("payload key 'auren_dispatch' is reserved for trusted dispatch metadata")
+        if assignment_binding is not None and safe_payload.get("_auren_agent_assignment") != assignment_binding:
+            raise PermissionError("durable task assignment envelope differs from the trusted assignment binding")
         self._validate_payload_keys(safe_payload)
         encoded_payload = json.dumps(safe_payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
         with sqlite3.connect(self.database_path, timeout=10) as db:
@@ -271,6 +311,7 @@ class EngineeringPlanDispatch:
                 "deadline_policy_seconds": deadline_policy_seconds,
                 "shared_budget_binding": budget_binding,
                 "approval_evidence": approval_binding,
+                "assignment_evidence": assignment_binding,
                 "payload_digest": __import__("hashlib").sha256(encoded_payload.encode("utf-8")).hexdigest(),
             }
             return self._replay_or_conflict(existing, binding, handler_name, encoded_payload)
@@ -292,6 +333,7 @@ class EngineeringPlanDispatch:
             "deadline_policy_seconds": deadline_policy_seconds,
             "shared_budget_binding": budget_binding,
             "approval_evidence": approval_binding,
+            "assignment_evidence": assignment_binding,
             "payload_digest": __import__("hashlib").sha256(encoded_payload.encode("utf-8")).hexdigest(),
         }
         binding_digest = __import__("hashlib").sha256(
@@ -429,6 +471,7 @@ class EngineeringPlanDispatch:
                 "deadline_policy_seconds": binding["deadline_policy_seconds"],
                 "shared_budget_binding": binding["shared_budget_binding"],
                 "approval_evidence": binding["approval_evidence"],
+                "assignment_evidence": binding["assignment_evidence"],
                 "payload_digest": __import__("hashlib").sha256(encoded_payload.encode("utf-8")).hexdigest(),
             }
             actual = {name: recorded.get(name) for name in expected}
