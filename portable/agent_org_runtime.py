@@ -162,8 +162,10 @@ def authorize_agent_assignment(
 ) -> AuthorizedAgentAssignment:
     """Validate the role hierarchy and require host authorization of exact inputs.
 
-    The authorizer must authenticate the manager using host-owned identity and
-    policy. Truthy values are deliberately insufficient: only literal True passes.
+    The authorizer must authenticate the manager and, when supplied, the
+    assigned principal using host-owned identity and policy. Trusted plan dispatch
+    requires principal_id. Truthy values are deliberately insufficient: only
+    literal True passes.
     """
     if not callable(authorizer):
         raise AgentAssignmentDenied("host assignment authorizer is required")
