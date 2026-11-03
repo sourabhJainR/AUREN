@@ -175,6 +175,7 @@ class ExecutionController:
         evidence_signer: Callable[[bytes], Mapping[str, str]] | None = None,
         provider_resume_authorizer: Callable[[str, str, str, str], bool] | None = None,
         agent_assignment_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
+        team_budget_release_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
         workflow_profile_path: str | Path | None = None,
         max_pending_tasks: int | None = None,
         deployment_admission_coordinator: Any | None = None,
@@ -187,6 +188,9 @@ class ExecutionController:
         if provider_resume_authorizer is not None and not callable(provider_resume_authorizer):
             raise TypeError("provider_resume_authorizer must be callable")
         self._provider_resume_authorizer = provider_resume_authorizer
+        if team_budget_release_verifier is not None and not callable(team_budget_release_verifier):
+            raise TypeError("team_budget_release_verifier must be callable")
+        self._team_budget_release_verifier = team_budget_release_verifier
         if deployment_admission_coordinator is not None and (
             not isinstance(deployment_instance_id, str) or not deployment_instance_id.strip()
         ):
@@ -269,6 +273,7 @@ class ExecutionController:
               charged_wall_seconds INTEGER NOT NULL DEFAULT 0 CHECK(charged_wall_seconds >= 0),
               state TEXT NOT NULL CHECK(state IN ('reserved','settled','overrun','released')),
               reconciliation_reason TEXT,
+              reconciliation_evidence_digest TEXT,
               updated_at TEXT NOT NULL,
               PRIMARY KEY(task_id, run_id, operation_key));
             CREATE INDEX IF NOT EXISTS idx_team_budget_unresolved
@@ -4463,13 +4468,30 @@ class ExecutionController:
 
     def release_team_budget_reservation(
         self, task_id: str, run_id: str, operation_key: str, *,
-        confirmed_not_started: bool, reason: str,
+        release_evidence: Mapping[str, Any], reason: str,
     ) -> dict[str, Any]:
-        """Release capacity only with explicit proof that the operation never started."""
-        if confirmed_not_started is not True:
-            raise ValueError("reservation release requires confirmed_not_started=True")
+        """Release capacity only after a trusted host verifier proves no dispatch occurred."""
+        verifier = self._team_budget_release_verifier
+        if not callable(verifier):
+            raise PermissionError("trusted team-budget release verifier is not configured")
+        if not isinstance(release_evidence, Mapping) or not release_evidence:
+            raise ValueError("release_evidence must be a non-empty host receipt")
         if not isinstance(reason, str) or not reason.strip() or len(reason) > 512:
             raise ValueError("reservation release requires a bounded reconciliation reason")
+        try:
+            evidence_bytes = json.dumps(
+                dict(release_evidence), sort_keys=True, separators=(",", ":"), allow_nan=False,
+            ).encode("utf-8")
+        except (TypeError, ValueError) as exc:
+            raise ValueError("release_evidence must be canonical JSON data") from exc
+        evidence_digest = hashlib.sha256(evidence_bytes).hexdigest()
+        verification = verifier({
+            "task_id": task_id, "run_id": run_id, "operation_key": operation_key,
+            "release_evidence": dict(release_evidence), "release_evidence_digest": evidence_digest,
+            "reason": reason.strip(),
+        })
+        if verification is not True:
+            raise PermissionError("trusted host did not verify that the operation never started")
         with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
@@ -4485,12 +4507,15 @@ class ExecutionController:
             if row[7] != "reserved":
                 raise ValueError("only unresolved reservations can be released")
             db.execute(
-                "UPDATE team_budget_operations SET state='released',reconciliation_reason=?,updated_at=? "
+                "UPDATE team_budget_operations SET state='released',reconciliation_reason=?,"
+                "reconciliation_evidence_digest=?,updated_at=? "
                 "WHERE task_id=? AND run_id=? AND operation_key=? AND state='reserved'",
-                (reason.strip(), _now(), task_id, run_id, operation_key),
+                (reason.strip(), evidence_digest, _now(), task_id, run_id, operation_key),
             )
-        return {"operation_key": operation_key, "state": "released", "member_id": row[0],
-                "reason": reason.strip()}
+        return {
+            "operation_key": operation_key, "state": "released", "member_id": row[0],
+            "reason": reason.strip(), "release_evidence_digest": evidence_digest,
+        }
 
     def unresolved_team_budget_operations(
         self, task_id: str, run_id: str,
