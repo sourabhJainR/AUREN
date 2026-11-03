@@ -17,7 +17,7 @@ from tests.test_engineering_plan_dispatch import DISPATCH_HANDLER_CALLS, prepare
 
 class TrustedPlanApprovalPreflightTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
+        self.temp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.addCleanup(self.temp.cleanup)
         plan, _run, packet, _bridge, store, controller, bridge = prepared(self.temp.name)
         self.plan = plan
