@@ -311,9 +311,10 @@ class EngineeringPlanDispatch:
                 "deadline_policy_seconds": deadline_policy_seconds,
                 "shared_budget_binding": budget_binding,
                 "approval_evidence": approval_binding,
-                "assignment_evidence": assignment_binding,
                 "payload_digest": __import__("hashlib").sha256(encoded_payload.encode("utf-8")).hexdigest(),
             }
+            if assignment_binding is not None:
+                binding["assignment_evidence"] = assignment_binding
             return self._replay_or_conflict(existing, binding, handler_name, encoded_payload)
 
         plan, run = self._verified_state(run_id, task_id, packet)
@@ -333,9 +334,10 @@ class EngineeringPlanDispatch:
             "deadline_policy_seconds": deadline_policy_seconds,
             "shared_budget_binding": budget_binding,
             "approval_evidence": approval_binding,
-            "assignment_evidence": assignment_binding,
             "payload_digest": __import__("hashlib").sha256(encoded_payload.encode("utf-8")).hexdigest(),
         }
+        if assignment_binding is not None:
+            binding["assignment_evidence"] = assignment_binding
         binding_digest = __import__("hashlib").sha256(
             json.dumps(binding, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
         ).hexdigest()
@@ -471,9 +473,10 @@ class EngineeringPlanDispatch:
                 "deadline_policy_seconds": binding["deadline_policy_seconds"],
                 "shared_budget_binding": binding["shared_budget_binding"],
                 "approval_evidence": binding["approval_evidence"],
-                "assignment_evidence": binding["assignment_evidence"],
                 "payload_digest": __import__("hashlib").sha256(encoded_payload.encode("utf-8")).hexdigest(),
             }
+            if "assignment_evidence" in binding:
+                expected["assignment_evidence"] = binding["assignment_evidence"]
             actual = {name: recorded.get(name) for name in expected}
             if actual != dict(expected):
                 raise DispatchConflict("idempotency key replay changed immutable dispatch inputs")
