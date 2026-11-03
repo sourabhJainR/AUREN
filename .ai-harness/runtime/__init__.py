@@ -14,7 +14,7 @@ import hashlib
 import importlib.util
 import json
 import threading
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -365,6 +365,21 @@ def _phase_team(route: dict[str, Any], phase: str, graph_types):
 
     final_deps = tuple(a.name for a in agents if a.name in review_names) or (agents[-1].name,)
     agents.append(AgentSpec("synthesizer", "team synthesizer", depends_on=final_deps, read_only=True, focus="Synthesize evidence, decisions, unresolved risks and the recommended next action for this phase."))
+    # Profiles select private-memory partitions only. Trusted assignment and
+    # handler authorization remain owned by the canonical dispatch boundary.
+    for index, agent in enumerate(agents):
+        if agent.name == "builder" or agent.name.endswith("-builder"):
+            profile_id = "backend_implementer"
+        elif agent.name == "security-reviewer":
+            profile_id = "security_reviewer"
+        elif (
+            "reviewer" in agent.name or "verifier" in agent.name
+            or agent.name in {"context-auditor", "risk-reviewer", "phase-reviewer"}
+        ):
+            profile_id = "qa_reviewer"
+        else:
+            profile_id = "principal_architect"
+        agents[index] = replace(agent, profile_id=profile_id, profile_revision=1)
     return GraphAgentTeam(
         agents,
         crew_adapters=_CREW_ADAPTERS,
