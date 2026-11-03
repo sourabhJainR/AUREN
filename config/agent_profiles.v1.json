@@ -1,0 +1,78 @@
+{
+  "schema_version": "auren-agent-profiles-v1",
+  "profiles": [
+    {
+      "profile_id": "backend_implementer",
+      "revision": 1,
+      "role_id": "BE-01",
+      "manager_role_id": "EM-ENG-01",
+      "action_classes": ["edit_assigned_paths", "run_scoped_tests", "propose_changes"],
+      "required_capabilities": ["code_implementation", "targeted_testing"],
+      "provider_preferences": ["strong_code_reasoning"],
+      "tool_preferences": ["repository_read", "scoped_file_edit", "scoped_test_runner"],
+      "workspace_policy": {"mode": "task_scoped", "scope_source": "canonical_assignment"},
+      "memory_namespace": "agent-profile:backend_implementer",
+      "budget_defaults": {"max_tokens": 24000, "max_tool_calls": 80, "max_wall_seconds": 3600},
+      "deadline_seconds": 3600,
+      "approval_policy": "manager_before_external_effect"
+    },
+    {
+      "profile_id": "principal_architect",
+      "revision": 1,
+      "role_id": "ARCH-01",
+      "manager_role_id": "EM-ENG-01",
+      "action_classes": ["propose_architecture", "review_design", "define_contract_tests"],
+      "required_capabilities": ["architecture_design", "interface_analysis"],
+      "provider_preferences": ["strong_reasoning"],
+      "tool_preferences": ["repository_read", "dependency_graph", "design_review"],
+      "workspace_policy": {"mode": "read_only", "scope_source": "canonical_assignment"},
+      "memory_namespace": "agent-profile:principal_architect",
+      "budget_defaults": {"max_tokens": 18000, "max_tool_calls": 60, "max_wall_seconds": 2400},
+      "deadline_seconds": 2400,
+      "approval_policy": "inherit_role"
+    },
+    {
+      "profile_id": "qa_reviewer",
+      "revision": 1,
+      "role_id": "QA-01",
+      "manager_role_id": "EM-ENG-01",
+      "action_classes": ["run_tests", "author_tests", "report_findings", "request_rework"],
+      "required_capabilities": ["test_design", "regression_analysis"],
+      "provider_preferences": ["strong_reasoning"],
+      "tool_preferences": ["test_runner", "coverage_report", "artifact_inspection"],
+      "workspace_policy": {"mode": "task_scoped", "scope_source": "canonical_assignment"},
+      "memory_namespace": "agent-profile:qa_reviewer",
+      "budget_defaults": {"max_tokens": 20000, "max_tool_calls": 90, "max_wall_seconds": 3600},
+      "deadline_seconds": 3600,
+      "approval_policy": "independent_review_before_release"
+    },
+    {
+      "profile_id": "security_reviewer",
+      "revision": 1,
+      "role_id": "SEC-01",
+      "manager_role_id": "CTO-01",
+      "action_classes": ["review_security_controls", "author_adversarial_tests", "recommend_block", "escalate_incidents"],
+      "required_capabilities": ["threat_modeling", "security_testing"],
+      "provider_preferences": ["strong_reasoning"],
+      "tool_preferences": ["static_analysis", "dependency_audit", "secret_scan", "test_runner"],
+      "workspace_policy": {"mode": "read_only", "scope_source": "canonical_assignment"},
+      "memory_namespace": "agent-profile:security_reviewer",
+      "budget_defaults": {"max_tokens": 20000, "max_tool_calls": 80, "max_wall_seconds": 3600},
+      "deadline_seconds": 3600,
+      "approval_policy": "independent_review_before_release"
+    }
+  ],
+  "team_templates": [
+    {
+      "template_id": "feature_delivery",
+      "revision": 1,
+      "description": "Architect, implementer, QA and security review with explicit dependency order.",
+      "members": [
+        {"member_id": "architect", "profile_id": "principal_architect", "profile_revision": 1, "depends_on": []},
+        {"member_id": "implementer", "profile_id": "backend_implementer", "profile_revision": 1, "depends_on": ["architect"]},
+        {"member_id": "qa", "profile_id": "qa_reviewer", "profile_revision": 1, "depends_on": ["implementer"]},
+        {"member_id": "security_review", "profile_id": "security_reviewer", "profile_revision": 1, "depends_on": ["implementer"]}
+      ]
+    }
+  ]
+}
