@@ -129,6 +129,8 @@ class EngineeringPlanTests(unittest.TestCase):
         )
         self.assertNotEqual(plan.digest, urgent_plan.digest)
         self.assertEqual(plan.digest, EngineeringPlan.from_dict(plan.to_dict()).digest)
+        with self.assertRaisesRegex(ValueError, "priority must be one of"):
+            PlanTask("invalid", "Invalid priority", ("done",), "revert", priority="urgent")
 
     def test_rejects_missing_dependencies_and_cycles(self):
         with self.assertRaisesRegex(ValueError, "unknown dependencies"):
