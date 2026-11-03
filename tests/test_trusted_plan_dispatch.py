@@ -869,6 +869,76 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
 
 
+    def _assert_executive_gate_bypass_denied_before_queue_insert(
+        self, *, role_id: str, manager_id: str, action_class: str,
+    ):
+        handler = "executive-gate-bypass"
+        self.controller.register_handler(
+            handler,
+            "tests.test_engineering_plan_dispatch:dispatch_test_handler",
+            execution_class="read_only",
+            agent_action_class=action_class,
+        )
+        self.assignment_role_id = role_id
+        self.assignment_manager_id = manager_id
+        self.assignment_action_class = action_class
+        self.assignment_scope = ("tests",)
+        self.allowed_assignment_scope = ("tests",)
+        self.assignment_allowed = True
+
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        admission_digest = guard.snapshot()["digest"]
+        approvals = DurableApprovalStore(
+            self.controller,
+            approver_authorizer=lambda _approver, _role, _scope, _roles: True,
+            context_provider=lambda _request: dict(self.context),
+        )
+        root = TrustedPlanDispatchRoot(
+            controller=self.controller,
+            store=self.plan_store,
+            recovery_bridge=self.recovery_bridge,
+            approval_store=approvals,
+            budget_resolver=lambda _run, _task, _handler: {
+                "budget_id": "crew:team-a:run-1",
+                "guard": guard,
+                "checkpoint_digest": admission_digest,
+                "policy_digest": "a" * 64,
+            },
+            approval_resolver=lambda _run, _task, _handler: None,
+            assignment_resolver=self._assignment_resolver,
+        )
+        dispatch_key = "mandatory-gate-denial:" + role_id + ":" + action_class
+        with self.assertRaisesRegex(PermissionError, "host agent assignment authorization failed closed"):
+            root.dispatch(
+                run_id=self.plan.run_id,
+                task_id="implement",
+                dispatch_key=dispatch_key,
+                handler=handler,
+                packet=self.packet,
+                payload={"resource": "tests", "work_key": dispatch_key},
+            )
+        with sqlite3.connect(self.controller.db_path) as db:
+            self.assertEqual(
+                0,
+                db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0],
+                "a rejected executive gate-bypass assignment must not create a durable task",
+            )
+
+    def test_ceo_cannot_assign_cto_to_waive_required_checks_before_queue_insert(self):
+        self._assert_executive_gate_bypass_denied_before_queue_insert(
+            role_id="CTO-01",
+            manager_id="CEO-01",
+            action_class="waive_required_checks",
+        )
+
+    def test_cto_cannot_assign_engineering_manager_to_waive_required_checks_before_queue_insert(self):
+        self._assert_executive_gate_bypass_denied_before_queue_insert(
+            role_id="EM-ENG-01",
+            manager_id="CTO-01",
+            action_class="waive_required_checks",
+        )
+
+
 
 if __name__ == "__main__":
     unittest.main()
