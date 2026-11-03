@@ -196,6 +196,33 @@ def test_usage_settlement_failure_keeps_reservation_and_blocks_success(tmp_path:
     assert [item["operation_key"] for item in unresolved] == ["unverified-usage"]
 
 
+def test_release_readiness_blocks_unknown_provider_outcome(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    task_id = _team(controller, tmp_path)
+    controller.reserve_team_budget(
+        task_id, "run-acceptance", "implementer", "unknown-provider-result",
+        tokens=100, tool_calls=1, wall_seconds=30,
+    )
+    controller.transition_team_member(
+        task_id, "run-acceptance", "implementer",
+        expected_state="running", new_state="completed",
+    )
+    controller.transition_team_member(
+        task_id, "run-acceptance", "qa",
+        expected_state="assigned", new_state="running",
+    )
+    controller.transition_team_member(
+        task_id, "run-acceptance", "qa",
+        expected_state="running", new_state="completed",
+    )
+    controller.run_once(task_id)
+    readiness = controller.team_delivery_release_readiness(task_id, "run-acceptance")
+    assert readiness["delivery_ready"] is False
+    assert readiness["release_ready"] is False
+    assert "team_budget_operations_unresolved" in readiness["blocking_reasons"]
+    assert readiness["unresolved_operations"] == ["unknown-provider-result"]
+
+
 def test_delivery_readiness_requires_completed_team_and_verified_independent_approval(tmp_path: Path):
     controller = ExecutionController(tmp_path)
     task_id = _team(controller, tmp_path)
