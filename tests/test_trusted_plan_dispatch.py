@@ -869,10 +869,11 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
 
 
-    def _assert_executive_gate_bypass_denied_before_queue_insert(
+
+    def _assert_assignment_denied_before_queue_insert(
         self, *, role_id: str, manager_id: str, action_class: str,
     ):
-        handler = "executive-gate-bypass"
+        handler = "executive-scope-boundary"
         self.controller.register_handler(
             handler,
             "tests.test_engineering_plan_dispatch:dispatch_test_handler",
@@ -907,7 +908,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             approval_resolver=lambda _run, _task, _handler: None,
             assignment_resolver=self._assignment_resolver,
         )
-        dispatch_key = "mandatory-gate-denial:" + role_id + ":" + action_class
+        dispatch_key = "executive-scope-denial:" + role_id + ":" + action_class
         with self.assertRaisesRegex(PermissionError, "host agent assignment authorization failed closed"):
             root.dispatch(
                 run_id=self.plan.run_id,
@@ -921,22 +922,41 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             self.assertEqual(
                 0,
                 db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0],
-                "a rejected executive gate-bypass assignment must not create a durable task",
+                "a rejected executive assignment must not create a durable task",
             )
 
-    def test_ceo_cannot_assign_cto_to_waive_required_checks_before_queue_insert(self):
-        self._assert_executive_gate_bypass_denied_before_queue_insert(
+    def test_ceo_cannot_assign_cto_through_the_canonical_dispatch_boundary(self):
+        self._assert_assignment_denied_before_queue_insert(
             role_id="CTO-01",
             manager_id="CEO-01",
-            action_class="waive_required_checks",
+            action_class="prioritize_technical_work",
         )
 
-    def test_cto_cannot_assign_engineering_manager_to_waive_required_checks_before_queue_insert(self):
-        self._assert_executive_gate_bypass_denied_before_queue_insert(
+    def test_cto_cannot_delegate_architecture_approval_outside_manager_scope(self):
+        self._assert_assignment_denied_before_queue_insert(
             role_id="EM-ENG-01",
             manager_id="CTO-01",
-            action_class="waive_required_checks",
+            action_class="approve_architecture_within_policy",
         )
+
+    def test_forbidden_executive_gate_actions_cannot_be_registered_as_handlers(self):
+        for action_class in (
+            "bypass_security_or_release_gates",
+            "waive_required_checks",
+        ):
+            handler = "forbidden-gate-action-" + action_class
+            with self.subTest(action_class=action_class):
+                with self.assertRaisesRegex(ValueError, "not declared by any organization role"):
+                    self.controller.register_handler(
+                        handler,
+                        "tests.test_engineering_plan_dispatch:dispatch_test_handler",
+                        execution_class="read_only",
+                        agent_action_class=action_class,
+                    )
+                with sqlite3.connect(self.controller.db_path) as db:
+                    self.assertIsNone(
+                        db.execute("SELECT 1 FROM handlers WHERE name=?", (handler,)).fetchone()
+                    )
 
 
 
