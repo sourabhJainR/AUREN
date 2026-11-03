@@ -157,6 +157,23 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             )
         self.assertEqual("repo:write", first.payload["_auren_agent_assignment"]["scope"][0])
 
+    def test_scope_widening_cannot_replay_an_existing_assignment(self):
+        from portable.engineering_plan_dispatch import DispatchConflict
+        approvals, request, record = self._approval(self.controller, context=self.context)
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        root = self._root(self.controller, approvals, request, record, guard, context=self.context)
+        first = root.dispatch(
+            run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-scope-widening",
+            handler="dispatch-test", packet=self.packet,
+        )
+        self.assignment_scope = ("repo:write", "secrets")
+        with self.assertRaises(DispatchConflict):
+            root.dispatch(
+                run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-scope-widening",
+                handler="dispatch-test", packet=self.packet,
+            )
+        self.assertEqual(["repo:write"], first.payload["_auren_agent_assignment"]["scope"])
+
     def test_revoked_assignment_is_rejected_at_worker_preflight(self):
         from portable.engineering_plan_recovery import EngineeringPlanCheckpointMismatch
         approvals, request, record = self._approval(self.controller, context=self.context)
