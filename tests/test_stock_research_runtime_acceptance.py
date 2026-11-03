@@ -375,6 +375,7 @@ class StockResearchCanonicalRuntimeAcceptanceTests(unittest.TestCase):
         run_id = "stock-research-" + source_revision[:12] + "-" + uuid.uuid4().hex[:8]
         task_id = "stock_research_acceptance"
         expected_receipt_id = "stock-research-runner:" + run_id
+        budget_binding = {}
 
         def verify_team_usage(receipt):
             evidence = receipt.get("usage_evidence", {})
@@ -385,12 +386,38 @@ class StockResearchCanonicalRuntimeAcceptanceTests(unittest.TestCase):
                 return False
             return usage
 
+        def build_budget_enforcer(controller):
+            enforcer = TeamBudgetAdapterEnforcer(
+                controller,
+                context_resolver=lambda request: {
+                    "task_id": budget_binding["task_id"],
+                    "run_id": run_id,
+                    "member_id": request["principal_id"],
+                    "principal_id": request["principal_id"],
+                    "operation_key": expected_receipt_id,
+                    "tokens": 0,
+                    "tool_calls": 1,
+                    "wall_seconds": 900,
+                } if request.get("principal_id") == "stock-research-qa" else {},
+                usage_evidence_resolver=lambda request: {
+                    "host_receipt_id": expected_receipt_id,
+                    "usage": {
+                        "tokens": 0,
+                        "tool_calls": 1,
+                        "wall_seconds": max(1, min(900, math.ceil(request["elapsed_seconds"]))),
+                    },
+                },
+            )
+            budget_binding["enforcer"] = enforcer
+            return enforcer
+
         state_root = Path(self._testMethodName + "-" + uuid.uuid4().hex)
         state_root = Path(os.environ.get("RUNNER_TEMP", "/tmp")) / state_root
         runtime = AdaptiveRuntime(
             Graph([Node("stock-acceptance", NodeKind.DETERMINISTIC, lambda state: {"ready": True})]),
             state_root=state_root,
             team_budget_settlement_verifier=verify_team_usage,
+            team_budget_enforcer_factory=build_budget_enforcer,
         )
         controller = runtime.execution_controller
         guard_policy_path = controller.root / ".auren" / "guard_policy.json"
@@ -508,6 +535,7 @@ class StockResearchCanonicalRuntimeAcceptanceTests(unittest.TestCase):
             },
             deadline_seconds=900,
         )
+        budget_binding["task_id"] = task.id
 
         profile = resolve_agent_profile("qa_reviewer", revision=1)
         controller.register_team_members(task.id, run_id, [{
@@ -525,28 +553,7 @@ class StockResearchCanonicalRuntimeAcceptanceTests(unittest.TestCase):
             expected_state="assigned", new_state="running",
         )
 
-        budget_enforcer = TeamBudgetAdapterEnforcer(
-            controller,
-            context_resolver=lambda request: {
-                "task_id": task.id,
-                "run_id": run_id,
-                "member_id": request["principal_id"],
-                "principal_id": request["principal_id"],
-                "operation_key": expected_receipt_id,
-                "tokens": 0,
-                "tool_calls": 1,
-                "wall_seconds": 900,
-            } if request.get("principal_id") == "stock-research-qa" else {},
-            usage_evidence_resolver=lambda request: {
-                "host_receipt_id": expected_receipt_id,
-                "usage": {
-                    "tokens": 0,
-                    "tool_calls": 1,
-                    "wall_seconds": max(1, min(900, math.ceil(request["elapsed_seconds"]))),
-                },
-            },
-        )
-        controller.configure_team_budget_enforcer(budget_enforcer)
+        budget_enforcer = budget_binding["enforcer"]
         global _STOCK_RESEARCH_BUDGET_ENFORCER
         _STOCK_RESEARCH_BUDGET_ENFORCER = budget_enforcer
         execution_error = None
