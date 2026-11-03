@@ -144,7 +144,7 @@ class EngineeringPlanDispatch:
             return None
         if not isinstance(value, Mapping):
             raise ValueError('approval_evidence must be a mapping')
-        required = {'approval_id', 'receipt_digest', 'evidence_digest', 'policy_digest', 'approver_id', 'approver_role', 'decision'}
+        required = {'approval_id', 'receipt_digest', 'evidence_digest', 'policy_digest', 'approver_id', 'approver_role', 'implementer_principal_id', 'decision'}
         if not required.issubset(value) or value.get('decision') != 'approved':
             raise ValueError('approval evidence must be a complete approved durable receipt')
         result = {name: value[name] for name in required}
