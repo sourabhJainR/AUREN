@@ -352,6 +352,24 @@ class EngineeringPlanRun:
     def digest(self) -> str:
         return _digest(self.to_dict())
 
+    def ready_tasks(self, plan: EngineeringPlan) -> tuple[str, ...]:
+        """Return only pending/ready tasks whose dependencies have passed.
+
+        Failed, blocked, running, verifying, passed and cancelled work is never
+        re-enqueued by this projection. Independent ready work can still proceed.
+        """
+        self.verify_against(plan)
+        progress = {item.task_id: item for item in self.tasks}
+        passed = {task_id for task_id, item in progress.items() if item.status == "passed"}
+        eligible = {
+            task_id for task_id, item in progress.items()
+            if item.status in {"pending", "ready"}
+        }
+        return tuple(
+            task_id for task_id in plan.ready_tasks(passed)
+            if task_id in eligible
+        )
+
     def transition_task(
         self, task_id: str, target: str, *, plan: EngineeringPlan, reason: str,
         evidence_refs: tuple[str, ...] = (), replan_generation: int | None = None,
