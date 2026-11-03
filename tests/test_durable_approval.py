@@ -597,7 +597,7 @@ class DurableApprovalTests(unittest.TestCase):
         )
         self.store.mark_outcome(record.approval_id, "outcome_unknown")
         self.store.reconciliation_verifier = lambda _record, _outcome, _ref: "yes"
-        with self.assertRaisesRegex(PermissionError, "reconciliation failed closed"):
+        with self.assertRaisesRegex(PermissionError, "provider outcome evidence was rejected"):
             self.store.reconcile_outcome(
                 record.approval_id, outcome="completed",
                 evidence_ref="https://evidence.example/provider-operation/forged",
