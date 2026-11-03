@@ -372,11 +372,25 @@ class StockResearchCanonicalRuntimeAcceptanceTests(unittest.TestCase):
         )
         self.assertTrue(review["implementation_may_start"], review["unresolved_contradictions"])
 
+        run_id = "stock-research-" + source_revision[:12] + "-" + uuid.uuid4().hex[:8]
+        task_id = "stock_research_acceptance"
+        expected_receipt_id = "stock-research-runner:" + run_id
+
+        def verify_team_usage(receipt):
+            evidence = receipt.get("usage_evidence", {})
+            usage = evidence.get("usage") if isinstance(evidence, dict) else None
+            if not isinstance(evidence, dict) or evidence.get("host_receipt_id") != expected_receipt_id:
+                return False
+            if not isinstance(usage, dict) or set(usage) != {"tokens", "tool_calls", "wall_seconds"}:
+                return False
+            return usage
+
         state_root = Path(self._testMethodName + "-" + uuid.uuid4().hex)
         state_root = Path(os.environ.get("RUNNER_TEMP", "/tmp")) / state_root
         runtime = AdaptiveRuntime(
             Graph([Node("stock-acceptance", NodeKind.DETERMINISTIC, lambda state: {"ready": True})]),
             state_root=state_root,
+            team_budget_settlement_verifier=verify_team_usage,
         )
         controller = runtime.execution_controller
         guard_policy_path = controller.root / ".auren" / "guard_policy.json"
@@ -392,8 +406,6 @@ class StockResearchCanonicalRuntimeAcceptanceTests(unittest.TestCase):
             agent_action_class="run_tests",
         )
 
-        run_id = "stock-research-" + source_revision[:12] + "-" + uuid.uuid4().hex[:8]
-        task_id = "stock_research_acceptance"
         plan = EngineeringPlan(
             run_id=run_id,
             goal="Verify the one-page stock research application through the canonical AUREN runtime",
@@ -513,18 +525,6 @@ class StockResearchCanonicalRuntimeAcceptanceTests(unittest.TestCase):
             expected_state="assigned", new_state="running",
         )
 
-        expected_receipt_id = "stock-research-runner:" + run_id
-
-        def verify_team_usage(receipt):
-            evidence = receipt.get("usage_evidence", {})
-            usage = evidence.get("usage") if isinstance(evidence, dict) else None
-            if not isinstance(evidence, dict) or evidence.get("host_receipt_id") != expected_receipt_id:
-                return False
-            if not isinstance(usage, dict) or set(usage) != {"tokens", "tool_calls", "wall_seconds"}:
-                return False
-            return usage
-
-        controller._team_budget_settlement_verifier = verify_team_usage
         budget_enforcer = TeamBudgetAdapterEnforcer(
             controller,
             context_resolver=lambda request: {
