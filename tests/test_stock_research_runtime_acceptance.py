@@ -435,8 +435,10 @@ class StockResearchCanonicalRuntimeAcceptanceTests(unittest.TestCase):
                 manager_id="EM-ENG-01",
                 action_class="run_tests",
                 scope=assignment_scope,
+                principal_id="stock-research-qa",
                 authorizer=lambda request: (
-                    request.get("role_id") == "QA-01"
+                    request.get("principal_id") == "stock-research-qa"
+                    and request.get("role_id") == "QA-01"
                     and request.get("manager_id") == "EM-ENG-01"
                     and request.get("action_class") == "run_tests"
                     and request.get("scope") == assignment_scope

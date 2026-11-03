@@ -41,6 +41,17 @@ Before an operation starts, its member reserves capacity under a stable operatio
 
 This is a durable accounting and admission foundation. It does not yet wire every provider/tool adapter to reserve before external work, nor prove host-side resource metering. Automatic scheduling remains disabled until those adapters and independent implementer/reviewer enforcement are complete. Rollback: stop invoking the new team-budget APIs and retain the additive budget and operation rows for audit; do not delete or reset charges.
 
+### Provider and tool adapter enforcement
+
+The supervisor exposes `TeamBudgetAdapterEnforcer` in `portable/team_budget_adapters.py`. Host bootstrap creates it with two host-owned callbacks:
+
+- `context_resolver` maps the active authenticated assignment principal to the canonical controller task, team run, member ID, stable operation key and bounded reservation amounts. It must ignore caller-supplied identity, budget and operation-key claims.
+- `usage_evidence_resolver` returns the provider/tool host receipt for the completed call. The controller's separately configured `team_budget_settlement_verifier` must authenticate that receipt and return exactly the verified token, tool-call and wall-second metrics.
+
+Pass the enforcer to `ExecutionController(team_budget_enforcer=...)` for consequential provider dispatch and to each `MCPStdioToolAdapter(team_budget_enforcer=...)` for MCP tool calls. An active authenticated assignment scope with no enforcer is denied before provider/tool dispatch. Non-assigned calls retain their existing path. A successful adapter result is not returned to the assigned worker until trusted usage settlement succeeds. Exceptions, timeouts, missing receipts and verifier failures keep the reservation held; do not refund an unknown operation. Reconcile it through the existing host receipt path.
+
+`ExecutionController.team_delivery_release_readiness(task_id, run_id)` is the end-to-end acceptance check. It requires the supervisor task and every team member to complete, a completed QA/security profile, no unresolved or overrun budget operations, and a fresh host verification of the immutable approval evidence with reviewer principals distinct from the implementer. It reports readiness only; `release_authorized` remains false because a separate authorized release action is still required. A passing fixture test is not production release or host-isolation evidence.
+
 Rollback: stop resolving the profile registry and retain the last-known-good configuration. Existing durable tasks and role assignments remain unchanged. Do not rewrite historical task evidence when a profile revision is retired.
 
 ## Validation

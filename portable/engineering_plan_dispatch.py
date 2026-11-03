@@ -145,12 +145,19 @@ class EngineeringPlanDispatch:
         if not isinstance(value, Mapping):
             raise ValueError('approval_evidence must be a mapping')
         required = {'approval_id', 'receipt_digest', 'evidence_digest', 'policy_digest', 'approver_id', 'approver_role', 'decision'}
-        if not required.issubset(value) or value.get('decision') != 'approved':
+        allowed = required | {'implementer_principal_id', 'implementer_role_id'}
+        if not required.issubset(value) or not set(value).issubset(allowed) or value.get('decision') != 'approved':
             raise ValueError('approval evidence must be a complete approved durable receipt')
-        result = {name: value[name] for name in required}
+        result = {name: value[name] for name in value}
         for name in required - {'decision'}:
             if not isinstance(result[name], str) or not result[name].strip():
                 raise ValueError('approval evidence fields must be non-empty text')
+        for name in ('implementer_principal_id', 'implementer_role_id'):
+            if name in result and (
+                not isinstance(result[name], str) or not result[name].strip()
+                or len(result[name]) > 256 or not result[name].isprintable()
+            ):
+                raise ValueError('approval implementer identity fields must be bounded printable text')
         for name in ('receipt_digest', 'evidence_digest', 'policy_digest'):
             digest = result[name]
             if len(digest) != 64 or any(c not in '0123456789abcdef' for c in digest):
@@ -176,14 +183,28 @@ class EngineeringPlanDispatch:
             return None
         if not isinstance(value, Mapping):
             raise ValueError("assignment_evidence must be a mapping")
-        required = {
+        base_required = {
             "schema_version", "assignment_id", "role_id", "manager_id", "action_class",
             "scope", "registry_digest", "policy_version", "policy_digest",
             "assignment_digest", "work_key", "task_payload_digest", "deadline_seconds",
             "authorization",
         }
-        if set(value) != required or value.get("schema_version") != "auren-agent-assignment-v3":
+        schema = value.get("schema_version")
+        if schema == "auren-agent-assignment-v3":
+            required = base_required
+        elif schema == "auren-agent-assignment-v4":
+            required = base_required | {"principal_id"}
+        else:
+            raise ValueError("assignment evidence has an unsupported schema")
+        if set(value) != required:
             raise ValueError("assignment evidence is incomplete or has an unsupported schema")
+        if schema == "auren-agent-assignment-v4" and (
+            not isinstance(value.get("principal_id"), str)
+            or not value["principal_id"].strip()
+            or len(value["principal_id"]) > 256
+            or not value["principal_id"].isprintable()
+        ):
+            raise ValueError("assignment principal identity is invalid")
         if value.get("authorization") != "host_authorized_before_submission":
             raise ValueError("assignment evidence lacks host authorization")
         for name in ("assignment_id", "role_id", "manager_id", "action_class", "policy_version", "work_key"):
@@ -282,6 +303,15 @@ class EngineeringPlanDispatch:
         assignment_binding = self._normalize_assignment_evidence(assignment_evidence)
         if root_required and assignment_binding is None:
             raise PermissionError("trusted plan dispatch requires a host-authorized specialist assignment")
+        if root_required and approval_binding is not None and (
+            "implementer_principal_id" not in approval_binding
+            or "implementer_role_id" not in approval_binding
+            or not isinstance(approval_binding["implementer_principal_id"], str)
+            or not approval_binding["implementer_principal_id"].strip()
+            or not isinstance(approval_binding["implementer_role_id"], str)
+            or not approval_binding["implementer_role_id"].strip()
+        ):
+            raise PermissionError("trusted approval evidence must bind the authenticated implementer principal")
 
         # A retry must be able to retrieve its original task after the plan has
         # advanced. Validate the immutable packet/plan binding first, but do not

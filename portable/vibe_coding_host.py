@@ -1039,6 +1039,7 @@ class MCPStdioToolAdapter:
         read_only_response_reducer: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
         read_only_response_chunker: Callable[[Mapping[str, Any]], Sequence[Mapping[str, Any]]] | None = None,
         read_only_response_merger: Callable[[Sequence[Mapping[str, Any]]], Mapping[str, Any]] | None = None,
+        team_budget_enforcer: Any | None = None,
     ) -> None:
         if not argv or any(not isinstance(x, str) or not x for x in argv):
             raise ValueError("MCP command must be a non-empty argv array")
@@ -1106,6 +1107,9 @@ class MCPStdioToolAdapter:
         if not requires_authority_binding and self.trusted_workspace_root is None:
             raise ValueError("unbound read-only MCP dispatch requires a trusted workspace root")
         self.authority_dispatch = authority_dispatch
+        if team_budget_enforcer is not None and not callable(getattr(team_budget_enforcer, "execute", None)):
+            raise TypeError("team_budget_enforcer must implement execute")
+        self.team_budget_enforcer = team_budget_enforcer
 
     @staticmethod
     def _read_response(stream: Any, responses: queue.Queue[str], request_id: int, timeout: float) -> dict[str, Any]:
@@ -1201,7 +1205,18 @@ class MCPStdioToolAdapter:
             span = None
 
         try:
-            result = self._call_untraced(request)
+            from .agent_execution_guard import current_agent_assignment_principal_id
+            principal_id = current_agent_assignment_principal_id()
+            if principal_id is not None and self.team_budget_enforcer is None:
+                raise PermissionError(
+                    "assigned MCP tool dispatch requires the host-configured shared team-budget enforcer"
+                )
+            if self.team_budget_enforcer is not None:
+                result = self.team_budget_enforcer.execute(
+                    "tool", self.tool_name, request, lambda: self._call_untraced(request),
+                )
+            else:
+                result = self._call_untraced(request)
         except BaseException:
             if span is not None:
                 try:
