@@ -183,14 +183,39 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-revocation",
             handler="dispatch-test", packet=self.packet,
         )
-        # Re-bootstrap the trusted root as a fresh worker process would do.
-        self.controller._trusted_plan_dispatch_required = False
-        self.controller._trusted_plan_dispatch_token = None
-        self.controller._trusted_plan_assignment_resolver = None
+        # Reconstruct the controller from the same durable root to model a fresh process.
         self.assignment_allowed = False
-        self._root(self.controller, approvals, request, record, guard, context=self.context)
+        fresh_controller = ExecutionController(
+            self.controller.root,
+            agent_assignment_verifier=lambda _request: self.assignment_allowed,
+        )
+        fresh_controller.register_handler(
+            "dispatch-test", "tests.test_engineering_plan_dispatch.dispatch_test_handler",
+            execution_class="read_only", agent_action_class="edit_assigned_paths",
+        )
+        EngineeringPlanDispatch(
+            store=self.plan_store,
+            controller=fresh_controller,
+            recovery_bridge=self.recovery_bridge,
+        )
+        TrustedPlanDispatchRoot(
+            controller=fresh_controller,
+            store=self.plan_store,
+            recovery_bridge=self.recovery_bridge,
+            approval_store=DurableApprovalStore(fresh_controller),
+            budget_resolver=lambda run_id, task_id, handler: {
+                "budget_id": "crew:team-a:run-1", "guard": guard,
+                "checkpoint_digest": guard.snapshot()["digest"], "policy_digest": "a" * 64,
+            },
+            approval_resolver=lambda run_id, task_id, handler: {
+                "approval_id": record.approval_id, "request": request,
+            },
+            assignment_resolver=self._assignment_resolver,
+        )
         with self.assertRaisesRegex(EngineeringPlanCheckpointMismatch, "revoked"):
-            self.controller._verify_engineering_plan_dispatch_checkpoint(task)
+            fresh_controller._verify_engineering_plan_dispatch_checkpoint(
+                fresh_controller.task(task.id)
+            )
 
     def test_root_resolves_live_budget_and_approved_record_and_binds_them(self):
         approvals, request, record = self._approval(self.controller, context=self.context)
