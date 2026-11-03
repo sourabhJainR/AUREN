@@ -193,6 +193,11 @@ class TrustedPlanDispatchRoot:
             supplied = _required_digest(context.get(name), f"current {name}")
             if supplied != getattr(record, name):
                 raise PermissionError(f"durable approval {name} no longer matches current context")
+        votes = [
+            item for item in approval_events
+            if item["event_type"] == "approval_vote_recorded"
+            and item["event"].get("details", {}).get("decision") == "approve"
+        ]
         vote_records = self.approval_store.decision_records(approval_id)
         approved_records = [item for item in vote_records if item.get("decision") == "approve"]
         approvers: list[str] = []
