@@ -19,12 +19,16 @@ from tests.test_engineering_plan_dispatch import DISPATCH_HANDLER_CALLS, prepare
 
 
 class TrustedPlanDispatchRootTests(unittest.TestCase):
-    def _approval(self, controller, *, context, plan_task_id="implement", expiry_seconds=3600, clock=None):
+    def _approval(
+        self, controller, *, context, plan_task_id="implement", expiry_seconds=3600,
+        clock=None, requester_id="worker-1", approver_id="manager-1",
+        separation_of_duties=True,
+    ):
         approval_now = clock() if clock is not None else datetime.now(timezone.utc)
         store = DurableApprovalStore(
             controller,
             approver_authorizer=lambda approver, role, scope, roles: (
-                approver == "manager-1" and role in roles and scope == "repo:write"
+                approver in {"manager-1", "worker-1"} and role in roles and scope == "repo:write"
             ),
             context_provider=lambda request: dict(context),
             clock=clock,
@@ -40,8 +44,8 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             artifact_digest=context["artifact_digest"],
             evidence_digest=context["evidence_digest"],
             policy_digest=context["policy_digest"],
-            requester_id="worker-1", required_role="engineering_manager",
-            scope="repo:write",
+            requester_id=requester_id, required_role="engineering_manager",
+            scope="repo:write", separation_of_duties=separation_of_duties,
             checkpoint={
                 "plan_run_id": self.plan.run_id,
                 "plan_task_id": plan_task_id,
@@ -52,7 +56,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             expires_at=approval_now + timedelta(seconds=expiry_seconds),
         )
         store.decide(
-            record.approval_id, "approve", approver_id="manager-1",
+            record.approval_id, "approve", approver_id=approver_id,
             roles=("engineering_manager",), scope="repo:write",
         )
         return store, request, record
@@ -567,6 +571,40 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                 handler="dispatch-test", packet=self.packet,
                 payload={"resource": "tests"},
             )
+
+    def test_approval_requester_must_match_authenticated_implementer_before_queue(self):
+        store, request, record = self._approval(
+            self.controller, context=self.approval_context, requester_id="different-worker",
+        )
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        root = self._root(self.controller, store, request, record, guard, context=self.approval_context)
+        with self.assertRaisesRegex(PermissionError, "requester does not match the authenticated implementer"):
+            root.dispatch(
+                run_id=self.plan.run_id, task_id="implement",
+                dispatch_key="reviewer-requester-mismatch",
+                handler="dispatch-test", packet=self.packet, payload={"resource": "tests"},
+            )
+        with sqlite3.connect(self.controller.db_path) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0], 0)
+        with sqlite3.connect(self.controller.company.db_path) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM work_units").fetchone()[0], 0)
+
+    def test_implementer_cannot_self_approve_even_when_legacy_separation_flag_is_false(self):
+        store, request, record = self._approval(
+            self.controller, context=self.approval_context,
+            requester_id="worker-1", approver_id="worker-1",
+            separation_of_duties=False,
+        )
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        root = self._root(self.controller, store, request, record, guard, context=self.approval_context)
+        with self.assertRaisesRegex(PermissionError, "implementer self-approval is not permitted"):
+            root.dispatch(
+                run_id=self.plan.run_id, task_id="implement",
+                dispatch_key="implementer-self-approval",
+                handler="dispatch-test", packet=self.packet, payload={"resource": "tests"},
+            )
+        with sqlite3.connect(self.controller.db_path) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0], 0)
 
     def test_direct_dispatch_cannot_supply_forged_receipt_after_root_registration(self):
         approvals, request, record = self._approval(self.controller, context=self.context)
