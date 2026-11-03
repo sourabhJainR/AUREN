@@ -1,7 +1,9 @@
-.git
-**/.git
-**/.git/**
+**
+!external/
+!external/TradingDYOR/
+!external/TradingDYOR/**
 external/TradingDYOR/.git
+external/TradingDYOR/.git/**
 external/TradingDYOR/.env
 external/TradingDYOR/.env.*
 external/TradingDYOR/.tradingdyor
