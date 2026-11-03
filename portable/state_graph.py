@@ -496,15 +496,28 @@ def _dispatch_crew_proposal(
 class StateGraph:
     """Persistent-supervisor-friendly state machine over the existing Graph primitive."""
 
-    def __init__(self, graph: Graph, transitions: tuple[StateTransition, ...] = ()) -> None:
+    def __init__(
+        self,
+        graph: Graph,
+        transitions: tuple[StateTransition, ...] = (),
+        *,
+        conflict_scope_verifier: Callable[[Mapping[str, Any], Mapping[str, tuple[str, ...]], str], bool] | None = None,
+    ) -> None:
         self.graph = graph
         self.transitions = transitions
+        self.conflict_scope_verifier = conflict_scope_verifier
         self.states = tuple(node.name for node in graph.order())
         self._validate_transitions()
 
     @classmethod
-    def from_nodes(cls, nodes: list[Node], transitions: tuple[StateTransition, ...] = ()) -> "StateGraph":
-        return cls(Graph(nodes), transitions)
+    def from_nodes(
+        cls,
+        nodes: list[Node],
+        transitions: tuple[StateTransition, ...] = (),
+        *,
+        conflict_scope_verifier: Callable[[Mapping[str, Any], Mapping[str, tuple[str, ...]], str], bool] | None = None,
+    ) -> "StateGraph":
+        return cls(Graph(nodes), transitions, conflict_scope_verifier=conflict_scope_verifier)
 
     def _validate_transitions(self) -> None:
         names = set(self.states)
@@ -520,7 +533,11 @@ class StateGraph:
             max_total_attempts: int = 32, tracer: Tracer | None = None) -> OrchestrationRun:
         """Run the canonical supervisor and correlate telemetry to its returned state."""
         if tracer is None:
-            return Orchestrator(self.graph, max_total_attempts=max_total_attempts).run(task_id, intent, context)
+            return Orchestrator(
+                self.graph,
+                max_total_attempts=max_total_attempts,
+                conflict_scope_verifier=self.conflict_scope_verifier,
+            ).run(task_id, intent, context)
 
         state = dict(context or {})
         run_id = state.get("run_id") or task_id
@@ -666,7 +683,11 @@ class StateGraph:
                     node, run=traced_run, evaluator=traced_evaluator, repair=traced_repair,
                 ))
             traced_graph = Graph(traced_nodes)
-            result = Orchestrator(traced_graph, max_total_attempts=max_total_attempts).run(task_id, intent, state)
+            result = Orchestrator(
+                traced_graph,
+                max_total_attempts=max_total_attempts,
+                conflict_scope_verifier=self.conflict_scope_verifier,
+            ).run(task_id, intent, state)
             for node in self.graph.order():
                 node_result = result.results.get(node.name)
                 if node_result is None:

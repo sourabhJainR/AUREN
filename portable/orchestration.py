@@ -346,12 +346,22 @@ class Graph:
 class Orchestrator:
     """Execute a graph whose agentic nodes contain bounded local loops."""
 
-    def __init__(self, graph: Graph, *, max_total_attempts: int = 32, allow_self_improvement: bool = True) -> None:
+    def __init__(
+        self,
+        graph: Graph,
+        *,
+        max_total_attempts: int = 32,
+        allow_self_improvement: bool = True,
+        conflict_scope_verifier: Callable[[Mapping[str, Any], Mapping[str, tuple[str, ...]], str], bool] | None = None,
+    ) -> None:
         if max_total_attempts < 1:
             raise ValueError("max_total_attempts must be positive")
         self.graph = graph
         self.max_total_attempts = max_total_attempts
         self.allow_self_improvement = allow_self_improvement
+        # This verifier is injected by the trusted host composition root. A
+        # planner's node mapping is descriptive input, never authority by itself.
+        self.conflict_scope_verifier = conflict_scope_verifier
 
     @staticmethod
     def intent_digest(intent: str) -> str:
@@ -425,10 +435,95 @@ class Orchestrator:
             "receipt_digest": preflight["digest"],
             "intent_digest": preflight["intent_digest"],
         })
+        preblocked_nodes: set[str] = set()
+        conflict_mapping_digest = ""
         if preflight["unresolved_contradictions"]:
-            run.status = RunStatus.BLOCKED
-            run.stop_reason = "pre-implementation review found contradictory requirements requiring a decision"
-            return run
+            raw_mapping = state.get("preimplementation_conflict_nodes")
+            unresolved_ids = {
+                str(item.get("id", "")).strip()
+                for item in preflight["unresolved_contradictions"]
+                if isinstance(item, Mapping)
+            }
+            valid_mapping = (
+                isinstance(raw_mapping, Mapping)
+                and bool(unresolved_ids)
+                and callable(self.conflict_scope_verifier)
+            )
+            normalized_mapping: dict[str, tuple[str, ...]] = {}
+            if valid_mapping:
+                valid_mapping = set(raw_mapping.keys()) == unresolved_ids
+                for conflict_id in sorted(unresolved_ids):
+                    targets = raw_mapping.get(conflict_id)
+                    if (
+                        not isinstance(targets, (list, tuple))
+                        or not targets
+                        or any(not isinstance(name, str) or name not in self.graph.nodes for name in targets)
+                        or len(set(targets)) != len(targets)
+                    ):
+                        valid_mapping = False
+                        break
+                    normalized_mapping[conflict_id] = tuple(targets)
+            if valid_mapping:
+                try:
+                    valid_mapping = self.conflict_scope_verifier(
+                        preflight, normalized_mapping, self.graph.digest(),
+                    ) is True
+                except Exception:
+                    valid_mapping = False
+            if not valid_mapping:
+                run.status = RunStatus.BLOCKED
+                run.stop_reason = (
+                    "pre-implementation review found contradictory requirements; "
+                    "a complete valid conflict-to-task mapping is required before independent work can continue"
+                )
+                run.trajectory.append({
+                    "event": "conflict_scoped_admission",
+                    "status": "blocked",
+                    "reason": "missing, incomplete, or invalid conflict-to-task mapping",
+                    "unresolved_conflicts": sorted(unresolved_ids),
+                })
+                return run
+
+            conflict_owners: dict[str, list[str]] = {}
+            for conflict_id, targets in normalized_mapping.items():
+                for target in targets:
+                    conflict_owners.setdefault(target, []).append(conflict_id)
+            preblocked_nodes = set(conflict_owners)
+            dependent_nodes: set[str] = set()
+            changed = True
+            while changed:
+                changed = False
+                for candidate in self.graph.order():
+                    if candidate.name not in preblocked_nodes and candidate.name not in dependent_nodes:
+                        if set(candidate.depends_on) & (preblocked_nodes | dependent_nodes):
+                            dependent_nodes.add(candidate.name)
+                            changed = True
+            conflict_mapping_digest = hashlib.sha256(
+                json.dumps(normalized_mapping, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            for node_name in sorted(preblocked_nodes):
+                reason = "unresolved requirement conflict: " + ", ".join(sorted(conflict_owners[node_name]))
+                run.results[node_name] = NodeResult(
+                    node_name, NodeStatus.BLOCKED, error=reason,
+                )
+            run.trajectory.append({
+                "event": "conflict_scoped_admission",
+                "status": "partially_blocked",
+                "mapping_digest": conflict_mapping_digest,
+                "directly_blocked_nodes": sorted(preblocked_nodes),
+                "dependent_nodes": sorted(dependent_nodes),
+                "independent_nodes": sorted(set(self.graph.nodes) - preblocked_nodes - dependent_nodes),
+            })
+            run.record(Evidence(
+                "conflict-scoped-admission",
+                json.dumps({
+                    "mapping_digest": conflict_mapping_digest,
+                    "directly_blocked_nodes": sorted(preblocked_nodes),
+                    "dependent_nodes": sorted(dependent_nodes),
+                    "unresolved_conflicts": sorted(unresolved_ids),
+                }, sort_keys=True, separators=(",", ":")),
+                "portable.orchestration",
+            ))
 
         # Engineering principles are checked before any graph node can perform
         # side effects. This reuses the canonical guard and records its receipt
@@ -518,9 +613,24 @@ class Orchestrator:
                 "minimum_evidence": strategy_profile.minimum_evidence,
             })
         total_attempts = 0
-        critical_failures: list[tuple[RunStatus, str, str]] = []
+        critical_failures: list[tuple[RunStatus, str, str]] = [
+            (
+                RunStatus.BLOCKED,
+                node_name,
+                run.results[node_name].error or "unresolved requirement conflict",
+            )
+            for node_name in sorted(preblocked_nodes)
+        ]
 
         for node in self.graph.order():
+            if node.name in preblocked_nodes:
+                blocked_result = run.results[node.name]
+                run.trajectory.append({
+                    "node": node.name,
+                    "status": blocked_result.status.value,
+                    "reason": blocked_result.error,
+                })
+                continue
             # Partial dependency context is scoped to one node invocation. A
             # prior synthesis must never leak its missing-source list into an
             # unrelated downstream or sibling node.
@@ -650,6 +760,10 @@ class Orchestrator:
                 "executed_nodes": [
                     name for name, result in run.results.items()
                     if result.status not in {NodeStatus.SKIPPED, NodeStatus.BLOCKED}
+                ],
+                "blocked_nodes": [
+                    name for name, result in run.results.items()
+                    if result.status == NodeStatus.BLOCKED
                 ],
                 "skipped_nodes": [
                     name for name, result in run.results.items()

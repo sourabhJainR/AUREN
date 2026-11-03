@@ -35,6 +35,23 @@ For every non-trivial software-engineering task:
 
 The normal runtime is a single adaptive run. Recursive or repeated execution is never automatic; it requires an explicit user request.
 
+## Methodology selection and enforcement
+
+Select methods by engineering risk and problem shape; do not apply process ceremony where it adds no safety or clarity.
+
+- **BDD:** express user-visible behavior as Given/When/Then scenarios before implementation when requirements, workflows, integrations, or acceptance boundaries are involved. Include success, denial, failure, recovery, and boundary cases.
+- **TDD:** for bug fixes, behavior changes, security controls, and regressions, add a focused failing test first; implement the smallest change; run the focused test; then run affected regression and integration suites. Never weaken or delete a test merely to make a change pass.
+- **AOP:** handle cross-cutting concerns such as authorization, audit, tracing, deadlines, cancellation, budgets, redaction, and retries at canonical execution boundaries. Prefer existing middleware/interceptors/guards/decorators and test both coverage and bypass attempts. Do not scatter duplicate policy checks or introduce a parallel authority path.
+- **Design by contract:** state preconditions, postconditions, invariants, error behavior, and ownership at module and adapter boundaries. Validate before side effects.
+- **Threat modeling and least privilege:** required for trust-boundary, provider, filesystem, network, MCP, credential, and evaluator changes. Add negative tests for denial before the side effect.
+- **Property-based, fuzz, and mutation testing:** use when input spaces, parsers, state machines, serialization, concurrency, or invariants justify them. Keep deterministic seeds and bounded runs.
+- **Contract and consumer-driven testing:** use for APIs, schemas, provider adapters, plugins, MCP and host boundaries; verify compatibility and malformed/unavailable responses.
+- **Fault injection and chaos testing:** use for restart, partial writes, cancellation, deadlines, provider uncertainty, network loss, concurrency and rollback. Never replay an uncertain consequential effect without reconciliation.
+- **Architecture decision records:** record material, long-lived trade-offs and rejected alternatives. Keep small reversible implementation choices in task evidence rather than creating unnecessary documents.
+- **Recursive execution:** repeat plan → implement → verify → independently review only while new evidence changes the next action. Bound attempts, time, fan-out and cost. A repeated failure without a new hypothesis is a stop condition, not a reason to retry.
+
+A method is complete only when its expected evidence exists. A green unit test does not replace a real adapter test; a mocked integration does not prove host isolation; and repository CI does not prove independent evaluator custody or operator rollback.
+
 ## Multi-Jira and Git branch safety
 
 For multiple Jira work items in one repository, use `portable.multi_jira_workflow.BranchAwareWorkspace` and `ReadOnceFileCache`. Keep a distinct intent digest, acceptance criteria, task branch, test evidence, and PR per Jira. Snapshot branch/HEAD/upstream/status once; use the repository map and targeted symbol/test reads before full files; reuse unchanged file contents and invalidate after checkout/merge or edits. Reuse prior verified engineering lessons through `portable.memory_orchestrator.MemoryOrchestrator`, the canonical memory/provenance owner.

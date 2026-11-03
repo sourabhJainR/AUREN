@@ -7,7 +7,7 @@ import os
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from .adaptive_learning import AdaptiveLearningStore, DeferredLearningJob
 from .adaptive_tuning import AdaptiveTuner, MaintenanceReceipt
@@ -63,12 +63,17 @@ class AdaptiveRuntime:
         maintenance_budget: int = 20,
         state_root: Path | str | None = None,
         legacy_state_root: Path | str | None = None,
+        conflict_scope_verifier: Callable[[Mapping[str, Any], Mapping[str, tuple[str, ...]], str], bool] | None = None,
     ) -> None:
         if maintenance_interval_seconds < 1:
             raise ValueError("maintenance_interval_seconds must be positive")
         if maintenance_budget < 1:
             raise ValueError("maintenance_budget must be positive")
-        self.orchestrator = Orchestrator(graph, max_total_attempts=max_total_attempts)
+        self.orchestrator = Orchestrator(
+            graph,
+            max_total_attempts=max_total_attempts,
+            conflict_scope_verifier=conflict_scope_verifier,
+        )
         if state_root is None:
             self.state_paths = AurenStatePaths.prepare(
                 canonical_root=canonical_auren_home(),

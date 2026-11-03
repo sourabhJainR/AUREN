@@ -41,6 +41,33 @@ class OrchestrationTests(unittest.TestCase):
         self.assertTrue(run.environment_fingerprint)
         self.assertTrue(run.trajectory)
 
+    def test_state_graph_forwards_trusted_conflict_scope_verifier(self):
+        calls = []
+        graph = Graph([
+            Node("api", NodeKind.DETERMINISTIC, lambda _state: calls.append("api"), critical=True),
+            Node("docs", NodeKind.DETERMINISTIC, lambda _state: calls.append("docs"), critical=False),
+        ])
+        state_graph = StateGraph(
+            graph,
+            conflict_scope_verifier=lambda review, mapping, digest: (
+                bool(review["unresolved_contradictions"])
+                and mapping == {"compatibility-vs-breaking-change": ("api",)}
+                and len(digest) == 64
+            ),
+        )
+        run = state_graph.run(
+            "state-graph-conflict",
+            "Preserve compatibility while changing the API",
+            context={
+                "requirements": ["Preserve backward compatibility", "Introduce a breaking change"],
+                "preimplementation_conflict_nodes": {"compatibility-vs-breaking-change": ["api"]},
+            },
+        )
+        self.assertEqual(run.status, RunStatus.BLOCKED)
+        self.assertEqual(calls, ["docs"])
+        self.assertEqual(run.results["api"].status, NodeStatus.BLOCKED)
+        self.assertEqual(run.results["docs"].status, NodeStatus.PASSED)
+
     def test_adaptive_policy_changes_future_agent_attempt_budget(self):
         attempts = []
         graph = Graph([
