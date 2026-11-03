@@ -244,6 +244,26 @@ class TrustedPlanDispatchRoot:
             raise PermissionError("host agent assignment authorization failed closed") from exc
         if not isinstance(assignment, AuthorizedAgentAssignment):
             raise PermissionError("host assignment resolver must return AuthorizedAgentAssignment")
+        # A host-authorized assignment is not enough on its own: it must match
+        # the immutable owner and manager declared by this exact plan task.
+        run_id = context.get("run_id")
+        task_id = context.get("task_id")
+        if not isinstance(run_id, str) or not isinstance(task_id, str):
+            raise PermissionError("trusted assignment requires an exact plan run and task identity")
+        try:
+            plan, run = self.store.load(run_id)
+        except Exception as exc:
+            raise PermissionError("trusted assignment could not load the canonical plan revision") from exc
+        run.verify_against(plan)
+        task_definition = next((item for item in plan.tasks if item.task_id == task_id), None)
+        if task_definition is None:
+            raise PermissionError("trusted assignment references an unknown plan task")
+        if not task_definition.owner_role_id or not task_definition.manager_role_id:
+            raise PermissionError("plan task must declare an immutable owner_role_id and manager_role_id")
+        if assignment.role_id != task_definition.owner_role_id:
+            raise PermissionError("host assignment role does not match the declared plan task owner")
+        if assignment.manager_id != task_definition.manager_role_id:
+            raise PermissionError("host assignment manager does not match the declared plan task manager")
         payload = context.get("payload")
         if assignment.work_key != dispatch_key:
             raise PermissionError("agent assignment is not bound to this stable dispatch identity")
