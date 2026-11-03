@@ -290,8 +290,8 @@ class TrustedPlanDispatchRoot:
         if payload is not None and not isinstance(payload, Mapping):
             raise ValueError("dispatch payload must be a mapping")
         safe_payload = dict(payload or {})
-        if "_auren_agent_assignment" in safe_payload:
-            raise ValueError("payload key '_auren_agent_assignment' is reserved for the trusted host")
+        if "_auren_agent_assignment" in safe_payload or "_auren_assignment_deadline_seconds" in safe_payload:
+            raise ValueError("trusted assignment metadata keys are reserved for the host")
         budget, guard = self._budget_binding(run_id, task_id, handler)
         approval = self._approval_binding(run_id, task_id, handler, packet)
         # Approval resolution may take time. Re-check the same live supervisor
@@ -352,6 +352,7 @@ class TrustedPlanDispatchRoot:
             if deadline_seconds is not None:
                 deadline_seconds = min(deadline_seconds, float(remaining_after_assignment))
         safe_payload["_auren_agent_assignment"] = assignment
+        safe_payload["_auren_assignment_deadline_seconds"] = assignment.get("deadline_seconds")
         return EngineeringPlanDispatch(
             store=self.store, controller=self.controller, recovery_bridge=self.recovery_bridge,
         ).dispatch(
