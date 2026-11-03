@@ -32,6 +32,7 @@ class TrustedPlanApprovalPreflightTests(unittest.TestCase):
             agent_action_class="edit_assigned_paths",
         )
         self.assignment_scope = ("tests",)
+        self.assignment_principal_id = "worker-1"
         self.assignment_policy_path = self.controller.root / ".auren" / "guard_policy.json"
         self.assignment_policy_path.parent.mkdir(parents=True, exist_ok=True)
         self.assignment_policy_path.write_text(
@@ -98,9 +99,9 @@ class TrustedPlanApprovalPreflightTests(unittest.TestCase):
             manager_id="EM-ENG-01",
             action_class="edit_assigned_paths",
             scope=self.assignment_scope,
-            principal_id="worker-1",
+            principal_id=self.assignment_principal_id,
             authorizer=lambda request: (
-                request.get("principal_id") == "worker-1"
+                request.get("principal_id") == self.assignment_principal_id
                 and request.get("scope") == self.assignment_scope
             ),
             policy_path=self.assignment_policy_path,
@@ -129,6 +130,46 @@ class TrustedPlanApprovalPreflightTests(unittest.TestCase):
             },
             assignment_resolver=self._assignment_resolver,
         )
+
+    def test_implementer_principal_change_after_enqueue_blocks_fresh_process_preflight(self):
+        approvals, request, record = self._approval(self.controller)
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        checkpoint_digest = guard.snapshot()["digest"]
+        root = self._root(
+            self.controller, approvals, request, record, guard, checkpoint_digest,
+        )
+        DISPATCH_HANDLER_CALLS.clear()
+        task = root.dispatch(
+            run_id=self.plan.run_id, task_id="implement",
+            dispatch_key="implementer-principal-drift",
+            handler="dispatch-test", packet=self.packet, payload={"resource": "tests"},
+        )
+
+        # Host identity now resolves to a different worker principal. The
+        # persisted implementation evidence and reviewer receipt must not replay.
+        self.assignment_principal_id = "worker-2"
+        fresh_controller = ExecutionController(self.controller.root)
+        fresh_controller.register_handler(
+            "dispatch-test",
+            "tests.test_engineering_plan_dispatch:dispatch_test_handler",
+            execution_class="read_only",
+            agent_action_class="edit_assigned_paths",
+        )
+        fresh_approvals = DurableApprovalStore(
+            fresh_controller,
+            approver_authorizer=lambda approver, role, scope, roles: (
+                approver == "manager-1" and role in roles and scope == "repo:write"
+            ),
+            context_provider=lambda _request: dict(self.context),
+        )
+        self._root(
+            fresh_controller, fresh_approvals, request, record,
+            RuntimeExecutionGuard.resume(guard.snapshot()), checkpoint_digest,
+        )
+        with self.assertRaisesRegex(EngineeringPlanCheckpointMismatch, "assignment is revoked"):
+            fresh_controller.run_once(task.id)
+        self.assertEqual("failed", fresh_controller.task(task.id).state)
+        self.assertEqual([], DISPATCH_HANDLER_CALLS)
 
     # Approval must be recomputed before a resumed handler can perform any work.
     def test_approver_revocation_after_enqueue_blocks_fresh_process_preflight(self):
