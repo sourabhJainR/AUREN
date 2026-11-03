@@ -78,6 +78,7 @@ class TrustedPlanDispatchRoot:
         self._assignment_contexts_lock = threading.RLock()
         self._previous_assignment_verifier = controller._agent_assignment_verifier
         controller._trusted_plan_assignment_resolver = self._revalidate_assignment
+        controller._trusted_plan_approval_verifier = self._verify_controller_approval
         # The same host resolver is the controller's assignment verifier. This
         # closes the gap between durable-plan preflight and the controller's
         # ordinary resource/action checks at the final handler boundary.
@@ -116,50 +117,29 @@ class TrustedPlanDispatchRoot:
             "policy_digest": policy_digest,
         }, guard)
 
-    def _approval_binding(
-        self, run_id: str, task_id: str, handler: str, packet: EngineeringContextPacket,
-    ) -> dict[str, str] | None:
-        resolved = self.approval_resolver(run_id, task_id, handler)
-        execution_class = self.controller._handler_execution_class(handler)
-        if resolved is None:
-            if execution_class == "consequential":
-                raise PermissionError("consequential dispatch requires a canonical durable approval")
-            return None
-        if not isinstance(resolved, Mapping):
-            raise PermissionError("trusted approval resolver returned an invalid record reference")
-        approval_id = resolved.get("approval_id")
-        request = resolved.get("request")
-        if not isinstance(approval_id, str) or not approval_id.strip() or not isinstance(request, ActionRequest):
-            raise PermissionError("trusted approval resolver must return an approval_id and ActionRequest")
+    def _verified_approval_record(
+        self,
+        approval_id: str,
+        request: ActionRequest,
+        expected_plan_binding: Mapping[str, Any],
+    ) -> dict[str, str]:
+        """Recompute an approval receipt from durable state and live host authority."""
         record = self.approval_store.get(approval_id)
         if record.status != "approved":
             raise PermissionError(f"durable approval is {record.status}, not approved")
         try:
             expires_at = datetime.fromisoformat(record.expires_at)
-        except (TypeError, ValueError) as exc:
-            raise PermissionError("durable approval expiry is invalid") from exc
-        try:
             current_time = self.approval_store.clock()
             if not isinstance(current_time, datetime) or current_time.tzinfo is None:
                 raise ValueError("approval store clock must return an aware datetime")
             current_time = current_time.astimezone(timezone.utc)
         except Exception as exc:
-            raise PermissionError("durable approval clock could not be verified") from exc
+            raise PermissionError("durable approval expiry or clock could not be verified") from exc
         if expires_at.tzinfo is None or expires_at.astimezone(timezone.utc) <= current_time:
             raise PermissionError("durable approval is expired")
         if request.task_id != record.task_id or request.fingerprint() != record.request_fingerprint:
             raise PermissionError("durable approval is not bound to the resolved operation")
-        if not isinstance(packet, EngineeringContextPacket):
-            raise TypeError("approval verification requires the immutable EngineeringContextPacket")
-        packet.verify()
         checkpoint = self.approval_store.checkpoint_for(approval_id)
-        expected_plan_binding = {
-            "plan_run_id": run_id,
-            "plan_task_id": task_id,
-            "plan_digest": packet.plan_digest,
-            "run_revision": packet.run_revision,
-            "source_revision": packet.source_revision,
-        }
         if any(checkpoint.get(name) != value for name, value in expected_plan_binding.items()):
             raise PermissionError("durable approval checkpoint is not bound to this exact plan task revision")
         if not self.approval_store.verify_audit_chain():
@@ -249,6 +229,68 @@ class TrustedPlanDispatchRoot:
             "approver_role": record.required_role,
             "decision": "approved",
         }
+
+    def _approval_binding(
+        self, run_id: str, task_id: str, handler: str, packet: EngineeringContextPacket,
+    ) -> dict[str, str] | None:
+        resolved = self.approval_resolver(run_id, task_id, handler)
+        execution_class = self.controller._handler_execution_class(handler)
+        if resolved is None:
+            if execution_class == "consequential":
+                raise PermissionError("consequential dispatch requires a canonical durable approval")
+            return None
+        if not isinstance(resolved, Mapping):
+            raise PermissionError("trusted approval resolver returned an invalid record reference")
+        approval_id = resolved.get("approval_id")
+        request = resolved.get("request")
+        if not isinstance(approval_id, str) or not approval_id.strip() or not isinstance(request, ActionRequest):
+            raise PermissionError("trusted approval resolver must return an approval_id and ActionRequest")
+        if not isinstance(packet, EngineeringContextPacket):
+            raise TypeError("approval verification requires the immutable EngineeringContextPacket")
+        packet.verify()
+        expected_plan_binding = {
+            "plan_run_id": run_id,
+            "plan_task_id": task_id,
+            "plan_digest": packet.plan_digest,
+            "run_revision": packet.run_revision,
+            "source_revision": packet.source_revision,
+        }
+        return self._verified_approval_record(approval_id, request, expected_plan_binding)
+
+    def _verify_controller_approval(
+        self, metadata: Mapping[str, Any], evidence: Mapping[str, Any],
+    ) -> bool:
+        """Reauthorize the persisted approval immediately before worker execution."""
+        if not isinstance(metadata, Mapping) or not isinstance(evidence, Mapping):
+            return False
+        run_id = metadata.get("run_id")
+        task_id = metadata.get("task_id")
+        handler = metadata.get("handler")
+        if not all(isinstance(value, str) and value.strip() for value in (run_id, task_id, handler)):
+            return False
+        try:
+            resolved = self.approval_resolver(run_id, task_id, handler)
+            if not isinstance(resolved, Mapping):
+                return False
+            approval_id = resolved.get("approval_id")
+            request = resolved.get("request")
+            if (
+                not isinstance(approval_id, str)
+                or approval_id != evidence.get("approval_id")
+                or not isinstance(request, ActionRequest)
+            ):
+                return False
+            expected_plan_binding = {
+                "plan_run_id": run_id,
+                "plan_task_id": task_id,
+                "plan_digest": metadata.get("plan_digest"),
+                "run_revision": metadata.get("run_revision"),
+                "source_revision": metadata.get("source_revision"),
+            }
+            current = self._verified_approval_record(approval_id, request, expected_plan_binding)
+            return current == dict(evidence)
+        except Exception:
+            return False
 
     def _resolve_assignment(self, context: Mapping[str, Any]) -> dict[str, Any]:
         from .agent_org_runtime import AuthorizedAgentAssignment
