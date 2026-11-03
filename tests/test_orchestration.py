@@ -68,6 +68,41 @@ class OrchestrationTests(unittest.TestCase):
         self.assertEqual(run.results["api"].status, NodeStatus.BLOCKED)
         self.assertEqual(run.results["docs"].status, NodeStatus.PASSED)
 
+    def test_missing_host_conflict_verifier_blocks_before_any_node_runs(self):
+        calls = []
+        graph = Graph([
+            Node("api", NodeKind.DETERMINISTIC, lambda _state: calls.append("api"), critical=True),
+            Node("docs", NodeKind.DETERMINISTIC, lambda _state: calls.append("docs"), critical=False),
+        ])
+        state_graph = StateGraph(graph)
+
+        run = state_graph.run(
+            "state-graph-conflict-without-host-verifier",
+            "Preserve backward compatibility while introducing a breaking change",
+            context={
+                "requirements": [
+                    "Preserve backward compatibility",
+                    "Introduce a breaking change",
+                ],
+                "preimplementation_conflict_nodes": {
+                    "compatibility-vs-breaking-change": ["api"],
+                },
+            },
+        )
+
+        self.assertEqual(run.status, RunStatus.BLOCKED)
+        self.assertEqual(calls, [])
+        self.assertEqual(run.results, {})
+        admission = next(
+            event for event in run.trajectory
+            if event.get("event") == "conflict_scoped_admission"
+        )
+        self.assertEqual(admission["status"], "blocked")
+        self.assertEqual(
+            admission["reason"],
+            "missing, incomplete, or invalid conflict-to-task mapping",
+        )
+
     def test_adaptive_policy_changes_future_agent_attempt_budget(self):
         attempts = []
         graph = Graph([
