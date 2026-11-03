@@ -464,6 +464,14 @@ def _install_graph_team_bridge() -> None:
             supervisor_task_id = manifest.get("task_id") or manifest.get("run_id") or run_dir.name
             if not isinstance(supervisor_task_id, str) or not supervisor_task_id.strip():
                 raise ValueError("stable supervisor task identity is required for task-aware routing")
+            # Private profile memory and graph checkpoints use the durable harness
+            # run identity. The run directory name is stable across resume and
+            # unique across separate invocations, unlike the intent digest.
+            graph_run_id = manifest.get("run_id")
+            if not isinstance(graph_run_id, str) or not graph_run_id.strip():
+                graph_run_id = run_dir.name
+            if not isinstance(graph_run_id, str) or not graph_run_id.strip():
+                raise ValueError("stable graph run identity is required for private memory isolation")
             project_root = Path(__file__).resolve().parents[2]
             task_context_router = _default_task_context_router(project_root)
             base_prompt = _build_task_context_prompt(
@@ -488,7 +496,7 @@ def _install_graph_team_bridge() -> None:
                 principle_inputs["code_revision"] = _final_revision_binding(manifest)
             result = team.execute(
                 task=task, intent_digest=intent_digest, base_prompt=base_prompt,
-                memory=memory, invoke_agent=invoke_agent, **principle_inputs,
+                memory=memory, invoke_agent=invoke_agent, run_id=graph_run_id, **principle_inputs,
                 final_verification=(
                     phase == "review" and isinstance(manifest.get("principle_verification"), dict)
                 ),
