@@ -12,6 +12,8 @@ from pathlib import Path
 import re
 from typing import Any, Mapping
 
+from .agent_org_runtime import load_agent_org_registry
+
 PROFILE_REGISTRY_VERSION = "auren-agent-profiles-v1"
 PROFILE_SCHEMA_VERSION = "auren-agent-profile-v1"
 TEAM_TEMPLATE_SCHEMA_VERSION = "auren-agent-team-template-v1"
@@ -289,10 +291,11 @@ def load_agent_profile_registry(
     raw = _load_json(profile_path, label="agent profile registry")
     if set(raw) != {"schema_version", "profiles", "team_templates"} or raw.get("schema_version") != PROFILE_REGISTRY_VERSION:
         raise AgentProfileError("unsupported or malformed agent profile registry schema")
-    org = _load_json(organization_registry_path, label="organization registry")
-    if org.get("schema_version") != "auren-ai-engineering-org-v1" or not isinstance(org.get("roles"), list):
-        raise AgentProfileError("canonical organization registry is invalid")
-    roles = {role.get("id"): role for role in org["roles"] if isinstance(role, dict) and isinstance(role.get("id"), str)}
+    try:
+        org, _org_digest = load_agent_org_registry(organization_registry_path)
+    except Exception as exc:
+        raise AgentProfileError("canonical organization registry is invalid") from exc
+    roles = {role["id"]: role for role in org["roles"]}
     profiles_raw = raw["profiles"]
     if not isinstance(profiles_raw, list) or len(profiles_raw) > _MAX_PROFILES:
         raise AgentProfileError("profiles must be a list within the configured limit")
