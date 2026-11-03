@@ -62,6 +62,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             role_id="BE-01", manager_id="EM-ENG-01",
             action_class="edit_assigned_paths", scope=self.assignment_scope,
             authorizer=lambda request: self.assignment_allowed,
+            policy_path=self.assignment_policy_path,
             work_key=context["dispatch_key"], task_payload=context["payload"],
             deadline_seconds=context.get("assignment_deadline_seconds", context["deadline_seconds"]),
         )
@@ -94,6 +95,11 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         self.recovery_bridge = bridge.recovery_bridge
         self.assignment_allowed = True
         self.assignment_scope = ("repo:write",)
+        self.assignment_policy_path = Path(self.temp.name) / "guard_policy.json"
+        self.assignment_policy_path.write_text(
+            '{"schema_version":"auren-guard-v1","default_effect":"allow","rules":[]}',
+            encoding="utf-8",
+        )
         self.context = {
             "artifact_digest": "1" * 64,
             "evidence_digest": "2" * 64,
@@ -122,7 +128,10 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-policy-replay",
             handler="dispatch-test", packet=self.packet,
         )
-        self.assignment_scope = ("repo:read",)
+        self.assignment_policy_path.write_text(
+            '{"schema_version":"auren-guard-v1","default_effect":"deny","rules":[]}',
+            encoding="utf-8",
+        )
         with self.assertRaises(DispatchConflict):
             root.dispatch(
                 run_id=self.plan.run_id, task_id="implement", dispatch_key="assignment-policy-replay",
