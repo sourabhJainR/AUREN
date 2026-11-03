@@ -159,6 +159,8 @@ class TrustedPlanDispatchRoot:
         if len(request_events) != 1:
             raise PermissionError("durable approval request event is missing or ambiguous")
         request_details = request_events[0]["event"].get("details", {})
+        if request_events[0]["event"].get("actor") != record.requester_id:
+            raise PermissionError("durable approval requester differs from its immutable audit actor")
         if (
             request_details.get("expires_at") != record.expires_at
             or request_details.get("request_fingerprint") != record.request_fingerprint
