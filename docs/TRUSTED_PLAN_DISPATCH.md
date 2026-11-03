@@ -6,10 +6,13 @@ TrustedPlanDispatchRoot is the only supported plan-to-worker dispatch path when 
 
 Create the canonical ExecutionController, EngineeringPlanStore, EngineeringPlanRecoveryBridge, and DurableApprovalStore first. The approval store must share the controller database. Then configure the root through AdaptiveRuntime.configure_trusted_plan_dispatch() or AurenClient.configure_trusted_plan_dispatch().
 
-The host must provide two trusted resolver callbacks:
+The host must provide three trusted resolver callbacks:
 
 - budget_resolver(run_id, plan_task_id, handler) returns the live supervisor-owned RuntimeExecutionGuard, a stable budget ID, the immutable admission checkpoint digest, and the policy digest. The checkpoint digest must be read from the canonical supervisor budget ledger and remain stable for idempotent replay after budget charges; the live guard snapshot is separately checked for cancellation/deadline validity. Do not construct a fresh budget or read budget claims from worker payloads.
 - approval_resolver(run_id, plan_task_id, handler) returns the durable approval ID and the exact ActionRequest for that plan action. It must resolve using host-owned task identity and policy, not agent-supplied approver, scope, approval ID, or payload metadata.
+- assignment_resolver(context) returns an AuthorizedAgentAssignment produced by the host organization authority. The context includes plan/run/task identity, registered handler, stable dispatch key, bounded deadline, immutable packet and exact task payload. The resolver must resolve role, manager, action class and scope from host-owned policy, call the host authorizer on every invocation, and return a fresh assignment. It must not trust the recorded assignment as proof of current authority.
+
+The assignment work key must equal the dispatch key, its payload digest must match the exact task payload, and its deadline must equal the supervisor-bounded deadline. The assignment envelope is stored in the durable task payload and immutable dispatch binding. Before every worker invocation, including after restart, the controller invokes the live assignment resolver again and requires an exact match. Revocation, role/registry/policy drift, changed scope or unavailable authority blocks execution before the handler starts. Replays with changed assignment evidence conflict before queue insertion.
 
 Example host flow:
 
@@ -19,6 +22,7 @@ Example host flow:
         approval_store=durable_approval_store,
         budget_resolver=resolve_supervisor_budget,
         approval_resolver=resolve_exact_action_approval,
+        assignment_resolver=resolve_and_authorize_plan_assignment,
     )
     task = runtime.dispatch_engineering_plan_task(
         run_id=plan_run_id,
