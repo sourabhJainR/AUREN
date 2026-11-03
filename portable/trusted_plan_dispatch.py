@@ -236,6 +236,9 @@ class TrustedPlanDispatchRoot:
         payload = context.get("payload")
         if assignment.work_key != dispatch_key:
             raise PermissionError("agent assignment is not bound to this stable dispatch identity")
+        expected_action_class = self.controller._handler_agent_action_class(str(context.get("handler", "")))
+        if not expected_action_class or assignment.action_class != expected_action_class:
+            raise PermissionError("agent assignment action class does not match the registered handler")
         if assignment.deadline_seconds != assignment_deadline_seconds:
             raise PermissionError("agent assignment deadline differs from the host-authorized deadline")
         if not isinstance(payload, Mapping):
