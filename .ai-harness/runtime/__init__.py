@@ -372,6 +372,8 @@ def _phase_team(route: dict[str, Any], phase: str, graph_types):
             profile_id = "backend_implementer"
         elif agent.name == "security-reviewer":
             profile_id = "security_reviewer"
+        elif "architecture" in agent.name and "reviewer" in agent.name:
+            profile_id = "principal_architect"
         elif (
             "reviewer" in agent.name or "verifier" in agent.name
             or agent.name in {"context-auditor", "risk-reviewer", "phase-reviewer"}
