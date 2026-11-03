@@ -4382,12 +4382,16 @@ class ExecutionController:
     def reserve_team_budget(
         self, task_id: str, run_id: str, member_id: str, operation_key: str, *,
         tokens: int = 0, tool_calls: int = 0, wall_seconds: int = 0,
+        reject_existing: bool = False,
     ) -> dict[str, Any]:
-        """Atomically reserve shared run capacity; duplicate keys never reserve twice."""
+        """Atomically reserve shared run capacity; optionally deny operation replay."""
+
         if not isinstance(operation_key, str) or not operation_key.strip() or len(operation_key) > 256:
             raise ValueError("operation_key must be non-empty text of at most 256 characters")
         if not isinstance(member_id, str) or not member_id.strip():
             raise ValueError("member_id is required")
+        if type(reject_existing) is not bool:
+            raise TypeError("reject_existing must be a boolean")
         amounts = (
             self._team_budget_amount(tokens, "tokens"),
             self._team_budget_amount(tool_calls, "tool_calls"),
@@ -4404,6 +4408,8 @@ class ExecutionController:
                 (task_id, run_id, operation_key),
             ).fetchone()
             if prior is not None:
+                if reject_existing:
+                    raise ValueError("team budget operation already exists; external dispatch replay is blocked")
                 if tuple(prior[:4]) != (member_id, *amounts):
                     raise ValueError("team budget operation key conflicts with an existing reservation")
                 return {
