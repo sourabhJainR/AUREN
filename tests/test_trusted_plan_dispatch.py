@@ -23,7 +23,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
     def _approval(
         self, controller, *, context, plan_task_id="implement", expiry_seconds=3600,
         clock=None, requester_id="worker-1", approver_id="manager-1",
-        separation_of_duties=True,
+        separation_of_duties=True, operation_suffix="",
     ):
         approval_now = clock() if clock is not None else datetime.now(timezone.utc)
         store = DurableApprovalStore(
@@ -37,11 +37,11 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         request = ActionRequest(
             run_id="approval-run", action_id="publish-change", actor="agent:implementer",
             capability="publish", action="publish", target="repo:main",
-            risk="external_effect", idempotency_key="publish:trusted-root",
+            risk="external_effect", idempotency_key="publish:trusted-root" + operation_suffix,
             evidence_refs=("sha256:" + "d" * 64,), task_id="approval-task",
         )
         record = store.create_request(
-            request=request, operation_id="publish:trusted-root",
+            request=request, operation_id="publish:trusted-root" + operation_suffix,
             artifact_digest=context["artifact_digest"],
             evidence_digest=context["evidence_digest"],
             policy_digest=context["policy_digest"],
@@ -239,6 +239,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         reconciliation_diagnostics = []
 
         def reconcile_goal():
+            nonlocal request, record
             current_plan, current_run = recovery.load_verified(plan.run_id)
             for task_id in ("implement", "review"):
                 progress = next(item for item in current_run.tasks if item.task_id == task_id)
@@ -342,6 +343,14 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                 budget_remaining={"attempts": 4, "dispatches": 2},
                 next_safe_action=next_action,
             )
+            if next_task == "implement":
+                # The approval receipt must bind the same post-transition
+                # plan/run revision as the immutable dispatch packet.
+                self.packet = packet
+                _, request, record = self._approval(
+                    self.controller, context=self.context,
+                    operation_suffix=f":run-revision-{current_run.revision}",
+                )
             task = root.dispatch(
                 run_id=plan.run_id, task_id=next_task,
                 dispatch_key=f"goal:dispatch-run:{next_task}",
