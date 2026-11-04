@@ -93,10 +93,11 @@ class GraphWorkspaceCoordinator:
         self._proposals: dict[str, WorkspaceProposal] = {}
         self._captured_artifacts: dict[str, str] = {}
         self._termination_evidence: dict[str, str] = {}
-        self.registry_path = Path(registry_path or (self.workspace_root / "workspace-registry.sqlite3")).expanduser().resolve()
-        self.registry_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        if self.registry_path.is_symlink():
+        registry_candidate = Path(registry_path or (self.workspace_root / "workspace-registry.sqlite3")).expanduser()
+        if registry_candidate.is_symlink():
             raise PermissionError("workspace registry must not be a symlink")
+        self.registry_path = registry_candidate.resolve()
+        self.registry_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         self._registry = sqlite3.connect(self.registry_path, timeout=10, check_same_thread=False)
         os.chmod(self.registry_path, 0o600)
         self._registry.execute("PRAGMA journal_mode=WAL")
