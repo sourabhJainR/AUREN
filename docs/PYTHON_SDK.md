@@ -5,6 +5,7 @@ The SDK is a thin Python facade over the canonical AUREN runtime. It does not cr
 ## Scope
 
 - Durable task registration, submission, execution, lookup and recovery.
+- Read-only recovery of an existing task by its immutable work key.
 - Read-only progress snapshots from the supervisor-owned journal.
 - Optional dashboard projections.
 - Access to the canonical persistent-memory facade.
@@ -35,6 +36,8 @@ client.close()
 ```
 
 Submission persists a pending task. It does not mean that work has started or completed. The run_once and resume_pending methods delegate to the existing supervisor. Task success remains subject to the registered handler's execution class, verification gates and durable receipts.
+
+After an uncertain submission acknowledgement or process restart, use `client.task_by_work_key(stable_key)` to find the existing durable task. The lookup is read-only: it never creates, retries or re-enqueues work. Inspect the returned task state and use the controller's recovery rules before deciding what action is safe. A missing result is not proof that an external side effect did not occur.
 
 ## API contract
 
