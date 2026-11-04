@@ -661,18 +661,6 @@ class GraphWorkspaceCoordinator:
             return proposal
 
     def adopt(self, proposal: WorkspaceProposal) -> tuple[str, ...]:
-        """Apply one proposal; a failed adoption cancels sibling workers."""
-        try:
-            return self._adopt_locked(proposal)
-        except BaseException as exc:
-            with self._lock:
-                worker_id = getattr(proposal, "worker_id", None)
-                if worker_id in self._states and self._states[worker_id] not in {"adopted", "cleaned", "stopped"}:
-                    self._states[worker_id] = "failed"
-                self.cancel_siblings(f"adoption failed: {type(exc).__name__}", except_worker_id=worker_id)
-            raise
-
-    def adopt(self, proposal: WorkspaceProposal) -> tuple[str, ...]:
         """Adopt one proposal through the same serialized multi-proposal boundary."""
         return self.adopt_many((proposal,))[proposal.worker_id]
 
