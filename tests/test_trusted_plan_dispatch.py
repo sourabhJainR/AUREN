@@ -318,28 +318,36 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                 self.assignment_principal_id = "worker-1"
                 self.assignment_action_class = "edit_assigned_paths"
                 handler = "dispatch-test"
-                packet = self.packet
+                policy_constraints = ("Do not weaken security gates",)
+                next_action = "Implement the first bounded stock-research unit"
             else:
                 self.assignment_role_id = "QA-01"
                 self.assignment_principal_id = "qa-worker-1"
                 self.assignment_action_class = "run_tests"
                 handler = "dispatch-review"
-                packet = build_context_packet(
-                    plan=current_plan, run=current_run, task_id="review",
-                    policy_constraints=("Verify implementation evidence; do not approve own work",),
-                    budget_remaining={"attempts": 4, "dispatches": 2},
-                    next_safe_action="Run independent review tests for the stock-research unit",
-                )
+                policy_constraints = ("Verify implementation evidence; do not approve own work",)
+                next_action = "Run independent review tests for the stock-research unit"
+
+            # Pin the dispatch packet to the run revision that the durable intent
+            # will validate. Advancing ready -> running after queue insertion
+            # invalidates that immutable binding before worker preflight.
+            recovery.transition_task(
+                plan.run_id, next_task, "running",
+                reason="reserve the plan task revision before trusted dispatch",
+            )
+            current_plan, current_run = recovery.load_verified(plan.run_id)
+            packet = build_context_packet(
+                plan=current_plan, run=current_run, task_id=next_task,
+                policy_constraints=policy_constraints,
+                budget_remaining={"attempts": 4, "dispatches": 2},
+                next_safe_action=next_action,
+            )
             task = root.dispatch(
                 run_id=plan.run_id, task_id=next_task,
                 dispatch_key=f"goal:dispatch-run:{next_task}",
                 handler=handler, packet=packet, payload={"resource": "tests"},
             )
             dispatched[next_task] = task.id
-            recovery.transition_task(
-                plan.run_id, next_task, "running",
-                reason="trusted plan dispatch persisted task identity",
-            )
             return {"status": "in_progress", "next_action": f"wait_for_{next_task}"}
 
         supervisor = ContinuousExecutionSupervisor(
