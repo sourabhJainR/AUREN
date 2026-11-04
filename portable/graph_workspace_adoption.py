@@ -190,14 +190,27 @@ class GraphWorkspaceCoordinator:
         self._registry.commit()
 
     def _reconcile_adoption_journal(self) -> None:
-        rows = self._registry.execute("SELECT adoption_id, base_revision FROM graph_workspace_adoptions WHERE state='applying'").fetchall()
-        for adoption_id, base in rows:
+        rows = self._registry.execute("SELECT adoption_id, base_revision, worker_ids, paths FROM graph_workspace_adoptions WHERE state='applying'").fetchall()
+        for adoption_id, base, worker_ids_json, paths_json in rows:
             outcomes = self._registry.execute(
                 "SELECT state FROM graph_workspace_adoptions WHERE adoption_id IN (?, ?, ?)",
                 (adoption_id + ':not_applied', adoption_id + ':blocked', adoption_id + ':completed'),
             ).fetchall()
             recorded = {row[0] for row in outcomes}
             if 'completed' in recorded:
+                expected_paths = set(json.loads(paths_json))
+                tracked = {item.decode("utf-8", errors="strict") for item in _git(self.project_root, "diff", "--name-only", "-z", self.base_revision, "--").split(bytes([0])) if item}
+                untracked = {item.decode("utf-8", errors="strict") for item in _git(self.project_root, "ls-files", "--others", "--exclude-standard", "-z").split(bytes([0])) if item}
+                if tracked | untracked != expected_paths:
+                    raise RuntimeError("completed adoption target differs from its recorded path set")
+                for worker_id in json.loads(worker_ids_json):
+                    proposal = self._proposals.get(worker_id)
+                    lease = self._leases.get(worker_id)
+                    if proposal is None or lease is None:
+                        raise RuntimeError("completed adoption proposal evidence is missing")
+                    for relative_path in proposal.paths:
+                        if _path_fingerprint(self.project_root, relative_path) != _path_fingerprint(lease.path, relative_path):
+                            raise RuntimeError("completed adoption target has drifted from its proposal")
                 self._recovered_adoption_pending_commit = True
                 continue
             if 'blocked' in recorded:
