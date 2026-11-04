@@ -48,7 +48,7 @@ _ACCEPTANCE = re.compile(
     re.I,
 )
 _SECRET_ASSIGNMENT = re.compile(
-    r"(?i)\\b(api[_-]?key|secret|token|password|private[_-]?key|authorization)\\b"
+    r"(?i)\\b(api[\\s_-]?key|secret|token|password|private[\\s_-]?key|authorization)\\b"
     r"\\s*[:=]\\s*(?:Bearer\\s+)?[^\\s,;]+"
 )
 
