@@ -248,7 +248,7 @@ class GraphWorkspaceCoordinator:
             )
 
     def _commit_tree_fingerprint(self, commit_sha: str, relative_path: str) -> str:
-        entries = _git(self.project_root, "ls-tree", "-z", commit_sha, "--", relative_path).split(b"\\x00")
+        entries = _git(self.project_root, "ls-tree", "-z", commit_sha, "--", relative_path).split(b"\x00")
         for entry in entries:
             if not entry:
                 continue
@@ -306,7 +306,7 @@ class GraphWorkspaceCoordinator:
         _git(self.project_root, "merge-base", "--is-ancestor", commit_sha, current)
         changed = {
             item.decode("utf-8", errors="strict")
-            for item in _git(self.project_root, "diff-tree", "--no-commit-id", "--name-only", "-z", "-r", "--no-renames", commit_sha, "--").split(b"\\x00")
+            for item in _git(self.project_root, "diff-tree", "--no-commit-id", "--name-only", "-z", "-r", "--no-renames", commit_sha, "--").split(b"\x00")
             if item
         }
         if changed != set(paths):
@@ -384,12 +384,12 @@ class GraphWorkspaceCoordinator:
                     raise RuntimeError("completed adoption has a stale target HEAD and no commit receipt")
                 tracked = {
                     item.decode("utf-8", errors="strict")
-                    for item in _git(self.project_root, "diff", "--name-only", "-z", base, "--").split(b"\\x00")
+                    for item in _git(self.project_root, "diff", "--name-only", "-z", base, "--").split(b"\x00")
                     if item
                 }
                 untracked = {
                     item.decode("utf-8", errors="strict")
-                    for item in _git(self.project_root, "ls-files", "--others", "--exclude-standard", "-z").split(b"\\x00")
+                    for item in _git(self.project_root, "ls-files", "--others", "--exclude-standard", "-z").split(b"\x00")
                     if item
                 }
                 actual_paths = tracked | untracked
@@ -482,12 +482,12 @@ class GraphWorkspaceCoordinator:
                     raise RuntimeError("completed adoption has a stale target HEAD without a verified commit receipt")
                 tracked = {
                     item.decode("utf-8", errors="strict")
-                    for item in _git(self.project_root, "diff", "--name-only", "-z", base, "--").split(b"\\x00")
+                    for item in _git(self.project_root, "diff", "--name-only", "-z", base, "--").split(b"\x00")
                     if item
                 }
                 untracked = {
                     item.decode("utf-8", errors="strict")
-                    for item in _git(self.project_root, "ls-files", "--others", "--exclude-standard", "-z").split(b"\\x00")
+                    for item in _git(self.project_root, "ls-files", "--others", "--exclude-standard", "-z").split(b"\x00")
                     if item
                 }
                 actual_paths = tracked | untracked
