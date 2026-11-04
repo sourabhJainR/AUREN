@@ -516,8 +516,9 @@ class Orchestrator:
             resolutions=state.get("preimplementation_resolutions", {}),
             resolution_verifier=self.conflict_resolution_verifier,
         )
+        preflight["sanitized_intent_digest"] = preflight["intent_digest"]
+        preflight["intent_digest"] = run.intent_digest
         preflight["source_intent_digest"] = intake["source_digest"]
-        preflight["run_intent_digest"] = run.intent_digest
         preflight["intake_digest"] = intake["digest"]
         preflight["digest"] = hashlib.sha256(
             json.dumps(
