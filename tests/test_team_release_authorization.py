@@ -64,7 +64,7 @@ def workspace():
 
 
 def provider_report():
-    return {
+    record = {
         "schema_version": "auren-provider-readiness-v1",
         "provider_id": "market-data-a",
         "capability": "quotes",
@@ -78,8 +78,14 @@ def provider_report():
         "blocking_reasons": [],
         "live_probe_digest": "d" * 64,
         "license_evidence_digest": "e" * 64,
-        "evidence_digest": "f" * 64,
+        "evidence_digest": "",
     }
+    payload = {key: value for key, value in record.items() if key not in {"ready", "evidence_digest"}}
+    record["evidence_digest"] = hashlib.sha256(json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+        allow_nan=False,
+    ).encode()).hexdigest()
+    return record
 
 
 def authorize(*, qa=None, security=None, release=None, readiness=None,
