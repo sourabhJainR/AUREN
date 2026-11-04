@@ -2684,3 +2684,33 @@ def test_concurrent_members_cannot_overreserve_shared_team_budget(tmp_path: Path
     budget = controller.team_budget(task_id, "run-1")
     assert budget["reserved_tokens"] == 30_000
     assert budget["remaining_tokens"] == 14_000
+
+
+def test_task_by_work_key_recovers_same_durable_task_after_restart(tmp_path: Path):
+    root = tmp_path / "project"
+    controller = ExecutionController(root)
+    controller.register_handler(
+        "tests.durable_handler", durable_handler, execution_class="read_only",
+    )
+    task = controller.submit(
+        "tests.durable_handler", {"id": "work-key-recovery"},
+        goal="recover task identity after uncertain acknowledgement",
+        work_key="AUREN:test:work-key-recovery",
+    )
+
+    restarted = ExecutionController(root)
+    recovered = restarted.task_by_work_key("AUREN:test:work-key-recovery")
+    assert recovered is not None
+    assert recovered.id == task.id
+    assert recovered.work_unit_id == task.work_unit_id
+    assert recovered.state == "pending"
+    assert recovered.payload["work_key"] == "AUREN:test:work-key-recovery"
+    assert restarted.task_by_work_key("AUREN:test:missing") is None
+
+    for invalid in ("", "  ", "x" * 257, "bad\nkey"):
+        try:
+            restarted.task_by_work_key(invalid)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("invalid work_key must be rejected")
