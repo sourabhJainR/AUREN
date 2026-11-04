@@ -354,6 +354,7 @@ class Orchestrator:
         max_total_attempts: int = 32,
         allow_self_improvement: bool = True,
         conflict_scope_verifier: Callable[[Mapping[str, Any], Mapping[str, tuple[str, ...]], str], bool] | None = None,
+        conflict_resolution_verifier: Callable[[str, str], bool] | None = None,
     ) -> None:
         if max_total_attempts < 1:
             raise ValueError("max_total_attempts must be positive")
@@ -363,8 +364,25 @@ class Orchestrator:
         # This verifier is injected by the trusted host composition root. A
         # planner's node mapping is descriptive input, never authority by itself.
         self.conflict_scope_verifier = conflict_scope_verifier
+        if conflict_resolution_verifier is not None and not callable(conflict_resolution_verifier):
+            raise TypeError("conflict-resolution verifier must be callable when configured")
+        self.conflict_resolution_verifier = conflict_resolution_verifier
         self._configuration_lock = threading.RLock()
         self._execution_started = False
+
+    def configure_conflict_resolution_verifier(
+        self,
+        verifier: Callable[[str, str], bool],
+    ) -> None:
+        """Install a host verifier for immutable, current conflict decision records."""
+        if not callable(verifier):
+            raise TypeError("conflict-resolution verifier must be callable")
+        with self._configuration_lock:
+            if self._execution_started:
+                raise RuntimeError("conflict-resolution verifier must be configured before graph execution")
+            if self.conflict_resolution_verifier is not None and self.conflict_resolution_verifier is not verifier:
+                raise RuntimeError("conflict-resolution verifier is already configured")
+            self.conflict_resolution_verifier = verifier
 
     def configure_conflict_scope_verifier(
         self,
@@ -438,6 +456,7 @@ class Orchestrator:
             candidate_contradictions=review_items(state.get("candidate_contradictions", ())),
             candidate_blind_spots=review_items(state.get("candidate_blind_spots", ())),
             resolutions=state.get("preimplementation_resolutions", {}),
+            resolution_verifier=self.conflict_resolution_verifier,
         )
         state["preimplementation_review"] = preflight
         run.record(Evidence(

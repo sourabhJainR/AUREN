@@ -209,6 +209,17 @@ class ImpactPolicyTests(unittest.TestCase):
             with self.subTest(path=path), self.assertRaisesRegex(ValueError, "no impact classification"):
                 classify_path(path)
 
+    def test_requirement_conflict_guard_has_a_focused_classification(self):
+        impact = classify_path("portable/engineering_design_guard.py")
+        self.assertIsNotNone(impact)
+        self.assertIn("tests.test_engineering_conflict_decisions", impact.required_suites)
+        self.assertIn("tests.test_engineering_design_guard", impact.required_suites)
+        self.assertFalse(impact.hardening_required)
+        self.assertIn(
+            "tests.test_engineering_conflict_decisions",
+            classify_path("tests/test_engineering_conflict_decisions.py").required_suites,
+        )
+
     def test_pr_integration_guard_requires_its_focused_suite_without_runtime_hardening(self):
         for path in ("scripts/pr_integration_guard.py", "tests/test_pr_integration_guard.py"):
             with self.subTest(path=path):

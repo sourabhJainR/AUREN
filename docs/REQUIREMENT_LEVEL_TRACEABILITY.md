@@ -59,3 +59,10 @@ Regression IDs are attached to each requirement trace when historical or newly l
 ## Determinism
 
 Generated requirement IDs are SHA-256-derived from normalized requirement text when an upstream ID is absent. This makes the same requirement stable across runs while preserving upstream Jira IDs when available.
+
+
+## Actionable conflict decisions
+
+The pre-implementation review keeps the existing `contradictions` status contract and adds `conflict_details`. For each deterministic conflict, the detail record preserves the matched source requirement or constraint, explains the impact, lists two viable options with trade-offs, gives a grounded recommendation, and states whether an explicit decision is still required.
+
+Reviewer-supplied conflicts without the original source statements remain blocked. The review does not invent requirement text or infer a resolution. The user-owned decision must be recorded as a versioned decision through the canonical engineering decision store before affected work is replanned and dispatched.
