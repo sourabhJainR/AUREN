@@ -484,7 +484,7 @@ class EngineeringDesignGuard:
             result: list[str] = []
             for value in values:
                 if isinstance(value, str):
-                    value = " ".join(value.split())[:600]
+                    value = " ".join(value.split())[:2_000]
                     if value and value not in result:
                         result.append(value)
                 if len(result) >= limit:
@@ -515,11 +515,13 @@ class EngineeringDesignGuard:
                 return False
         text = " ".join([intent, *reqs, *constraints_list, *goals]).lower()
 
+        # Prefer extracted/explicit statements over the whole request so conflict
+        # details cite the specific source statements rather than repeating the full prompt.
         source_statements = (
-            [("intent", intent)]
-            + [("requirement", item) for item in reqs]
+            [("requirement", item) for item in reqs]
             + [("constraint", item) for item in constraints_list]
             + [("non_goal", item) for item in goals]
+            + [("intent", intent)]
         )
 
         def matching_statement(pattern: str) -> dict[str, str] | None:
@@ -577,6 +579,54 @@ class EngineeringDesignGuard:
              ("Support offline fixtures/cache and an optional online adapter", "Preserves offline use but live data may be stale or unavailable."),
              ("Allow a narrowly scoped network connection", "Enables live service access but requires egress, privacy and provider-policy controls."),
              "Keep offline operation as the safe default and make online access an explicit, bounded mode."),
+            ("real-time-vs-delayed-market-data",
+             r"\b(real[\s-]?time|live)\b",
+             r"\b(delayed|15[\s-]?minute|15m|end.of.day)\b|\bfree\b.{0,50}\b(delayed|quotes?|market data)\b",
+             "A real-time/live market-data requirement conflicts with delayed or explicitly delayed free-market data.",
+             "The application cannot label delayed observations as real-time; doing so would mislead users and invalidate freshness-sensitive recommendations.",
+             ("Use a licensed real-time provider", "Supports live quotes but adds provider cost, rate limits, credentials and redistribution terms."),
+             ("Use delayed/free data with explicit timestamps and stale/delayed labels", "Reduces cost but does not meet a live-data requirement."),
+             "Keep live and delayed modes distinct and ask the product owner to choose the required freshness and budget."),
+            ("public-redistribution-vs-license",
+             r"\b(public(?:ly)? redistribut(?:e|ion)|redistribut(?:e|ion).{0,30}public)\b",
+             r"\b(no redistribution|non.redistributable|redistribution prohibited|license.{0,50}(?:prohibit|forbid|restrict).{0,40}redistribut(?:e|ion)|(?:prohibit|forbid).{0,40}redistribut(?:e|ion))\b",
+             "Public redistribution conflicts with a provider license that prohibits or restricts redistribution.",
+             "Publishing licensed market data without redistribution rights can breach provider terms and create legal and service risk.",
+             ("Use a provider/license that explicitly permits the intended redistribution", "May increase cost and restrict provider choices but aligns the product with the required distribution model."),
+             ("Keep provider data server-side and expose only permitted derived outputs", "Can reduce exposure but requires legal review of derived-data and display terms."),
+             "Do not publish provider data until the exact license and permitted display/redistribution scope are verified."),
+            ("no-accounts-vs-per-user-state",
+             r"\b(no|without|account.free|anonymous)\b.{0,35}\b(accounts?|login|authentication)\b",
+             r"\b(per.user|user.specific|personalized)\b.{0,45}\b(watchlists?|portfolios?|saved|preferences)\b|\b(watchlists?|portfolios?)\b.{0,35}\b(per.user|user.specific)\b",
+             "A no-account requirement conflicts with persistent per-user watchlists, portfolios or preferences.",
+             "Per-user saved state needs a reliable user identity; without accounts or another identity mechanism the application cannot safely separate users' data.",
+             ("Keep the MVP account-free and use device-local preferences", "Simplifies onboarding but does not synchronize or protect cross-device user state."),
+             ("Add an approved identity mechanism", "Supports durable per-user state but adds authentication, privacy and security obligations."),
+             "Keep the MVP account-free with local-only state unless the product owner explicitly approves identity and account handling."),
+            ("automated-recommendation-vs-human-approval",
+             r"\b(fully automated|automatically generate(?:d)? recommendations?|without human approval|no human approval)\b",
+             r"\b(human approval|manual approval|approve each recommendation|approval before recommendation)\b",
+             "Fully automated recommendations conflict with a requirement for human approval before recommendations are issued.",
+             "The product cannot both publish recommendations without approval and require an approval decision for every recommendation.",
+             ("Automate analysis but require approval before publishing a recommendation", "Preserves automation for research while keeping a human release decision."),
+             ("Allow automatic publication with transparent evidence and controls", "Improves speed but removes the requested human approval checkpoint."),
+             "Automate research and scoring, but keep consequential recommendation publication behind the explicitly required approval gate."),
+            ("no-external-storage-vs-historical-analytics",
+             r"\b(no external data storage|do not store external (?:market )?data|without storing external data|no persistent storage)\b",
+             r"\b(durable|persistent|historical)\b.{0,50}\b(analytics|history|market data|quotes|prices)\b",
+             "A no-external-storage constraint conflicts with durable historical analytics.",
+             "Historical analytics requires retaining observations or derived records; a stateless design cannot provide durable history.",
+             ("Keep analytics session-only or use client-local storage", "Respects the storage constraint but history is not durable across devices or cleared sessions."),
+             ("Approve a scoped, retention-limited store", "Supports historical analysis but requires explicit data, privacy, retention and deletion controls."),
+             "Do not persist external observations until the owner approves the exact data scope, retention and storage boundary."),
+            ("fast-mvp-vs-broad-operational-scope",
+             r"\b(quick|fast|rapid)\b.{0,45}\b(mvp|minimum viable product)\b",
+             r"\b(broad coverage|all markets|high availability|24/7|full compliance|compliance controls)\b",
+             "A fast MVP timeline conflicts with broad market coverage or full production-grade operational/compliance scope.",
+             "The delivery cannot assume both a narrow rapid MVP and a broad, fully operated product without explicit scope, cost and schedule trade-offs.",
+             ("Ship a narrow MVP with explicit limits and a staged roadmap", "Reduces initial scope and risk but defers broad coverage and production controls."),
+             ("Plan the broad production scope before committing to a date", "Improves completeness but increases cost and delivery time."),
+             "Prefer a narrow, honest MVP and make broad coverage, availability and compliance explicit later phases."),
             ("no-change-vs-implementation",
              r"no code changes|do not modify (?:any )?(?:files|code)|documentation.only",
              r"implement (?:the )?(?:feature|functionality|runtime change)|modify (?:the )?(?:runtime|source code)",

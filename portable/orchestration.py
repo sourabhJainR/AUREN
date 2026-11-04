@@ -27,6 +27,7 @@ from portable.identity_compat import canonical_runtime_home, canonicalize_auren_
 from typing import Any, Callable, Mapping
 from .execution_strategy import ExecutionStrategy, execution_strategy
 from .engineering_design_guard import EngineeringDesignGuard
+from .engineering_requirement_intake import parse_engineering_request
 from .ai_era_principles import build_contract_receipt as build_ai_era_principle_receipt
 from .runtime_recovery import ExecutionBudgetExceeded, NoProgressDetected, RuntimeExecutionGuard
 
@@ -441,23 +442,90 @@ class Orchestrator:
         if not isinstance(changed_paths, (list, tuple)):
             changed_paths = ()
 
+        # Convert free-form user intent into bounded, source-bound candidates before
+        # the canonical design guard checks conflicts. Extraction is not semantic
+        # approval: the full request remains attached and planner/reviewer analysis
+        # is still required for completeness.
+        try:
+            intake = parse_engineering_request(intent)
+        except (TypeError, ValueError) as exc:
+            run.record(Evidence(
+                "engineering-requirement-intake",
+                json.dumps({
+                    "status": "blocked",
+                    "error_type": type(exc).__name__,
+                    "reason": "request could not be processed within intake bounds",
+                    "intent_digest": run.intent_digest,
+                }, sort_keys=True, separators=(",", ":")),
+                "portable.engineering_requirement_intake",
+            ))
+            run.status = RunStatus.BLOCKED
+            run.stop_reason = "natural-language requirement intake failed; no graph side effects were started"
+            return run
+        state["engineering_requirement_intake"] = intake
+        run.record(Evidence(
+            "engineering-requirement-intake",
+            json.dumps(intake, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
+            "portable.engineering_requirement_intake",
+        ))
+        run.trajectory.append({
+            "event": "engineering_requirement_intake",
+            "status": "candidate_extraction_complete" if intake["complete"] else "blocked_incomplete",
+            "statement_count": len(intake["statements"]),
+            "requirement_candidate_count": len(intake["requirements"]),
+            "source_digest": intake["source_digest"],
+            "receipt_digest": intake["digest"],
+            "semantic_review_required": True,
+        })
+        if not intake["complete"]:
+            run.status = RunStatus.BLOCKED
+            run.stop_reason = (
+                "natural-language requirement intake exceeded safe extraction bounds; "
+                "split the request into smaller statements before implementation"
+            )
+            return run
+
         # Review assumptions and requirement conflicts before graph side effects.
         def review_items(value):
             if isinstance(value, str):
                 return [value]
             return value if isinstance(value, (list, tuple)) else ()
+
+        def merge_review_items(explicit, derived):
+            values = [*review_items(explicit), *review_items(derived)]
+            result = []
+            for value in values:
+                if isinstance(value, str) and value.strip() and value not in result:
+                    result.append(value)
+            return tuple(result)
+
         preflight = EngineeringDesignGuard.review_request(
-            intent=intent,
-            requirements=review_items(state.get("requirements", state.get("acceptance_requirements", ()))),
-            assumptions=review_items(state.get("assumptions", ())),
-            acceptance_criteria=review_items(state.get("acceptance_criteria", ())),
-            constraints=review_items(state.get("constraints", ())),
-            non_goals=review_items(state.get("non_goals", ())),
+            intent=intake["sanitized_intent"],
+            requirements=merge_review_items(
+                state.get("requirements", state.get("acceptance_requirements", ())),
+                intake["requirements"],
+            ),
+            assumptions=merge_review_items(state.get("assumptions", ()), intake["assumptions"]),
+            acceptance_criteria=merge_review_items(
+                state.get("acceptance_criteria", ()), intake["acceptance_criteria"],
+            ),
+            constraints=merge_review_items(state.get("constraints", ()), intake["constraints"]),
+            non_goals=merge_review_items(state.get("non_goals", ()), intake["non_goals"]),
             candidate_contradictions=review_items(state.get("candidate_contradictions", ())),
             candidate_blind_spots=review_items(state.get("candidate_blind_spots", ())),
             resolutions=state.get("preimplementation_resolutions", {}),
             resolution_verifier=self.conflict_resolution_verifier,
         )
+        preflight["sanitized_intent_digest"] = preflight["intent_digest"]
+        preflight["intent_digest"] = run.intent_digest
+        preflight["source_intent_digest"] = intake["source_digest"]
+        preflight["intake_digest"] = intake["digest"]
+        preflight["digest"] = hashlib.sha256(
+            json.dumps(
+                {key: value for key, value in preflight.items() if key != "digest"},
+                sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+            ).encode("utf-8")
+        ).hexdigest()
         state["preimplementation_review"] = preflight
         run.record(Evidence(
             "preimplementation-review",

@@ -15,6 +15,33 @@ This acceptance workflow exercises the existing TradingDYOR application through 
 9. The host acceptance test verifies the durable task result, transitions the plan task to passed only when the handler and controller both pass, and verifies the recovery checkpoint.
 10. The workflow uploads `artifacts/stock-research-acceptance.json`, which links requirements, criteria, source revision, image ID, plan/run, assignment, dispatch digest and test evidence.
 
+## Natural-language intake and conflict gate
+
+The canonical graph orchestrator now runs a bounded intake pass over the user's
+free-form request before any graph node can execute. It records the source digest,
+statement offsets, candidate requirements, assumptions, constraints, non-goals
+and acceptance statements as an evidence receipt. The extraction is deterministic
+and bounded; it is not a semantic parser and does not mark candidate requirements
+as verified. Oversized or incomplete extraction blocks graph execution rather
+than silently dropping statements.
+
+The existing EngineeringDesignGuard consumes those candidate statements and
+checks common material conflicts before side effects. The current conflict set
+includes live versus delayed market data, public redistribution versus restrictive
+provider terms, account-free operation versus per-user saved state, automated
+recommendations versus mandatory human approval, no external storage versus
+durable historical analytics, and a rapid MVP versus broad operational scope.
+Unresolved conflicts remain blocked until the existing host-authenticated decision
+record is verified. A heuristic match is a prompt for a decision, not legal,
+licensing or product-policy approval.
+
+This closes the first natural-language intake and deterministic conflict-detection
+slice for #1225. It does not yet prove semantic requirement completeness, automatic
+formation of the full product/architecture/frontend/backend/research/security
+team, parallel isolated application implementation, live provider or licensing
+validation, independent QA/security release approval, or evidence-gated learning
+promotion. Those criteria remain open.
+
 ## Test coverage
 
 - `tests/test_one_page_brief.py`: one-page API/UI response, recommendation, news and provenance, including partial-evidence behavior.
