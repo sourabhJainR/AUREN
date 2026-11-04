@@ -433,23 +433,36 @@ class ContinuousExecutionSupervisor:
         with closing(sqlite3.connect(self.path, timeout=5)) as db, db:
             db.execute("DELETE FROM goal_holds WHERE goal=?", (name,))
 
-    def wake_goal(self, name: str, reason: str) -> dict[str, Any]:
-        """Release a durable goal hold after new evidence or an approved decision."""
+    def wake_goal(self, name: str, reason: str, *, evidence_ref: str) -> dict[str, Any]:
+        """Release a durable goal hold only with host-authenticated operator evidence."""
         if not isinstance(name, str) or not name.strip() or len(name) > 256:
             raise ValueError("goal name must be non-empty text of at most 256 characters")
         if not isinstance(reason, str) or not reason.strip() or len(reason) > 500:
             raise ValueError("wake reason must be non-empty text of at most 500 characters")
+        if not isinstance(evidence_ref, str) or not evidence_ref.strip() or len(evidence_ref) > 500 or not evidence_ref.isprintable():
+            raise ValueError("wake evidence_ref must be printable non-empty text of at most 500 characters")
+        if self.operator_authorizer is None:
+            raise PermissionError("trusted operator authentication is not configured; goal hold remains active")
+        try:
+            operator_id = self.operator_authorizer(reason.strip())
+        except Exception as exc:
+            raise PermissionError("operator authentication failed; goal hold remains active") from exc
+        if not isinstance(operator_id, str) or not operator_id.strip() or len(operator_id) > 256 or not operator_id.isprintable():
+            raise PermissionError("operator authentication did not return a verified identity; goal hold remains active")
         goal = name.strip()
         hold = self._goal_hold(goal)
         if hold is None:
             raise RuntimeError("goal is not held; refusing an implicit wake")
+        evidence = evidence_ref.strip()
         self._event("operator", "goal_reconciliation_wake_authorized", {
-            "goal": goal, "reason": reason.strip(), "previous_status": hold["status"],
+            "goal": goal, "reason": reason.strip(), "evidence_ref": evidence,
+            "operator_id": operator_id, "previous_status": hold["status"],
         })
         self._clear_goal_hold(goal)
         self._clear_goal_error(goal)
         self._event("operator", "goal_reconciliation_woken", {
-            "goal": goal, "reason": reason.strip(), "previous_status": hold["status"],
+            "goal": goal, "reason": reason.strip(), "evidence_ref": evidence,
+            "operator_id": operator_id, "previous_status": hold["status"],
         })
         return self.status()
 
