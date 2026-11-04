@@ -85,6 +85,10 @@ class DurableGraphWorkspaceRegistryTests(unittest.TestCase):
         self.assertEqual(restored.artifact_digest, proposal.artifact_digest)
         self.assertEqual(second.adopt(restored), ("src/a.py",))
         self.assertEqual((self.repo / "src" / "a.py").read_text(encoding="utf-8"), "answer = 42\\n")
+        third = self.make_coordinator()
+        self.assertEqual(third.worker_states()["worker-a"], "adopted")
+        with self.assertRaisesRegex(RuntimeError, "commit recovered graph adoption"):
+            third.create_worker("worker-b", ["src/b.py"])
 
     def test_cleaned_worktree_tombstone_restores_without_reserving_paths(self):
         first = self.make_coordinator()
