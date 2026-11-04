@@ -244,7 +244,12 @@ class ApprovedTool:
 class ApprovedToolRegistry:
     """Immutable-by-interface allowlist; side-effecting tools are rejected."""
 
-    def __init__(self, tools: Sequence[ApprovedTool] = ()) -> None:
+    def __init__(
+        self, tools: Sequence[ApprovedTool] = (), *, team_budget_enforcer: Any | None = None,
+    ) -> None:
+        if team_budget_enforcer is not None and not callable(getattr(team_budget_enforcer, "execute", None)):
+            raise TypeError("team_budget_enforcer must implement execute")
+        self._team_budget_enforcer = team_budget_enforcer
         self._tools: dict[str, ApprovedTool] = {}
         for tool in tools:
             if not isinstance(tool, ApprovedTool):
@@ -306,15 +311,36 @@ class ApprovedToolRegistry:
 
         try:
             # Copy the top-level mapping so a handler cannot mutate caller-owned state.
-            result = self._tools[name].handler(dict(arguments))
-            # Only JSON-compatible outputs may cross the adapter boundary.
-            try:
-                encoded_result = json.dumps(
-                    result, sort_keys=True, separators=(",", ":"),
-                    ensure_ascii=False, allow_nan=False,
-                ).encode("utf-8")
-            except (TypeError, ValueError) as exc:
-                raise ValueError("approved tool result must be JSON-serializable") from exc
+            def invoke_approved_tool():
+                value = self._tools[name].handler(dict(arguments))
+                # Only JSON-compatible outputs may cross the adapter boundary.
+                try:
+                    json.dumps(
+                        value, sort_keys=True, separators=(",", ":"),
+                        ensure_ascii=False, allow_nan=False,
+                    ).encode("utf-8")
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("approved tool result must be JSON-serializable") from exc
+                return value
+
+            from .agent_execution_guard import current_agent_assignment_principal_id
+            principal_id = current_agent_assignment_principal_id()
+            if principal_id is not None and self._team_budget_enforcer is None:
+                raise PermissionError(
+                    "assigned approved-tool dispatch requires the host-configured shared team-budget enforcer"
+                )
+            if self._team_budget_enforcer is not None:
+                result = self._team_budget_enforcer.execute(
+                    "tool", name, dict(arguments), invoke_approved_tool,
+                    require_assignment_scope=True,
+                )
+            else:
+                result = invoke_approved_tool()
+            # The adapter response is already JSON-validated before it is returned.
+            encoded_result = json.dumps(
+                result, sort_keys=True, separators=(",", ":"),
+                ensure_ascii=False, allow_nan=False,
+            ).encode("utf-8")
         except BaseException:
             if span is not None:
                 try:

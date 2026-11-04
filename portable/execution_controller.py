@@ -37,7 +37,10 @@ from .durable_approval import ApprovalPending, InvalidApprovalTransition
 from .workflow_profile import WorkflowProfile, delivery_mode_allows, infer_delivery_action, resolve_profile
 from .workflow_profile_store import load_profile
 from .organization_guard import POLICY_VERSION, GuardDecision, GuardPolicyError, evaluate_guard_policy, guard_policy_fingerprint, load_guard_policy
-from .agent_execution_guard import agent_assignment_scope, validate_agent_assignment_for_dispatch
+from .agent_execution_guard import (
+    agent_assignment_scope, current_agent_assignment_principal_id,
+    validate_agent_assignment_for_dispatch,
+)
 from .agent_org_runtime import load_agent_org_registry
 
 Handler = Callable[[Mapping[str, Any]], Any]
@@ -177,6 +180,7 @@ class ExecutionController:
         agent_assignment_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
         team_budget_settlement_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
         team_budget_release_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
+        team_budget_enforcer: Any | None = None,
         workflow_profile_path: str | Path | None = None,
         max_pending_tasks: int | None = None,
         deployment_admission_coordinator: Any | None = None,
@@ -195,6 +199,9 @@ class ExecutionController:
         if team_budget_release_verifier is not None and not callable(team_budget_release_verifier):
             raise TypeError("team_budget_release_verifier must be callable")
         self._team_budget_release_verifier = team_budget_release_verifier
+        if team_budget_enforcer is not None and not callable(getattr(team_budget_enforcer, "execute", None)):
+            raise TypeError("team_budget_enforcer must implement execute")
+        self._team_budget_enforcer = team_budget_enforcer
         if deployment_admission_coordinator is not None and (
             not isinstance(deployment_instance_id, str) or not deployment_instance_id.strip()
         ):
@@ -2782,8 +2789,14 @@ class ExecutionController:
                 assignment_envelope.get("role_id")
                 if isinstance(assignment_envelope, Mapping) else None
             )
+            active_principal_id = (
+                assignment_envelope.get("principal_id")
+                if isinstance(assignment_envelope, Mapping) else None
+            )
             handler_started = True
-            with agent_assignment_scope(assignment_scope, role_id=active_role_id):
+            with agent_assignment_scope(
+                assignment_scope, role_id=active_role_id, principal_id=active_principal_id,
+            ):
                 result = handler(payload)
         except BaseException as exc:
             handler_error = exc
@@ -3490,7 +3503,20 @@ class ExecutionController:
                 }
                 if "auren_deadline_epoch" in runtime_payload:
                     handler_payload["auren_deadline_epoch"] = runtime_payload["auren_deadline_epoch"]
-                return handler(self._handler_payload(task, handler_payload))
+                def invoke_registered_provider():
+                    return handler(self._handler_payload(task, handler_payload))
+
+                principal_id = current_agent_assignment_principal_id()
+                if principal_id is not None and self._team_budget_enforcer is None:
+                    raise RuntimeError(
+                        "assigned provider dispatch requires the host-configured shared team-budget enforcer"
+                    )
+                if principal_id is not None:
+                    return self._team_budget_enforcer.execute(
+                        "provider", provider_name, handler_payload, invoke_registered_provider,
+                        require_assignment_scope=True,
+                    )
+                return invoke_registered_provider()
 
             value = self._invoke_with_lease_heartbeat(task, invoke_provider_handler)
             if not isinstance(value, Mapping):
@@ -4348,12 +4374,16 @@ class ExecutionController:
     def reserve_team_budget(
         self, task_id: str, run_id: str, member_id: str, operation_key: str, *,
         tokens: int = 0, tool_calls: int = 0, wall_seconds: int = 0,
+        reject_existing: bool = False,
     ) -> dict[str, Any]:
-        """Atomically reserve shared run capacity; duplicate keys never reserve twice."""
+        """Atomically reserve shared run capacity; optionally deny operation replay."""
+
         if not isinstance(operation_key, str) or not operation_key.strip() or len(operation_key) > 256:
             raise ValueError("operation_key must be non-empty text of at most 256 characters")
         if not isinstance(member_id, str) or not member_id.strip():
             raise ValueError("member_id is required")
+        if type(reject_existing) is not bool:
+            raise TypeError("reject_existing must be a boolean")
         amounts = (
             self._team_budget_amount(tokens, "tokens"),
             self._team_budget_amount(tool_calls, "tool_calls"),
@@ -4370,6 +4400,8 @@ class ExecutionController:
                 (task_id, run_id, operation_key),
             ).fetchone()
             if prior is not None:
+                if reject_existing:
+                    raise ValueError("team budget operation already exists; external dispatch replay is blocked")
                 if tuple(prior[:4]) != (member_id, *amounts):
                     raise ValueError("team budget operation key conflicts with an existing reservation")
                 return {
@@ -4559,6 +4591,108 @@ class ExecutionController:
                 (task_id, run_id),
             ).fetchall()
         return tuple(dict(row) for row in rows)
+
+    def team_delivery_release_readiness(self, task_id: str, run_id: str) -> dict[str, Any]:
+        """Evaluate durable team delivery and independent-approval gates without releasing.
+
+        A ready result requires a completed controller task, every assigned team
+        member completed, a completed QA profile, no unresolved/overrun budget
+        operations, and a fresh host verification of the immutable approval receipt.
+        This method never performs a release or promotion.
+        """
+        reasons: list[str] = []
+        task = self.task(task_id)
+        if task is None or task.state != "completed":
+            reasons.append("supervisor_task_not_completed")
+        members = self.team_members(task_id, run_id)
+        if not members:
+            reasons.append("team_membership_missing")
+        if any(member["state"] != "completed" for member in members):
+            reasons.append("team_member_not_completed")
+        if not any(
+            member["profile_id"] in {"qa_reviewer", "security_reviewer"}
+            and member["state"] == "completed"
+            for member in members
+        ):
+            reasons.append("independent_qa_delivery_missing")
+        try:
+            budget_snapshot = self.team_budget(task_id, run_id)
+        except KeyError:
+            budget_snapshot = None
+            reasons.append("team_budget_missing")
+        unresolved = self.unresolved_team_budget_operations(task_id, run_id)
+        if unresolved:
+            reasons.append("team_budget_operations_unresolved")
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db:
+            states = {
+                str(state): int(count)
+                for state, count in db.execute(
+                    "SELECT state,COUNT(*) FROM team_budget_operations "
+                    "WHERE task_id=? AND run_id=? GROUP BY state",
+                    (task_id, run_id),
+                ).fetchall()
+            }
+        if states.get("overrun", 0):
+            reasons.append("team_budget_overrun")
+        if any(state not in {"settled", "released"} for state in states):
+            reasons.append("team_budget_operation_not_reconciled")
+
+        metadata = task.payload.get("auren_dispatch") if task is not None else None
+        approval_evidence = metadata.get("approval_evidence") if isinstance(metadata, Mapping) else None
+        assignment_evidence = metadata.get("assignment_evidence") if isinstance(metadata, Mapping) else None
+        approval_verifier = getattr(self, "_trusted_plan_approval_verifier", None)
+        approval_verified = False
+        if (
+            isinstance(metadata, Mapping)
+            and isinstance(approval_evidence, Mapping)
+            and isinstance(assignment_evidence, Mapping)
+            and callable(approval_verifier)
+        ):
+            implementer = assignment_evidence.get("principal_id")
+            reviewer_ids = approval_evidence.get("reviewer_principal_ids")
+            if reviewer_ids is None:
+                reviewer_id = approval_evidence.get("approver_id")
+                reviewer_ids = [reviewer_id] if isinstance(reviewer_id, str) else []
+            identities_separate = (
+                isinstance(implementer, str) and bool(implementer.strip())
+                and isinstance(reviewer_ids, (list, tuple)) and bool(reviewer_ids)
+                and all(isinstance(item, str) and item.strip() and item != implementer for item in reviewer_ids)
+            )
+            try:
+                approval_verified = identities_separate and approval_verifier(metadata, approval_evidence) is True
+            except Exception:
+                approval_verified = False
+        if not approval_verified:
+            reasons.append("independent_approval_not_verified")
+
+        delivery_ready = (
+            task is not None and task.state == "completed"
+            and bool(members)
+            and all(member["state"] == "completed" for member in members)
+            and any(
+                member["profile_id"] in {"qa_reviewer", "security_reviewer"}
+                and member["state"] == "completed"
+                for member in members
+            )
+            and budget_snapshot is not None
+            and not unresolved
+            and not states.get("overrun", 0)
+            and all(state in {"settled", "released"} for state in states)
+        )
+        release_ready = delivery_ready and approval_verified
+        return {
+            "task_id": task_id,
+            "run_id": run_id,
+            "delivery_ready": delivery_ready,
+            "release_ready": release_ready,
+            "release_authorized": False,
+            "budget": budget_snapshot,
+            "member_states": {member["member_id"]: member["state"] for member in members},
+            "budget_operation_states": states,
+            "unresolved_operations": [item["operation_key"] for item in unresolved],
+            "approval_verified": approval_verified,
+            "blocking_reasons": reasons,
+        }
 
     def transition_team_member(
         self, task_id: str, run_id: str, member_id: str, *,

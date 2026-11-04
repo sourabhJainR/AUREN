@@ -78,3 +78,10 @@ CI validates repository behavior only. External host, evaluator, isolation, and 
 ## Persistent evaluation evidence
 
 Reviewed regression datasets, calibration reports, explicit guardrail approvals, and drift alerts use the local SQLite observability store under the canonical AUREN runtime home. Dataset name/version pairs are immutable. Calibration is recorded separately from approval; a calibrated threshold cannot become a blocking guardrail without a distinct reviewer identity and evidence reference. Drift alerts are append-only and are exposed to the console through a read-only projection. The console does not create the store or fabricate missing alert data.
+
+
+## Production authority boundary
+
+Persona IDs and separate implementer/reviewer callbacks are workflow metadata, not proof of authenticated identity. Production dispatch must use `TrustedPlanDispatchRoot` with assignment schema v4. The host resolver supplies and authenticates the implementer's principal ID; that ID is pinned into the assignment digest and checked again after restart.
+
+A durable reviewer approval must name that exact implementer principal as its requester. Each reviewer principal must be distinct and independently authorized for the required role and scope. The approval receipt binds the implementation artifact, evidence, policy and plan revision. The trusted root rejects mismatched requester identities and self-approval before queue insertion, then repeats the checks before handler execution. PersonaWorkflow output alone cannot authorize promotion or release.

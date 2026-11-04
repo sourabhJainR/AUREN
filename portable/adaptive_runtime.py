@@ -64,6 +64,9 @@ class AdaptiveRuntime:
         state_root: Path | str | None = None,
         legacy_state_root: Path | str | None = None,
         conflict_scope_verifier: Callable[[Mapping[str, Any], Mapping[str, tuple[str, ...]], str], bool] | None = None,
+        team_budget_settlement_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
+        team_budget_release_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
+        team_budget_enforcer_factory: Callable[[Any], Any] | None = None,
     ) -> None:
         if maintenance_interval_seconds < 1:
             raise ValueError("maintenance_interval_seconds must be positive")
@@ -104,7 +107,20 @@ class AdaptiveRuntime:
         self.last_deferred_learning_job: DeferredLearningJob | None = None
         self.last_maintenance_receipt: MaintenanceReceipt | None = None
         from .execution_controller import ExecutionController
-        self.execution_controller = ExecutionController(state / "executive")
+        self.execution_controller = ExecutionController(
+            state / "executive",
+            team_budget_settlement_verifier=team_budget_settlement_verifier,
+            team_budget_release_verifier=team_budget_release_verifier,
+        )
+        if team_budget_enforcer_factory is not None:
+            if not callable(team_budget_enforcer_factory):
+                raise TypeError("team_budget_enforcer_factory must be callable")
+            enforcer = team_budget_enforcer_factory(self.execution_controller)
+            if not callable(getattr(enforcer, "execute", None)):
+                raise TypeError("team_budget_enforcer_factory must return an adapter enforcer")
+            # Install inside the composition root before the controller is exposed
+            # to graph workers; there is no worker-facing reconfiguration method.
+            self.execution_controller._team_budget_enforcer = enforcer
         self.execution_controller._trusted_plan_dispatch_required = True
         self.trusted_plan_dispatch_root = None
         self.recovery_ledger = EngineeringRecoveryLedger(
