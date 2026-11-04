@@ -48,14 +48,13 @@ _ACCEPTANCE = re.compile(
     re.I,
 )
 _SECRET_ASSIGNMENT = re.compile(
-    r"(?i)\\b(api[\\s_-]?key|secret|token|password|private[\\s_-]?key|authorization)\\b"
-    r"\\s*[:=]\\s*(?:Bearer\\s+)?[^\\s,;]+"
+    r"(?i)\b(api[\s_-]?key|secret|token|password|private[\s_-]?key|authorization)\b"
+    r"\s*[:=]\s*(?:Bearer\s+)?[^\s,;]+"
 )
 
 
 def _redact_sensitive_text(value: str) -> tuple[str, int]:
-    return _SECRET_ASSIGNMENT.subn(r"\\1=[REDACTED]", value)
-
+    return _SECRET_ASSIGNMENT.subn(r"\1=[REDACTED]", value)
 
 
 def parse_engineering_request(intent: str) -> dict[str, Any]:
