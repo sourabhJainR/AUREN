@@ -9,7 +9,7 @@ from pathlib import Path
 
 from portable.agent_org_runtime import authorize_agent_assignment
 from portable.durable_approval import DurableApprovalStore
-from portable.engineering_plan import EngineeringPlan, PlanTask, new_plan_run
+from portable.engineering_plan import EngineeringPlan, PlanTask
 from portable.engineering_plan_goal_reconciler import EngineeringPlanGoalReconciler
 from portable.continuous_execution import ContinuousExecutionSupervisor
 from portable.engineering_plan_recovery import EngineeringPlanRecoveryBridge
@@ -53,7 +53,6 @@ class EngineeringPlanGoalReconcilerTests(unittest.TestCase):
             ),
         )
         self.store = EngineeringPlanStore(root / "plans.sqlite3")
-        self.store.create(self.plan, new_plan_run(self.plan))
         self.controller = ExecutionController(root / "runtime")
         self.controller.register_handler(
             "goal-implement", "tests.test_engineering_plan_goal_reconciler:goal_implement_handler",
