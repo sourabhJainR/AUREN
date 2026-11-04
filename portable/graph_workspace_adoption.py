@@ -450,6 +450,7 @@ class GraphWorkspaceCoordinator:
                     result[proposal.worker_id] = tuple(sorted(proposal.paths))
                 self._persist_registry()
                 self._record_adoption_outcome(adoption_id, "completed")
+                self._recovered_adoption_pending_commit = True
                 return result
         except BaseException as exc:
             rollback_error = None
