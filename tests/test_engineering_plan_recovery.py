@@ -1162,13 +1162,20 @@ class ContinuousEngineeringIntegrationTests(unittest.TestCase):
                 message="receiver confirmed the immutable response digest",
                 evidence_ref="sha256:" + response_id,
             )
-            end = time.monotonic() + 4
-            while delivery.state(delivery_task_id) != "completed" and time.monotonic() < end:
+            end = time.monotonic() + 6
+            while time.monotonic() < end:
+                if (
+                    delivery.state(delivery_task_id) == "completed"
+                    and runtime.progress_journal.snapshot(delivery_task_id)["state"] == "completed"
+                ):
+                    break
                 time.sleep(0.01)
             self.assertEqual("completed", delivery.state(delivery_task_id))
             self.assertEqual(
                 "completed", runtime.progress_journal.snapshot(delivery_task_id)["state"]
             )
+            # Join the delivery worker before the temporary root is reused or removed.
+            delivery.shutdown(wait_seconds=2)
             charged = delivery.delivery_budget_snapshot(delivery_task_id)
             self.assertEqual(
                 len(response_bytes), charged["delivery_charges"][operation_key]
