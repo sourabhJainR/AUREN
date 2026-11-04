@@ -264,6 +264,11 @@ class ApprovedToolRegistry:
     def names(self) -> tuple[str, ...]:
         return tuple(sorted(self._tools))
 
+    @property
+    def team_budget_enforcer(self) -> Any | None:
+        """Return the host-installed shared ledger enforcer for adapter composition."""
+        return self._team_budget_enforcer
+
     def description(self, name: str) -> str:
         if name not in self._tools:
             raise KeyError(name)
@@ -423,6 +428,7 @@ class ApprovedToolCrewAdapter:
             ],
             "max_tool_calls": self._max_tool_calls,
             "has_finalizer": self._finalizer is not None,
+            "shared_team_budget_enforced": self._tools.team_budget_enforcer is not None,
             "implementation_version": self.implementation_version,
         }
         return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
@@ -517,6 +523,7 @@ class ProviderBackedCrewAdapter(ApprovedToolCrewAdapter):
         self.timeout_seconds = timeout_seconds
         self.max_response_chars = max_response_chars
         self._invoke_provider = invoke_provider
+        self._team_budget_enforcer = tools.team_budget_enforcer
         if progress_callback is not None and not callable(progress_callback):
             raise TypeError("progress_callback must be callable")
         self._progress_callback = progress_callback
@@ -570,18 +577,38 @@ class ProviderBackedCrewAdapter(ApprovedToolCrewAdapter):
                 safe_fields.setdefault("provider", self.provider_id)
                 self._progress_callback({"task_id": task_id, "event": event, **safe_fields})
 
-            outcome, raw = invoke_provider_with_bounded_wait(
-                self._invoke_provider, (prompt, self.timeout_seconds),
-                timeout_seconds=self.timeout_seconds, provider_id=self.provider_id,
-                on_event=emit_provider_event if self._progress_callback is not None else None,
-            )
-            if outcome == "capacity":
-                raise RuntimeError("bounded provider worker capacity exhausted; retry after capacity is available")
-            if outcome == "timeout":
-                raise TimeoutError("provider call exceeded its bounded wait; a late response may still arrive")
-            if outcome == "error":
-                emit_provider_event("provider_call_failed", error_type=type(raw).__name__)
-                raise raw
+            def invoke_bounded_provider() -> str:
+                outcome, raw_result = invoke_provider_with_bounded_wait(
+                    self._invoke_provider, (prompt, self.timeout_seconds),
+                    timeout_seconds=self.timeout_seconds, provider_id=self.provider_id,
+                    on_event=emit_provider_event if self._progress_callback is not None else None,
+                )
+                if outcome == "capacity":
+                    raise RuntimeError("bounded provider worker capacity exhausted; retry after capacity is available")
+                if outcome == "timeout":
+                    raise TimeoutError("provider call exceeded its bounded wait; a late response may still arrive")
+                if outcome == "error":
+                    emit_provider_event("provider_call_failed", error_type=type(raw_result).__name__)
+                    raise raw_result
+                return raw_result
+
+            from .agent_execution_guard import current_agent_assignment_principal_id
+            if self._team_budget_enforcer is None:
+                if current_agent_assignment_principal_id() is not None:
+                    raise PermissionError(
+                        "assigned provider dispatch requires the host-configured shared team-budget enforcer"
+                    )
+                raw = invoke_bounded_provider()
+            else:
+                raw = self._team_budget_enforcer.execute(
+                    "provider", self.provider_id,
+                    {
+                        "task_id": task_id, "crew_id": self.crew_id,
+                        "provider_version": self.provider_version,
+                        "prompt_digest": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+                    },
+                    invoke_bounded_provider, require_assignment_scope=True,
+                )
             if not isinstance(raw, str):
                 raise TypeError("provider response must be text")
             if len(raw) > self.max_response_chars:
