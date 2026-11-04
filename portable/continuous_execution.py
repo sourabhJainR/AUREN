@@ -290,6 +290,12 @@ class ContinuousExecutionSupervisor:
                     last_error_type TEXT,
                     updated_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS goal_holds(
+                    goal TEXT PRIMARY KEY,
+                    status TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
             """)
             control_columns = {row[1] for row in db.execute("PRAGMA table_info(control)").fetchall()}
             if "run_id" not in control_columns:
@@ -406,6 +412,44 @@ class ContinuousExecutionSupervisor:
                 (name, _now()),
             )
 
+    def _goal_hold(self, name: str) -> dict[str, str] | None:
+        with closing(sqlite3.connect(self.path, timeout=5)) as db:
+            row = db.execute(
+                "SELECT status,reason FROM goal_holds WHERE goal=?", (name,),
+            ).fetchone()
+        return {"status": str(row[0]), "reason": str(row[1])} if row else None
+
+    def _set_goal_hold(self, name: str, *, status: str, reason: str) -> None:
+        safe_status = status[:80]
+        safe_reason = reason[:500] if isinstance(reason, str) else "goal is waiting for an external decision"
+        with closing(sqlite3.connect(self.path, timeout=5)) as db:
+            db.execute(
+                "INSERT INTO goal_holds(goal,status,reason,updated_at) VALUES(?,?,?,?) "
+                "ON CONFLICT(goal) DO UPDATE SET status=excluded.status,reason=excluded.reason,updated_at=excluded.updated_at",
+                (name, safe_status, safe_reason, _now()),
+            )
+
+    def _clear_goal_hold(self, name: str) -> None:
+        with closing(sqlite3.connect(self.path, timeout=5)) as db:
+            db.execute("DELETE FROM goal_holds WHERE goal=?", (name,))
+
+    def wake_goal(self, name: str, reason: str) -> dict[str, Any]:
+        """Release a durable goal hold after new evidence or an approved decision."""
+        if not isinstance(name, str) or not name.strip() or len(name) > 256:
+            raise ValueError("goal name must be non-empty text of at most 256 characters")
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > 500:
+            raise ValueError("wake reason must be non-empty text of at most 500 characters")
+        goal = name.strip()
+        hold = self._goal_hold(goal)
+        if hold is None:
+            raise RuntimeError("goal is not held; refusing an implicit wake")
+        self._clear_goal_hold(goal)
+        self._clear_goal_error(goal)
+        self._event("operator", "goal_reconciliation_woken", {
+            "goal": goal, "reason": reason.strip(), "previous_status": hold["status"],
+        })
+        return self.status()
+
     def _goal_health(self, *, now: float | None = None) -> list[dict[str, Any]]:
         """Expose durable goal retry state, including goals not registered in this process."""
         current = time.time() if now is None else float(now)
@@ -421,14 +465,25 @@ class ContinuousExecutionSupervisor:
             }
             for row in rows
         }
+        with closing(sqlite3.connect(self.path, timeout=5)) as db:
+            holds = {
+                str(row[0]): {"status": str(row[1]), "reason": str(row[2])}
+                for row in db.execute(
+                    "SELECT goal,status,reason FROM goal_holds ORDER BY goal"
+                ).fetchall()
+            }
         for name in self.goal_reconcilers:
             recorded.setdefault(name, {
                 "goal": name, "consecutive_errors": 0,
                 "retry_in_seconds": 0.0, "last_error_type": None,
             })
         return [
-            {**value, "status": "backoff" if value["retry_in_seconds"] > 0 else "ready"}
-            for _, value in sorted(recorded.items())
+            {
+                **value,
+                "status": "held" if name in holds else ("backoff" if value["retry_in_seconds"] > 0 else "ready"),
+                "hold": holds.get(name),
+            }
+            for name, value in sorted(recorded.items())
         ]
 
     def _poller_health(
@@ -793,6 +848,13 @@ class ContinuousExecutionSupervisor:
                 # Reconciler failures block only that goal; independent goals and
                 # already-authorized queued work continue under the same controller.
                 for goal_name, reconcile in self.goal_reconcilers.items():
+                    hold = self._goal_hold(goal_name)
+                    if hold is not None:
+                        self._event(run_id, "goal_reconciliation_hold_wait", {
+                            "cycle": cycles, "goal": goal_name,
+                            "status": hold["status"], "reason": hold["reason"],
+                        })
+                        continue
                     retry_after = self._goal_retry_after(goal_name)
                     if retry_after > 0:
                         self._event(run_id, "goal_reconciliation_backoff_wait", {
@@ -804,11 +866,25 @@ class ContinuousExecutionSupervisor:
                         outcome = reconcile()
                         if not isinstance(outcome, Mapping):
                             raise TypeError("goal reconciler must return a mapping")
-                        self._clear_goal_error(goal_name)
-                        self._event(run_id, "goal_reconciled", {
-                            "cycle": cycles, "goal": goal_name,
-                            "outcome": _safe_value(dict(outcome)),
-                        })
+                        outcome_status = str(outcome.get("status", "")).strip().lower()
+                        if outcome_status in {"blocked", "waiting_for_approval", "waiting_external_dependency", "paused"}:
+                            reason = outcome.get("blocker", outcome.get("reason", outcome_status))
+                            self._set_goal_hold(
+                                goal_name, status=outcome_status,
+                                reason=str(reason) if reason is not None else outcome_status,
+                            )
+                            self._clear_goal_error(goal_name)
+                            self._event(run_id, "goal_reconciliation_held", {
+                                "cycle": cycles, "goal": goal_name,
+                                "status": outcome_status, "reason": str(reason)[:500],
+                            })
+                        else:
+                            self._clear_goal_hold(goal_name)
+                            self._clear_goal_error(goal_name)
+                            self._event(run_id, "goal_reconciled", {
+                                "cycle": cycles, "goal": goal_name,
+                                "outcome": _safe_value(dict(outcome)),
+                            })
                     except Exception as reconcile_error:
                         delay = self._record_goal_error(
                             goal_name, poll_seconds=poll_seconds,
