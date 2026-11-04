@@ -43,6 +43,12 @@ module. No runtime dependency is added and no cross-repository coupling is
 introduced.
 
 
+## Trusted conflict-gate composition
+
+The trusted host composes the decision store with the existing pre-implementation gate by calling `conflict_resolution_verifier(run_id=..., decision_ids=...)` and passing the returned callback to the canonical Orchestrator. The conflict-to-decision mapping is host-owned. The callback re-reads append-only history on every invocation and accepts only a digest-valid `conflict_resolution` record whose selected option matches and whose plan/run binding is still current. Missing mappings, changed options, stale plan/run revisions, or corrupt history keep the conflict blocked.
+
+`verify_resolution()` remains available for a single explicit decision. The verifier factory adapts the canonical store to the existing gate; it is not a second authorization or planning system.
+
 ## Versioned requirement and assumption decisions
 
 `EngineeringDecisionStore` appends requirement-conflict resolutions, explicit assumptions and scope changes to the same SQLite database owned by `EngineeringPlanStore`. Each record binds the stable decision ID and revision to the exact plan digest, plan-run revision, options, selected option, rationale, rejected alternatives, affected task IDs and actor ID. The store rejects stale plan/run revisions, unknown task references, malformed alternatives and tampered history.
