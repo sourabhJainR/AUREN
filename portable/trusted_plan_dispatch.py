@@ -9,7 +9,9 @@ import hashlib
 import json
 import math
 import threading
+from dataclasses import asdict
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from pathlib import PurePosixPath
 from typing import Any, Callable, Mapping
 
@@ -478,12 +480,38 @@ class TrustedPlanDispatchRoot:
         return expected == dict(request)
 
     def _revalidate_assignment(self, context: Mapping[str, Any]) -> dict[str, Any]:
+        """Reauthorize from canonical plan state, including after a host restart.
+
+        The controller's preflight request intentionally contains only durable
+        task metadata; the original in-memory context packet is not persisted.
+        Rebuild the narrow packet.task view from the verified plan instead of
+        depending on the dispatch process's private context cache.
+        """
         recorded = context.get("recorded_assignment")
-        fresh_context = {key: value for key, value in context.items() if key != "recorded_assignment"}
-        if isinstance(recorded, Mapping):
-            fresh_context["assignment_deadline_seconds"] = recorded.get("deadline_seconds")
+        if not isinstance(recorded, Mapping):
+            raise PermissionError("durable task has no recorded host assignment")
+        fresh_context = {
+            key: value for key, value in context.items()
+            if key not in {"recorded_assignment", "packet"}
+        }
+        fresh_context["assignment_deadline_seconds"] = recorded.get("deadline_seconds")
+        run_id = fresh_context.get("run_id")
+        task_id = fresh_context.get("task_id")
+        if not isinstance(run_id, str) or not isinstance(task_id, str):
+            raise PermissionError("durable assignment is missing its canonical plan identity")
+        plan, run = self.recovery_bridge.load_verified(run_id)
+        task = next((item for item in plan.tasks if item.task_id == task_id), None)
+        if task is None:
+            raise PermissionError("durable assignment references a task absent from the verified plan")
+        progress = next((item for item in run.tasks if item.task_id == task_id), None)
+        if progress is None or progress.status not in {"running", "verifying"}:
+            raise PermissionError("durable assignment task is no longer active in the verified plan")
+        # Existing host callbacks consume packet.task to resolve the immutable
+        # role/manager contract. Supplying the verified PlanTask mapping keeps
+        # that callback contract stable without trusting worker-supplied fields.
+        fresh_context["packet"] = SimpleNamespace(task=asdict(task))
         current = self._resolve_assignment(fresh_context)
-        if current != recorded:
+        if current != dict(recorded):
             raise PermissionError("agent assignment was revoked or its policy, scope, or identity changed")
         return current
 
