@@ -911,7 +911,10 @@ class GraphWorkerLifecycle:
             for worker_id in tuple(missing):
                 marker = state.get("graph_worker_prepared_" + worker_id)
                 try:
-                    prepared_workers[worker_id] = self._restore_prepared_worker(worker_id, marker)
+                    restored = self._restore_prepared_worker(worker_id, marker)
+                    prepared_workers[worker_id] = restored
+                    with self._lock:
+                        self._prepared[worker_id] = restored
                 except BaseException as exc:
                     restore_errors[worker_id] = exc
             missing = [worker_id for worker_id in ids if worker_id not in prepared_workers]
