@@ -40,3 +40,8 @@ Register the callable as `{reconciler.goal_key: reconciler}` in the continuous s
 `tests/test_engineering_plan_goal_reconciler.py` verifies dependency-aware two-unit continuation, recovery by stable work key from a fresh reconciler instance, evidence-gated completion, and refusal to mark work passed without verified evidence.
 
 This is application-level evidence. It does not prove production OS isolation, independent evaluator custody or physical multi-host staging.
+
+
+## Assignment revalidation after restart
+
+The controller's durable preflight request does not contain the original in-memory context packet. The trusted root therefore reconstructs the narrow `packet.task` view from `EngineeringPlanRecoveryBridge.load_verified()` before calling the host assignment resolver. The host resolver still reauthenticates the principal and manager and recomputes policy, role, scope, action class, deadline and task-payload bindings. It does not trust task identity or role fields supplied by the worker. The regression clears the root's private dispatch-context cache before resuming a queued task, simulating process restart while retaining only canonical durable state.
