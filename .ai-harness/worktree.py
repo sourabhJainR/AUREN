@@ -22,9 +22,9 @@ _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
-def run(command: list[str], cwd: Path = ROOT) -> tuple[int, str]:
+def run(command: list[str], cwd: Path | None = None) -> tuple[int, str]:
     try:
-        result = subprocess.run(command, cwd=cwd, text=True, capture_output=True, check=False, shell=False)
+        result = subprocess.run(command, cwd=ROOT if cwd is None else cwd, text=True, capture_output=True, check=False, shell=False)
     except OSError as exc:
         return 127, f"ERROR: {exc}"
     return result.returncode, (result.stdout or result.stderr).strip()
