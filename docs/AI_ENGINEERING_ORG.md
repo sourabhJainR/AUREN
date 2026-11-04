@@ -103,3 +103,14 @@ The operation-boundary checks cover `portable/guarded_filesystem.py` and the syn
 This is not an OS sandbox. Context-local scope enforcement does not constrain code that bypasses guarded adapters, starts an unpropagated thread/process, or uses direct filesystem APIs. Direct subprocess, provider, network, nested-tool and process-isolation enforcement remain separate gates. Do not claim full organization enforcement or production isolation until those boundaries are covered and independently tested.
 
 Rollback: revert the controller verifier injection, dispatch guard, tests, impact-policy/workflow updates, and this section together. Existing unassigned task behavior is unchanged; assigned tasks must not be silently downgraded to unassigned to work around a denial.
+
+
+## Authenticated principal required for assigned dispatch — 2026-11-04
+
+New assigned work must carry assignment schema v4 and a non-empty host-authenticated `principal_id`. The identity is included in the immutable assignment digest and is passed to the host-owned dispatch verifier. The shared controller validator rejects schema v3 assignments before the verifier or handler is called because those records do not bind a worker principal. Existing v3 records remain readable for audit and migration, but they must be reauthorized as v4 before dispatch.
+
+Both `portable.agent_org_runtime.submit_agent_task` and `AurenClient.submit_agent_task` require `principal_id` before task persistence. The manager authorizer must authenticate the assigning manager and the assigned principal; the separate controller verifier must revalidate the persisted principal and current policy at dispatch and resume. A caller-provided label is not host identity evidence. Hosts must resolve the principal from their authenticated execution context.
+
+Regression coverage: `tests/test_agent_execution_guard.py`, `tests/test_agent_org_runtime.py`, `tests/test_auren_sdk.py`, `tests/test_agent_manager_chain.py`, `tests/test_agent_delegation_chain.py`, and `tests/test_agent_delegation_limits.py`. This application-level check does not prove production host authentication, OS isolation, or independent evaluator custody.
+
+Rollback: stop new assigned dispatch and retain existing task/evidence records. Migrate any remaining v3 producers to provide a host-authenticated principal before retrying. Do not weaken the shared validator to accept v3 assignments.
