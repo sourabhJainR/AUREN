@@ -103,6 +103,33 @@ def test_adaptive_runtime_uses_the_canonical_plan_database_for_decisions(tmp_pat
     assert receipt.plan_digest == plan.digest
     assert runtime.engineering_decision_store.latest(plan.run_id, "fixture-data").record_digest == receipt.record_digest
 
+    conflict = runtime.record_engineering_decision(
+        run_id=plan.run_id,
+        decision_id="compatibility-vs-breaking-change",
+        expected_revision=0,
+        plan_digest=plan.digest,
+        run_revision=run.revision,
+        decision_type="conflict_resolution",
+        question="How should the public API evolve?",
+        options=("Use a versioned replacement API", "Remove the legacy API now"),
+        selected_option="Use a versioned replacement API",
+        rationale="Preserve existing consumers while enabling the new API.",
+        affected_task_ids=("data",),
+        actor_id="user:owner",
+    )
+    assert runtime.verify_engineering_decision(
+        run_id=plan.run_id,
+        decision_id="compatibility-vs-breaking-change",
+        selected_option="Use a versioned replacement API",
+    ) is True
+    next_run = run.transition_task("data", "ready", plan=plan, reason="start implementation")
+    store.save_run(plan.run_id, next_run, expected_revision=run.revision)
+    assert runtime.verify_engineering_decision(
+        run_id=plan.run_id,
+        decision_id="compatibility-vs-breaking-change",
+        selected_option="Use a versioned replacement API",
+    ) is False
+
     with pytest.raises(PermissionError, match="does not match"):
         runtime.record_engineering_decision(
             run_id=plan.run_id,
