@@ -101,6 +101,16 @@ def save(records: dict[str, dict[str, Any]]) -> None:
         raise
 
 
+def _managed_path(record: dict[str, Any]) -> Path:
+    raw = Path(record.get("path", ""))
+    if not str(raw) or raw.is_symlink():
+        raise PermissionError("persisted worktree path is missing or a symlink")
+    root = WORKTREES.resolve()
+    resolved = raw.resolve()
+    if resolved == root or root not in resolved.parents:
+        raise PermissionError("persisted worktree path escapes configured root")
+    return resolved
+
 def safe_name(value: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError("worktree name is required")
@@ -133,6 +143,8 @@ def create(
             raise ValueError("intent, budget and owned paths require a task_id")
         paths = ()
     WORKTREES.mkdir(parents=True, exist_ok=True)
+    if WORKTREES.is_symlink():
+        raise PermissionError("worktree root must not be a symlink")
     stamp = dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%SZ")
     path = WORKTREES / f"{key}-{stamp}"
     branch = None if detached else f"ai-harness/{key}-{dt.datetime.now(dt.UTC).strftime('%Y%m%d%H%M%S')}"
@@ -174,10 +186,7 @@ def resume(
         raise PermissionError("worktree budget binding changed")
     if tuple(record.get("owned_paths", ())) != _paths(owned_paths):
         raise PermissionError("worktree owned-path scope changed")
-    path = Path(record["path"]).resolve()
-    root = WORKTREES.resolve()
-    if path == root or root not in path.parents or path.is_symlink():
-        raise PermissionError("worktree path escapes configured root")
+    path = _managed_path(record)
     code, top = run(["git", "-C", str(path), "rev-parse", "--show-toplevel"])
     if code or Path(top).resolve() != path:
         raise RuntimeError("persisted worktree is missing or invalid")
@@ -211,10 +220,14 @@ def remove(name: str, force: bool = False, *, worker_stopped: bool = False) -> d
         raise KeyError(f"Unknown worktree: {key}")
     if record.get("task_id") and worker_stopped is not True:
         raise PermissionError("task-bound worktree removal requires explicit verified worker-stop confirmation")
+    path = _managed_path(record)
+    code, listing = run(["git", "worktree", "list", "--porcelain"])
+    if code or f"worktree {path}" not in listing.splitlines():
+        raise PermissionError("persisted path is not registered to this source checkout")
     command = ["git", "worktree", "remove"]
     if force:
         command.append("--force")
-    command.append(record["path"])
+    command.append(str(path))
     code, output = run(command)
     if code:
         raise RuntimeError(output)
