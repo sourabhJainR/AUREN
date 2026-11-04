@@ -22,7 +22,8 @@ class AdaptiveRuntimeContinuousSupervisorTests(unittest.TestCase):
                 Graph([Node("probe", NodeKind.DETERMINISTIC, _runtime_probe)]),
                 state_root=Path(tmp),
             )
-            supervisor = runtime.create_continuous_supervisor()
+            supervisor = runtime.create_continuous_supervisor(max_goal_retries=3)
+            self.assertEqual(3, supervisor.max_goal_retries)
             self.assertIs(supervisor.controller, runtime.execution_controller)
             self.assertIs(supervisor.recovery_ledger, runtime.recovery_ledger)
             self.assertEqual("stopped", supervisor.status()["state"])
