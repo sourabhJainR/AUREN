@@ -75,3 +75,11 @@ def test_empty_fact_set_is_unscored_not_clear():
     report = RequirementConflictAnalyzer.analyze([])
     assert report.status == "unscored"
     assert report.fact_count == 0
+
+def test_same_key_conflicts_in_different_scopes_do_not_block_each_other():
+    report = RequirementConflictAnalyzer.analyze([
+        RequirementFact("r1", "market_data_latency", "real_time", "AAPL quotes are real time", scope="symbol:AAPL"),
+        RequirementFact("r2", "market_data_latency", "delayed", "BTC quotes are delayed", scope="symbol:BTC"),
+    ])
+    assert report.status == "clear"
+    assert report.conflicts == ()
