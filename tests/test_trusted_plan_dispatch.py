@@ -14,6 +14,7 @@ from portable.execution_controller import ExecutionController
 from portable.engineering_plan_recovery import EngineeringPlanCheckpointMismatch
 from portable.runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
 from portable.trusted_plan_dispatch import TrustedPlanDispatchRoot
+from portable.continuous_execution import ContinuousExecutionSupervisor
 from portable.agent_org_runtime import authorize_agent_assignment
 from tests.test_engineering_plan_dispatch import DISPATCH_HANDLER_CALLS, prepared
 
@@ -128,6 +129,46 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             "evidence_digest": "2" * 64,
             "policy_digest": "3" * 64,
         }
+
+    def test_continuous_supervisor_reconciles_parent_goal_through_trusted_dispatch_root(self):
+        approvals, request, record = self._approval(self.controller, context=self.context)
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        root = self._root(
+            self.controller, self.plan_store, request, record, guard, context=self.context,
+        )
+        dispatched = []
+
+        def reconcile_goal():
+            if not dispatched:
+                task = root.dispatch(
+                    run_id=self.plan.run_id,
+                    task_id="implement",
+                    dispatch_key="goal:dispatch-run:implement",
+                    handler="dispatch-test",
+                    packet=self.packet,
+                    payload={"resource": "tests"},
+                )
+                dispatched.append(task.id)
+            return {"status": "in_progress", "next_action": "verify_parent_acceptance"}
+
+        supervisor = ContinuousExecutionSupervisor(
+            self.controller,
+            goal_reconcilers={"AUREN:test:trusted-parent-goal": reconcile_goal},
+        )
+        report = supervisor.run(poll_seconds=0.1, batch_size=10, max_cycles=2)
+
+        self.assertEqual(1, len(dispatched))
+        self.assertEqual("completed", self.controller.task(dispatched[0]).state)
+        self.assertTrue(report["audit_chain_valid"])
+        self.assertTrue(supervisor.verify_audit_chain())
+        events = supervisor.status(event_limit=100)["recent_events"]
+        self.assertTrue(any(
+            event["event_type"] == "goal_reconciled"
+            and event["payload"]["goal"] == "AUREN:test:trusted-parent-goal"
+            for event in events
+        ))
+        self.assertEqual(1, len(DISPATCH_HANDLER_CALLS))
+        self.assertEqual("goal:dispatch-run:implement", DISPATCH_HANDLER_CALLS[-1]["work_key"])
 
     def test_declared_plan_owner_must_match_host_authorized_role_before_queue_insert(self):
         approvals, request, record = self._approval(self.controller, context=self.context)
