@@ -62,11 +62,14 @@ class DurableGraphWorkspaceRegistryTests(unittest.TestCase):
         self.assertEqual(second.worker_states()["worker-a"], "stopped")
         third = self.make_coordinator()
         self.assertEqual(third.worker_states()["worker-a"], "stopped")
-        with sqlite3.connect(self.registry) as db:
+        db = sqlite3.connect(self.registry)
+        try:
             evidence = db.execute(
                 "SELECT termination_evidence FROM graph_workspace_registry WHERE worker_id = ?",
                 ("worker-a",),
             ).fetchone()[0]
+        finally:
+            db.close()
         self.assertEqual(evidence, "supervisor process table confirms pid exited")
         with self.assertRaisesRegex(PermissionError, "no persisted proposal artifact"):
             second.cleanup_worker("worker-a")
