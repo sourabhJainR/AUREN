@@ -54,10 +54,11 @@ The record's `affected_task_ids` identify work that requires planner review and 
 Rollback: stop writing new decision records and retain the append-only table for audit. No plan, task, approval or execution record is deleted or rewritten.
 
 
-When an `AdaptiveRuntime` host configures `configure_trusted_plan_dispatch()`, it also creates an `EngineeringDecisionStore` over the supplied canonical `EngineeringPlanStore`. Hosts record decisions through `record_engineering_decision()`; the method refuses to run before trusted plan composition is configured. This keeps decision history on the plan database and prevents a separate unbound decision store from becoming a competing source of truth.
-
-
-The `AdaptiveRuntime` decision API also requires a host-provided `decision_authorizer`. The authorizer resolves the authenticated actor from the decision payload. A caller-supplied actor ID is rejected if it differs from the authenticated identity, and decision writes are denied when host authentication is not configured. Direct use of the low-level store is reserved for trusted host composition code; a stored actor string alone is not proof of authorization.
 
 
 `AdaptiveRuntime.verify_engineering_decision()` is the guard-facing check. It returns true only when the current latest record is digest-valid, host-authenticated, typed as a conflict resolution, bound to the current plan/run revision, and its selected option matches the resolution note. A bare resolution string, stale record or unavailable store cannot clear a conflict. The design guard accepts a verifier callback and fails closed if the callback is missing or errors.
+
+
+The store requires a host-provided `actor_authorizer` callback at construction. The callback receives the normalized decision payload and returns the authenticated actor identity. A caller-supplied actor ID is rejected if it differs from the host-resolved identity. The low-level store does not grant execution authority; host composition must still use its canonical plan and trusted dispatch boundary.
+
+`verify_resolution()` is the guard-facing check. It returns true only when the current latest record is digest-valid, typed as a conflict resolution, bound to the current plan/run revision, and its selected option matches the resolution note. A bare resolution string, stale record or unavailable store cannot clear a conflict.
