@@ -189,6 +189,38 @@ def test_goal_reconciler_backoff_survives_restart_and_resets_after_recovery(tmp_
     assert resumed.verify_audit_chain()
 
 
+def test_failed_goal_outcome_uses_persisted_backoff(tmp_path):
+    calls = []
+
+    def reconcile():
+        calls.append("called")
+        return {"status": "failed", "reason": "provider outcome was not verified"}
+
+    supervisor = ContinuousExecutionSupervisor(
+        ExecutionController(tmp_path),
+        goal_reconcilers={"AUREN:test:failed-outcome": reconcile},
+        max_goal_retries=3,
+    )
+    supervisor.run(poll_seconds=2, batch_size=1, max_cycles=1)
+    health = supervisor.status()["goal_health"]
+    assert calls == ["called"]
+    assert health[0]["status"] == "backoff"
+    assert health[0]["consecutive_errors"] == 1
+    assert health[0]["last_error_type"] == "RuntimeError"
+
+    replacement = ContinuousExecutionSupervisor(
+        ExecutionController(tmp_path),
+        goal_reconcilers={"AUREN:test:failed-outcome": reconcile},
+        max_goal_retries=3,
+    )
+    replacement.run(poll_seconds=2, batch_size=1, max_cycles=1)
+    assert calls == ["called"]
+    assert any(
+        event["event_type"] == "goal_reconciliation_backoff_wait"
+        for event in replacement.status(event_limit=100)["recent_events"]
+    )
+
+
 def test_goal_retry_budget_exhaustion_holds_until_authenticated_evidence_wake(tmp_path):
     calls = []
     controller = ExecutionController(tmp_path)
