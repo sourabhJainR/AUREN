@@ -51,6 +51,23 @@ class TestPreImplementationReview(unittest.TestCase):
         self.assertEqual(result["contradictions"][0]["status"], "resolved")
         self.assertTrue(result["contradictions"][0]["resolution_verified"])
 
+    def test_non_boolean_or_raising_resolution_verifier_keeps_conflict_blocked(self):
+        intent = "Preserve backward compatibility while making a breaking change"
+        resolutions = {
+            "compatibility-vs-breaking-change": "Ship v2 separately and keep v1 contract unchanged.",
+        }
+        for verifier in (
+            lambda _rule_id, _note: 1,
+            lambda _rule_id, _note: (_ for _ in ()).throw(RuntimeError("decision store unavailable")),
+        ):
+            result = EngineeringDesignGuard.review_request(
+                intent=intent, resolutions=resolutions,
+                resolution_verifier=verifier,
+            )
+            self.assertFalse(result["implementation_may_start"])
+            self.assertEqual(result["unresolved_contradictions"][0]["status"], "unresolved")
+            self.assertFalse(result["contradictions"][0]["resolution_verified"])
+
     def test_digest_is_deterministic_and_binds_requirements(self):
         first = EngineeringDesignGuard.review_request(intent="Add bounded retries", requirements=["At most three attempts"])
         same = EngineeringDesignGuard.review_request(intent="Add bounded retries", requirements=["At most three attempts"])
