@@ -119,8 +119,10 @@ class EngineeringDecisionStore:
         if isinstance(options, (str, bytes)):
             raise ValueError("options must be a sequence of option strings")
         normalized_options = tuple(_text(item, "option", limit=500) for item in options)
-        if len(normalized_options) < 2 or len(set(normalized_options)) != len(normalized_options):
-            raise ValueError("a decision requires at least two unique options")
+        if len(normalized_options) < 2 or len(normalized_options) > 20:
+            raise ValueError("a decision requires between two and twenty options")
+        if len(set(normalized_options)) != len(normalized_options):
+            raise ValueError("decision options must be unique")
         selected = _text(selected_option, "selected_option", limit=500)
         if selected not in normalized_options:
             raise ValueError("selected_option must be one of the declared options")
@@ -128,6 +130,8 @@ class EngineeringDecisionStore:
             (_text(option, "rejected option", limit=500), _text(reason, "rejection reason", limit=1000))
             for option, reason in rejected_alternatives
         )
+        if len(rejected) > 20:
+            raise ValueError("at most twenty rejected alternatives may be recorded")
         if len({option for option, _ in rejected}) != len(rejected):
             raise ValueError("rejected alternatives must be unique")
         if any(option not in normalized_options or option == selected for option, _ in rejected):
@@ -135,6 +139,8 @@ class EngineeringDecisionStore:
         if isinstance(affected_task_ids, (str, bytes)):
             raise ValueError("affected_task_ids must be a sequence of task IDs")
         affected = tuple(_text(item, "affected task ID", limit=128) for item in affected_task_ids)
+        if len(affected) > 100:
+            raise ValueError("at most one hundred affected task IDs may be recorded")
         if len(set(affected)) != len(affected):
             raise ValueError("affected task IDs must be unique")
         actor = _text(actor_id, "actor_id", limit=128)
@@ -163,8 +169,14 @@ class EngineeringDecisionStore:
         digest = hashlib.sha256(_canonical(payload).encode("utf-8")).hexdigest()
         if digest != row["record_digest"]:
             raise ValueError("stored engineering decision digest mismatch")
-        if payload.get("plan_digest") != row["plan_digest"] or payload.get("run_revision") != row["run_revision"]:
-            raise ValueError("stored engineering decision binding mismatch")
+        if (
+            payload.get("run_id") != row["run_id"]
+            or payload.get("decision_id") != row["decision_id"]
+            or payload.get("revision") != row["revision"]
+            or payload.get("plan_digest") != row["plan_digest"]
+            or payload.get("run_revision") != row["run_revision"]
+        ):
+            raise ValueError("stored engineering decision identity or binding mismatch")
         return EngineeringDecisionRecord(
             run_id=payload["run_id"], decision_id=payload["decision_id"],
             revision=payload["revision"], plan_digest=payload["plan_digest"],
@@ -295,6 +307,10 @@ class EngineeringDecisionStore:
             db.close()
 
     def history(self, run_id: str, decision_id: str) -> tuple[EngineeringDecisionRecord, ...]:
+        if not isinstance(run_id, str) or not _TOKEN.fullmatch(run_id):
+            raise ValueError("run_id must be a bounded identifier token")
+        if not isinstance(decision_id, str) or not _TOKEN.fullmatch(decision_id):
+            raise ValueError("decision_id must be a bounded identifier token")
         plan, run = self.plan_store.load(run_id)
         db = self.plan_store._connect()
         try:
