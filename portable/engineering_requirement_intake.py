@@ -19,7 +19,7 @@ _MAX_STATEMENT_CHARS = 600
 _LINE = re.compile(
     r"(?m)^[ \t]*(?:(?:[-*•]\s+)|(?:\d+[.)]\s+))?(?P<text>[^\r\n]+)"
 )
-_SENTENCE = re.compile(r"[^.!?;]+(?:[.!?;]+|$)")
+_SENTENCE = re.compile(r".+?(?:[.!?;](?=(?:\s+[A-Z0-9“\"'-]|$))|$)")
 _ASSUMPTION = re.compile(
     r"\b(assume|assuming|presume|presuming|probably|likely|if possible|"
     r"where possible|as needed|when available|subject to availability)\b",
@@ -39,7 +39,7 @@ _REQUIREMENT = re.compile(
     r"\b(must|shall|should|required|needs? to|need to|build|create|"
     r"implement|provide|support|include|add|preserve|ensure|prevent|"
     r"reject|deny|allow|deliver|ship|display|show|fetch|integrate|"
-    r"compare|recommend|record|retain|verify)\b",
+    r"compare|recommend|record|retain|verify|keep)\b",
     re.I,
 )
 _ACCEPTANCE = re.compile(
