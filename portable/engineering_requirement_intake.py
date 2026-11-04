@@ -114,7 +114,7 @@ def parse_engineering_request(intent: str) -> dict[str, Any]:
                 "text": text,
                 "start": start,
                 "end": end,
-                "statement_digest": hashlib.sha256(raw_text.encode("utf-8")).hexdigest(),
+                "statement_digest": None if redaction_count else hashlib.sha256(raw_text.encode("utf-8")).hexdigest(),
                 "redacted": redaction_count > 0,
                 "redaction_count": redaction_count,
                 "kinds": kinds,
@@ -154,6 +154,8 @@ def parse_engineering_request(intent: str) -> dict[str, Any]:
         **candidates,
         "oversized_statement_spans": oversized,
         "statement_limit_exceeded": too_many,
+        "redacted_statement_count": sum(1 for item in statements if item["redacted"]),
+        "redacted_value_count": sum(item["redaction_count"] for item in statements),
         "requirements_verified": False,
         "semantic_review_required": True,
         "limitations": (
