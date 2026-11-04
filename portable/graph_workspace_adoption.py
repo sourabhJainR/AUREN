@@ -57,6 +57,17 @@ def _overlap(left: str, right: str) -> bool:
     return left == right or left.startswith(right.rstrip("/") + "/") or right.startswith(left.rstrip("/") + "/")
 
 
+def _path_fingerprint(root: Path, relative_path: str) -> str:
+    target = root.joinpath(*PurePosixPath(_clean_path(relative_path)).parts)
+    if target.is_symlink():
+        return hashlib.sha256(b"symlink" + bytes([0]) + os.readlink(target).encode("utf-8", errors="surrogateescape")).hexdigest()
+    if not target.exists():
+        return "missing"
+    if not target.is_file():
+        raise RuntimeError("adoption recovery encountered a non-file proposal path")
+    return hashlib.sha256(b"file" + bytes([0]) + target.read_bytes()).hexdigest()
+
+
 @dataclass(frozen=True)
 class WorkspaceProposal:
     worker_id: str
