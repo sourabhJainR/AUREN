@@ -263,10 +263,16 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                             event for event in self.controller.progress_journal._events()
                             if event.get("task_id") == durable.id
                         ]
+                        with sqlite3.connect(self.controller.company.db_path) as company_db:
+                            company_events = company_db.execute(
+                                "SELECT kind,status,detail FROM events WHERE work_unit_id=? ORDER BY created_at",
+                                (durable.work_unit_id,),
+                            ).fetchall()
                         reconciliation_diagnostics.append({
                             "failed_task": task_id,
                             "durable_state": durable.state,
                             "progress_events": task_events[-12:],
+                            "company_events": company_events,
                         })
                         raise RuntimeError(f"{task_id} did not complete successfully")
             if all(item.status == "passed" for item in current_run.tasks):
