@@ -428,6 +428,7 @@ class ApprovedToolCrewAdapter:
             ],
             "max_tool_calls": self._max_tool_calls,
             "has_finalizer": self._finalizer is not None,
+            "shared_team_budget_enforced": self._tools.team_budget_enforcer is not None,
             "implementation_version": self.implementation_version,
         }
         return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
