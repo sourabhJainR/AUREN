@@ -73,6 +73,21 @@ class DurableGraphWorkspaceRegistryTests(unittest.TestCase):
         self.assertEqual(second.adopt(restored), ("src/a.py",))
         self.assertEqual((self.repo / "src" / "a.py").read_text(encoding="utf-8"), "answer = 42\\n")
 
+    def test_cleaned_worktree_tombstone_restores_without_reserving_paths(self):
+        first = GraphWorkspaceCoordinator(self.repo, workspace_root=self.workspaces, registry_path=self.registry)
+        workspace = first.create_worker("worker-a", ["src/a.py"])
+        (workspace / "src").mkdir()
+        (workspace / "src" / "a.py").write_text("answer = 42\\n", encoding="utf-8")
+        first.prepare_proposal("worker-a")
+        first.cleanup_worker("worker-a")
+
+        second = GraphWorkspaceCoordinator(self.repo, workspace_root=self.workspaces, registry_path=self.registry)
+        self.assertEqual(second.worker_states(), {"worker-a": "cleaned"})
+        with self.assertRaisesRegex(ValueError, "already exists"):
+            second.create_worker("worker-a", ["src/a.py"])
+        # The old cleaned lease must not block a new worker from owning its path.
+        second.create_worker("worker-b", ["src/a.py"])
+
     def test_missing_worktree_is_not_treated_as_empty(self):
         first = GraphWorkspaceCoordinator(self.repo, workspace_root=self.workspaces, registry_path=self.registry)
         workspace = first.create_worker("worker-a", ["src/a.py"])
