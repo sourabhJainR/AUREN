@@ -24,6 +24,8 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("tests/test_trusted_plan_profile_binding.py", ("tests.test_trusted_plan_profile_binding",), True),
     ("tests/test_trusted_plan_approval_preflight.py", ("tests.test_trusted_plan_approval_preflight", "tests.test_trusted_plan_dispatch", "tests.test_durable_approval", "tests.test_execution_controller"), True),
     ("portable/adaptive_runtime.py", ("tests.test_trusted_plan_dispatch", "tests.test_adaptive_runtime_recovery_integration", "tests.test_execution_controller_cancellation"), True),
+    ("portable/engineering_design_guard.py", ("tests.test_engineering_design_guard", "tests.test_engineering_conflict_decisions", "tests.test_trusted_conflict_scope_composition"), False),
+    ("tests/test_engineering_conflict_decisions.py", ("tests.test_engineering_conflict_decisions",), False),
     ("portable/engineering_plan_dispatch.py", ("tests.test_engineering_plan_dispatch", "tests.test_trusted_plan_dispatch", "tests.test_engineering_plan_recovery"), True),
     ("portable/sdk.py", ("tests.test_auren_sdk", "tests.test_trusted_plan_dispatch", "tests.test_agent_execution_guard", "tests.test_execution_controller_guard_policy"), True),
     ("tests/test_auren_sdk.py", ("tests.test_auren_sdk",), True),
