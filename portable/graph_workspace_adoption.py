@@ -184,13 +184,8 @@ class GraphWorkspaceCoordinator:
 
     def _reconcile_adoption_journal(self) -> None:
         rows = self._registry.execute("SELECT adoption_id, base_revision, state FROM graph_workspace_adoptions WHERE state='applying'").fetchall()
-        for adoption_id, base, state in rows:
-            if base != self.base_revision:
-                raise RuntimeError("interrupted adoption has a stale base revision")
-            if _git(self.project_root, "status", "--porcelain", "--untracked-files=all").strip():
-                self._set_adoption_state(adoption_id, "blocked")
-                raise RuntimeError("interrupted adoption left a dirty target; manual reconciliation required")
-            self._set_adoption_state(adoption_id, "not_applied")
+        if rows:
+            raise RuntimeError("an interrupted graph adoption requires explicit reconciliation before new work")
 
     def _restore_registry(self) -> None:
         """Restore only records bound to this exact base; ambiguous records stay blocked."""
