@@ -229,6 +229,22 @@ class EngineeringDecisionStore:
             raise PermissionError("decision authorizer did not return a verified actor identity")
         if actor_id is not None and actor_id != verified_actor:
             raise PermissionError("caller-supplied actor identity does not match the authenticated actor")
+        if not isinstance(options, (str, bytes)):
+            options = tuple(options)
+        if not isinstance(rejected_alternatives, (str, bytes)):
+            rejected_alternatives = tuple(rejected_alternatives)
+        if not isinstance(affected_task_ids, (str, bytes)):
+            affected_task_ids = tuple(affected_task_ids)
+        actor_payload["rejected_alternatives"] = (
+            list(rejected_alternatives)
+            if not isinstance(rejected_alternatives, (str, bytes))
+            else rejected_alternatives
+        )
+        actor_payload["affected_task_ids"] = (
+            list(affected_task_ids)
+            if not isinstance(affected_task_ids, (str, bytes))
+            else affected_task_ids
+        )
         normalized = self._validate(
             decision_id=decision_id, decision_type=decision_type, question=question,
             options=options, selected_option=selected_option, rationale=rationale,
