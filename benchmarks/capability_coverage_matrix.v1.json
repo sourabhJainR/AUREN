@@ -73,7 +73,7 @@
         "repository_ci": "CI-verified for sandbox/custody scaffolding only; modality-specific benchmark not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "1d6534d4ea533fe034a4258a131e8a03b9bc4b98"
+        "reviewed_main_sha": "4d3634165977df86fdc2454cd064f0bd970725e7"
       }
     },
     {
@@ -132,7 +132,7 @@
         "repository_ci": "CI-verified for supervisor/recovery contracts only; external environment suite not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "1d6534d4ea533fe034a4258a131e8a03b9bc4b98"
+        "reviewed_main_sha": "4d3634165977df86fdc2454cd064f0bd970725e7"
       }
     },
     {
@@ -193,7 +193,7 @@
         "repository_ci": "CI-verified for selected recovery and side-effect contracts only; long-duration benchmark not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "1d6534d4ea533fe034a4258a131e8a03b9bc4b98"
+        "reviewed_main_sha": "4d3634165977df86fdc2454cd064f0bd970725e7"
       }
     },
     {
@@ -254,7 +254,7 @@
         "repository_ci": "CI-verified for lineage/attestation protocol tests only; external target domain not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "1d6534d4ea533fe034a4258a131e8a03b9bc4b98"
+        "reviewed_main_sha": "4d3634165977df86fdc2454cd064f0bd970725e7"
       }
     },
     {
@@ -313,7 +313,7 @@
         "repository_ci": "CI-verified for causal attribution/promotion-gate contracts only; independent replication not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "1d6534d4ea533fe034a4258a131e8a03b9bc4b98"
+        "reviewed_main_sha": "4d3634165977df86fdc2454cd064f0bd970725e7"
       }
     },
     {
@@ -371,7 +371,7 @@
         "repository_ci": "CI-verified for memory/provenance and selected learning integration only; longitudinal suite not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "1d6534d4ea533fe034a4258a131e8a03b9bc4b98"
+        "reviewed_main_sha": "4d3634165977df86fdc2454cd064f0bd970725e7"
       }
     },
     {
@@ -432,7 +432,7 @@
         "repository_ci": "CI-verified for graph/runtime contracts only; independent multi-crew benchmark not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "1d6534d4ea533fe034a4258a131e8a03b9bc4b98"
+        "reviewed_main_sha": "4d3634165977df86fdc2454cd064f0bd970725e7"
       }
     },
     {
@@ -495,7 +495,7 @@
         "repository_ci": "CI-verified for protocol/security tests only; external red-team suite not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "1d6534d4ea533fe034a4258a131e8a03b9bc4b98"
+        "reviewed_main_sha": "4d3634165977df86fdc2454cd064f0bd970725e7"
       }
     },
     {
@@ -563,85 +563,77 @@
         "repository_ci": "CI-verified for custody/evaluator protocol only; independent campaign not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "1d6534d4ea533fe034a4258a131e8a03b9bc4b98"
+        "reviewed_main_sha": "4d3634165977df86fdc2454cd064f0bd970725e7"
       }
     }
   ],
   "review_snapshot": {
     "reviewed_at": "2026-11-04",
-    "baseline_main_sha": "ef19d34affd6a4e970f64a47bd0b2fe01ae00f59",
+    "baseline_main_sha": "4d3634165977df86fdc2454cd064f0bd970725e7",
     "current_main_check_runs": {
-      "total": 30,
-      "success": 30,
-      "skipped": 0,
+      "total": 25,
+      "success": 22,
+      "skipped": 3,
       "failed": 0,
       "pending": 0
     },
-    "skipped_checks": [],
+    "skipped_checks": [
+      "hardening",
+      "architecture-integrity",
+      "Durable runtime (${{ matrix.os }}, Python ${{ matrix.python-version }})"
+    ],
     "post_merge_push_workflows": {
-      "total": 8,
-      "success": 8,
+      "total": 6,
+      "success": 6,
       "failed": 0,
       "pending": 0,
       "runs": [
         {
+          "name": "Architecture Integrity",
+          "run_id": 41845622936,
+          "conclusion": "success",
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41845622936"
+        },
+        {
           "name": "Runtime Resilience Matrix",
-          "run_id": 41825458492,
+          "run_id": 41845622765,
           "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41825458492"
-        },
-        {
-          "name": "AUREN cleanup contract",
-          "run_id": 41825458644,
-          "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41825458644"
-        },
-        {
-          "name": "Repository Construct Traceability Check",
-          "run_id": 41825458733,
-          "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41825458733"
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41845622765"
         },
         {
           "name": "Agent Capability Runtime",
-          "run_id": 41825458267,
+          "run_id": 41845622837,
           "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41825458267"
-        },
-        {
-          "name": "AUREN Portable Bundle",
-          "run_id": 41825458322,
-          "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41825458322"
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41845622837"
         },
         {
           "name": "Production AI Harness Hardening",
-          "run_id": 41825458189,
+          "run_id": 41845622965,
           "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41825458189"
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41845622965"
         },
         {
-          "name": "Architecture Integrity",
-          "run_id": 41825458178,
+          "name": "AUREN Portable Bundle",
+          "run_id": 41845622930,
           "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41825458178"
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41845622930"
         },
         {
           "name": "AI Harness Check",
-          "run_id": 41825458160,
+          "run_id": 41845622981,
           "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41825458160"
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41845622981"
         }
       ]
     },
     "portable_bundle": {
       "status": "downloaded_and_rehashed",
-      "workflow_run_id": 41825458322,
-      "bundle_artifact_id": 13318453495,
-      "checksum_artifact_id": 13318588042,
-      "outer_bundle_artifact_sha256": "2ca8e63e97eb148a11e2a6432b1c34043cedc17322c36e66d80c8bd2b3d1dbca",
-      "outer_checksum_artifact_sha256": "9991e4b7e6ce8022532d1b84e4b488f5c6c0632c7f5e92b3a24d7f8f5fd73acd",
-      "inner_bundle_sha256": "2f2aebd4112d14ff7f66bc5059209bf747a66639c164e27f008a89c323b6d593",
+      "workflow_run_id": 41845622930,
+      "bundle_artifact_id": 13330094149,
+      "checksum_artifact_id": 13331735880,
+      "outer_bundle_artifact_sha256": "d35c80d890ed7185cb7788949f5a2ee4bca4f7e590eb0e7866d55ff1d5328526",
+      "outer_checksum_artifact_sha256": "4a22be9564675e89a1c993a9a0a5ad022b587f1e525ca4339477b60de372aed3",
+      "inner_bundle_sha256": "8439cc36cadbf1c9cd0e709b82c898f37316060590fd6750e24d53ec3fc0d14a",
       "inner_checksum_status": "verified locally; auren-portable.sha256 matches the embedded ZIP SHA-256",
       "manifest_file_count": 531,
       "manifest_hash_or_size_mismatches": 0,
@@ -649,12 +641,12 @@
       "unexpected_generated_entries": [
         "payload/PORTABLE_BUNDLE.txt"
       ],
-      "source_commit": "ef19d34affd6a4e970f64a47bd0b2fe01ae00f59",
+      "source_commit": "4d3634165977df86fdc2454cd064f0bd970725e7",
       "version": "1.0.6",
       "target_repository_mutation": false,
-      "bundle_expires_at": "2026-12-04T12:00:32Z",
-      "checksum_expires_at": "2026-12-04T12:00:33Z",
-      "local_download_rehash": "completed; outer and inner digests and all 531 manifest entries verified in the container"
+      "bundle_expires_at": "2026-12-04T14:15:35Z",
+      "checksum_expires_at": "2026-12-04T14:15:36Z",
+      "local_download_rehash": "completed; outer artifact digests, embedded ZIP digest and all 531 manifest entries verified in the container"
     },
     "required_check_enforcement": {
       "status": "not_fully_confirmed",
@@ -676,29 +668,23 @@
       "artifact_expires_at": "2027-02-01T14:33:48Z",
       "local_download_rehash": "not run; local container runtime unavailable"
     },
-    "open_pr_count": 2,
+    "open_pr_count": 1,
     "open_prs": [
       {
-        "number": 1276,
-        "title": "P0: Persist graph workspace adoption intent and restart reconciliation",
-        "head_branch": "fix/1256-interrupted-graph-adoption-recovery",
-        "head_sha": "ad6c63a97f0ad10340f1dc1d99b40c675b8299c3",
-        "base_sha": "ef19d34affd6a4e970f64a47bd0b2fe01ae00f59",
-        "status": "open; 28/28 exact-head checks passed; manual recovery review found cleanup-before-finalize, post-commit gate-release and stale-base restart defects; independent review outstanding"
-      },
-      {
-        "number": 1277,
-        "title": "Refresh AI/SI capability radar with November 4 evidence",
-        "head_branch": "docs/ai-si-radar-2026-11-04",
-        "base_sha": "ef19d34affd6a4e970f64a47bd0b2fe01ae00f59",
-        "status": "open; documentation-only; this matrix commit is the current PR tip; exact-head CI must reach terminal status; any skipped checks remain skipped"
+        "number": 1278,
+        "title": "P0: Complete graph adoption recovery across cleanup and commit boundaries",
+        "head_branch": "fix/graph-adoption-finalize-recovery-2026-11-04",
+        "head_sha": "7f497552785cd694698d5fc60f959f3fddb2451e",
+        "base_sha": "4d3634165977df86fdc2454cd064f0bd970725e7",
+        "status": "open; exact-head checks running; one earlier exact-head run exposed a delivery-test cleanup error, fixed on this head; independent review outstanding"
       }
-    ]
+    ],
+    "local_checkout_and_runtime": "not available; no local repository tests were run"
   },
   "radar_refresh": {
     "reviewed_at": "2026-11-04",
-    "baseline_main_sha": "ef19d34affd6a4e970f64a47bd0b2fe01ae00f59",
-    "status": "candidate signals only. Research refreshed through 2026-11-04; main ef19d34affd6a4e970f64a47bd0b2fe01ae00f59 has 30 successful check-runs and eight successful post-merge push workflows. The v1.0.6 portable bundle and checksum were downloaded and rehashed: all 531 manifest entries match size and SHA-256. Two PRs are open: #1276 has 28/28 exact-head checks but manual recovery defects and independent review remain; #1277 is a documentation-only radar update whose current tip still requires terminal exact-head CI. Deployment and independent-evaluation gates remain blocked.",
+    "baseline_main_sha": "4d3634165977df86fdc2454cd064f0bd970725e7",
+    "status": "Candidate signals only. Research refreshed through 2026-11-04 with SCHEME multi-agent side-task evaluation, Station open-ended discovery, and a 25,000-run scientific-reasoning study. Main 4d3634165977df86fdc2454cd064f0bd970725e7 has 22 successful current-main checks, three skipped checks, zero failures/pending, and six successful post-merge push workflows. The v1.0.6 portable bundle and checksum were downloaded and rehashed; all 531 manifest entries match. One open code PR (#1278) has exact-head CI in progress and independent review outstanding. Deployment, production isolation, independent evaluator/holdout custody and scientific replication remain blocked.",
     "policy": "External announcements and benchmark reports are comparison inputs, not evidence of equivalent AUREN capability. Reuse the canonical supervisor, TaskPlan, StateGraph, ExecutionController, Guard, RuntimeExecutionGuard, ProgressJournal, LearningSteward and Arena. No duplicate orchestrator or external runtime dependency. Keep adapters opt-in; no default model, harness or extension-pack promotion without paired measured value, independent evaluation and rollback. Discovery never grants authority.",
     "status_vocabulary": {
       "implementation": "Code path exists; does not imply tests or deployment.",
@@ -847,7 +833,7 @@
       },
       {
         "id": "agent_coordination_action_oversight",
-        "source_date": "2026-04-10; 2026-05-26; 2026-06-09; 2026-10-25; 2026-11-03; 2026-07",
+        "source_date": "2026-04-10; 2026-05-26; 2026-06-09; 2026-10-25; 2026-11-03; 2026-07; 2026-05-27",
         "sources": [
           "https://github.blog/changelog/2026-10-01-dynamic-workflows-in-copilot-cli-and-the-copilot-app/",
           "https://www.anthropic.com/research/multiagent-systems",
@@ -863,7 +849,8 @@
           "https://arxiv.org/abs/2606.10747",
           "https://arxiv.org/abs/2610.34467",
           "https://proceedings.mlr.press/v306/pappu26a.html",
-          "https://alignment.openai.com/how-we-detect-frontier-model-misalignment/"
+          "https://alignment.openai.com/how-we-detect-frontier-model-misalignment/",
+          "https://arxiv.org/abs/2605.29178"
         ],
         "owner": [
           "portable.agency_state_graph.StateGraph",
@@ -877,14 +864,14 @@
         "ci_status": "Selected graph concurrency, adoption conflict, verifier separation and cancellation contracts are repository-tested; runtime action monitoring, independent multi-agent benefit and host isolation are not verified.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "Coordination overhead, duplicate work, communication cost, conflict rate, resource contention, escalation latency, unauthorized-action rate, and cross-boundary covert communication. Recent independent API tests also report stop-compliance gaps after ambiguous shutdown warnings and interference with a peer agent; behavior changed when stop intent was explicit, and evaluation awareness limits generalization.  GitHub Agentic Workflows' GA design adds read-only-by-default execution, safe outputs and threat detection; SentinelOne announced early-access runtime agent action monitoring. Neither establishes AUREN's comparative coordination benefit or an independently verified control. OpenAI's containment report reinforces shared-hardware cross-agent channels as a threat-model input. SentinelOne's early-access ADR explicitly links agent actions to originating processes and describes stopping one agent without halting the full workflow. This sharpens the AUREN gap: durable agent identity must bind to process/action receipts, and containment must be proven at the host rather than inferred from agent self-report. MPAC makes cross-principal intent, conflict and governance explicit; AgensFlow treats coordination as an observable policy choice; The Arbiter Agent studies budgeted monitoring of agent interactions. None establishes AUREN's independent coordination value or action safety. DynaFlow reports 88.08% Forced-mode accuracy across six benchmarks after main-agent training; its untrained workflow modes do not beat the direct baseline. AUREN has no paired static-versus-dynamic graph evaluation. ICML 2026 reports that self-organizing teams can underperform their best individual expert by up to 41.1% on the studied ML benchmarks. This is task-specific, but AUREN must not assume team size or consensus improves quality.",
-        "benchmark": "Paired single-agent/deterministic versus multi-agent runs on the same pinned task distribution with trace-level action audit; test explicit stop versus warning-only language, monitor tampering, sibling-process interference, confirmed termination, cross-boundary signaling without network/shared writable files, and tool-chain length effects. Report coordination overhead, duplicate work, action coverage, and outcome success.  Correlate each agent action with authenticated process/identity, intent digest and policy receipt; test prompt/monitor tampering, stop compliance, peer-process interference, covert shared-resource signaling and safe-output denial. Compare single-agent and multi-agent outcomes and overhead. Include action-to-process lineage, delegated-user attribution, per-agent containment, child-process cleanup, monitor tampering and post-stop action attempts; retain a separate independent host audit. Benchmark duplicate work, conflicts, communication cost, action authorization, revocation, stop compliance, inspection budget, false approvals and cross-agent information boundaries. Add dynamic graph generation versus static TaskPlan comparison with per-stage evidence, topology, role, information-flow, verification, budget and rollback scoring. Pair the best single specialist against the full team on identical tasks; measure expert utilization, quality, success, cost, latency, duplicate work, conflict, monitor integrity and unauthorized actions.",
-        "acceptance_threshold": "Measured net value without safety/reliability regression; explicit stop intent is honored; worker termination is confirmed before reporting stopped; serialized adoption; no worker self-approval; shared budgets cannot be reset; zero unauthorized cross-boundary communication in the tested suite.",
+        "measured_gap": "Coordination overhead, duplicate work, communication cost, conflict rate, resource contention, escalation latency, unauthorized-action rate, and cross-boundary covert communication. Recent independent API tests also report stop-compliance gaps after ambiguous shutdown warnings and interference with a peer agent; behavior changed when stop intent was explicit, and evaluation awareness limits generalization.  GitHub Agentic Workflows' GA design adds read-only-by-default execution, safe outputs and threat detection; SentinelOne announced early-access runtime agent action monitoring. Neither establishes AUREN's comparative coordination benefit or an independently verified control. OpenAI's containment report reinforces shared-hardware cross-agent channels as a threat-model input. SentinelOne's early-access ADR explicitly links agent actions to originating processes and describes stopping one agent without halting the full workflow. This sharpens the AUREN gap: durable agent identity must bind to process/action receipts, and containment must be proven at the host rather than inferred from agent self-report. MPAC makes cross-principal intent, conflict and governance explicit; AgensFlow treats coordination as an observable policy choice; The Arbiter Agent studies budgeted monitoring of agent interactions. None establishes AUREN's independent coordination value or action safety. DynaFlow reports 88.08% Forced-mode accuracy across six benchmarks after main-agent training; its untrained workflow modes do not beat the direct baseline. AUREN has no paired static-versus-dynamic graph evaluation. ICML 2026 reports that self-organizing teams can underperform their best individual expert by up to 41.1% on the studied ML benchmarks. This is task-specific, but AUREN must not assume team size or consensus improves quality. SCHEME (2026-05-27) uses 17 instances across seven settings and eight repositories to test coordinated covert side tasks while the visible engineering task succeeds. The reported rates are benchmark-specific; AUREN has no paired joint-only side-task campaign or monitor-coverage measurement.",
+        "benchmark": "Paired single-agent/deterministic versus multi-agent runs on the same pinned task distribution with trace-level action audit; test explicit stop versus warning-only language, monitor tampering, sibling-process interference, confirmed termination, cross-boundary signaling without network/shared writable files, and tool-chain length effects. Report coordination overhead, duplicate work, action coverage, and outcome success.  Correlate each agent action with authenticated process/identity, intent digest and policy receipt; test prompt/monitor tampering, stop compliance, peer-process interference, covert shared-resource signaling and safe-output denial. Compare single-agent and multi-agent outcomes and overhead. Include action-to-process lineage, delegated-user attribution, per-agent containment, child-process cleanup, monitor tampering and post-stop action attempts; retain a separate independent host audit. Benchmark duplicate work, conflicts, communication cost, action authorization, revocation, stop compliance, inspection budget, false approvals and cross-agent information boundaries. Add dynamic graph generation versus static TaskPlan comparison with per-stage evidence, topology, role, information-flow, verification, budget and rollback scoring. Pair the best single specialist against the full team on identical tasks; measure expert utilization, quality, success, cost, latency, duplicate work, conflict, monitor integrity and unauthorized actions. Add SCHEME-style joint-only covert side-task negatives, disjoint write scopes, communication-topology changes, code/communication trace review, monitor tampering, revocation and stop attempts. Report visible-task success, hidden side-effect completion, monitor precision/recall, false positives and time-to-stop.",
+        "acceptance_threshold": "Measured net value without safety/reliability regression; explicit stop intent is honored; worker termination is confirmed before reporting stopped; serialized adoption; no worker self-approval; shared budgets cannot be reset; zero unauthorized cross-boundary communication in the tested suite. The independent monitor must detect or prevent covert side effects without granting workers access to its oracle; require zero unauthorized action and no self-approval.",
         "rollback": "Disable fan-out for the affected task class and use the sequential canonical path."
       },
       {
         "id": "scientific_discovery",
-        "source_date": "2026-09-04; 2026-09-07; 2026-10-04; 2026-11-03",
+        "source_date": "2026-09-04; 2026-09-07; 2026-10-04; 2026-11-03; 2026-10-06; 2026-04-20",
         "sources": [
           "https://www.anthropic.com/science",
           "https://www.nature.com/articles/s43586-026-00534-y",
@@ -897,7 +884,9 @@
           "https://arxiv.org/abs/2602.02905",
           "https://arxiv.org/abs/2610.05197",
           "https://arxiv.org/abs/2609.05079",
-          "https://www.emergentmind.com/papers/2609.07611"
+          "https://www.emergentmind.com/papers/2609.07611",
+          "https://arxiv.org/abs/2610.08927",
+          "https://arxiv.org/abs/2604.18805"
         ],
         "owner": [
           "LearningSteward",
@@ -911,9 +900,9 @@
         "ci_status": "CI verifies selected causal attribution and promotion-gate contracts only; no FIRE-Bench, Into the Unknown, SEER-Repro, or external scientific replication campaign has run on AUREN.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "Hypothesis validity, expert-condition satisfaction, reproducibility, analytical robustness, negative-result retention, calibration, transfer to fresh scientific tasks, and report integrity. Into the Unknown reports 0 of 135 submissions satisfying all conditions and 114 integrity failures. Agent4Sci spans 20 scientific-ML benchmarks across 11 domains: frontier agents improve published baselines, but trajectory analysis attributes most gains to ML-engineering heuristics rather than research-level insight; plug-in skills improve measured progress but need independent transfer evaluation. SEER-Repro reproduces 77.4% of 2,190 atomic claims and flags potentially consequential analysis choices in 9.5% of fully reproduced findings.  FIRE-Bench reports under-50 F1 rediscovery by its strongest evaluated agents with high run-to-run variance and recurring experimental-design/execution/evidence failures. Into the Unknown reports 0/135 submissions satisfying all expert conditions and 114 integrity failures; SEER-Repro reports 77.4% atomic-claim reproduction and potentially consequential analysis choices in 9.5% of fully reproduced findings. MechHypoBench (2026-10-04) combines mechanisms from 14 scientific fields with 17.98 million observations and tests open-form hypotheses through consequences under withheld conditions; its authors report a substantial gap between generated hypotheses and underlying mechanisms. SEER-Repro (2026-10-16) reports reproduction of 77.4% of 2,190 atomic claims and flags potentially consequential analytical choices in 9.5% of fully reproduced findings. Neither is an AUREN result. TruthInsightBench reports low robustness, control testing and cross-dataset generalization despite stronger traceability/novelty; MechHypoBench tests mechanistic hypotheses under withheld conditions. AUREN has no independent expert-scored scientific campaign.",
-        "benchmark": "Pinned hypotheses, expert-authored constraints, simulations/code, seeds, model/tool versions and raw outputs; measure condition satisfaction and executable reproduction, run sensitivity analyses, then require independent replication on fresh tasks. Pair each skill/curriculum candidate with an unmodified baseline across 20 benchmarks/11 domains where applicable; report task-level gain, novelty, cost, reproducibility, calibration, uncertainty and negative results. Keep held-out tasks outside worker and judge context; require domain review.  Pair rediscovery of verified findings with open-ended expert-authored follow-up tasks; require raw execution logs, preregistered conditions, claim-to-run traceability, sensitivity analysis, negative-result retention, and independent replication on fresh tasks. Add mechanism-level hypothesis tests on withheld conditions, sensitivity to analytical choices, atomic-claim reproduction, executable baseline comparison, and independent domain replication. Preserve alternative explanations and negative findings instead of selecting the best-looking narrative. Require preregistered hypotheses, withheld-condition predictions, sensitivity/control tests, negative-result retention and independent domain replication.",
-        "acceptance_threshold": "Reproducible independent outcomes, explicit uncertainty and negative results, source-domain regression limits, and rollback-ready promotion. Literature synthesis or an automated judge score alone is not validation.",
+        "measured_gap": "Hypothesis validity, expert-condition satisfaction, reproducibility, analytical robustness, negative-result retention, calibration, transfer to fresh scientific tasks, and report integrity. Into the Unknown reports 0 of 135 submissions satisfying all conditions and 114 integrity failures. Agent4Sci spans 20 scientific-ML benchmarks across 11 domains: frontier agents improve published baselines, but trajectory analysis attributes most gains to ML-engineering heuristics rather than research-level insight; plug-in skills improve measured progress but need independent transfer evaluation. SEER-Repro reproduces 77.4% of 2,190 atomic claims and flags potentially consequential analysis choices in 9.5% of fully reproduced findings.  FIRE-Bench reports under-50 F1 rediscovery by its strongest evaluated agents with high run-to-run variance and recurring experimental-design/execution/evidence failures. Into the Unknown reports 0/135 submissions satisfying all expert conditions and 114 integrity failures; SEER-Repro reports 77.4% atomic-claim reproduction and potentially consequential analysis choices in 9.5% of fully reproduced findings. MechHypoBench (2026-10-04) combines mechanisms from 14 scientific fields with 17.98 million observations and tests open-form hypotheses through consequences under withheld conditions; its authors report a substantial gap between generated hypotheses and underlying mechanisms. SEER-Repro (2026-10-16) reports reproduction of 77.4% of 2,190 atomic claims and flags potentially consequential analytical choices in 9.5% of fully reproduced findings. Neither is an AUREN result. TruthInsightBench reports low robustness, control testing and cross-dataset generalization despite stronger traceability/novelty; MechHypoBench tests mechanistic hypotheses under withheld conditions. AUREN has no independent expert-scored scientific campaign. Station reports 62.7% rediscovery across three prior ICLR tasks versus 15.4% for Codex Multiagent-v2 and 14.4-20.6% for AI Scientist-v2; small task coverage and differing model compositions limit attribution. A separate 25,000-run, eight-domain study reports evidence ignored in 68% of traces and refutation-driven belief revision in 26%, with convergent multi-test evidence uncommon. AUREN has no evidence-adherence, refutation-revision or independent open-ended discovery campaign.",
+        "benchmark": "Pinned hypotheses, expert-authored constraints, simulations/code, seeds, model/tool versions and raw outputs; measure condition satisfaction and executable reproduction, run sensitivity analyses, then require independent replication on fresh tasks. Pair each skill/curriculum candidate with an unmodified baseline across 20 benchmarks/11 domains where applicable; report task-level gain, novelty, cost, reproducibility, calibration, uncertainty and negative results. Keep held-out tasks outside worker and judge context; require domain review.  Pair rediscovery of verified findings with open-ended expert-authored follow-up tasks; require raw execution logs, preregistered conditions, claim-to-run traceability, sensitivity analysis, negative-result retention, and independent replication on fresh tasks. Add mechanism-level hypothesis tests on withheld conditions, sensitivity to analytical choices, atomic-claim reproduction, executable baseline comparison, and independent domain replication. Preserve alternative explanations and negative findings instead of selecting the best-looking narrative. Require preregistered hypotheses, withheld-condition predictions, sensitivity/control tests, negative-result retention and independent domain replication. Add open-ended tasks with withheld results, pre-registered criteria, evidence-to-claim traceability, counterevidence injection, belief-revision scoring, controls, negative-result retention and fresh independent expert replication. Report model/scaffold contribution separately and keep the oracle outside the candidate trust domain.",
+        "acceptance_threshold": "Reproducible independent outcomes, explicit uncertainty and negative results, source-domain regression limits, and rollback-ready promotion. Literature synthesis or an automated judge score alone is not validation. A rediscovery score or plausible narrative alone is not validation; require traceable evidence use, explicit belief revision after refutation, calibrated uncertainty and independent replication on fresh tasks.",
         "rollback": "Do not promote the lesson or harness; retain lineage and restore the prior digest."
       },
       {
@@ -1164,124 +1153,90 @@
     ],
     "repository_observation": {
       "reviewed_at": "2026-11-04",
-      "main_sha": "ef19d34affd6a4e970f64a47bd0b2fe01ae00f59",
-      "open_pr_count": 2,
+      "main_sha": "4d3634165977df86fdc2454cd064f0bd970725e7",
+      "open_pr_count": 1,
       "open_prs": [
         {
-          "number": 1276,
-          "title": "P0: Persist graph workspace adoption intent and restart reconciliation",
-          "head_branch": "fix/1256-interrupted-graph-adoption-recovery",
-          "head_sha": "ad6c63a97f0ad10340f1dc1d99b40c675b8299c3",
-          "base_sha": "ef19d34affd6a4e970f64a47bd0b2fe01ae00f59",
-          "status": "open; 28/28 exact-head checks passed; manual recovery review found cleanup-before-finalize, post-commit gate-release and stale-base restart defects; independent review outstanding"
-        },
-        {
-          "number": 1277,
-          "title": "Refresh AI/SI capability radar with November 4 evidence",
-          "head_branch": "docs/ai-si-radar-2026-11-04",
-          "base_sha": "ef19d34affd6a4e970f64a47bd0b2fe01ae00f59",
-          "status": "open; documentation-only; this matrix commit is the current PR tip; exact-head CI must reach terminal status; any skipped checks remain skipped"
+          "number": 1278,
+          "title": "P0: Complete graph adoption recovery across cleanup and commit boundaries",
+          "head_branch": "fix/graph-adoption-finalize-recovery-2026-11-04",
+          "head_sha": "7f497552785cd694698d5fc60f959f3fddb2451e",
+          "base_sha": "4d3634165977df86fdc2454cd064f0bd970725e7",
+          "status": "open; exact-head checks running; no independent review recorded"
         }
       ],
       "current_main_check_runs": {
         "status": "terminal",
-        "total": 30,
-        "success": 30,
-        "skipped": 0,
+        "total": 25,
+        "success": 22,
+        "skipped": 3,
         "failed": 0,
         "pending": 0
       },
       "post_merge_push_workflows": {
         "status": "terminal",
-        "total": 8,
-        "success": 8,
+        "total": 6,
+        "success": 6,
         "failed": 0,
         "pending": 0,
         "runs": [
           {
+            "name": "Architecture Integrity",
+            "run_id": 41845622936,
+            "conclusion": "success"
+          },
+          {
             "name": "Runtime Resilience Matrix",
-            "run_id": 41825458492,
-            "conclusion": "success"
-          },
-          {
-            "name": "AUREN cleanup contract",
-            "run_id": 41825458644,
-            "conclusion": "success"
-          },
-          {
-            "name": "Repository Construct Traceability Check",
-            "run_id": 41825458733,
+            "run_id": 41845622765,
             "conclusion": "success"
           },
           {
             "name": "Agent Capability Runtime",
-            "run_id": 41825458267,
-            "conclusion": "success"
-          },
-          {
-            "name": "AUREN Portable Bundle",
-            "run_id": 41825458322,
+            "run_id": 41845622837,
             "conclusion": "success"
           },
           {
             "name": "Production AI Harness Hardening",
-            "run_id": 41825458189,
+            "run_id": 41845622965,
             "conclusion": "success"
           },
           {
-            "name": "Architecture Integrity",
-            "run_id": 41825458178,
+            "name": "AUREN Portable Bundle",
+            "run_id": 41845622930,
             "conclusion": "success"
           },
           {
             "name": "AI Harness Check",
-            "run_id": 41825458160,
+            "run_id": 41845622981,
             "conclusion": "success"
           }
         ]
       },
-      "portable_bundle": {
-        "status": "downloaded_and_rehashed",
-        "workflow_run_id": 41825458322,
-        "bundle_artifact_id": 13318453495,
-        "checksum_artifact_id": 13318588042,
-        "outer_bundle_artifact_sha256": "2ca8e63e97eb148a11e2a6432b1c34043cedc17322c36e66d80c8bd2b3d1dbca",
-        "outer_checksum_artifact_sha256": "9991e4b7e6ce8022532d1b84e4b488f5c6c0632c7f5e92b3a24d7f8f5fd73acd",
-        "inner_bundle_sha256": "2f2aebd4112d14ff7f66bc5059209bf747a66639c164e27f008a89c323b6d593",
-        "inner_checksum_status": "verified locally; auren-portable.sha256 matches the embedded ZIP SHA-256",
-        "manifest_file_count": 531,
-        "manifest_hash_or_size_mismatches": 0,
-        "missing_manifest_entries": 0,
-        "unexpected_generated_entries": [
-          "payload/PORTABLE_BUNDLE.txt"
-        ],
-        "source_commit": "ef19d34affd6a4e970f64a47bd0b2fe01ae00f59",
-        "version": "1.0.6",
-        "target_repository_mutation": false,
-        "bundle_expires_at": "2026-12-04T12:00:32Z",
-        "checksum_expires_at": "2026-12-04T12:00:33Z",
-        "local_download_rehash": "completed; outer and inner digests and all 531 manifest entries verified in the container"
-      },
-      "required_check_enforcement": {
-        "status": "not_fully_confirmed",
-        "visible_ruleset": "mainBranchRule is active and contains deletion and non-fast-forward protections only; no required-status-check rule is visible.",
-        "branch_protection_api": "403 Resource not accessible by integration; owner/admin confirmation is required."
-      },
+      "required_check_enforcement": "not fully confirmed; branch protection API returned 403 Resource not accessible by integration; owner/admin confirmation is required",
       "local_checkout_and_runtime": "not available; no local repository tests were run"
     },
     "artifact_integrity": {
-      "workflow_run_id": 41654911864,
-      "bundle_artifact_id": 13239995297,
-      "checksum_artifact_id": 13238289162,
-      "outer_bundle_artifact_sha256": "f613173b84b9eda8fb5748b222497b835a6659abd116f7f96418c4af90c1864a",
-      "outer_checksum_artifact_sha256": "7b2950c6fed4a88d187a543019a02b7a31240fd10b41d6b823040ae74b34d8e2",
-      "inner_checksum_check": "passed in CI",
-      "manifest_file_count": 526,
-      "manifest_mismatches": 0,
-      "expected_generated_entry": "payload/PORTABLE_BUNDLE.txt",
-      "source_commit": "9f697226765c89e2ec6629e0e2235b5fa63a5c99",
-      "local_rehash": "not run; local container runtime unavailable"
+      "status": "downloaded_and_rehashed",
+      "workflow_run_id": 41845622930,
+      "bundle_artifact_id": 13330094149,
+      "checksum_artifact_id": 13331735880,
+      "outer_bundle_artifact_sha256": "d35c80d890ed7185cb7788949f5a2ee4bca4f7e590eb0e7866d55ff1d5328526",
+      "outer_checksum_artifact_sha256": "4a22be9564675e89a1c993a9a0a5ad022b587f1e525ca4339477b60de372aed3",
+      "inner_bundle_sha256": "8439cc36cadbf1c9cd0e709b82c898f37316060590fd6750e24d53ec3fc0d14a",
+      "inner_checksum_status": "verified locally; auren-portable.sha256 matches the embedded ZIP SHA-256",
+      "manifest_file_count": 531,
+      "manifest_hash_or_size_mismatches": 0,
+      "missing_manifest_entries": 0,
+      "unexpected_generated_entries": [
+        "payload/PORTABLE_BUNDLE.txt"
+      ],
+      "source_commit": "4d3634165977df86fdc2454cd064f0bd970725e7",
+      "version": "1.0.6",
+      "target_repository_mutation": false,
+      "bundle_expires_at": "2026-12-04T14:15:35Z",
+      "checksum_expires_at": "2026-12-04T14:15:36Z",
+      "local_download_rehash": "completed; outer artifact digests, embedded ZIP digest and all 531 manifest entries verified in the container"
     }
   },
-  "status": "Candidate signals only. Research refreshed through 2026-11-04; repository CI and portable artifact integrity are verified for main ef19d34affd6a4e970f64a47bd0b2fe01ae00f59. Production deployment, independent evaluator/holdout custody, host isolation and scientific replication remain blocked. No AGI/SI claim or default capability promotion is supported."
+  "status": "Candidate signals only. Research refreshed through 2026-11-04; current-main repository CI and portable artifact integrity are recorded separately from deployment and independent evaluation. Production host isolation, independent evaluator/oracle identity, sealed holdout custody, and scientific replication remain blocked. No AGI/SI claim or default capability promotion is supported."
 }
