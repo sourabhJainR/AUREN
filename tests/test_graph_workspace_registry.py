@@ -42,6 +42,13 @@ class DurableGraphWorkspaceRegistryTests(unittest.TestCase):
             second.create_worker("worker-a", ["src/a.py"])
         with self.assertRaisesRegex(PermissionError, "overlaps"):
             second.create_worker("worker-b", ["src"])
+        with self.assertRaisesRegex(RuntimeError, "may still be running"):
+            second.cleanup_worker("worker-a")
+        with self.assertRaisesRegex(ValueError, "evidence is required"):
+            second.confirm_recovered_worker_stopped("worker-a", evidence="")
+        second.confirm_recovered_worker_stopped("worker-a", evidence="supervisor process table confirms pid exited")
+        self.assertEqual(second.worker_states()["worker-a"], "stopped")
+        second.cleanup_worker("worker-a")
 
     def test_fresh_coordinator_restores_proposal_and_adopts_only_verified_artifact(self):
         first = GraphWorkspaceCoordinator(self.repo, workspace_root=self.workspaces, registry_path=self.registry)
