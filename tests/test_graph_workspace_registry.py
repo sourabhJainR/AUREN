@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import tempfile
 import unittest
@@ -72,7 +73,8 @@ class DurableGraphWorkspaceRegistryTests(unittest.TestCase):
 
     def test_registry_file_is_private_and_symlink_is_rejected(self):
         GraphWorkspaceCoordinator(self.repo, workspace_root=self.workspaces, registry_path=self.registry)
-        self.assertEqual(self.registry.stat().st_mode & 0o777, 0o600)
+        if os.name == "posix":
+            self.assertEqual(self.registry.stat().st_mode & 0o777, 0o600)
         linked = self.root / "linked.sqlite3"
         linked.symlink_to(self.registry)
         with self.assertRaisesRegex(PermissionError, "must not be a symlink"):
