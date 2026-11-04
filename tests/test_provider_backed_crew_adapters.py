@@ -182,7 +182,10 @@ class ProviderBackedCrewAdapterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             controller, task_id, enforcer = self._budgeted_provider_setup(
                 Path(temp),
-                settlement_verifier=lambda receipt: receipt["usage_evidence"]["tool_calls"] == 0,
+                settlement_verifier=lambda receipt: (
+                    receipt["usage_evidence"]
+                    if receipt["usage_evidence"]["tool_calls"] == 0 else False
+                ),
             )
             tool_calls = []
             response = json.dumps({
