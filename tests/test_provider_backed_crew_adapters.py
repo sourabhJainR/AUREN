@@ -177,6 +177,55 @@ class ProviderBackedCrewAdapterTests(unittest.TestCase):
             self.assertEqual(budget["reserved_tool_calls"], 0)
             self.assertEqual(controller.unresolved_team_budget_operations(task_id, "provider-budget-run"), ())
 
+    def test_tool_usage_settlement_failure_keeps_only_tool_reservation_held(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp:
+            controller, task_id, enforcer = self._budgeted_provider_setup(
+                Path(temp),
+                settlement_verifier=lambda receipt: receipt["usage_evidence"]["tool_calls"] == 0,
+            )
+            tool_calls = []
+            response = json.dumps({
+                "tool_calls": [{
+                    "name": "lookup_ticket",
+                    "arguments": {"ticket": "AUREN-438"},
+                }],
+                "proposal": self.proposal(),
+            })
+            tools = ApprovedToolRegistry([
+                ApprovedTool(
+                    "lookup_ticket",
+                    lambda arguments: tool_calls.append(dict(arguments)) or {
+                        "ticket": arguments["ticket"], "status": "open",
+                    },
+                    "Read one ticket by ID.",
+                ),
+            ], team_budget_enforcer=enforcer)
+            adapter = ProviderBackedCrewAdapter(
+                "backend_api", "host-provider", "pinned-v1",
+                lambda _prompt, _timeout: response,
+                tools, allowed_tools=("lookup_ticket",),
+            )
+            with agent_assignment_scope(
+                ("src/app.py",), role_id="BE-01", principal_id="implementer",
+            ):
+                with self.assertRaisesRegex(TeamBudgetAdapterDenied, "reservation remains held"):
+                    adapter.propose({
+                        "task_id": task_id, "crew_id": "backend_api",
+                        "task": "Review the provider integration",
+                    })
+
+            self.assertEqual(tool_calls, [{"ticket": "AUREN-438"}])
+            budget = controller.team_budget(task_id, "provider-budget-run")
+            self.assertEqual(budget["charged_tokens"], 25)
+            self.assertEqual(budget["charged_tool_calls"], 0)
+            self.assertEqual(budget["reserved_tokens"], 0)
+            self.assertEqual(budget["reserved_tool_calls"], 1)
+            unresolved = controller.unresolved_team_budget_operations(task_id, "provider-budget-run")
+            self.assertEqual([item["operation_key"] for item in unresolved], [
+                f"tool:{task_id}:lookup_ticket",
+            ])
+
     def test_assigned_provider_without_shared_budget_is_denied_before_provider_call(self):
         calls = []
         adapter = ProviderBackedCrewAdapter(
