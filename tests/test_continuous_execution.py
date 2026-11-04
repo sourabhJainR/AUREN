@@ -52,6 +52,38 @@ def test_continuous_loop_processes_tasks_and_keeps_hash_chained_audit(tmp_path):
     assert any(event["event_type"] == "cycle_completed" for event in status["recent_events"])
 
 
+def test_goal_reconciler_dispatches_followup_work_without_another_prompt(tmp_path):
+    controller = ExecutionController(tmp_path)
+    controller.register_handler("tests.goal_continuation", durable_continuous_handler, execution_class="read_only")
+    invocations = []
+    task_ids = []
+
+    def reconcile_goal():
+        invocations.append(len(invocations) + 1)
+        if not task_ids:
+            task = controller.submit(
+                "tests.goal_continuation", {"work_key": "goal-unit-1"},
+                goal="complete the parent engineering goal", work_key="AUREN:test:goal-unit-1",
+            )
+            task_ids.append(task.id)
+        return {"status": "in_progress", "next_action": "reconcile_remaining_acceptance"}
+
+    supervisor = ContinuousExecutionSupervisor(
+        controller, goal_reconcilers={"AUREN:test:parent-goal": reconcile_goal},
+    )
+    report = supervisor.run(poll_seconds=0.1, batch_size=10, max_cycles=2)
+
+    assert len(invocations) == 2
+    assert controller.task(task_ids[0]).state == "completed"
+    assert report["audit_chain_valid"] is True
+    events = supervisor.status(event_limit=100)["recent_events"]
+    assert any(
+        event["event_type"] == "goal_reconciled"
+        and event["payload"]["goal"] == "AUREN:test:parent-goal"
+        for event in events
+    )
+
+
 def test_stop_command_is_durable_and_worker_exits_without_losing_pending_work(tmp_path):
     controller = ExecutionController(tmp_path)
     supervisor = ContinuousExecutionSupervisor(controller)
