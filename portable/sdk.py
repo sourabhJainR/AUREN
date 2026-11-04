@@ -163,6 +163,10 @@ class AurenClient:
         """Return the durable task record, or None when the ID is unknown."""
         return self.controller.task(task_id)
 
+    def task_by_work_key(self, work_key: str) -> Any:
+        """Recover the existing durable task by its stable submission identity."""
+        return self.controller.task_by_work_key(work_key)
+
     def resume_pending(self, *, limit: int = 100) -> Any:
         """Resume eligible work through the controller's recovery rules."""
         if type(limit) is not int or limit < 1:
