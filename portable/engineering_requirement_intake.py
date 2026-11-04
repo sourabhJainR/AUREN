@@ -47,6 +47,15 @@ _ACCEPTANCE = re.compile(
     r"returns?|displays?|shows?|rejects?|denies?|must show|must return)\b",
     re.I,
 )
+_SECRET_ASSIGNMENT = re.compile(
+    r"(?i)\\b(api[_-]?key|secret|token|password|private[_-]?key|authorization)\\b"
+    r"\\s*[:=]\\s*(?:Bearer\\s+)?[^\\s,;]+"
+)
+
+
+def _redact_sensitive_text(value: str) -> tuple[str, int]:
+    return _SECRET_ASSIGNMENT.subn(r"\\1=[REDACTED]", value)
+
 
 
 def parse_engineering_request(intent: str) -> dict[str, Any]:
@@ -74,16 +83,17 @@ def parse_engineering_request(intent: str) -> dict[str, Any]:
             raw = sentence_match.group(0)
             left_trim = len(raw) - len(raw.lstrip())
             right_trimmed = raw.rstrip()
-            text = right_trimmed.strip()
-            if not text:
+            raw_text = right_trimmed.strip()
+            if not raw_text:
                 continue
             start = line_start + sentence_match.start() + left_trim
-            end = start + len(text)
-            if len(text) > _MAX_STATEMENT_CHARS:
+            end = start + len(raw_text)
+            if len(raw_text) > _MAX_STATEMENT_CHARS:
                 oversized.append({"start": start, "end": end})
             if len(statements) >= _MAX_STATEMENTS:
                 too_many = True
                 break
+            text, redaction_count = _redact_sensitive_text(raw_text)
 
             kinds: list[str] = []
             if _ASSUMPTION.search(text):
@@ -104,6 +114,9 @@ def parse_engineering_request(intent: str) -> dict[str, Any]:
                 "text": text,
                 "start": start,
                 "end": end,
+                "statement_digest": hashlib.sha256(raw_text.encode("utf-8")).hexdigest(),
+                "redacted": redaction_count > 0,
+                "redaction_count": redaction_count,
                 "kinds": kinds,
                 "source": "user_intent",
             })
