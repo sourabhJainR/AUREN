@@ -676,7 +676,7 @@
       "artifact_expires_at": "2027-02-01T14:33:48Z",
       "local_download_rehash": "not run; local container runtime unavailable"
     },
-    "open_pr_count": 1,
+    "open_pr_count": 2,
     "open_prs": [
       {
         "number": 1276,
@@ -685,13 +685,21 @@
         "head_sha": "ad6c63a97f0ad10340f1dc1d99b40c675b8299c3",
         "base_sha": "ef19d34affd6a4e970f64a47bd0b2fe01ae00f59",
         "status": "open; 28/28 exact-head checks passed; manual recovery review found cleanup-before-finalize, post-commit gate-release and stale-base restart defects; independent review outstanding"
+      },
+      {
+        "number": 1277,
+        "title": "Refresh AI/SI capability radar with November 4 evidence",
+        "head_branch": "docs/ai-si-radar-2026-11-04",
+        "head_sha": "5da7359a28a514ee808782c324ddb4db4fce2c7d",
+        "base_sha": "ef19d34affd6a4e970f64a47bd0b2fe01ae00f59",
+        "status": "open; documentation-only; exact-head CI in progress; four checks skipped by impact filtering and remain skipped, not passed"
       }
     ]
   },
   "radar_refresh": {
     "reviewed_at": "2026-11-04",
     "baseline_main_sha": "ef19d34affd6a4e970f64a47bd0b2fe01ae00f59",
-    "status": "candidate signals only. Research refreshed through 2026-11-04; main ef19d34affd6a4e970f64a47bd0b2fe01ae00f59 has 30 successful check-runs and eight successful post-merge push workflows. The v1.0.6 portable bundle and checksum were downloaded and rehashed: all 531 manifest entries match size and SHA-256. PR #1276 is the only open PR; its 28 exact-head checks pass, but manual review found recovery defects and independent review is outstanding. Deployment and independent-evaluation gates remain blocked.",
+    "status": "candidate signals only. Research refreshed through 2026-11-04; main ef19d34affd6a4e970f64a47bd0b2fe01ae00f59 has 30 successful check-runs and eight successful post-merge push workflows. The v1.0.6 portable bundle and checksum were downloaded and rehashed: all 531 manifest entries match size and SHA-256. Two PRs are open: #1276 has 28/28 exact-head checks but manual recovery defects and independent review remain; #1277 is the documentation-only radar refresh with exact-head CI in progress. Deployment and independent-evaluation gates remain blocked.",
     "policy": "External announcements and benchmark reports are comparison inputs, not evidence of equivalent AUREN capability. Reuse the canonical supervisor, TaskPlan, StateGraph, ExecutionController, Guard, RuntimeExecutionGuard, ProgressJournal, LearningSteward and Arena. No duplicate orchestrator or external runtime dependency. Keep adapters opt-in; no default model, harness or extension-pack promotion without paired measured value, independent evaluation and rollback. Discovery never grants authority.",
     "status_vocabulary": {
       "implementation": "Code path exists; does not imply tests or deployment.",
@@ -775,7 +783,7 @@
       },
       {
         "id": "adaptive_model_lifecycle",
-        "source_date": "2026-10-07; 2026-10-20; 2026-10-28; 2026-11-03; 2026-10",
+        "source_date": "October 2026-07; 2026-10-20; 2026-10-28; 2026-11-03; 2026-10",
         "sources": [
           "https://github.blog/changelog/2026-09-18-upcoming-deprecation-of-selected-github-copilot-models-in-mid-october/",
           "https://github.blog/changelog/2026-10-02-github-copilot-weekly-releases-september-28/",
@@ -1158,7 +1166,7 @@
     "repository_observation": {
       "reviewed_at": "2026-11-04",
       "main_sha": "ef19d34affd6a4e970f64a47bd0b2fe01ae00f59",
-      "open_pr_count": 1,
+      "open_pr_count": 2,
       "open_prs": [
         {
           "number": 1276,
@@ -1167,6 +1175,14 @@
           "head_sha": "ad6c63a97f0ad10340f1dc1d99b40c675b8299c3",
           "base_sha": "ef19d34affd6a4e970f64a47bd0b2fe01ae00f59",
           "status": "open; 28/28 exact-head checks passed; manual recovery review found cleanup-before-finalize, post-commit gate-release and stale-base restart defects; independent review outstanding"
+        },
+        {
+          "number": 1277,
+          "title": "Refresh AI/SI capability radar with November 4 evidence",
+          "head_branch": "docs/ai-si-radar-2026-11-04",
+          "head_sha": "5da7359a28a514ee808782c324ddb4db4fce2c7d",
+          "base_sha": "ef19d34affd6a4e970f64a47bd0b2fe01ae00f59",
+          "status": "open; documentation-only; exact-head CI in progress; four checks skipped by impact filtering and remain skipped, not passed"
         }
       ],
       "current_main_check_runs": {
