@@ -153,6 +153,24 @@ class GraphWorkspaceCoordinator:
                      self._cancel_reason, self._termination_evidence.get(worker_id)),
                 )
 
+    def _persist_adoption_intent(self, worker_ids, paths, patch):
+        digest = hashlib.sha256(patch).hexdigest()
+        adoption_id = hashlib.sha256((self.base_revision + digest + '|'.join(worker_ids)).encode()).hexdigest()
+        artifact = self.adoption_root / (adoption_id + '.patch')
+        if artifact.is_symlink():
+            raise PermissionError('adoption artifact path must not be a symlink')
+        if artifact.exists() and hashlib.sha256(artifact.read_bytes()).hexdigest() != digest:
+            raise RuntimeError('existing adoption artifact digest mismatch')
+        if not artifact.exists():
+            with artifact.open('xb') as stream:
+                stream.write(patch)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.chmod(artifact, 0o600)
+        with self._registry:
+            self._registry.execute('INSERT INTO graph_workspace_adoptions VALUES (?, ?, ?, ?, ?, ?, ?)', (adoption_id, self.base_revision, json.dumps(list(worker_ids)), json.dumps(list(paths)), str(artifact), digest, 'applying'))
+        return adoption_id
+
     def _restore_registry(self) -> None:
         """Restore only records bound to this exact base; ambiguous records stay blocked."""
         rows = self._registry.execute(
