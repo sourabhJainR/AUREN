@@ -173,8 +173,15 @@ class RequirementConflictAnalyzer:
             if any(not isinstance(key, str) or not key.strip() for key in keys):
                 raise ValueError("workstream requirement keys must be non-empty text")
             (blocked if blocked_keys.intersection(keys) else independent).append(workstream)
-        recognized_keys = {rule.key for rule in _RULES}
-        unrecognized_keys = tuple(sorted({fact.key for fact in facts if fact.key not in recognized_keys}))
+        recognized_values = {
+            rule.key: set().union(*(set(pair) for pair in rule.pairs))
+            for rule in _RULES
+        }
+        unrecognized_keys = tuple(sorted({
+            fact.key for fact in facts
+            if fact.key not in recognized_values
+            or fact.value not in recognized_values[fact.key]
+        }))
         return RequirementConflictReport(
             tuple(conflicts), tuple(sorted(blocked)), tuple(sorted(independent)),
             len(facts), unrecognized_keys,
