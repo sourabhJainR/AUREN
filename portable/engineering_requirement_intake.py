@@ -72,6 +72,7 @@ def parse_engineering_request(intent: str) -> dict[str, Any]:
         )
 
     source_digest = hashlib.sha256(intent.encode("utf-8")).hexdigest()
+    sanitized_intent, sanitized_value_count = _redact_sensitive_text(intent)
     statements: list[dict[str, Any]] = []
     oversized: list[dict[str, int]] = []
     too_many = False
@@ -148,6 +149,8 @@ def parse_engineering_request(intent: str) -> dict[str, Any]:
         "schema_version": _SCHEMA,
         "source_digest": source_digest,
         "source_length": len(intent),
+        "sanitized_intent": sanitized_intent,
+        "sanitized_value_count": sanitized_value_count,
         "status": "candidate_extraction",
         "complete": complete,
         "statements": statements,
