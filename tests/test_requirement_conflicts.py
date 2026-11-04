@@ -83,3 +83,10 @@ def test_same_key_conflicts_in_different_scopes_do_not_block_each_other():
     ])
     assert report.status == "clear"
     assert report.conflicts == ()
+
+def test_unrecognized_requirement_dimensions_are_partial_not_clear():
+    report = RequirementConflictAnalyzer.analyze([
+        RequirementFact("r1", "portfolio_export", "enabled", "Users can export portfolios"),
+    ])
+    assert report.status == "partial"
+    assert report.unrecognized_keys == ("portfolio_export",)
