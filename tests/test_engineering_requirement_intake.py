@@ -35,7 +35,7 @@ class EngineeringRequirementIntakeTests(unittest.TestCase):
             )
 
     def test_inline_credentials_are_redacted_from_intake_evidence(self):
-        intent = "Configure API_KEY=sk-live-example and password=hunter2."
+        intent = "Configure API key=sk-live-example and password=hunter2."
         result = parse_engineering_request(intent)
         serialized = json.dumps(result, sort_keys=True)
 
