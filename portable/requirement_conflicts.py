@@ -48,8 +48,11 @@ class RequirementConflictReport:
     conflicts: tuple[RequirementConflict, ...]
     blocked_workstreams: tuple[str, ...]
     independent_workstreams: tuple[str, ...]
+    fact_count: int
     @property
     def status(self) -> str:
+        if self.fact_count == 0:
+            return "unscored"
         return "decision_required" if self.conflicts else "clear"
 
 @dataclass(frozen=True, slots=True)
@@ -160,7 +163,9 @@ class RequirementConflictAnalyzer:
             if any(not isinstance(key, str) or not key.strip() for key in keys):
                 raise ValueError("workstream requirement keys must be non-empty text")
             (blocked if blocked_keys.intersection(keys) else independent).append(workstream)
-        return RequirementConflictReport(tuple(conflicts), tuple(sorted(blocked)), tuple(sorted(independent)))
+        return RequirementConflictReport(
+            tuple(conflicts), tuple(sorted(blocked)), tuple(sorted(independent)), len(facts),
+        )
 
     @staticmethod
     def record_decision(conflict: RequirementConflict, *, selected_option: str,
