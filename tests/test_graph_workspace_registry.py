@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import subprocess
 import tempfile
 import unittest
@@ -49,6 +50,14 @@ class DurableGraphWorkspaceRegistryTests(unittest.TestCase):
             second.confirm_recovered_worker_stopped("worker-a", evidence="")
         second.confirm_recovered_worker_stopped("worker-a", evidence="supervisor process table confirms pid exited")
         self.assertEqual(second.worker_states()["worker-a"], "stopped")
+        third = GraphWorkspaceCoordinator(self.repo, workspace_root=self.workspaces, registry_path=self.registry)
+        self.assertEqual(third.worker_states()["worker-a"], "stopped")
+        with sqlite3.connect(self.registry) as db:
+            evidence = db.execute(
+                "SELECT termination_evidence FROM graph_workspace_registry WHERE worker_id = ?",
+                ("worker-a",),
+            ).fetchone()[0]
+        self.assertEqual(evidence, "supervisor process table confirms pid exited")
         with self.assertRaisesRegex(PermissionError, "no persisted proposal artifact"):
             second.cleanup_worker("worker-a")
 
