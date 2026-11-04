@@ -2687,16 +2687,33 @@ def test_concurrent_members_cannot_overreserve_shared_team_budget(tmp_path: Path
 
 
 def test_task_by_work_key_recovers_same_durable_task_after_restart(tmp_path: Path):
+    from unittest.mock import patch
+
     root = tmp_path / "project"
     controller = ExecutionController(root)
     controller.register_handler(
         "tests.durable_handler", durable_handler, execution_class="read_only",
     )
-    task = controller.submit(
-        "tests.durable_handler", {"id": "work-key-recovery"},
-        goal="recover task identity after uncertain acknowledgement",
-        work_key="AUREN:test:work-key-recovery",
-    )
+    original_submit = controller.submit
+    committed = []
+
+    def commit_then_drop_ack(*args, **kwargs):
+        committed.append(original_submit(*args, **kwargs))
+        raise ConnectionError("simulated acknowledgement loss after durable commit")
+
+    with patch.object(controller, "submit", side_effect=commit_then_drop_ack):
+        try:
+            controller.submit(
+                "tests.durable_handler", {"id": "work-key-recovery"},
+                goal="recover task identity after uncertain acknowledgement",
+                work_key="AUREN:test:work-key-recovery",
+            )
+        except ConnectionError:
+            pass
+        else:
+            raise AssertionError("the fault injector must drop the post-commit acknowledgement")
+    assert len(committed) == 1
+    task = committed[0]
 
     restarted = ExecutionController(root)
     recovered = restarted.task_by_work_key("AUREN:test:work-key-recovery")
@@ -2710,6 +2727,16 @@ def test_task_by_work_key_recovers_same_durable_task_after_restart(tmp_path: Pat
     restarted.register_handler(
         "tests.durable_handler", durable_handler, execution_class="read_only",
     )
+    replayed = restarted.submit(
+        "tests.durable_handler", {"id": "work-key-recovery"},
+        goal="recover task identity after uncertain acknowledgement",
+        work_key="AUREN:test:work-key-recovery",
+    )
+    assert replayed.id == task.id
+    with closing(sqlite3.connect(restarted.db_path)) as db:
+        assert db.execute("SELECT COUNT(*) FROM tasks WHERE work_key=?", (
+            "AUREN:test:work-key-recovery",
+        )).fetchone()[0] == 1
     assert restarted.run_once(recovered.id) is True
     after_completion = ExecutionController(root).task_by_work_key("AUREN:test:work-key-recovery")
     assert after_completion is not None
