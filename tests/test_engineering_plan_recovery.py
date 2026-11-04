@@ -1203,6 +1203,7 @@ class ContinuousEngineeringIntegrationTests(unittest.TestCase):
             metrics = restarted_delivery.metrics_snapshot()
             self.assertGreaterEqual(metrics["completed_tasks"], 1)
             self.assertGreaterEqual(metrics["receiver_acknowledged_deliveries"], 1)
+            delivery.shutdown(wait_seconds=2)
 
             evidence_refs = (
                 "learning://" + work_key + "/" + manifest.digest,
