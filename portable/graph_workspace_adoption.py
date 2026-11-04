@@ -148,12 +148,17 @@ class GraphWorkspaceCoordinator:
             if base != self.base_revision:
                 raise RuntimeError("durable graph workspace registry is bound to a stale base revision; operator reconciliation required")
             path = Path(workspace)
+            self._owners[worker_id] = tuple(json.loads(owned))
+            self._leases[worker_id] = _RecoveredLease(path, base)
+            if state == "cleaned":
+                # A cleaned worktree is expected to be absent. Keep a tombstone
+                # so worker IDs cannot be replayed, but do not reserve its paths.
+                self._states[worker_id] = "cleaned"
+                continue
             if not path.is_dir() or path.is_symlink():
                 raise RuntimeError("durable graph workspace is missing or unsafe; refusing to treat it as empty")
             if _git(path, "rev-parse", "--verify", "HEAD^{commit}").decode().strip() != base:
                 raise RuntimeError("durable graph worker worktree has drifted from its pinned base")
-            self._owners[worker_id] = tuple(json.loads(owned))
-            self._leases[worker_id] = _RecoveredLease(path, base)
             restored_state = "unknown" if state == "running" else state
             self._states[worker_id] = restored_state
             if artifact:
@@ -186,9 +191,11 @@ class GraphWorkspaceCoordinator:
         with self._lock:
             if self._cancel_event.is_set():
                 raise RuntimeError(self._cancel_reason or "sibling cancellation requested")
-            if worker_id in self._leases:
+            if worker_id in self._states:
                 raise ValueError("worker_id already exists")
             for other_id, other_paths in self._owners.items():
+                if self._states.get(other_id) == "cleaned":
+                    continue
                 if any(_overlap(left, right) for left in paths for right in other_paths):
                     raise PermissionError(f"file ownership overlaps worker {other_id}")
             lease = IsolatedGitWorktree(
