@@ -463,7 +463,7 @@ class GraphWorkspaceCoordinator:
                         rollback_error = rollback_exc
                 self.cancel_siblings(f"adoption failed: {type(exc).__name__}")
                 for proposal in rows:
-                    if proposal.worker_id in self._states and self._states[proposal.worker_id] not in {"adopted", "cleaned"}:
+                    if proposal.worker_id in self._states and self._states[proposal.worker_id] not in {"cleaned", "stopped"}:
                         self._states[proposal.worker_id] = "failed"
                 self._persist_registry()
             if rollback_error is not None:
