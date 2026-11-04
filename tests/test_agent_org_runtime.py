@@ -182,13 +182,15 @@ class AgentOrgRuntimeTests(unittest.TestCase):
             action_class="edit_assigned_paths",
             scope=["portable/api.py"], authorizer=lambda _request: True,
             goal="Implement scoped API change", work_key="AUREN:test:agent-assignment",
-            deadline_seconds=30, registry_path=REGISTRY,
+            deadline_seconds=30, principal_id="host:api-worker",
+            registry_path=REGISTRY,
         )
         self.assertIs(result, controller.submissions[0])
         envelope = result["payload"]["_auren_agent_assignment"]
         self.assertEqual(envelope["role_id"], "BE-01")
+        self.assertEqual(envelope["principal_id"], "host:api-worker")
         self.assertEqual(envelope["scope"], ["portable/api.py"])
-        self.assertEqual(envelope["schema_version"], "auren-agent-assignment-v3")
+        self.assertEqual(envelope["schema_version"], "auren-agent-assignment-v4")
         self.assertEqual(envelope["work_key"], "AUREN:test:agent-assignment")
         self.assertEqual(envelope["deadline_seconds"], 30.0)
         self.assertEqual(len(envelope["task_payload_digest"]), 64)
