@@ -178,6 +178,14 @@ class GraphWorkspaceCoordinator:
         if self._cancel_reason:
             self._cancel_event.set()
 
+    def close(self) -> None:
+        """Release the registry connection so callers can safely retire a coordinator."""
+        with self._lock:
+            registry = getattr(self, "_registry", None)
+            if registry is not None:
+                registry.close()
+                self._registry = None
+
     @property
     def cancellation_event(self) -> threading.Event:
         return self._cancel_event
