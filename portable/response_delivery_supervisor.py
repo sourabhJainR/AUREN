@@ -177,8 +177,9 @@ class ResponseDeliverySupervisor:
                 "SELECT task_id,response_sha256,artifact_sha256,budget_id FROM deliveries WHERE response_id=? AND delivery_id=?",
                 (response_id, delivery_id),
             ).fetchone()
-            # A supplied or previously recorded budget ID always denotes a
-            # durable checkpoint, including idempotent delivery lookups.
+            # Existing delivery rows must resume an already persisted budget.
+            # New rows may initialize that budget from a supplied guard, but an
+            # ID-only request may never invent a missing checkpoint.
             if row:
                 if row[1] != digest:
                     raise ValueError("delivery identity is already bound to a different response digest")
@@ -189,7 +190,6 @@ class ResponseDeliverySupervisor:
                 budget_id = budget_id or row[3]
                 if budget_id is None:
                     raise RuntimeError("existing delivery task has no durable budget binding")
-            if budget_id is not None:
                 existing_budget = db.execute(
                     "SELECT snapshot_json FROM delivery_budgets WHERE budget_id=?",
                     (budget_id,),
@@ -215,9 +215,8 @@ class ResponseDeliverySupervisor:
                         (json.dumps(snapshot, sort_keys=True, separators=(",", ":")), budget_id),
                     )
                 self._execution_guards[budget_id] = execution_guard
-            if row:
                 task_id = str(row[0])
-                if row[3] is None and budget_id is not None:
+                if row[3] is None:
                     db.execute(
                         "UPDATE deliveries SET budget_id=? WHERE response_id=? AND delivery_id=?",
                         (budget_id, response_id, delivery_id),
@@ -231,6 +230,38 @@ class ResponseDeliverySupervisor:
                 if task is None:
                     raise RuntimeError("delivery registry references a missing supervisor task")
                 return task_id
+
+            if budget_id is not None:
+                existing_budget = db.execute(
+                    "SELECT snapshot_json FROM delivery_budgets WHERE budget_id=?",
+                    (budget_id,),
+                ).fetchone()
+                if existing_budget is None:
+                    if execution_guard is None:
+                        raise FileNotFoundError(
+                            "shared delivery budget checkpoint is unavailable; cannot resume by ID alone"
+                        )
+                    db.execute(
+                        "INSERT INTO delivery_budgets(budget_id,snapshot_json) VALUES(?,?)",
+                        (budget_id, json.dumps(execution_guard.snapshot(), sort_keys=True, separators=(",", ":"))),
+                    )
+                elif execution_guard is None:
+                    execution_guard = RuntimeExecutionGuard.resume(json.loads(existing_budget[0]))
+                else:
+                    persisted = json.loads(existing_budget[0])
+                    snapshot = execution_guard.snapshot()
+                    old_charges = persisted.get("delivery_charges", {})
+                    new_charges = snapshot.get("delivery_charges", {})
+                    if (
+                        persisted.get("max_delivery_bytes") != snapshot.get("max_delivery_bytes")
+                        or any(new_charges.get(key) != value for key, value in old_charges.items())
+                    ):
+                        raise ValueError("shared crew budget does not match its durable checkpoint")
+                    db.execute(
+                        "UPDATE delivery_budgets SET snapshot_json=?,updated_at=CURRENT_TIMESTAMP WHERE budget_id=?",
+                        (json.dumps(snapshot, sort_keys=True, separators=(",", ":")), budget_id),
+                    )
+                self._execution_guards[budget_id] = execution_guard
             work_key = f"dashboard-response:{response_id}:{delivery_id}"
             task = self.controller.submit(
                 _HANDLER,
