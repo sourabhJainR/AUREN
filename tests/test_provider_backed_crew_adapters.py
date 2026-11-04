@@ -209,13 +209,16 @@ class ProviderBackedCrewAdapterTests(unittest.TestCase):
             with agent_assignment_scope(
                 ("src/app.py",), role_id="BE-01", principal_id="implementer",
             ):
-                with self.assertRaisesRegex(TeamBudgetAdapterDenied, "reservation remains held"):
+                with self.assertRaisesRegex(TeamBudgetAdapterDenied, "reservation remains held") as denied:
                     adapter.propose({
                         "task_id": task_id, "crew_id": "backend_api",
                         "task": "Review the provider integration",
                     })
 
-            self.assertEqual(tool_calls, [{"ticket": "AUREN-438"}])
+            self.assertEqual(
+                tool_calls, [{"ticket": "AUREN-438"}],
+                f"tool handler did not run before settlement denial: {denied.exception!r}",
+            )
             budget = controller.team_budget(task_id, "provider-budget-run")
             self.assertEqual(budget["charged_tokens"], 25)
             self.assertEqual(budget["charged_tool_calls"], 0)
