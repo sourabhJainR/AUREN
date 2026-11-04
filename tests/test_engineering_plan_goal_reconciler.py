@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from contextlib import closing
 import hashlib
-import json
 import sqlite3
 import tempfile
 import unittest
@@ -83,7 +82,6 @@ class EngineeringPlanGoalReconcilerTests(unittest.TestCase):
             context_provider=lambda _request: {},
         )
         self.root = self._trusted_root()
-        self.verification = {"verified": True}
 
     def _trusted_root(self):
         def assignment_resolver(context):
