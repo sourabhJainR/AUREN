@@ -125,6 +125,30 @@ class AurenClientTests(unittest.TestCase):
             finally:
                 client.close()
 
+    def test_sdk_assignment_requires_authenticated_principal_before_submission(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            client = AurenClient(
+                tmp, dashboard_enabled=False,
+                agent_assignment_verifier=lambda _request: True,
+            )
+            try:
+                client.register_handler(
+                    "sdk-assigned", sdk_assigned_handler, execution_class="read_only",
+                    agent_action_class="edit_assigned_paths",
+                )
+                with self.assertRaisesRegex(ValueError, "host-authenticated principal_id"):
+                    client.submit_agent_task(
+                        "sdk-assigned", {"resource": "allowed.txt", "path": "allowed.txt"},
+                        role_id="BE-01", manager_id="EM-ENG-01",
+                        action_class="edit_assigned_paths", scope=["allowed.txt"],
+                        authorizer=lambda _request: True,
+                        work_key="AUREN:test:sdk-missing-principal",
+                        registry_path=REGISTRY_PATH,
+                    )
+                self.assertEqual([], client.controller.list_tasks())
+            finally:
+                client.close()
+
     def test_sdk_assignment_without_dispatch_verifier_fails_closed_before_persistence(self):
         with tempfile.TemporaryDirectory() as tmp:
             _SDK_NO_VERIFIER_INVOCATIONS.clear()
