@@ -102,3 +102,20 @@ def test_adaptive_runtime_uses_the_canonical_plan_database_for_decisions(tmp_pat
     assert runtime.engineering_decision_store.plan_store.database_path == store.database_path
     assert receipt.plan_digest == plan.digest
     assert runtime.engineering_decision_store.latest(plan.run_id, "fixture-data").record_digest == receipt.record_digest
+
+    with pytest.raises(PermissionError, match="does not match"):
+        runtime.record_engineering_decision(
+            run_id=plan.run_id,
+            decision_id="fixture-data",
+            expected_revision=0,
+            plan_digest=plan.digest,
+            run_revision=run.revision,
+            decision_type="assumption",
+            question="May the MVP use fixture data until provider access is approved?",
+            options=("Use deterministic fixtures", "Block the MVP pending provider access"),
+            selected_option="Use deterministic fixtures",
+            rationale="No live credentials are configured.",
+            rejected_alternatives=(("Block the MVP pending provider access", "It blocks unrelated UI work."),),
+            affected_task_ids=("data",),
+            actor_id="user:spoof",
+        )
