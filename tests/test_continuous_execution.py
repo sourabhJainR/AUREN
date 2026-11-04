@@ -72,6 +72,10 @@ def test_goal_reconciler_backoff_survives_restart_and_resets_after_recovery(tmp_
     assert failures == 1
     assert next_retry > __import__("time").time()
     assert error_type == "OSError"
+    first_health = first.status()["goal_health"]
+    assert first_health[0]["goal"] == "AUREN:test:retry-goal"
+    assert first_health[0]["status"] == "backoff"
+    assert first_health[0]["consecutive_errors"] == 1
 
     resumed_calls = []
 
