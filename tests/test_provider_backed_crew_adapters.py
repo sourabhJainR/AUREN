@@ -77,12 +77,18 @@ class ProviderBackedCrewAdapterTests(unittest.TestCase):
         def context_resolver(request):
             adapter_kind = request["adapter_kind"]
             adapter_name = request["adapter_name"]
+            metadata = request["request"]
+            operation_name = (
+                metadata.get("crew_id", adapter_name)
+                if adapter_kind == "provider" and isinstance(metadata, dict)
+                else adapter_name
+            )
             return {
                 "task_id": task.id,
                 "run_id": "provider-budget-run",
                 "member_id": request["principal_id"],
                 "principal_id": request["principal_id"],
-                "operation_key": f"{adapter_kind}:{task.id}:{adapter_name}",
+                "operation_key": f"{adapter_kind}:{task.id}:{operation_name}",
                 "tokens": 100 if adapter_kind == "provider" else 0,
                 "tool_calls": 1 if adapter_kind == "tool" else 0,
                 "wall_seconds": 30 if adapter_kind == "provider" else 10,
