@@ -134,7 +134,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         approvals, request, record = self._approval(self.controller, context=self.context)
         guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
         root = self._root(
-            self.controller, self.plan_store, request, record, guard, context=self.context,
+            self.controller, approvals, request, record, guard, context=self.context,
         )
         dispatched = []
         handler_calls_before = len(DISPATCH_HANDLER_CALLS)
