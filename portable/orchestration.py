@@ -500,7 +500,7 @@ class Orchestrator:
             return tuple(result)
 
         preflight = EngineeringDesignGuard.review_request(
-            intent=intent,
+            intent=intake["sanitized_intent"],
             requirements=merge_review_items(
                 state.get("requirements", state.get("acceptance_requirements", ())),
                 intake["requirements"],
@@ -516,6 +516,15 @@ class Orchestrator:
             resolutions=state.get("preimplementation_resolutions", {}),
             resolution_verifier=self.conflict_resolution_verifier,
         )
+        preflight["source_intent_digest"] = intake["source_digest"]
+        preflight["run_intent_digest"] = run.intent_digest
+        preflight["intake_digest"] = intake["digest"]
+        preflight["digest"] = hashlib.sha256(
+            json.dumps(
+                {key: value for key, value in preflight.items() if key != "digest"},
+                sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+            ).encode("utf-8")
+        ).hexdigest()
         state["preimplementation_review"] = preflight
         run.record(Evidence(
             "preimplementation-review",
