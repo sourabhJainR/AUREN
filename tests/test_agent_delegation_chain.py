@@ -122,6 +122,7 @@ class DelegatedAgentIdentityTests(unittest.TestCase):
                 scope=[resource],
                 authorizer=lambda _request: True,
                 work_key="AUREN:test:controller-role-context",
+                principal_id="host:delegated-worker",
                 registry_path=REGISTRY_PATH,
             )
 
