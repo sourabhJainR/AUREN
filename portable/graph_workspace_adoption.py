@@ -18,13 +18,13 @@ from pathlib import Path, PurePosixPath
 from typing import Iterable
 
 
+from .vibe_coding_host import IsolatedGitWorktree
+
+
 class _RecoveredLease:
     def __init__(self, path: Path, base_revision: str) -> None:
         self.path = path
         self.base_revision = base_revision
-
-
-from .vibe_coding_host import IsolatedGitWorktree
 
 _WORKER_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
 
@@ -348,6 +348,7 @@ class GraphWorkspaceCoordinator:
                 for proposal in rows:
                     if proposal.worker_id in self._states and self._states[proposal.worker_id] not in {"adopted", "cleaned"}:
                         self._states[proposal.worker_id] = "failed"
+                self._persist_registry()
             if rollback_error is not None:
                 raise RuntimeError("adoption failed and rollback could not be verified; operator reconciliation required") from rollback_error
             raise
@@ -374,6 +375,16 @@ class GraphWorkspaceCoordinator:
                 raise KeyError(f"unknown worker: {worker_id}")
             if self._states[worker_id] != "cancel_requested":
                 raise RuntimeError("worker stop may only be recorded after cancellation was requested")
+            self._states[worker_id] = "stopped"
+            self._persist_registry()
+
+    def confirm_recovered_worker_stopped(self, worker_id: str, *, evidence: str) -> None:
+        """Record explicit operator/runtime evidence before releasing an unknown lease."""
+        if not isinstance(evidence, str) or not evidence.strip():
+            raise ValueError("termination evidence is required")
+        with self._lock:
+            if self._states.get(worker_id) != "unknown":
+                raise RuntimeError("only a recovered unknown worker requires termination confirmation")
             self._states[worker_id] = "stopped"
             self._persist_registry()
 
