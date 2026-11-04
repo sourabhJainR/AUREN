@@ -161,7 +161,9 @@ class EngineeringRequirementIntakeTests(unittest.TestCase):
         )
         intake_payload = json.loads(intake.summary)
         review_payload = json.loads(review.summary)
+        self.assertEqual(review_payload["intent_digest"], run.intent_digest)
         self.assertEqual(review_payload["source_intent_digest"], intake_payload["source_digest"])
+        self.assertNotEqual(review_payload["sanitized_intent_digest"], run.intent_digest)
         self.assertEqual(review_payload["intake_digest"], intake_payload["digest"])
         self.assertIn("[REDACTED]", review.summary)
 
