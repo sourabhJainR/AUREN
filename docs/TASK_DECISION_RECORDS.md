@@ -55,3 +55,6 @@ Rollback: stop writing new decision records and retain the append-only table for
 
 
 When an `AdaptiveRuntime` host configures `configure_trusted_plan_dispatch()`, it also creates an `EngineeringDecisionStore` over the supplied canonical `EngineeringPlanStore`. Hosts record decisions through `record_engineering_decision()`; the method refuses to run before trusted plan composition is configured. This keeps decision history on the plan database and prevents a separate unbound decision store from becoming a competing source of truth.
+
+
+The `AdaptiveRuntime` decision API also requires a host-provided `decision_authorizer`. The authorizer resolves the authenticated actor from the decision payload. A caller-supplied actor ID is rejected if it differs from the authenticated identity, and decision writes are denied when host authentication is not configured. Direct use of the low-level store is reserved for trusted host composition code; a stored actor string alone is not proof of authorization.
