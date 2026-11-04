@@ -107,6 +107,33 @@ def test_stop_command_is_durable_and_worker_exits_without_losing_pending_work(tm
     assert supervisor.verify_audit_chain() is True
 
 
+def test_supervisor_reuses_run_identity_after_expired_process_lease(tmp_path):
+    controller = ExecutionController(tmp_path)
+    first = ContinuousExecutionSupervisor(controller, lease_seconds=5)
+    original_run_id, _ = first._claim("durable-run-identity")
+    first._heartbeat(original_run_id, 7)
+
+    with __import__("sqlite3").connect(first.path) as db:
+        expired = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+        db.execute(
+            "UPDATE control SET lease_until=?,cycle_count=7 WHERE id=1",
+            (expired,),
+        )
+
+    resumed_controller = ExecutionController(tmp_path)
+    resumed = ContinuousExecutionSupervisor(resumed_controller, lease_seconds=5)
+    report = resumed.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+
+    assert report["run_id"] == original_run_id
+    assert report["cycles_this_run"] == 1
+    assert report["cycle_count"] == 8
+    events = resumed.status(event_limit=100)["recent_events"]
+    started = [event for event in events if event["event_type"] == "supervisor_started"]
+    assert started[-1]["payload"]["resumed_after_lease_expiry"] is True
+    assert started[-1]["payload"]["starting_cycle"] == 7
+    assert resumed.verify_audit_chain()
+
+
 def test_second_live_supervisor_cannot_claim_same_project(tmp_path):
     first = ContinuousExecutionSupervisor(ExecutionController(tmp_path), lease_seconds=5)
     second = ContinuousExecutionSupervisor(ExecutionController(tmp_path), lease_seconds=5)
