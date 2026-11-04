@@ -279,6 +279,13 @@ class ContinuousExecutionSupervisor:
                     last_error_type TEXT,
                     updated_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS goal_backoff(
+                    goal TEXT PRIMARY KEY,
+                    consecutive_errors INTEGER NOT NULL,
+                    next_retry_at REAL NOT NULL,
+                    last_error_type TEXT,
+                    updated_at TEXT NOT NULL
+                );
             """)
             control_columns = {row[1] for row in db.execute("PRAGMA table_info(control)").fetchall()}
             if "run_id" not in control_columns:
@@ -354,6 +361,44 @@ class ContinuousExecutionSupervisor:
                 "INSERT INTO poller_backoff(poller,consecutive_errors,next_poll_at,last_error_type,updated_at) "
                 "VALUES(?,0,0,NULL,?) ON CONFLICT(poller) DO UPDATE SET "
                 "consecutive_errors=0,next_poll_at=0,last_error_type=NULL,updated_at=excluded.updated_at",
+                (name, _now()),
+            )
+
+    def _goal_retry_after(self, name: str, *, now: float | None = None) -> float:
+        """Return persisted goal retry delay; zero means reconciliation is due."""
+        current = time.time() if now is None else float(now)
+        with closing(sqlite3.connect(self.path, timeout=5)) as db:
+            row = db.execute(
+                "SELECT next_retry_at FROM goal_backoff WHERE goal=?", (name,),
+            ).fetchone()
+        return max(0.0, float(row[0]) - current) if row else 0.0
+
+    def _record_goal_error(self, name: str, *, poll_seconds: float, error_type: str) -> float:
+        """Persist bounded exponential retry after a reconciler exception."""
+        with closing(sqlite3.connect(self.path, timeout=5)) as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT consecutive_errors FROM goal_backoff WHERE goal=?", (name,),
+            ).fetchone()
+            failures = (int(row[0]) if row else 0) + 1
+            delay = min(300.0, max(1.0, float(poll_seconds)) * (2 ** min(failures - 1, 8)))
+            next_retry_at = time.time() + delay
+            db.execute(
+                "INSERT INTO goal_backoff(goal,consecutive_errors,next_retry_at,last_error_type,updated_at) "
+                "VALUES(?,?,?,?,?) ON CONFLICT(goal) DO UPDATE SET "
+                "consecutive_errors=excluded.consecutive_errors,next_retry_at=excluded.next_retry_at,"
+                "last_error_type=excluded.last_error_type,updated_at=excluded.updated_at",
+                (name, failures, next_retry_at, error_type[:120], _now()),
+            )
+        return delay
+
+    def _clear_goal_error(self, name: str) -> None:
+        """Reset retry state only after a valid reconciler outcome."""
+        with closing(sqlite3.connect(self.path, timeout=5)) as db:
+            db.execute(
+                "INSERT INTO goal_backoff(goal,consecutive_errors,next_retry_at,last_error_type,updated_at) "
+                "VALUES(?,0,0,NULL,?) ON CONFLICT(goal) DO UPDATE SET "
+                "consecutive_errors=0,next_retry_at=0,last_error_type=NULL,updated_at=excluded.updated_at",
                 (name, _now()),
             )
 
@@ -709,18 +754,31 @@ class ContinuousExecutionSupervisor:
                 # Reconciler failures block only that goal; independent goals and
                 # already-authorized queued work continue under the same controller.
                 for goal_name, reconcile in self.goal_reconcilers.items():
+                    retry_after = self._goal_retry_after(goal_name)
+                    if retry_after > 0:
+                        self._event(run_id, "goal_reconciliation_backoff_wait", {
+                            "cycle": cycles, "goal": goal_name,
+                            "retry_in_seconds": round(retry_after, 3),
+                        })
+                        continue
                     try:
                         outcome = reconcile()
                         if not isinstance(outcome, Mapping):
                             raise TypeError("goal reconciler must return a mapping")
+                        self._clear_goal_error(goal_name)
                         self._event(run_id, "goal_reconciled", {
                             "cycle": cycles, "goal": goal_name,
                             "outcome": _safe_value(dict(outcome)),
                         })
                     except Exception as reconcile_error:
+                        delay = self._record_goal_error(
+                            goal_name, poll_seconds=poll_seconds,
+                            error_type=type(reconcile_error).__name__,
+                        )
                         self._event(run_id, "goal_reconciliation_blocked", {
                             "cycle": cycles, "goal": goal_name,
                             "error_type": type(reconcile_error).__name__,
+                            "retry_in_seconds": round(delay, 3),
                         })
                 try:
                     self.controller.resume_pending(limit=batch_size, continue_after_durable_failure=True)
