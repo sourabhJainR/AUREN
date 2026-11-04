@@ -107,6 +107,34 @@ def test_stop_command_is_durable_and_worker_exits_without_losing_pending_work(tm
     assert supervisor.verify_audit_chain() is True
 
 
+def test_expired_supervisor_lease_does_not_clear_durable_stop_without_operator_action(tmp_path):
+    controller = ExecutionController(tmp_path)
+    first = ContinuousExecutionSupervisor(controller, lease_seconds=5)
+    run_id, _ = first._claim("stop-recovery-run")
+    first.request_stop("operator requested stop")
+
+    with __import__("sqlite3").connect(first.path) as db:
+        expired = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+        db.execute("UPDATE control SET lease_until=? WHERE id=1", (expired,))
+
+    replacement = ContinuousExecutionSupervisor(ExecutionController(tmp_path), lease_seconds=5)
+    try:
+        replacement.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    except RuntimeError as exc:
+        assert "explicit operator clear" in str(exc)
+    else:
+        raise AssertionError("replacement supervisor must not discard a durable stop")
+
+    assert replacement.status()["state"] == "stop_requested"
+    cleared = replacement.clear_stop("operator confirmed restart")
+    assert cleared["state"] == "stopped"
+    report = replacement.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    assert report["run_id"] != run_id
+    events = replacement.status(event_limit=100)["recent_events"]
+    assert any(event["event_type"] == "stop_cleared" for event in events)
+    assert replacement.verify_audit_chain()
+
+
 def test_poller_error_backoff_persists_across_restart_and_resets_on_success(tmp_path):
     calls = []
     controller = ExecutionController(tmp_path)
