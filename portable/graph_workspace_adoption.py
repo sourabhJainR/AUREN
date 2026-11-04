@@ -182,6 +182,13 @@ class GraphWorkspaceCoordinator:
             self._registry.execute('INSERT INTO graph_workspace_adoptions VALUES (?, ?, ?, ?, ?, ?, ?)', (adoption_id, self.base_revision, json.dumps(list(worker_ids)), json.dumps(list(paths)), str(artifact), digest, 'applying'))
         return adoption_id
 
+    def _record_adoption_outcome(self, adoption_id: str, state: str) -> None:
+        row = self._registry.execute('SELECT base_revision, worker_ids, paths, artifact_path, artifact_digest FROM graph_workspace_adoptions WHERE adoption_id=?', (adoption_id,)).fetchone()
+        if row is None:
+            raise RuntimeError('durable adoption intent is missing')
+        self._registry.execute('INSERT INTO graph_workspace_adoptions VALUES (?, ?, ?, ?, ?, ?, ?)', (adoption_id + ':' + state, *row, state))
+        self._registry.commit()
+
     def _reconcile_adoption_journal(self) -> None:
         rows = self._registry.execute("SELECT adoption_id, base_revision, state FROM graph_workspace_adoptions WHERE state='applying'").fetchall()
         if rows:
