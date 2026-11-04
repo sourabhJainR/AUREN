@@ -498,22 +498,122 @@ class EngineeringDesignGuard:
         resolved = {str(k).strip(): str(v).strip() for k, v in resolutions.items() if str(k).strip() and str(v).strip()}
         text = " ".join([intent, *reqs, *constraints_list, *goals]).lower()
 
-        rules = (
-            ("compatibility-vs-breaking-change", r"backward.compatib|preserve existing (?:api|contract|behavior)", r"breaking change|remove (?:the )?(?:existing )?api|incompatible api", "Backward compatibility conflicts with a requested breaking/API-removal change."),
-            ("dependency-policy-conflict", r"no (?:new )?(?:third.party |external )?dependencies|dependency.free|without adding dependencies", r"add (?:a )?(?:new )?dependency|introduce (?:the )?\w+ package|install (?:the )?\w+ package", "A dependency-free constraint conflicts with a request to add/install a dependency."),
-            ("data-retention-vs-deletion", r"preserve (?:all )?(?:existing )?(?:data|records|state)|no data loss|retain (?:all )?(?:legacy )?(?:data|records|state)", r"delete (?:all )?(?:legacy )?(?:data|records|state)|drop (?:the )?(?:existing )?(?:table|database|state)|purge (?:all )?(?:records|data)", "Data/state preservation conflicts with a requested deletion or destructive drop."),
-            ("zero-downtime-vs-maintenance", r"zero.downtime|no downtime|without service interruption", r"maintenance window|take (?:the )?service offline|planned downtime", "A zero-downtime requirement conflicts with a planned outage/maintenance window."),
-            ("approval-policy-conflict", r"without (?:human )?approval|no approval required|fully autonomous", r"approval required before every action|human approval for every step|must approve each action", "The autonomy request conflicts with a requirement for approval before every action."),
-            ("offline-vs-network-dependency", r"offline.only|no network access|must work without internet|air.gapped", r"call (?:an )?external api|fetch from the internet|requires? network access|remote service dependency", "An offline/no-network constraint conflicts with a required remote service/API call."),
-            ("no-change-vs-implementation", r"no code changes|do not modify (?:any )?(?:files|code)|documentation.only", r"implement (?:the )?(?:feature|functionality|runtime change)|modify (?:the )?(?:runtime|source code)", "A no-code/documentation-only constraint conflicts with a request for runtime/source implementation."),
+        source_statements = (
+            [("intent", intent)]
+            + [("requirement", item) for item in reqs]
+            + [("constraint", item) for item in constraints_list]
+            + [("non_goal", item) for item in goals]
         )
-        conflicts: list[dict[str, str]] = []
-        for rule_id, left, right, message in rules:
+
+        def matching_statement(pattern: str) -> dict[str, str] | None:
+            for source, statement in source_statements:
+                if re.search(pattern, statement, re.I):
+                    return {"source": source, "statement": statement}
+            return None
+
+        rules = (
+            ("compatibility-vs-breaking-change",
+             r"backward.compatib|preserve existing (?:api|contract|behavior)",
+             r"breaking change|remove (?:the )?(?:existing )?api|incompatible api",
+             "Backward compatibility conflicts with a requested breaking/API-removal change.",
+             "A silent choice can break existing consumers or prevent the requested API change from shipping.",
+             ("Preserve compatibility and introduce a versioned replacement API", "Keep existing callers working while exposing the new behavior behind an explicit version."),
+             ("Ship a breaking change with a migration window", "Requires a major-version boundary, migration guide and explicit consumer impact review."),
+             "Preserve existing behavior and add a versioned path unless the user explicitly approves a breaking release."),
+            ("dependency-policy-conflict",
+             r"no (?:new )?(?:third.party |external )?dependencies|dependency.free|without adding dependencies",
+             r"add (?:a )?(?:new )?dependency|introduce (?:the )?\\w+ package|install (?:the )?\\w+ package",
+             "A dependency-free constraint conflicts with a request to add/install a dependency.",
+             "The implementation cannot both add the requested package and remain dependency-free.",
+             ("Use an existing or standard-library capability", "Avoids supply-chain and packaging changes but may require more maintenance code."),
+             ("Approve the named dependency with a pinned version", "Adds supply-chain, licensing and update obligations; requires explicit approval."),
+             "Prefer an existing or standard-library capability unless the dependency is needed for safety or a material requirement."),
+            ("data-retention-vs-deletion",
+             r"preserve (?:all )?(?:existing )?(?:data|records|state)|no data loss|retain (?:all )?(?:legacy )?(?:data|records|state)",
+             r"delete (?:all )?(?:legacy )?(?:data|records|state)|drop (?:the )?(?:existing )?(?:table|database|state)|purge (?:all )?(?:records|data)",
+             "Data/state preservation conflicts with a requested deletion or destructive drop.",
+             "A destructive action may permanently remove records that another requirement says must remain available.",
+             ("Archive or migrate data before removal", "Preserves recovery and audit options but adds storage and migration work."),
+             ("Delete the specified data after verified backup and approval", "Meets a deletion requirement but is irreversible after retention windows expire."),
+             "Preserve or archive existing data until an approved migration and recovery check proves deletion is safe."),
+            ("zero-downtime-vs-maintenance",
+             r"zero.downtime|no downtime|without service interruption",
+             r"maintenance window|take (?:the )?service offline|planned downtime",
+             "A zero-downtime requirement conflicts with a planned outage/maintenance window.",
+             "The deployment plan cannot promise uninterrupted service while requiring the service to be taken offline.",
+             ("Use an expand-migrate-contract rollout", "Reduces downtime risk but requires compatibility across old and new versions."),
+             ("Schedule an approved maintenance window", "Simplifies the change but creates an explicit service interruption."),
+             "Prefer a staged compatible rollout; use a maintenance window only when the user accepts the outage."),
+            ("approval-policy-conflict",
+             r"without (?:human )?approval|no approval required|fully autonomous",
+             r"approval required before every action|human approval for every step|must approve each action",
+             "The autonomy request conflicts with a requirement for approval before every action.",
+             "Unbounded autonomy would violate the explicit approval policy; blanket approval would defeat the requested automation.",
+             ("Automate reversible low-risk work and gate consequential actions", "Maintains progress while keeping external effects and policy changes under human control."),
+             ("Require approval for every action", "Preserves strict oversight but prevents unattended execution of routine work."),
+             "Automate only within existing authority and retain human approval for consequential actions."),
+            ("offline-vs-network-dependency",
+             r"offline.only|no network access|must work without internet|air.gapped",
+             r"call (?:an )?external api|fetch from the internet|requires? network access|remote service dependency",
+             "An offline/no-network constraint conflicts with a required remote service/API call.",
+             "A required remote fetch cannot run in an environment that has no network access.",
+             ("Support offline fixtures/cache and an optional online adapter", "Preserves offline use but live data may be stale or unavailable."),
+             ("Allow a narrowly scoped network connection", "Enables live service access but requires egress, privacy and provider-policy controls."),
+             "Keep offline operation as the safe default and make online access an explicit, bounded mode."),
+            ("no-change-vs-implementation",
+             r"no code changes|do not modify (?:any )?(?:files|code)|documentation.only",
+             r"implement (?:the )?(?:feature|functionality|runtime change)|modify (?:the )?(?:runtime|source code)",
+             "A no-code/documentation-only constraint conflicts with a request for runtime/source implementation.",
+             "The requested implementation cannot be delivered without changing source code.",
+             ("Limit this change to documentation and a follow-up implementation plan", "Respects the no-code boundary but does not deliver runtime behavior."),
+             ("Approve the minimum required source change", "Delivers behavior but changes the original scope and needs explicit approval."),
+             "Do not modify source until the user clarifies whether documentation-only or implementation takes priority."),
+        )
+        conflicts: list[dict[str, object]] = []
+        conflict_details: list[dict[str, object]] = []
+        for (rule_id, left, right, message, impact, option_a, option_b, recommendation) in rules:
             if re.search(left, text, re.I) and re.search(right, text, re.I):
-                conflicts.append({"id": rule_id, "message": message, "status": "resolved" if rule_id in resolved else "unresolved", "resolution": resolved.get(rule_id, "")})
+                requirement_a = matching_statement(left)
+                requirement_b = matching_statement(right)
+                status = "resolved" if rule_id in resolved else "unresolved"
+                conflict = {
+                    "id": rule_id, "message": message, "status": status,
+                    "resolution": resolved.get(rule_id, ""),
+                }
+                conflicts.append(conflict)
+                conflict_details.append({
+                    **conflict,
+                    "requirement_a": requirement_a,
+                    "requirement_b": requirement_b,
+                    "impact": impact,
+                    "options": [
+                        {"option": option_a[0], "tradeoffs": option_a[1]},
+                        {"option": option_b[0], "tradeoffs": option_b[1]},
+                    ],
+                    "recommended_option": recommendation,
+                    "decision_required": status == "unresolved",
+                })
         for i, item in enumerate(candidate_conflicts):
             key = f"reviewer-conflict-{i + 1}"
-            conflicts.append({"id": key, "message": item, "status": "resolved" if key in resolved else "unresolved", "resolution": resolved.get(key, "")})
+            status = "resolved" if key in resolved else "unresolved"
+            conflict = {
+                "id": key, "message": item, "status": status,
+                "resolution": resolved.get(key, ""),
+            }
+            conflicts.append(conflict)
+            conflict_details.append({
+                **conflict,
+                "requirement_a": None,
+                "requirement_b": None,
+                "impact": "A reviewer identified a material conflict, but the source statements were not supplied to this deterministic gate.",
+                "options": [
+                    {"option": "Provide and prioritize the first source requirement", "tradeoffs": "Preserves that requirement but may narrow the other."},
+                    {"option": "Provide and prioritize the second source requirement", "tradeoffs": "Preserves the alternative requirement but may change scope."},
+                    {"option": "Define a narrower compatible scope", "tradeoffs": "May reduce the initial delivery but can avoid an irreversible choice."},
+                ],
+                "recommended_option": "Obtain the two source statements and decide explicitly; do not infer them from the reviewer summary.",
+                "decision_required": status == "unresolved",
+            })
 
         blind_spots: list[dict[str, str]] = []
         if not criteria and (reqs or len(intent.strip()) > 80):
@@ -544,7 +644,7 @@ class EngineeringDesignGuard:
             "schema_version": "auren-preimplementation-review-v1",
             "intent_digest": cls.intent_digest(intent),
             "requirements": reqs, "assumptions": assumptions_list, "acceptance_criteria": criteria,
-            "constraints": constraints_list, "non_goals": goals, "contradictions": conflicts,
+            "constraints": constraints_list, "non_goals": goals, "contradictions": conflicts, "conflict_details": conflict_details,
             "unresolved_contradictions": unresolved, "blind_spots": blind_spots,
             "clarifying_questions": questions,
             "collaborative_options": [
