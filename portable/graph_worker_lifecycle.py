@@ -742,11 +742,15 @@ class GraphWorkerLifecycle:
                         "complete",
                     )
                     prior_state = prior.get("reported_state", prior.get("state"))
-                    if prior.get("stage") != "adoption" or prior.get("evidence_ref") != item.receipt_path:
-                        raise PermissionError("adopting recovery node has no matching durable ProgressJournal receipt")
-                    if prior.get("message") == complete_binding and prior_state == "completed":
-                    elif start_binding not in prior.get("message", ""):
-                        raise PermissionError("adopting recovery node has contradictory ProgressJournal evidence")
+                    if (
+                        prior.get("stage") != "adoption"
+                        or prior.get("evidence_ref") != item.receipt_path
+                        or not (
+                            prior.get("message") == complete_binding and prior_state == "completed"
+                            or start_binding in prior.get("message", "")
+                        )
+                    ):
+                        raise PermissionError("adopting recovery node has missing or contradictory ProgressJournal evidence")
                 else:
                     raise PermissionError(
                         f"worker {item.worker_id} is not in a working or recoverable adopting state"
@@ -793,7 +797,6 @@ class GraphWorkerLifecycle:
                         message=completion_binding,
                         completed_units=1, total_units=1, evidence_ref=item.receipt_path,
                     )
-                    journal_finalized.add(item.task_id)
                 recovery_node = self.recovery_bridge.load()["nodes"][item.task_id]
                 if recovery_node["status"] == "adopting":
                     self._record_recovery_node(
