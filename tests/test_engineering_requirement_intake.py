@@ -1,3 +1,4 @@
+import json
 import unittest
 
 from portable.engineering_design_guard import EngineeringDesignGuard
@@ -85,16 +86,28 @@ class EngineeringRequirementIntakeTests(unittest.TestCase):
             )
         ])
         intent = (
-            "Build live market quotes using a free provider with 15-minute delayed quotes. "
+            "Build live market quotes. "
+            "Use a free provider with 15-minute delayed quotes. "
             "Show the result as real-time."
         )
         run = Orchestrator(graph).run("stock-intake-conflict", intent)
 
         self.assertEqual(run.status, RunStatus.BLOCKED)
         self.assertEqual(calls, [])
-        self.assertIn("real-time-vs-delayed-market-data", " ".join(
-            item.summary for item in run.evidence
-        ))
+        review = next(item for item in run.evidence if item.kind == "preimplementation-review")
+        review_payload = json.loads(review.summary)
+        conflict = next(
+            item for item in review_payload["conflict_details"]
+            if item["id"] == "real-time-vs-delayed-market-data"
+        )
+        self.assertEqual(
+            conflict["requirement_a"]["statement"],
+            "Build live market quotes.",
+        )
+        self.assertEqual(
+            conflict["requirement_b"]["statement"],
+            "Use a free provider with 15-minute delayed quotes.",
+        )
         intake = next(
             item for item in run.evidence
             if item.kind == "engineering-requirement-intake"
