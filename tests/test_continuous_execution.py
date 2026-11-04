@@ -52,6 +52,60 @@ def test_continuous_loop_processes_tasks_and_keeps_hash_chained_audit(tmp_path):
     assert any(event["event_type"] == "cycle_completed" for event in status["recent_events"])
 
 
+def test_goal_reconciler_backoff_survives_restart_and_resets_after_recovery(tmp_path):
+    controller = ExecutionController(tmp_path)
+    calls = []
+
+    def fail_goal():
+        calls.append("failed")
+        raise OSError("temporary plan store outage")
+
+    first = ContinuousExecutionSupervisor(
+        controller, goal_reconcilers={"AUREN:test:retry-goal": fail_goal},
+    )
+    first.run(poll_seconds=2, batch_size=1, max_cycles=1)
+    with __import__("sqlite3").connect(first.path) as db:
+        failures, next_retry, error_type = db.execute(
+            "SELECT consecutive_errors,next_retry_at,last_error_type FROM goal_backoff WHERE goal=?",
+            ("AUREN:test:retry-goal",),
+        ).fetchone()
+    assert failures == 1
+    assert next_retry > __import__("time").time()
+    assert error_type == "OSError"
+
+    resumed_calls = []
+
+    def recover_goal():
+        resumed_calls.append("recovered")
+        return {"status": "in_progress", "next_action": "dispatch_next_ready_task"}
+
+    resumed = ContinuousExecutionSupervisor(
+        ExecutionController(tmp_path),
+        goal_reconcilers={"AUREN:test:retry-goal": recover_goal},
+    )
+    resumed.run(poll_seconds=2, batch_size=1, max_cycles=1)
+    assert resumed_calls == []
+    assert any(
+        event["event_type"] == "goal_reconciliation_backoff_wait"
+        for event in resumed.status(event_limit=100)["recent_events"]
+    )
+
+    with __import__("sqlite3").connect(resumed.path) as db:
+        db.execute(
+            "UPDATE goal_backoff SET next_retry_at=0 WHERE goal=?",
+            ("AUREN:test:retry-goal",),
+        )
+    resumed.run(poll_seconds=2, batch_size=1, max_cycles=1)
+    assert resumed_calls == ["recovered"]
+    with __import__("sqlite3").connect(resumed.path) as db:
+        state = db.execute(
+            "SELECT consecutive_errors,next_retry_at,last_error_type FROM goal_backoff WHERE goal=?",
+            ("AUREN:test:retry-goal",),
+        ).fetchone()
+    assert state == (0, 0.0, None)
+    assert resumed.verify_audit_chain()
+
+
 def test_goal_reconciler_dispatches_followup_work_without_another_prompt(tmp_path):
     controller = ExecutionController(tmp_path)
     controller.register_handler("tests.goal_continuation", durable_continuous_handler, execution_class="read_only")
