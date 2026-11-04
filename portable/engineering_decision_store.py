@@ -336,5 +336,19 @@ class EngineeringDecisionStore:
             raise KeyError(f"decision {decision_id!r} does not exist for run {run_id!r}")
         return records[-1]
 
+    def verify_resolution(
+        self, *, run_id: str, decision_id: str, selected_option: str,
+    ) -> bool:
+        """Verify a current, digest-valid conflict decision for a guard callback."""
+        try:
+            record = self.latest(run_id, decision_id)
+        except KeyError:
+            return False
+        return (
+            record.decision_type == "conflict_resolution"
+            and record.current_binding is True
+            and record.selected_option == selected_option
+        )
+
 
 __all__ = ["EngineeringDecisionRecord", "EngineeringDecisionStore"]
