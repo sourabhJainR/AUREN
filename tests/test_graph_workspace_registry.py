@@ -43,6 +43,7 @@ class DurableGraphWorkspaceRegistryTests(unittest.TestCase):
         with self.assertRaisesRegex(PermissionError, "overlaps"):
             second.create_worker("worker-b", ["src"])
         with self.assertRaisesRegex(RuntimeError, "may still be running"):
+            with self.assertRaisesRegex(PermissionError, "no persisted proposal artifact"):
             second.cleanup_worker("worker-a")
         with self.assertRaisesRegex(ValueError, "evidence is required"):
             second.confirm_recovered_worker_stopped("worker-a", evidence="")
