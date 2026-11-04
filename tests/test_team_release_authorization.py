@@ -86,15 +86,16 @@ def authorize(*, qa=None, security=None, release=None, readiness=None,
               provider_reports=None, workspace_receipt=None, verifier=None,
               persistence=None):
     return authorize_team_release(
-        readiness=readiness or {
+        readiness_resolver=lambda _task, _run: readiness or {
             "task_id": "task-1", "run_id": "run-1",
             "delivery_ready": True, "release_ready": True,
             "release_authorized": False, "blocking_reasons": [],
         },
+        implementer_principals_resolver=lambda _task, _run: ["implementer-a", "implementer-b"],
+        provider_reports_resolver=lambda _task, _run, _artifact, _plan: provider_reports if provider_reports is not None else [provider_report()],
+        verify_provider_report=lambda _report: True,
         task_id="task-1", run_id="run-1",
         artifact_digest=ARTIFACT, commit_sha=COMMIT, plan_digest=PLAN,
-        implementer_principal_ids=["implementer-a", "implementer-b"],
-        provider_reports=provider_reports if provider_reports is not None else [provider_report()],
         workspace_receipt=workspace_receipt if workspace_receipt is not None else workspace(),
         qa_receipt=qa if qa is not None else approval("QA-01", "qa-a", "qa-1"),
         security_receipt=security if security is not None else approval("SEC-01", "security-a", "sec-1"),
@@ -105,7 +106,10 @@ def authorize(*, qa=None, security=None, release=None, readiness=None,
         persist_authorization=persistence or (lambda payload: {
             "persisted": True, "record_id": "release-record-1",
             "authorization_digest": payload["authorization_digest"],
-            "record_digest": "9" * 64,
+            "record_digest": hashlib.sha256(json.dumps(
+                payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+                allow_nan=False,
+            ).encode()).hexdigest(),
         }),
         now=NOW,
     )
