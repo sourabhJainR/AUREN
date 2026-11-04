@@ -15,3 +15,6 @@ The planner/requirements parser must emit RequirementFact values with stable sou
 ## Verification and limitations
 
 The tests cover the six known contradiction classes, dependent versus independent workstreams, stable conflict identity and plan-bound decision records. This is structured-input coverage. It does not prove natural-language conflict extraction, persistent decision-store integration or end-to-end workflow orchestration; those remain part of #1225.
+
+
+An empty or unavailable extraction result is reported as unscored, not clear. The caller must not treat a missing requirements parse as evidence that the plan has no conflicts.
