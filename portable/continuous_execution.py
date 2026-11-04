@@ -218,6 +218,7 @@ class ContinuousExecutionSupervisor:
         recovery_ledger: Any | None = None,
         goal_reconcilers: Mapping[str, Callable[[], Mapping[str, Any]]] | None = None,
         operator_authorizer: Callable[[str], str | None] | None = None,
+        max_goal_retries: int = 5,
     ) -> None:
         if not isinstance(controller, ExecutionController):
             raise TypeError("controller must be an ExecutionController")
@@ -231,7 +232,10 @@ class ContinuousExecutionSupervisor:
         self.goal_reconcilers = dict(goal_reconcilers or {})
         if operator_authorizer is not None and not callable(operator_authorizer):
             raise ValueError("operator_authorizer must be callable when configured")
+        if type(max_goal_retries) is not int or not 1 <= max_goal_retries <= 20:
+            raise ValueError("max_goal_retries must be between 1 and 20")
         self.operator_authorizer = operator_authorizer
+        self.max_goal_retries = max_goal_retries
         for name, callback in self.goal_reconcilers.items():
             if not isinstance(name, str) or not name.strip() or not callable(callback):
                 raise ValueError("goal_reconcilers require non-empty names and callable values")
@@ -383,16 +387,21 @@ class ContinuousExecutionSupervisor:
             ).fetchone()
         return max(0.0, float(row[0]) - current) if row else 0.0
 
-    def _record_goal_error(self, name: str, *, poll_seconds: float, error_type: str) -> float:
-        """Persist bounded exponential retry after a reconciler exception."""
+    def _record_goal_error(
+        self, name: str, *, poll_seconds: float, error_type: str,
+    ) -> tuple[float, bool]:
+        """Persist bounded retry; exhaust into a durable hold pending new evidence."""
         with closing(sqlite3.connect(self.path, timeout=5)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 "SELECT consecutive_errors FROM goal_backoff WHERE goal=?", (name,),
             ).fetchone()
             failures = (int(row[0]) if row else 0) + 1
-            delay = min(300.0, max(1.0, float(poll_seconds)) * (2 ** min(failures - 1, 8)))
-            next_retry_at = time.time() + delay
+            exhausted = failures >= self.max_goal_retries
+            delay = 0.0 if exhausted else min(
+                300.0, max(1.0, float(poll_seconds)) * (2 ** min(failures - 1, 8))
+            )
+            next_retry_at = 0.0 if exhausted else time.time() + delay
             db.execute(
                 "INSERT INTO goal_backoff(goal,consecutive_errors,next_retry_at,last_error_type,updated_at) "
                 "VALUES(?,?,?,?,?) ON CONFLICT(goal) DO UPDATE SET "
@@ -400,7 +409,7 @@ class ContinuousExecutionSupervisor:
                 "last_error_type=excluded.last_error_type,updated_at=excluded.updated_at",
                 (name, failures, next_retry_at, error_type[:120], _now()),
             )
-        return delay
+        return delay, exhausted
 
     def _clear_goal_error(self, name: str) -> None:
         """Reset retry state only after a valid reconciler outcome."""
@@ -902,15 +911,27 @@ class ContinuousExecutionSupervisor:
                                 "outcome": _safe_value(dict(outcome)),
                             })
                     except Exception as reconcile_error:
-                        delay = self._record_goal_error(
+                        delay, exhausted = self._record_goal_error(
                             goal_name, poll_seconds=poll_seconds,
                             error_type=type(reconcile_error).__name__,
                         )
-                        self._event(run_id, "goal_reconciliation_blocked", {
-                            "cycle": cycles, "goal": goal_name,
-                            "error_type": type(reconcile_error).__name__,
-                            "retry_in_seconds": round(delay, 3),
-                        })
+                        if exhausted:
+                            self._set_goal_hold(
+                                goal_name, status="retry_budget_exhausted",
+                                reason="bounded goal retries were exhausted; new evidence and authenticated operator wake are required",
+                            )
+                            self._event(run_id, "goal_reconciliation_retry_budget_exhausted", {
+                                "cycle": cycles, "goal": goal_name,
+                                "error_type": type(reconcile_error).__name__,
+                                "retry_limit": self.max_goal_retries,
+                                "new_evidence_required": True,
+                            })
+                        else:
+                            self._event(run_id, "goal_reconciliation_blocked", {
+                                "cycle": cycles, "goal": goal_name,
+                                "error_type": type(reconcile_error).__name__,
+                                "retry_in_seconds": round(delay, 3),
+                            })
                 try:
                     self.controller.resume_pending(limit=batch_size, continue_after_durable_failure=True)
                     if self.repair_watchdog is not None:
