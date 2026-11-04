@@ -367,6 +367,40 @@ class EngineeringDecisionStore:
             raise KeyError(f"decision {decision_id!r} does not exist for run {run_id!r}")
         return records[-1]
 
+    def conflict_resolution_verifier(
+        self, *, run_id: str, decision_ids: Mapping[str, str],
+    ) -> Callable[[str, str], bool]:
+        """Build the host-owned Orchestrator callback from explicit conflict-to-decision links.
+
+        The mapping is supplied by the trusted composition root, not by an agent
+        or untrusted request context. Each invocation re-reads canonical history
+        and checks digest, decision type, selected option and current plan/run.
+        """
+        if not isinstance(run_id, str) or not _TOKEN.fullmatch(run_id):
+            raise ValueError("run_id must be a bounded identifier token")
+        if not isinstance(decision_ids, Mapping) or not decision_ids:
+            raise ValueError("decision_ids must map conflict IDs to canonical decision IDs")
+        bindings: dict[str, str] = {}
+        for conflict_id, decision_id in decision_ids.items():
+            if not isinstance(conflict_id, str) or not _TOKEN.fullmatch(conflict_id):
+                raise ValueError("conflict IDs must be bounded identifier tokens")
+            if not isinstance(decision_id, str) or not _TOKEN.fullmatch(decision_id):
+                raise ValueError("decision IDs must be bounded identifier tokens")
+            bindings[conflict_id] = decision_id
+
+        def verify(conflict_id: str, selected_option: str) -> bool:
+            if not isinstance(conflict_id, str) or not isinstance(selected_option, str):
+                return False
+            decision_id = bindings.get(conflict_id)
+            if decision_id is None:
+                return False
+            return self.verify_resolution(
+                run_id=run_id, decision_id=decision_id,
+                selected_option=selected_option,
+            )
+
+        return verify
+
     def verify_resolution(
         self, *, run_id: str, decision_id: str, selected_option: str,
     ) -> bool:
