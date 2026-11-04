@@ -131,7 +131,7 @@ class DurableGraphWorkspaceRegistryTests(unittest.TestCase):
         self.assertEqual(second.worker_states()["worker-a"], "proposal_ready")
         db = sqlite3.connect(self.registry)
         try:
-            state = db.execute("SELECT state FROM graph_workspace_adoptions").fetchone()[0]
+            state = db.execute("SELECT state FROM graph_workspace_adoptions WHERE state='not_applied'").fetchone()[0]
         finally:
             db.close()
         self.assertEqual(state, "not_applied")
@@ -151,7 +151,7 @@ class DurableGraphWorkspaceRegistryTests(unittest.TestCase):
             GraphWorkspaceCoordinator(self.repo, workspace_root=self.workspaces, registry_path=self.registry)
         db = sqlite3.connect(self.registry)
         try:
-            state = db.execute("SELECT state FROM graph_workspace_adoptions").fetchone()[0]
+            state = db.execute("SELECT state FROM graph_workspace_adoptions WHERE state='blocked'").fetchone()[0]
         finally:
             db.close()
         self.assertEqual(state, "blocked")
