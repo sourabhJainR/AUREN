@@ -92,6 +92,7 @@ class GraphWorkspaceCoordinator:
         self._states: dict[str, str] = {}
         self._proposals: dict[str, WorkspaceProposal] = {}
         self._captured_artifacts: dict[str, str] = {}
+        self._termination_evidence: dict[str, str] = {}
         self.registry_path = Path(registry_path or (self.workspace_root / "workspace-registry.sqlite3")).expanduser().resolve()
         self.registry_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         if self.registry_path.is_symlink():
@@ -103,8 +104,12 @@ class GraphWorkspaceCoordinator:
         self._registry.execute("""CREATE TABLE IF NOT EXISTS graph_workspace_registry (
             worker_id TEXT PRIMARY KEY, base_revision TEXT NOT NULL, owned_paths TEXT NOT NULL,
             workspace_path TEXT NOT NULL, state TEXT NOT NULL, artifact_path TEXT,
-            artifact_digest TEXT, proposal_paths TEXT, cancellation_reason TEXT
+            artifact_digest TEXT, proposal_paths TEXT, cancellation_reason TEXT,
+            termination_evidence TEXT
         )""")
+        columns = {row[1] for row in self._registry.execute("PRAGMA table_info(graph_workspace_registry)")}
+        if "termination_evidence" not in columns:
+            self._registry.execute("ALTER TABLE graph_workspace_registry ADD COLUMN termination_evidence TEXT")
         self._registry.commit()
         self._restore_registry()
 
@@ -118,22 +123,27 @@ class GraphWorkspaceCoordinator:
                 artifact_digest = proposal.artifact_digest if proposal else None
                 proposal_paths = json.dumps(list(proposal.paths)) if proposal else None
                 self._registry.execute(
-                    """INSERT INTO graph_workspace_registry VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """INSERT INTO graph_workspace_registry
+                    (worker_id, base_revision, owned_paths, workspace_path, state, artifact_path,
+                     artifact_digest, proposal_paths, cancellation_reason, termination_evidence)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(worker_id) DO UPDATE SET base_revision=excluded.base_revision,
                     owned_paths=excluded.owned_paths, workspace_path=excluded.workspace_path,
                     state=excluded.state, artifact_path=excluded.artifact_path,
                     artifact_digest=excluded.artifact_digest, proposal_paths=excluded.proposal_paths,
-                    cancellation_reason=excluded.cancellation_reason""",
+                    cancellation_reason=excluded.cancellation_reason,
+                    termination_evidence=excluded.termination_evidence""",
                     (worker_id, self.base_revision, json.dumps(list(self._owners[worker_id])),
-                     str(lease.path), state, artifact_path, artifact_digest, proposal_paths, self._cancel_reason),
+                     str(lease.path), state, artifact_path, artifact_digest, proposal_paths,
+                     self._cancel_reason, self._termination_evidence.get(worker_id)),
                 )
 
     def _restore_registry(self) -> None:
         """Restore only records bound to this exact base; ambiguous records stay blocked."""
         rows = self._registry.execute(
-            "SELECT worker_id, base_revision, owned_paths, workspace_path, state, artifact_path, artifact_digest, proposal_paths, cancellation_reason FROM graph_workspace_registry ORDER BY worker_id"
+            "SELECT worker_id, base_revision, owned_paths, workspace_path, state, artifact_path, artifact_digest, proposal_paths, cancellation_reason, termination_evidence FROM graph_workspace_registry ORDER BY worker_id"
         ).fetchall()
-        for worker_id, base, owned, workspace, state, artifact, digest, proposal_paths, reason in rows:
+        for worker_id, base, owned, workspace, state, artifact, digest, proposal_paths, reason, termination_evidence in rows:
             if base != self.base_revision:
                 raise RuntimeError("durable graph workspace registry is bound to a stale base revision; operator reconciliation required")
             path = Path(workspace)
@@ -157,6 +167,8 @@ class GraphWorkspaceCoordinator:
                 self._proposals[worker_id] = WorkspaceProposal(worker_id, base, tuple(json.loads(proposal_paths)), patch, digest, str(artifact_file))
             if reason:
                 self._cancel_reason = reason
+            if termination_evidence:
+                self._termination_evidence[worker_id] = termination_evidence
         if self._cancel_reason:
             self._cancel_event.set()
 
@@ -386,6 +398,7 @@ class GraphWorkspaceCoordinator:
             if self._states.get(worker_id) != "unknown":
                 raise RuntimeError("only a recovered unknown worker requires termination confirmation")
             self._states[worker_id] = "stopped"
+            self._termination_evidence[worker_id] = evidence.strip()[:2000]
             self._persist_registry()
 
     def cleanup_worker(self, worker_id: str) -> str:
