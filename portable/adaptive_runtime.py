@@ -169,6 +169,34 @@ class AdaptiveRuntime:
         )
         return self.trusted_plan_dispatch_root
 
+    def create_continuous_supervisor(
+        self,
+        *,
+        pollers: Mapping[str, Callable[[], Mapping[str, Any]]] | None = None,
+        goal_reconcilers: Mapping[str, Callable[[], Mapping[str, Any]]] | None = None,
+        operator_authorizer: Callable[[str], str | None] | None = None,
+        repair_handler: str | None = None,
+    ) -> Any:
+        """Build the continuous supervisor over this runtime's canonical stores.
+
+        Parent-goal reconcilers are accepted only after the trusted plan dispatch
+        root is configured. The callbacks must dispatch through that root and
+        must never treat their own return value as completion evidence.
+        """
+        if goal_reconcilers and self.trusted_plan_dispatch_root is None:
+            raise RuntimeError(
+                "trusted plan dispatch root must be configured before registering parent-goal reconcilers"
+            )
+        from .continuous_execution import ContinuousExecutionSupervisor
+        return ContinuousExecutionSupervisor(
+            self.execution_controller,
+            pollers=pollers,
+            recovery_ledger=self.recovery_ledger,
+            repair_handler=repair_handler,
+            goal_reconcilers=goal_reconcilers,
+            operator_authorizer=operator_authorizer,
+        )
+
     def dispatch_engineering_plan_task(self, **request: Any) -> Any:
         """Dispatch only through the host-configured trusted plan composition root."""
         if self.trusted_plan_dispatch_root is None:
