@@ -23,6 +23,8 @@ class RequirementFact:
                 raise ValueError(f"{name} must be non-empty printable text")
         if max(map(len, (self.statement_id, self.key, self.value))) > 128:
             raise ValueError("requirement fact identity fields exceed their length limit")
+        if len(self.statement) > 2000:
+            raise ValueError("requirement statement exceeds the 2000-character limit")
 
 @dataclass(frozen=True, slots=True)
 class ConflictOption:
@@ -155,6 +157,8 @@ class RequirementConflictAnalyzer:
                 raise ValueError("workstream names must be non-empty text")
             if isinstance(keys, (str, bytes)) or not isinstance(keys, Sequence):
                 raise ValueError("each workstream dependency must be a sequence")
+            if any(not isinstance(key, str) or not key.strip() for key in keys):
+                raise ValueError("workstream requirement keys must be non-empty text")
             (blocked if blocked_keys.intersection(keys) else independent).append(workstream)
         return RequirementConflictReport(tuple(conflicts), tuple(sorted(blocked)), tuple(sorted(independent)))
 
@@ -162,7 +166,7 @@ class RequirementConflictAnalyzer:
     def record_decision(conflict: RequirementConflict, *, selected_option: str,
                         decision_maker: str, rationale: str, prior_plan_digest: str,
                         new_plan_revision: int) -> RequirementDecision:
-        if selected_option not in {item.option_id for item in conflict.options}:
+        if not isinstance(selected_option, str) or selected_option not in {item.option_id for item in conflict.options}:
             raise ValueError("selected_option must be one of the conflict's explicit options")
         for name, value in (("decision_maker", decision_maker), ("rationale", rationale)):
             if not isinstance(value, str) or not value.strip() or not value.isprintable():
