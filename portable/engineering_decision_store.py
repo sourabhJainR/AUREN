@@ -224,15 +224,19 @@ class EngineeringDecisionStore:
             # load validates public input; this closes the race with a concurrent
             # plan-run update before the decision is committed.
             current_plan_row = db.execute(
-                "SELECT plan_digest,run_json,run_digest FROM engineering_plan_runs WHERE run_id=?",
+                "SELECT plan_digest,plan_json,run_json,run_digest FROM engineering_plan_runs WHERE run_id=?",
                 (run_id,),
             ).fetchone()
             if current_plan_row is None or current_plan_row["plan_digest"] != plan_digest:
                 raise PlanRevisionConflict("canonical plan changed before decision commit")
             try:
+                current_plan_payload = json.loads(current_plan_row["plan_json"])
                 current_run_payload = json.loads(current_plan_row["run_json"])
             except (TypeError, json.JSONDecodeError) as exc:
-                raise ValueError("canonical plan run JSON is corrupt") from exc
+                raise ValueError("canonical plan/run JSON is corrupt") from exc
+            from .engineering_plan import EngineeringPlan
+            if EngineeringPlan.from_dict(current_plan_payload).digest != plan_digest:
+                raise ValueError("canonical plan digest mismatch")
             current_run_digest = hashlib.sha256(_canonical(current_run_payload).encode("utf-8")).hexdigest()
             if current_run_digest != current_plan_row["run_digest"]:
                 raise ValueError("canonical plan run digest mismatch")
