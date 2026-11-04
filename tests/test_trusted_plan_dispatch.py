@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import sqlite3
+from contextlib import closing
 import tempfile
 import unittest
 from pathlib import Path
@@ -264,7 +265,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                             event for event in self.controller.progress_journal._events()
                             if event.get("task_id") == durable.id
                         ]
-                        with sqlite3.connect(self.controller.company.db_path) as company_db:
+                        with closing(sqlite3.connect(self.controller.company.db_path)) as company_db:
                             company_events = company_db.execute(
                                 "SELECT kind,status,detail FROM events WHERE work_unit_id=? ORDER BY created_at",
                                 (durable.work_unit_id,),
