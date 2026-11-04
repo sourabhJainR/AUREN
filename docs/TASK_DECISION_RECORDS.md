@@ -52,3 +52,6 @@ A retry after a committed write returns the same receipt. A changed decision app
 The record's `affected_task_ids` identify work that requires planner review and possible replanning. Recording a decision does not silently rewrite task state or authorize execution. The canonical planner must create and persist the revised plan/run and dependency changes before dispatch. Independent, unaffected work may continue only when the host planner proves it cannot be invalidated by the decision.
 
 Rollback: stop writing new decision records and retain the append-only table for audit. No plan, task, approval or execution record is deleted or rewritten.
+
+
+When an `AdaptiveRuntime` host configures `configure_trusted_plan_dispatch()`, it also creates an `EngineeringDecisionStore` over the supplied canonical `EngineeringPlanStore`. Hosts record decisions through `record_engineering_decision()`; the method refuses to run before trusted plan composition is configured. This keeps decision history on the plan database and prevents a separate unbound decision store from becoming a competing source of truth.
