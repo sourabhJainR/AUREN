@@ -272,6 +272,13 @@ class ContinuousExecutionSupervisor:
                     digest TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS poller_backoff(
+                    poller TEXT PRIMARY KEY,
+                    consecutive_errors INTEGER NOT NULL,
+                    next_poll_at REAL NOT NULL,
+                    last_error_type TEXT,
+                    updated_at TEXT NOT NULL
+                );
             """)
             control_columns = {row[1] for row in db.execute("PRAGMA table_info(control)").fetchall()}
             if "run_id" not in control_columns:
@@ -311,6 +318,44 @@ class ContinuousExecutionSupervisor:
             )
         self._event("operator", "stop_requested", {"reason": reason.strip(), "prior_state": prior})
         return self.status()
+
+    def _poller_retry_after(self, name: str, *, now: float | None = None) -> float:
+        """Return persisted retry delay; zero means the poller is due."""
+        current = time.time() if now is None else float(now)
+        with closing(sqlite3.connect(self.path, timeout=5)) as db:
+            row = db.execute(
+                "SELECT next_poll_at FROM poller_backoff WHERE poller=?", (name,),
+            ).fetchone()
+        return max(0.0, float(row[0]) - current) if row else 0.0
+
+    def _record_poller_error(self, name: str, *, poll_seconds: float, error_type: str) -> float:
+        """Persist bounded exponential backoff so restarts cannot create a retry storm."""
+        with closing(sqlite3.connect(self.path, timeout=5)) as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT consecutive_errors FROM poller_backoff WHERE poller=?", (name,),
+            ).fetchone()
+            failures = (int(row[0]) if row else 0) + 1
+            delay = min(300.0, max(1.0, float(poll_seconds)) * (2 ** min(failures - 1, 8)))
+            next_poll_at = time.time() + delay
+            db.execute(
+                "INSERT INTO poller_backoff(poller,consecutive_errors,next_poll_at,last_error_type,updated_at) "
+                "VALUES(?,?,?,?,?) ON CONFLICT(poller) DO UPDATE SET "
+                "consecutive_errors=excluded.consecutive_errors,next_poll_at=excluded.next_poll_at,"
+                "last_error_type=excluded.last_error_type,updated_at=excluded.updated_at",
+                (name, failures, next_poll_at, error_type[:120], _now()),
+            )
+        return delay
+
+    def _clear_poller_error(self, name: str) -> None:
+        """Reset a poller's retry state only after a valid non-error observation."""
+        with closing(sqlite3.connect(self.path, timeout=5)) as db:
+            db.execute(
+                "INSERT INTO poller_backoff(poller,consecutive_errors,next_poll_at,last_error_type,updated_at) "
+                "VALUES(?,0,0,NULL,?) ON CONFLICT(poller) DO UPDATE SET "
+                "consecutive_errors=0,next_poll_at=0,last_error_type=NULL,updated_at=excluded.updated_at",
+                (name, _now()),
+            )
 
     def _poller_health(
         self, *, stale_after_seconds: float = 300.0, now: float | None = None,
@@ -668,6 +713,16 @@ class ContinuousExecutionSupervisor:
                             "last_poll_at": finding["last_poll_at"], "last_status": finding["last_status"],
                         })
                 for name, poller in self.pollers.items():
+                    retry_after = self._poller_retry_after(name)
+                    if retry_after > 0:
+                        poll_results[name] = {
+                            "status": "backoff", "retry_in_seconds": round(retry_after, 3),
+                        }
+                        self._event(run_id, "poller_backoff_wait", {
+                            "cycle": cycles, "poller": name,
+                            "retry_in_seconds": round(retry_after, 3),
+                        })
+                        continue
                     try:
                         result = poller()
                         if not isinstance(result, Mapping):
@@ -677,6 +732,18 @@ class ContinuousExecutionSupervisor:
                             raise ValueError("poller returned an unsupported status")
                         poll_results[name] = clean
                         self._event(run_id, "poll_result", {"cycle": cycles, "poller": name, "result": clean})
+                        if clean.get("status") == "poll_error":
+                            delay = self._record_poller_error(
+                                name, poll_seconds=poll_seconds,
+                                error_type=str(clean.get("error_type", "poll_error")),
+                            )
+                            self._event(run_id, "poller_backoff_scheduled", {
+                                "cycle": cycles, "poller": name,
+                                "retry_in_seconds": round(delay, 3),
+                                "consecutive_errors": True,
+                            })
+                        else:
+                            self._clear_poller_error(name)
                         if clean.get("status") == "failure" and self.repair_handler and self.recovery_ledger is not None:
                             failed_checks = clean.get("failed_checks", [])
                             check_details = clean.get("checks", {})
@@ -743,8 +810,17 @@ class ContinuousExecutionSupervisor:
                                         "head_sha": head_sha, "error_type": type(repair_exc).__name__,
                                     })
                     except Exception as exc:
-                        poll_results[name] = {"status": "poll_error", "error_type": type(exc).__name__}
-                        self._event(run_id, "poll_error", {"cycle": cycles, "poller": name, "error_type": type(exc).__name__})
+                        error_type = type(exc).__name__
+                        poll_results[name] = {"status": "poll_error", "error_type": error_type}
+                        self._event(run_id, "poll_error", {"cycle": cycles, "poller": name, "error_type": error_type})
+                        delay = self._record_poller_error(
+                            name, poll_seconds=poll_seconds, error_type=error_type,
+                        )
+                        self._event(run_id, "poller_backoff_scheduled", {
+                            "cycle": cycles, "poller": name,
+                            "retry_in_seconds": round(delay, 3),
+                            "consecutive_errors": True,
+                        })
                 task_counts = self.status(event_limit=1)["task_counts"]
                 pending_count = sum(count for state, count in task_counts.items() if state not in {"completed", "failed", "cancelled"})
                 self._event(run_id, "cycle_completed", {
