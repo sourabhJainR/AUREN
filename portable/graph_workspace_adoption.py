@@ -284,6 +284,8 @@ class GraphWorkspaceCoordinator:
         with self._lock:
             if self._cancel_event.is_set():
                 raise RuntimeError(self._cancel_reason or "sibling cancellation requested")
+            if self._recovered_adoption_pending_commit:
+                raise RuntimeError("commit recovered graph adoption before creating more workers")
             if worker_id in self._states:
                 raise ValueError("worker_id already exists")
             for other_id, other_paths in self._owners.items():
