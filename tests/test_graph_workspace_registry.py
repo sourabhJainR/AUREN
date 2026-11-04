@@ -118,5 +118,44 @@ class DurableGraphWorkspaceRegistryTests(unittest.TestCase):
             GraphWorkspaceCoordinator(self.repo, workspace_root=self.workspaces, registry_path=linked)
 
 
+    def test_restart_reconciles_crash_before_apply_without_replaying_completed_work(self):
+        first = self.make_coordinator()
+        workspace = first.create_worker("worker-a", ["src/a.py"])
+        (workspace / "src").mkdir()
+        (workspace / "src" / "a.py").write_text("answer = 42\\n", encoding="utf-8")
+        proposal = first.prepare_proposal("worker-a")
+        first._persist_adoption_intent(("worker-a",), proposal.paths, proposal.patch)
+        first.close()
+
+        second = self.make_coordinator()
+        self.assertEqual(second.worker_states()["worker-a"], "proposal_ready")
+        db = sqlite3.connect(self.registry)
+        try:
+            state = db.execute("SELECT state FROM graph_workspace_adoptions").fetchone()[0]
+        finally:
+            db.close()
+        self.assertEqual(state, "not_applied")
+
+    def test_restart_blocks_partial_target_mutation_without_false_success(self):
+        first = self.make_coordinator()
+        workspace = first.create_worker("worker-a", ["src/a.py"])
+        (workspace / "src").mkdir()
+        (workspace / "src" / "a.py").write_text("answer = 42\\n", encoding="utf-8")
+        proposal = first.prepare_proposal("worker-a")
+        first._persist_adoption_intent(("worker-a",), proposal.paths, proposal.patch)
+        first.close()
+
+        (self.repo / "src").mkdir()
+        (self.repo / "src" / "a.py").write_text("partial write\\n", encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "dirty target"):
+            GraphWorkspaceCoordinator(self.repo, workspace_root=self.workspaces, registry_path=self.registry)
+        db = sqlite3.connect(self.registry)
+        try:
+            state = db.execute("SELECT state FROM graph_workspace_adoptions").fetchone()[0]
+        finally:
+            db.close()
+        self.assertEqual(state, "blocked")
+
+
 if __name__ == "__main__":
     unittest.main()
