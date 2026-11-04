@@ -252,7 +252,7 @@ class GraphWorkspaceCoordinator:
         for entry in entries:
             if not entry:
                 continue
-            metadata, raw_path = entry.split(b"\\t", 1)
+            metadata, raw_path = entry.split(b"\t", 1)
             if raw_path.decode("utf-8", errors="strict") != relative_path:
                 continue
             mode, kind, object_sha = metadata.split()
