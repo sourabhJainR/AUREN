@@ -494,13 +494,17 @@ class ContinuousExecutionSupervisor:
                 "SELECT state,owner_id,lease_until,run_id,cycle_count FROM control WHERE id=1"
             ).fetchone()
             state, owner, lease, persisted_run_id, cycle_count = row
-            if state == "stop_requested" and owner and lease:
-                try:
-                    lease_time = datetime.fromisoformat(lease)
-                except ValueError:
-                    lease_time = datetime.min.replace(tzinfo=timezone.utc)
-                if lease_time.tzinfo is not None and lease_time > now and owner != self.owner_id:
-                    raise RuntimeError("stop is being honored by the live AUREN supervisor")
+            if state == "stop_requested":
+                if owner and lease:
+                    try:
+                        lease_time = datetime.fromisoformat(lease)
+                    except ValueError:
+                        lease_time = datetime.min.replace(tzinfo=timezone.utc)
+                    if lease_time.tzinfo is not None and lease_time > now and owner != self.owner_id:
+                        raise RuntimeError("stop is being honored by the live AUREN supervisor")
+                raise RuntimeError(
+                    "durable stop request remains active; explicit operator clear is required before restart"
+                )
             if state == "running" and owner and lease:
                 try:
                     lease_time = datetime.fromisoformat(lease)
@@ -524,6 +528,35 @@ class ContinuousExecutionSupervisor:
             "resumed_after_lease_expiry": resumed_run, "starting_cycle": starting_cycle,
         })
         return requested_run_id, starting_cycle
+
+    def clear_stop(self, reason: str) -> dict[str, Any]:
+        """Explicitly clear a durable stop after confirming no live owner remains."""
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > 200:
+            raise ValueError("clear reason must be non-empty text of at most 200 characters")
+        now = datetime.now(timezone.utc)
+        with sqlite3.connect(self.path, timeout=5) as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT state,owner_id,lease_until,run_id,stop_reason FROM control WHERE id=1"
+            ).fetchone()
+            state, owner, lease, run_id, stop_reason = row
+            if state != "stop_requested":
+                raise RuntimeError("there is no pending durable stop request to clear")
+            if owner and lease:
+                try:
+                    lease_time = datetime.fromisoformat(lease)
+                except ValueError:
+                    lease_time = datetime.min.replace(tzinfo=timezone.utc)
+                if lease_time.tzinfo is not None and lease_time > now and owner != self.owner_id:
+                    raise RuntimeError("cannot clear a stop while another supervisor holds a live lease")
+            db.execute(
+                "UPDATE control SET state='stopped',owner_id=NULL,lease_until=NULL,stop_reason=NULL,updated_at=? WHERE id=1",
+                (_now(),),
+            )
+        self._event(run_id or "operator", "stop_cleared", {
+            "reason": reason.strip(), "previous_stop_reason": stop_reason,
+        })
+        return self.status()
 
     def _heartbeat(self, run_id: str, cycle: int) -> None:
         lease_until = (datetime.now(timezone.utc) + timedelta(seconds=self.lease_seconds)).isoformat()
