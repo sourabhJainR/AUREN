@@ -443,6 +443,9 @@ class ContinuousExecutionSupervisor:
         hold = self._goal_hold(goal)
         if hold is None:
             raise RuntimeError("goal is not held; refusing an implicit wake")
+        self._event("operator", "goal_reconciliation_wake_authorized", {
+            "goal": goal, "reason": reason.strip(), "previous_status": hold["status"],
+        })
         self._clear_goal_hold(goal)
         self._clear_goal_error(goal)
         self._event("operator", "goal_reconciliation_woken", {
