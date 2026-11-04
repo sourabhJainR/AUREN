@@ -182,6 +182,9 @@ class GraphWorkspaceCoordinator:
             self._registry.execute('INSERT INTO graph_workspace_adoptions VALUES (?, ?, ?, ?, ?, ?, ?)', (adoption_id, self.base_revision, json.dumps(list(worker_ids)), json.dumps(list(paths)), str(artifact), digest, 'applying'))
         return adoption_id
 
+    def _reconcile_adoption_journal(self) -> None:
+        return None
+
     def _restore_registry(self) -> None:
         """Restore only records bound to this exact base; ambiguous records stay blocked."""
         rows = self._registry.execute(
