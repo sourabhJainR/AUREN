@@ -259,6 +259,15 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                         )
                         current_plan, current_run = recovery.load_verified(plan.run_id)
                     elif durable is not None and durable.state in {"failed", "cancelled"}:
+                        task_events = [
+                            event for event in self.controller.progress_journal._events()
+                            if event.get("task_id") == durable.id
+                        ]
+                        reconciliation_diagnostics.append({
+                            "failed_task": task_id,
+                            "durable_state": durable.state,
+                            "progress_events": task_events[-12:],
+                        })
                         raise RuntimeError(f"{task_id} did not complete successfully")
             if all(item.status == "passed" for item in current_run.tasks):
                 return {"status": "complete", "passed_tasks": len(current_run.tasks)}
