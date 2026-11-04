@@ -179,6 +179,16 @@ class AdaptiveRuntime:
         self.trusted_plan_dispatch_root = dispatch_root
         return dispatch_root
 
+    def verify_engineering_decision(
+        self, *, run_id: str, decision_id: str, selected_option: str,
+    ) -> bool:
+        """Verify a current, host-authenticated decision for a conflict gate."""
+        if self.engineering_decision_store is None:
+            raise RuntimeError("canonical engineering decision store is not configured")
+        return self.engineering_decision_store.verify_resolution(
+            run_id=run_id, decision_id=decision_id, selected_option=selected_option,
+        )
+
     def record_engineering_decision(self, **decision: Any) -> Any:
         """Persist a decision only after host authentication resolves its actor identity."""
         if self.engineering_decision_store is None:
