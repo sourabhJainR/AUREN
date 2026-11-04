@@ -112,6 +112,25 @@ def test_duplicate_identity_and_cleanup_require_explicit_worker_stop(tmp_path):
     assert not Path(record["path"]).exists()
 
 
+def test_tampered_registry_cannot_remove_a_worktree_outside_managed_root(tmp_path):
+    root = setup_repo(tmp_path)
+    configure(root, tmp_path)
+    record = worktree.create(
+        "worker-a", task_id="task-1", intent_digest="a" * 64,
+        budget_digest="b" * 64, owned_paths=("src/feature.py",),
+    )
+    outside = tmp_path / "outside-worktree"
+    outside.mkdir()
+    records = worktree.load()
+    records["worker-a"]["path"] = str(outside)
+    worktree.save(records)
+
+    with pytest.raises(PermissionError, match="escapes configured root"):
+        worktree.remove("worker-a", force=True, worker_stopped=True)
+    assert outside.is_dir()
+    assert Path(record["path"]).exists()
+
+
 def test_corrupt_registry_fails_closed_instead_of_becoming_empty(tmp_path):
     root = setup_repo(tmp_path)
     configure(root, tmp_path)
