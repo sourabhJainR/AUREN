@@ -107,6 +107,47 @@ def test_stop_command_is_durable_and_worker_exits_without_losing_pending_work(tm
     assert supervisor.verify_audit_chain() is True
 
 
+def test_poller_error_backoff_persists_across_restart_and_resets_on_success(tmp_path):
+    calls = []
+    controller = ExecutionController(tmp_path)
+
+    def poller():
+        calls.append(len(calls) + 1)
+        if len(calls) == 1:
+            return {"status": "poll_error", "error_type": "TimeoutError"}
+        return {"status": "success", "head_sha": "f" * 40}
+
+    first = ContinuousExecutionSupervisor(controller, pollers={"ci:owner/repo": poller})
+    first.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    assert calls == [1]
+    assert first._poller_retry_after("ci:owner/repo") > 0
+
+    resumed = ContinuousExecutionSupervisor(
+        ExecutionController(tmp_path), pollers={"ci:owner/repo": poller},
+    )
+    report = resumed.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    assert calls == [1]
+    assert any(
+        event["event_type"] == "poller_backoff_wait"
+        for event in resumed.status(event_limit=100)["recent_events"]
+    )
+
+    with __import__("sqlite3").connect(resumed.path) as db:
+        db.execute(
+            "UPDATE poller_backoff SET next_poll_at=0 WHERE poller=?",
+            ("ci:owner/repo",),
+        )
+    resumed.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    assert calls == [1, 2]
+    with __import__("sqlite3").connect(resumed.path) as db:
+        state = db.execute(
+            "SELECT consecutive_errors,next_poll_at,last_error_type FROM poller_backoff WHERE poller=?",
+            ("ci:owner/repo",),
+        ).fetchone()
+    assert state == (0, 0.0, None)
+    assert resumed.verify_audit_chain()
+
+
 def test_supervisor_reuses_run_identity_after_expired_process_lease(tmp_path):
     controller = ExecutionController(tmp_path)
     first = ContinuousExecutionSupervisor(controller, lease_seconds=5)
