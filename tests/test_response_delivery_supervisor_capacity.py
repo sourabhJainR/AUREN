@@ -5,6 +5,7 @@ import multiprocessing
 import os
 import sqlite3
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -215,6 +216,50 @@ class ResponseDeliverySupervisorCapacityTests(unittest.TestCase):
         self.assertIsNone(duplicate_token)
         self.assertEqual(delivery.shared_capacity_snapshot()["active_workers"], 1)
         delivery._release_worker_slot("task-one", first_token)
+
+
+    def test_cancellation_and_deadline_reach_the_waiting_delivery_handler(self):
+        from portable.execution_controller import ExecutionController
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            controller = ExecutionController(root)
+            delivery = supervisor_module.ResponseDeliverySupervisor(
+                controller, root / "progress.jsonl"
+            )
+            response_id = "a" * 64
+            task_id = delivery.create(
+                response_id, "cancel-delivery", response_id, deadline_seconds=10
+            )
+            self.assertTrue(delivery.start(task_id))
+            self.assertTrue(delivery.cancel(task_id, reason="integration cancellation"))
+            end = time.monotonic() + 3
+            while delivery.state(task_id) not in {"cancelled", "failed"} and time.monotonic() < end:
+                time.sleep(0.01)
+            self.assertEqual("cancelled", delivery.state(task_id))
+            self.assertEqual("cancelled", controller.progress_journal.snapshot(task_id)["state"])
+            delivery.shutdown(wait_seconds=1)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            controller = ExecutionController(root)
+            delivery = supervisor_module.ResponseDeliverySupervisor(
+                controller, root / "progress.jsonl"
+            )
+            response_id = "b" * 64
+            task_id = delivery.create(
+                response_id, "deadline-delivery", response_id, deadline_seconds=1
+            )
+            started = delivery.start(task_id)
+            self.assertTrue(started or delivery.state(task_id) == "failed")
+            end = time.monotonic() + 4
+            while delivery.state(task_id) not in {"failed", "cancelled"} and time.monotonic() < end:
+                time.sleep(0.01)
+            self.assertEqual("failed", delivery.state(task_id))
+            terminal = controller.progress_journal.snapshot(task_id)
+            self.assertEqual("failed", terminal["state"])
+            self.assertIn("deadline", terminal["message"].lower())
+            delivery.shutdown(wait_seconds=1)
 
 
 if __name__ == "__main__":
