@@ -31,6 +31,7 @@ def cto_manager_handler(payload):
         scope=[resource],
         authorizer=lambda request: _CHILD_AUTHORIZATIONS.append(request) or True,
         work_key="AUREN:test:cto-manager-worker:child",
+        principal_id="host:backend-worker",
         registry_path=REGISTRY_PATH,
     )
     _CHILD_TASK_IDS.append(child.id)
@@ -72,6 +73,7 @@ class CtoManagerDelegationChainTests(unittest.TestCase):
                 scope=[resource],
                 authorizer=lambda _request: True,
                 work_key="AUREN:test:cto-manager-worker:manager",
+                principal_id="host:engineering-manager",
                 registry_path=REGISTRY_PATH,
             )
 

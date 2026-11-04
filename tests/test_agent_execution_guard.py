@@ -31,7 +31,7 @@ class AgentExecutionGuardTests(unittest.TestCase):
     def _payload(
         self, scope=("portable/api.py",), action_class="edit_assigned_paths",
         deadline_seconds=None, task_path=None, work_key="AUREN:test:agent-execution-guard",
-        principal_id=None,
+        principal_id="host:worker-test",
     ):
         assigned_path = task_path if task_path is not None else scope[0]
         assignment = authorize_agent_assignment(
@@ -86,6 +86,47 @@ class AgentExecutionGuardTests(unittest.TestCase):
                 ):
                     pass
         self.assertIsNone(current_agent_assignment_principal_id())
+
+    def test_legacy_v3_assignment_without_authenticated_principal_is_denied_before_verifier(self):
+        payload = self._payload(principal_id=None)
+        verifier_calls = []
+        with self.assertRaisesRegex(
+            AgentAssignmentScopeDenied,
+            "legacy assignment has no authenticated principal",
+        ):
+            self._validate(
+                payload,
+                expected_action_class="edit_assigned_paths",
+                resource=payload["path"],
+                authorization_verifier=lambda request: verifier_calls.append(request) or True,
+            )
+        self.assertEqual([], verifier_calls)
+
+        # The real controller boundary must reject the same legacy envelope
+        # before creating a durable task or entering the filesystem handler.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            handler_name = "tests.test_agent_execution_guard.assigned_filesystem_handler"
+            controller = ExecutionController(root, agent_assignment_verifier=lambda _request: True)
+            controller.register_handler(
+                handler_name,
+                assigned_filesystem_handler,
+                execution_class="read_only",
+                agent_action_class="edit_assigned_paths",
+            )
+            payload.update({
+                "workspace_root": str(root),
+                "content": "must not be written",
+            })
+            with self.assertRaisesRegex(
+                AgentAssignmentScopeDenied,
+                "legacy assignment has no authenticated principal",
+            ):
+                controller.submit(handler_name, payload)
+            with closing(sqlite3.connect(controller.db_path)) as db, db:
+                count = db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+            self.assertEqual(0, count)
+            self.assertFalse((root / "portable" / "api.py").exists())
 
     def test_assigned_resource_within_scope_passes(self):
         payload = self._payload()

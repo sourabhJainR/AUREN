@@ -92,16 +92,15 @@ def validate_agent_assignment_for_dispatch(
         "assignment_digest", "work_key", "task_payload_digest", "deadline_seconds", "authorization",
     }
     schema = envelope.get("schema_version")
-    if schema == _SCHEMA:
-        required = base_required
-    elif schema == _SCHEMA_WITH_PRINCIPAL:
-        required = base_required | {"principal_id"}
-    else:
-        raise AgentAssignmentScopeDenied("agent assignment schema is invalid")
+    if schema != _SCHEMA_WITH_PRINCIPAL:
+        raise AgentAssignmentScopeDenied(
+            "legacy assignment has no authenticated principal; reauthorize as assignment v4"
+        )
+    required = base_required | {"principal_id"}
     if set(envelope) != required:
         raise AgentAssignmentScopeDenied("agent assignment schema is invalid")
-    principal_id = envelope.get("principal_id") if schema == _SCHEMA_WITH_PRINCIPAL else None
-    if schema == _SCHEMA_WITH_PRINCIPAL and (
+    principal_id = envelope.get("principal_id")
+    if (
         not isinstance(principal_id, str) or not principal_id.strip()
         or len(principal_id) > 256 or not principal_id.isprintable()
     ):
@@ -212,8 +211,7 @@ def validate_agent_assignment_for_dispatch(
         "task_payload_digest": task_payload_digest,
         "deadline_seconds": assigned_deadline,
     }
-    if principal_id is not None:
-        body["principal_id"] = principal_id
+    body["principal_id"] = principal_id
     digest = hashlib.sha256(_canonical(body)).hexdigest()
     if envelope.get("assignment_digest") != digest:
         raise AgentAssignmentScopeDenied("agent assignment digest does not match its contents")
@@ -253,8 +251,7 @@ def validate_agent_assignment_for_dispatch(
         "task_payload_digest": task_payload_digest,
         "deadline_seconds": assigned_deadline,
     }
-    if principal_id is not None:
-        verification_payload["principal_id"] = principal_id
+    verification_payload["principal_id"] = principal_id
     verification_request = MappingProxyType(verification_payload)
     try:
         authorized = authorization_verifier(verification_request)

@@ -1,6 +1,7 @@
 """Public SDK contract tests."""
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 import unittest
 
@@ -58,6 +59,7 @@ class AurenClientTests(unittest.TestCase):
                     action_class="edit_assigned_paths", scope=["allowed.txt"],
                     work_key="AUREN:test:sdk-assigned",
                     task_payload={"resource": "allowed.txt", "path": "allowed.txt"},
+                    principal_id="host:sdk-worker",
                     authorizer=lambda _request: True, registry_path=REGISTRY_PATH,
                 )
                 task = client.submit("sdk-assigned", {
@@ -67,7 +69,7 @@ class AurenClientTests(unittest.TestCase):
                 client.run_once(task.id)
                 self.assertEqual("completed", client.task(task.id).state)
                 self.assertGreaterEqual(len(verified), 2)
-                self.assertEqual("auren-agent-assignment-v3", verified[0]["schema_version"])
+                self.assertEqual("auren-agent-assignment-v4", verified[0]["schema_version"])
             finally:
                 client.close()
 
@@ -89,6 +91,7 @@ class AurenClientTests(unittest.TestCase):
                     action_class="edit_assigned_paths", scope=["allowed.txt"],
                     authorizer=lambda request: authorized.append(dict(request)) or True,
                     work_key="AUREN:test:sdk-entrypoint", deadline_seconds=30,
+                    principal_id="host:sdk-entrypoint",
                     registry_path=REGISTRY_PATH,
                 )
                 self.assertEqual("pending", client.task(task.id).state)
@@ -118,8 +121,35 @@ class AurenClientTests(unittest.TestCase):
                         role_id="BE-01", manager_id="EM-ENG-01",
                         action_class="edit_assigned_paths", scope=["allowed.txt"],
                         authorizer=lambda _request: True,
-                        work_key="AUREN:test:sdk-forged", registry_path=REGISTRY_PATH,
+                        work_key="AUREN:test:sdk-forged",
+                        principal_id="host:sdk-forged",
+                        registry_path=REGISTRY_PATH,
                     )
+            finally:
+                client.close()
+
+    def test_sdk_assignment_requires_authenticated_principal_before_submission(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            client = AurenClient(
+                tmp, dashboard_enabled=False,
+                agent_assignment_verifier=lambda _request: True,
+            )
+            try:
+                client.register_handler(
+                    "sdk-assigned", sdk_assigned_handler, execution_class="read_only",
+                    agent_action_class="edit_assigned_paths",
+                )
+                with self.assertRaisesRegex(ValueError, "host-authenticated principal_id"):
+                    client.submit_agent_task(
+                        "sdk-assigned", {"resource": "allowed.txt", "path": "allowed.txt"},
+                        role_id="BE-01", manager_id="EM-ENG-01",
+                        action_class="edit_assigned_paths", scope=["allowed.txt"],
+                        authorizer=lambda _request: True,
+                        work_key="AUREN:test:sdk-missing-principal",
+                        registry_path=REGISTRY_PATH,
+                    )
+                with sqlite3.connect(client.controller.db_path) as db:
+                    self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
             finally:
                 client.close()
 
@@ -138,7 +168,9 @@ class AurenClientTests(unittest.TestCase):
                         role_id="BE-01", manager_id="EM-ENG-01",
                         action_class="edit_assigned_paths", scope=["allowed.txt"],
                         authorizer=lambda _request: True,
-                        work_key="AUREN:test:sdk-no-verifier", registry_path=REGISTRY_PATH,
+                        work_key="AUREN:test:sdk-no-verifier",
+                        principal_id="host:sdk-no-verifier",
+                        registry_path=REGISTRY_PATH,
                     )
                 self.assertEqual([], _SDK_NO_VERIFIER_INVOCATIONS)
             finally:

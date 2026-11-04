@@ -349,6 +349,8 @@ def submit_agent_task(
             raise ValueError(f"payload key {reserved!r} is reserved")
     if not isinstance(work_key, str) or not work_key.strip():
         raise ValueError("assigned tasks require an explicit stable work_key")
+    if not isinstance(principal_id, str) or not principal_id.strip():
+        raise ValueError("assigned tasks require a host-authenticated principal_id")
     controller_root = getattr(controller, "root", None)
     policy_path = (
         Path(controller_root) / ".auren" / "guard_policy.json"

@@ -126,6 +126,7 @@ class AurenClient:
         goal: str | None = None,
         work_key: str | None = None,
         deadline_seconds: float | None = None,
+        principal_id: str | None = None,
         registry_path: str | Path | None = None,
     ) -> Any:
         """Authorize and persist a delegated task through the canonical controller.
@@ -135,6 +136,8 @@ class AurenClient:
         that durable assignment at dispatch and resume. Both are required for
         successful execution; neither callback is synthesized by the SDK.
         """
+        if not isinstance(principal_id, str) or not principal_id.strip():
+            raise ValueError("assigned tasks require a host-authenticated principal_id")
         request = {
             "role_id": role_id,
             "manager_id": manager_id,
@@ -144,6 +147,7 @@ class AurenClient:
             "goal": goal,
             "work_key": work_key,
             "deadline_seconds": deadline_seconds,
+            "principal_id": principal_id,
         }
         if registry_path is not None:
             request["registry_path"] = registry_path
