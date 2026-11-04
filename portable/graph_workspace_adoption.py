@@ -306,7 +306,7 @@ class GraphWorkspaceCoordinator:
         _git(self.project_root, "merge-base", "--is-ancestor", commit_sha, current)
         changed = {
             item.decode("utf-8", errors="strict")
-            for item in _git(self.project_root, "diff-tree", "--no-commit-id", "--name-only", "-r", "--no-renames", commit_sha, "--").split(b"\\x00")
+            for item in _git(self.project_root, "diff-tree", "--no-commit-id", "--name-only", "-z", "-r", "--no-renames", commit_sha, "--").split(b"\\x00")
             if item
         }
         if changed != set(paths):
@@ -392,8 +392,12 @@ class GraphWorkspaceCoordinator:
                     for item in _git(self.project_root, "ls-files", "--others", "--exclude-standard", "-z").split(b"\\x00")
                     if item
                 }
-                if tracked | untracked != set(paths):
-                    raise RuntimeError("completed adoption target differs from its recorded path set")
+                actual_paths = tracked | untracked
+                if actual_paths != set(paths):
+                    raise RuntimeError(
+                        "completed adoption target differs from its recorded path set; "
+                        + f"actual={sorted(actual_paths)} expected={sorted(set(paths))}"
+                    )
                 for relative_path, expected_fingerprint in manifest.items():
                     if _path_fingerprint(self.project_root, relative_path) != expected_fingerprint:
                         raise RuntimeError("completed adoption target differs from its immutable result manifest")
@@ -486,8 +490,12 @@ class GraphWorkspaceCoordinator:
                     for item in _git(self.project_root, "ls-files", "--others", "--exclude-standard", "-z").split(b"\\x00")
                     if item
                 }
-                if tracked | untracked != expected_paths:
-                    raise RuntimeError("completed adoption target differs from its recorded path set")
+                actual_paths = tracked | untracked
+                if actual_paths != expected_paths:
+                    raise RuntimeError(
+                        "completed adoption target differs from its recorded path set; "
+                        + f"actual={sorted(actual_paths)} expected={sorted(expected_paths)}"
+                    )
                 for relative_path, expected_fingerprint in manifest.items():
                     if _path_fingerprint(self.project_root, relative_path) != expected_fingerprint:
                         raise RuntimeError("completed adoption target has drifted from its immutable result manifest")
