@@ -41,3 +41,30 @@ reviews.
 The architecture-integrity workflow runs these tests and compiles the new
 module. No runtime dependency is added and no cross-repository coupling is
 introduced.
+
+
+## Trusted conflict-gate composition
+
+The trusted host composes the decision store with the existing pre-implementation gate by calling `conflict_resolution_verifier(run_id=..., decision_ids=...)` and passing the returned callback to the canonical Orchestrator. The conflict-to-decision mapping is host-owned. The callback re-reads append-only history on every invocation and accepts only a digest-valid `conflict_resolution` record whose selected option matches and whose plan/run binding is still current. Missing mappings, changed options, stale plan/run revisions, or corrupt history keep the conflict blocked.
+
+`verify_resolution()` remains available for a single explicit decision. The verifier factory adapts the canonical store to the existing gate; it is not a second authorization or planning system.
+
+## Versioned requirement and assumption decisions
+
+`EngineeringDecisionStore` appends requirement-conflict resolutions, explicit assumptions and scope changes to the same SQLite database owned by `EngineeringPlanStore`. Each record binds the stable decision ID and revision to the exact plan digest, plan-run revision, options, selected option, rationale, rejected alternatives, affected task IDs and actor ID. The store rejects stale plan/run revisions, unknown task references, malformed alternatives and tampered history.
+
+A retry after a committed write returns the same receipt. A changed decision appends a new revision linked to the prior record digest; it never overwrites history. If the plan run advances, prior decisions remain readable but report `current_binding=false`. A new decision must bind to the current plan/run revision.
+
+The record's `affected_task_ids` identify work that requires planner review and possible replanning. Recording a decision does not silently rewrite task state or authorize execution. The canonical planner must create and persist the revised plan/run and dependency changes before dispatch. Independent, unaffected work may continue only when the host planner proves it cannot be invalidated by the decision.
+
+Rollback: stop writing new decision records and retain the append-only table for audit. No plan, task, approval or execution record is deleted or rewritten.
+
+
+
+
+`AdaptiveRuntime.verify_engineering_decision()` is the guard-facing check. It returns true only when the current latest record is digest-valid, host-authenticated, typed as a conflict resolution, bound to the current plan/run revision, and its selected option matches the resolution note. A bare resolution string, stale record or unavailable store cannot clear a conflict. The design guard accepts a verifier callback and fails closed if the callback is missing or errors.
+
+
+The store requires a host-provided `actor_authorizer` callback at construction. The callback receives the normalized decision payload and returns the authenticated actor identity. A caller-supplied actor ID is rejected if it differs from the host-resolved identity. The low-level store does not grant execution authority; host composition must still use its canonical plan and trusted dispatch boundary.
+
+`verify_resolution()` is the guard-facing check. It returns true only when the current latest record is digest-valid, typed as a conflict resolution, bound to the current plan/run revision, and its selected option matches the resolution note. A bare resolution string, stale record or unavailable store cannot clear a conflict.
