@@ -1204,5 +1204,68 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
         self.assertEqual(recovery["run_status"], "blocked")
 
 
+    def test_restart_finalizes_completed_adoption_after_worker_cleanup_before_journal_terminal(self):
+        plan = self.lifecycle([
+            Task("write-a", "write one file", files=["src/feature.py"], metadata={"execution_mode": "mutating"})
+        ])
+
+        def write(workspace, _task):
+            (workspace / "src" / "feature.py").write_text("verified = True\\n", encoding="utf-8")
+
+        prepared = plan.prepare(
+            task_id="write-a", worker_id="worker-a", worker_identity="worker-a",
+            owned_paths=["src/feature.py"], execute_in_workspace=write,
+            checks=self.checks("src/feature.py", "verified = True\\n"),
+        )
+        recovery_node = plan.recovery_bridge.load()["nodes"]["write-a"]
+        evidence_refs = (prepared.proposal.artifact_path, prepared.receipt_path)
+        plan._record_recovery_node(
+            task_id="write-a", status="adopting",
+            next_safe_action="reconcile_target_tree_and_recovery_ledger",
+            worker_id="worker-a", workspace_id=prepared.workspace_id,
+            attempts=recovery_node["attempts"], evidence_refs=evidence_refs,
+        )
+        plan.journal.record(
+            "write-a", "adoption-started", state="running", stage="adoption",
+            message=plan._binding(
+                "write-a", "worker-a", prepared.task_digest, prepared.intent_digest, "adoption_started"
+            ) + "; next_action=reconcile_target_tree_and_recovery_ledger",
+            evidence_ref=prepared.receipt_path,
+        )
+        plan.coordinator.adopt_many([prepared.proposal])
+        plan.coordinator.cleanup_worker("worker-a")
+        plan.coordinator.close()
+
+        restarted_coordinator = GraphWorkspaceCoordinator(
+            self.repo, workspace_root=self.root / "worker-workspaces"
+        )
+        restarted = GraphWorkerLifecycle(
+            coordinator=restarted_coordinator, verifier=self.verifier,
+            journal=self.journal, task_plan=plan.task_plan,
+            intent_digest=self.intent_digest, runtime_guard=self.guard,
+            recovery_bridge=plan.recovery_bridge,
+        )
+        state = {
+            "graph_worker_prepared_worker-a": {
+                "worker_id": "worker-a", "task_id": "write-a",
+                "task_digest": prepared.task_digest, "intent_digest": prepared.intent_digest,
+                "artifact_digest": prepared.proposal.artifact_digest,
+                "receipt_digest": prepared.receipt["receipt_digest"],
+                "receipt_path": prepared.receipt_path, "status": "verified",
+            }
+        }
+        node = restarted.as_adoption_node(prepared_workers={}, worker_ids=("worker-a",))
+        result = node(state)
+
+        self.assertEqual(result["graph_worker_adoption"]["status"], "completed")
+        self.assertEqual(result["graph_worker_adoption"]["adoption_id"], restarted_coordinator.completed_adoption_for_workers(("worker-a",))["adoption_id"])
+        self.assertEqual(self.journal.snapshot("write-a")["state"], "completed")
+        self.assertEqual(restarted.recovery_bridge.load()["nodes"]["write-a"]["status"], "complete")
+        self.assertEqual(restarted.recovery_bridge.load()["run_status"], "complete")
+        self.assertEqual(restarted_coordinator.worker_states()["worker-a"], "cleaned")
+        self.assertTrue(restarted_coordinator._recovered_adoption_pending_commit)
+        restarted_coordinator.close()
+
+
 if __name__ == "__main__":
     unittest.main()
