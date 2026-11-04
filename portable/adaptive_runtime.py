@@ -158,8 +158,10 @@ class AdaptiveRuntime:
             raise RuntimeError("trusted plan dispatch is already configured")
         if conflict_scope_verifier is not None:
             self.orchestrator.configure_conflict_scope_verifier(conflict_scope_verifier)
+        from .engineering_decision_store import EngineeringDecisionStore
+        decision_store = EngineeringDecisionStore(store)
         from .trusted_plan_dispatch import TrustedPlanDispatchRoot
-        self.trusted_plan_dispatch_root = TrustedPlanDispatchRoot(
+        dispatch_root = TrustedPlanDispatchRoot(
             controller=self.execution_controller,
             store=store,
             recovery_bridge=recovery_bridge,
@@ -168,9 +170,9 @@ class AdaptiveRuntime:
             approval_resolver=approval_resolver,
             assignment_resolver=assignment_resolver,
         )
-        from .engineering_decision_store import EngineeringDecisionStore
-        self.engineering_decision_store = EngineeringDecisionStore(store)
-        return self.trusted_plan_dispatch_root
+        self.engineering_decision_store = decision_store
+        self.trusted_plan_dispatch_root = dispatch_root
+        return dispatch_root
 
     def record_engineering_decision(self, **decision: Any) -> Any:
         """Persist a versioned user/owner decision against the configured plan store."""
