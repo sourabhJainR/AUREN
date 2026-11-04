@@ -60,8 +60,15 @@ class EngineeringRequirementIntakeTests(unittest.TestCase):
             ],
         )
 
+    def test_long_but_bounded_statement_is_retained_without_truncation(self):
+        statement = "Build an application that " + ("preserves verified source evidence and explicit timestamps " * 12)
+        result = parse_engineering_request(statement)
+        self.assertTrue(result["complete"])
+        self.assertEqual(result["requirements"], [statement])
+        self.assertEqual(result["statements"][0]["text"], statement)
+
     def test_oversized_statement_is_incomplete_not_silently_truncated(self):
-        intent = "Build an application. " + ("requirement " * 80)
+        intent = "Build an application. " + ("requirement " * 250)
         result = parse_engineering_request(intent)
         self.assertFalse(result["complete"])
         self.assertTrue(result["oversized_statement_spans"])
