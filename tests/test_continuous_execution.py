@@ -52,6 +52,51 @@ def test_continuous_loop_processes_tasks_and_keeps_hash_chained_audit(tmp_path):
     assert any(event["event_type"] == "cycle_completed" for event in status["recent_events"])
 
 
+def test_blocked_goal_waits_for_explicit_wake_and_does_not_spin(tmp_path):
+    calls = []
+    controller = ExecutionController(tmp_path)
+
+    def reconcile():
+        calls.append("called")
+        if len(calls) == 1:
+            return {"status": "waiting_for_approval", "blocker": "release approval is pending"}
+        return {"status": "in_progress", "next_action": "continue_after_approval"}
+
+    supervisor = ContinuousExecutionSupervisor(
+        controller, goal_reconcilers={"AUREN:test:approval-goal": reconcile},
+    )
+    supervisor.run(poll_seconds=0.1, batch_size=1, max_cycles=2)
+    assert calls == ["called"]
+    health = supervisor.status()["goal_health"]
+    assert health[0]["status"] == "held"
+    assert health[0]["hold"] == {
+        "status": "waiting_for_approval", "reason": "release approval is pending",
+    }
+
+    replacement = ContinuousExecutionSupervisor(
+        ExecutionController(tmp_path),
+        goal_reconcilers={"AUREN:test:approval-goal": reconcile},
+    )
+    replacement.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    assert calls == ["called"]
+    assert any(
+        event["event_type"] == "goal_reconciliation_hold_wait"
+        for event in replacement.status(event_limit=100)["recent_events"]
+    )
+
+    replacement.wake_goal(
+        "AUREN:test:approval-goal", "independent approval evidence was recorded",
+    )
+    replacement.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    assert calls == ["called", "called"]
+    health = replacement.status()["goal_health"]
+    assert health[0]["status"] == "ready"
+    assert health[0]["hold"] is None
+    events = replacement.status(event_limit=100)["recent_events"]
+    assert any(event["event_type"] == "goal_reconciliation_woken" for event in events)
+    assert replacement.verify_audit_chain()
+
+
 def test_goal_reconciler_backoff_survives_restart_and_resets_after_recovery(tmp_path):
     controller = ExecutionController(tmp_path)
     calls = []
