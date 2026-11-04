@@ -504,8 +504,8 @@ class TrustedPlanDispatchRoot:
         if task is None:
             raise PermissionError("durable assignment references a task absent from the verified plan")
         progress = next((item for item in run.tasks if item.task_id == task_id), None)
-        if progress is None or progress.status not in {"running", "verifying"}:
-            raise PermissionError("durable assignment task is no longer active in the verified plan")
+        if progress is None or progress.status not in {"ready", "running", "verifying"}:
+            raise PermissionError("durable assignment task is no longer dispatchable in the verified plan")
         # Existing host callbacks consume packet.task to resolve the immutable
         # role/manager contract. Supplying the verified PlanTask mapping keeps
         # that callback contract stable without trusting worker-supplied fields.
