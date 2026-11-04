@@ -79,6 +79,9 @@ class EngineeringDecisionStoreTests(unittest.TestCase):
         self.plans.save_run(self.plan.run_id, next_run, expected_revision=0)
         with self.assertRaises(PlanRevisionConflict):
             self._record(expected_revision=1, run_revision=0)
+        historical = self.decisions.history(self.plan.run_id, "provider-licensing")
+        self.assertEqual(1, len(historical))
+        self.assertFalse(historical[0].current_binding)
 
     def test_unknown_affected_task_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "unknown plan tasks"):
