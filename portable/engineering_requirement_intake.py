@@ -14,7 +14,7 @@ from typing import Any
 _SCHEMA = "auren-engineering-requirement-intake-v1"
 _MAX_INPUT_CHARS = 50_000
 _MAX_STATEMENTS = 100
-_MAX_STATEMENT_CHARS = 600
+_MAX_STATEMENT_CHARS = 2_000
 
 _LINE = re.compile(
     r"(?m)^[ \t]*(?:(?:[-*•]\s+)|(?:\d+[.)]\s+))?(?P<text>[^\r\n]+)"
