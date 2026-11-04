@@ -262,6 +262,26 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             if all(item.status == "passed" for item in current_run.tasks):
                 return {"status": "complete", "passed_tasks": len(current_run.tasks)}
 
+            # Promote dependency-satisfied pending units before selecting the
+            # next ready unit. Otherwise a follow-up task can remain pending
+            # forever even after every prerequisite has passed.
+            for candidate in current_plan.tasks:
+                candidate_state = next(
+                    item for item in current_run.tasks if item.task_id == candidate.task_id
+                )
+                if (
+                    candidate.task_id not in dispatched
+                    and candidate_state.status == "pending"
+                    and set(candidate.depends_on) <= {
+                        item.task_id for item in current_run.tasks if item.status == "passed"
+                    }
+                ):
+                    recovery.transition_task(
+                        plan.run_id, candidate.task_id, "ready",
+                        reason="all declared dependencies have passed",
+                    )
+                    current_plan, current_run = recovery.load_verified(plan.run_id)
+
             ready_ids = set(current_run.ready_tasks(current_plan))
             next_task = next((
                 task_id for task_id in ("implement", "review")
@@ -279,11 +299,6 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                 handler = "dispatch-test"
                 packet = self.packet
             else:
-                recovery.transition_task(
-                    plan.run_id, "review", "ready",
-                    reason="implementation passed and dependency is satisfied",
-                )
-                current_plan, current_run = recovery.load_verified(plan.run_id)
                 self.assignment_role_id = "QA-01"
                 self.assignment_principal_id = "qa-worker-1"
                 self.assignment_action_class = "run_tests"
