@@ -260,7 +260,8 @@ class ContinuousExecutionSupervisor:
                     cycle_count INTEGER NOT NULL DEFAULT 0,
                     last_cycle_at TEXT,
                     stop_reason TEXT,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    run_id TEXT
                 );
                 CREATE TABLE IF NOT EXISTS events(
                     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -272,6 +273,9 @@ class ContinuousExecutionSupervisor:
                     created_at TEXT NOT NULL
                 );
             """)
+            control_columns = {row[1] for row in db.execute("PRAGMA table_info(control)").fetchall()}
+            if "run_id" not in control_columns:
+                db.execute("ALTER TABLE control ADD COLUMN run_id TEXT")
             db.execute(
                 "INSERT OR IGNORE INTO control(id,state,updated_at) VALUES(1,'stopped',?)",
                 (_now(),),
@@ -434,14 +438,17 @@ class ContinuousExecutionSupervisor:
             row = db.execute("SELECT state,stop_reason FROM control WHERE id=1").fetchone()
         return (row[0] == "stop_requested", row[1])
 
-    def _claim(self, run_id: str) -> None:
+    def _claim(self, requested_run_id: str) -> tuple[str, int]:
+        """Claim the supervisor lease and resume an interrupted durable run identity."""
         now = datetime.now(timezone.utc)
         lease_until = (now + timedelta(seconds=self.lease_seconds)).isoformat()
+        resumed_run = False
         with sqlite3.connect(self.path, timeout=5) as db:
             db.execute("BEGIN IMMEDIATE")
-            state, owner, lease = db.execute(
-                "SELECT state,owner_id,lease_until FROM control WHERE id=1"
+            row = db.execute(
+                "SELECT state,owner_id,lease_until,run_id,cycle_count FROM control WHERE id=1"
             ).fetchone()
+            state, owner, lease, persisted_run_id, cycle_count = row
             if state == "stop_requested" and owner and lease:
                 try:
                     lease_time = datetime.fromisoformat(lease)
@@ -456,11 +463,22 @@ class ContinuousExecutionSupervisor:
                     lease_time = datetime.min.replace(tzinfo=timezone.utc)
                 if lease_time.tzinfo is not None and lease_time > now and owner != self.owner_id:
                     raise RuntimeError("another AUREN continuous supervisor holds the live lease")
+                if (
+                    lease_time.tzinfo is not None and lease_time <= now
+                    and isinstance(persisted_run_id, str) and persisted_run_id.strip()
+                ):
+                    requested_run_id = persisted_run_id
+                    resumed_run = True
+            starting_cycle = int(cycle_count or 0) if resumed_run else 0
             db.execute(
-                "UPDATE control SET state='running',owner_id=?,lease_until=?,stop_reason=NULL,updated_at=? WHERE id=1",
-                (self.owner_id, lease_until, _now()),
+                "UPDATE control SET state='running',owner_id=?,lease_until=?,stop_reason=NULL,updated_at=?,run_id=?,cycle_count=? WHERE id=1",
+                (self.owner_id, lease_until, _now(), requested_run_id, starting_cycle),
             )
-        self._event(run_id, "supervisor_started", {"owner_id": self.owner_id, "lease_until": lease_until})
+        self._event(requested_run_id, "supervisor_started", {
+            "owner_id": self.owner_id, "lease_until": lease_until,
+            "resumed_after_lease_expiry": resumed_run, "starting_cycle": starting_cycle,
+        })
+        return requested_run_id, starting_cycle
 
     def _heartbeat(self, run_id: str, cycle: int) -> None:
         lease_until = (datetime.now(timezone.utc) + timedelta(seconds=self.lease_seconds)).isoformat()
@@ -588,13 +606,13 @@ class ContinuousExecutionSupervisor:
             raise ValueError("batch_size must be between 1 and 100")
         if max_cycles is not None and (type(max_cycles) is not int or max_cycles < 1):
             raise ValueError("max_cycles must be None or a positive integer")
-        run_id = uuid4().hex
-        self._claim(run_id)
-        cycles = 0
+        run_id, starting_cycle = self._claim(uuid4().hex)
+        cycles = starting_cycle
+        cycles_this_run = 0
         terminal = False
         try:
             self._event(run_id, "execution_started", {"poll_seconds": poll_seconds, "batch_size": batch_size, "pollers": sorted(self.pollers)})
-            while max_cycles is None or cycles < max_cycles:
+            while max_cycles is None or cycles_this_run < max_cycles:
                 if stop_event is not None and stop_event.is_set():
                     self.request_stop("local_interrupt")
                 should_stop, reason = self._should_stop()
@@ -602,6 +620,7 @@ class ContinuousExecutionSupervisor:
                     terminal = True
                     break
                 cycles += 1
+                cycles_this_run += 1
                 self._heartbeat(run_id, cycles)
                 self._event(run_id, "cycle_started", {"cycle": cycles})
                 batch_error = None
@@ -733,7 +752,7 @@ class ContinuousExecutionSupervisor:
                     "pollers": {name: value.get("status") for name, value in poll_results.items()},
                     "batch_error": batch_error,
                 })
-                if max_cycles is not None and cycles >= max_cycles:
+                if max_cycles is not None and cycles_this_run >= max_cycles:
                     break
                 # The CI poll interval may be minutes, but a durable stop command
                 # must be noticed promptly rather than waiting for that full interval.
@@ -756,14 +775,14 @@ class ContinuousExecutionSupervisor:
                         (_now(),),
                     )
                 self._event(run_id, "supervisor_stopped", {"reason": stop_reason or "stop_requested", "cycles": cycles})
-            elif max_cycles is not None and cycles >= max_cycles:
+            elif max_cycles is not None and cycles_this_run >= max_cycles:
                 with sqlite3.connect(self.path, timeout=5) as db:
                     db.execute(
                         "UPDATE control SET state='stopped',owner_id=NULL,lease_until=NULL,updated_at=? WHERE id=1",
                         (_now(),),
                     )
                 self._event(run_id, "supervisor_stopped", {"reason": "cycle_budget_exhausted", "cycles": cycles})
-            return {**self.status(), "run_id": run_id, "cycles_this_run": cycles, "audit_chain_valid": self.verify_audit_chain()}
+            return {**self.status(), "run_id": run_id, "cycles_this_run": cycles_this_run, "audit_chain_valid": self.verify_audit_chain()}
         except Exception as exc:
             with sqlite3.connect(self.path, timeout=5) as db:
                 db.execute(
