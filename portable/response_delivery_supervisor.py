@@ -73,11 +73,11 @@ def await_receiver_acknowledgement(payload: Mapping[str, Any]) -> dict[str, Any]
     while True:
         with sqlite3.connect(db_path) as db:
             current = db.execute(
-                "SELECT state,lease_generation,lease_token FROM tasks WHERE id=?", (task_id,)
+                "SELECT state,lease_generation,lease_token,cancel_requested FROM tasks WHERE id=?", (task_id,)
             ).fetchone()
         if current is None or current[0] != "running" or int(current[1]) != owned_generation or current[2] != owned_token:
             raise LeaseLostError("response delivery supervisor lease was replaced; stale worker stopped")
-        if cancel_event is not None and cancel_event.is_set():
+        if (cancel_event is not None and cancel_event.is_set()) or bool(current[3]):
             raise TaskCancellationRequested("response delivery cancelled by supervisor")
         if deadline_epoch is not None and time.time() >= float(deadline_epoch):
             raise TaskDeadlineExceeded("response delivery deadline expired before receiver acknowledgement")
