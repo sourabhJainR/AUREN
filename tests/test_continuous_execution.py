@@ -180,6 +180,17 @@ def test_expired_supervisor_lease_does_not_clear_durable_stop_without_operator_a
         raise AssertionError("replacement supervisor must not discard a durable stop")
 
     assert replacement.status()["state"] == "stop_requested"
+    try:
+        replacement.clear_stop("unauthenticated attempt")
+    except PermissionError as exc:
+        assert "operator authentication is not configured" in str(exc)
+    else:
+        raise AssertionError("stop clear must fail closed without host operator authentication")
+
+    replacement = ContinuousExecutionSupervisor(
+        ExecutionController(tmp_path), lease_seconds=5,
+        operator_authorizer=lambda _reason: "operator:verified-test-principal",
+    )
     cleared = replacement.clear_stop("operator confirmed restart")
     assert cleared["state"] == "stopped"
     report = replacement.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
