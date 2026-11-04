@@ -31,7 +31,7 @@ class AgentExecutionGuardTests(unittest.TestCase):
     def _payload(
         self, scope=("portable/api.py",), action_class="edit_assigned_paths",
         deadline_seconds=None, task_path=None, work_key="AUREN:test:agent-execution-guard",
-        principal_id=None,
+        principal_id="host:worker-test",
     ):
         assigned_path = task_path if task_path is not None else scope[0]
         assignment = authorize_agent_assignment(
@@ -86,6 +86,21 @@ class AgentExecutionGuardTests(unittest.TestCase):
                 ):
                     pass
         self.assertIsNone(current_agent_assignment_principal_id())
+
+    def test_legacy_v3_assignment_without_authenticated_principal_is_denied_before_verifier(self):
+        payload = self._payload(principal_id=None)
+        verifier_calls = []
+        with self.assertRaisesRegex(
+            AgentAssignmentScopeDenied,
+            "legacy assignment has no authenticated principal",
+        ):
+            self._validate(
+                payload,
+                expected_action_class="edit_assigned_paths",
+                resource=payload["path"],
+                authorization_verifier=lambda request: verifier_calls.append(request) or True,
+            )
+        self.assertEqual([], verifier_calls)
 
     def test_assigned_resource_within_scope_passes(self):
         payload = self._payload()
