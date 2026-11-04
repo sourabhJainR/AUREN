@@ -188,6 +188,63 @@ def test_goal_reconciler_backoff_survives_restart_and_resets_after_recovery(tmp_
     assert resumed.verify_audit_chain()
 
 
+def test_goal_retry_budget_exhaustion_holds_until_authenticated_evidence_wake(tmp_path):
+    calls = []
+    controller = ExecutionController(tmp_path)
+
+    def fail_goal():
+        calls.append("failed")
+        raise OSError("plan store unavailable")
+
+    first = ContinuousExecutionSupervisor(
+        controller,
+        goal_reconcilers={"AUREN:test:bounded-goal": fail_goal},
+        max_goal_retries=2,
+    )
+    first.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    with __import__("sqlite3").connect(first.path) as db:
+        db.execute(
+            "UPDATE goal_backoff SET next_retry_at=0 WHERE goal=?",
+            ("AUREN:test:bounded-goal",),
+        )
+
+    second = ContinuousExecutionSupervisor(
+        ExecutionController(tmp_path),
+        goal_reconcilers={"AUREN:test:bounded-goal": fail_goal},
+        max_goal_retries=2,
+    )
+    second.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    assert calls == ["failed", "failed"]
+    assert second.status()["goal_health"][0]["status"] == "held"
+
+    second.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    assert calls == ["failed", "failed"]
+    assert any(
+        event["event_type"] == "goal_reconciliation_hold_wait"
+        for event in second.status(event_limit=100)["recent_events"]
+    )
+
+    recovered_calls = []
+
+    def recover_goal():
+        recovered_calls.append("recovered")
+        return {"status": "in_progress", "next_action": "continue_with_new_evidence"}
+
+    resumed = ContinuousExecutionSupervisor(
+        ExecutionController(tmp_path),
+        goal_reconcilers={"AUREN:test:bounded-goal": recover_goal},
+        operator_authorizer=lambda _reason: "operator:test",
+    )
+    resumed.wake_goal(
+        "AUREN:test:bounded-goal",
+        "new plan-store recovery evidence is available",
+        evidence_ref="evidence:plan-store-recovery-456",
+    )
+    resumed.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    assert recovered_calls == ["recovered"]
+    assert resumed.status()["goal_health"][0]["status"] == "ready"
+
+
 def test_goal_reconciler_dispatches_followup_work_without_another_prompt(tmp_path):
     controller = ExecutionController(tmp_path)
     controller.register_handler("tests.goal_continuation", durable_continuous_handler, execution_class="read_only")
