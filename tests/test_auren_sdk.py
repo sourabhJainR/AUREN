@@ -43,6 +43,32 @@ class AurenClientTests(unittest.TestCase):
             finally:
                 client.close()
 
+    def test_sdk_task_lookup_by_work_key_survives_client_restart(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = AurenClient(tmp, dashboard_enabled=False)
+            first.register_handler("sdk-test", sdk_test_handler, execution_class="read_only")
+            submitted = first.submit(
+                "sdk-test", {"value": "recover"},
+                goal="recover SDK task identity", work_key="AUREN:test:sdk-work-key",
+            )
+            first.close()
+
+            restarted = AurenClient(tmp, dashboard_enabled=False)
+            try:
+                restarted.register_handler("sdk-test", sdk_test_handler, execution_class="read_only")
+                recovered = restarted.task_by_work_key("AUREN:test:sdk-work-key")
+                self.assertIsNotNone(recovered)
+                self.assertEqual(submitted.id, recovered.id)
+                self.assertEqual(submitted.work_unit_id, recovered.work_unit_id)
+                self.assertEqual("pending", recovered.state)
+                self.assertIsNone(restarted.task_by_work_key("AUREN:test:missing"))
+                restarted.run_once(recovered.id)
+                completed = restarted.task_by_work_key("AUREN:test:sdk-work-key")
+                self.assertEqual(submitted.id, completed.id)
+                self.assertEqual("completed", completed.state)
+            finally:
+                restarted.close()
+
     def test_assignment_verifier_is_plumbed_through_sdk_to_dispatch(self):
         with tempfile.TemporaryDirectory() as tmp:
             verified = []

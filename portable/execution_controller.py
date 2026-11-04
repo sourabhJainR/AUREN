@@ -4192,6 +4192,30 @@ class ExecutionController:
                 findings.append(f"evidence_exports_pending={delivery['pending']}")
         return tuple(findings)
 
+    def task_by_work_key(self, work_key: str) -> DurableTask | None:
+        """Recover a durable task by its immutable submission identity.
+
+        This is the canonical lookup for supervisors reconciling an uncertain
+        submit/dispatch acknowledgement after restart. It never creates or
+        re-enqueues work.
+        """
+        if (
+            not isinstance(work_key, str) or not work_key.strip()
+            or len(work_key.strip()) > 256
+            or any(not char.isprintable() for char in work_key)
+        ):
+            raise ValueError("work_key must be non-empty printable text of at most 256 characters")
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            row = db.execute(
+                "SELECT id,handler,payload,state,attempts,work_unit_id,deadline_at "
+                "FROM tasks WHERE work_key=?",
+                (work_key.strip(),),
+            ).fetchone()
+        return DurableTask(
+            row[0], row[1], json.loads(row[2]), row[3], int(row[4]), row[5],
+            deadline_at=row[6],
+        ) if row else None
+
     def task(self, task_id: str) -> DurableTask | None:
         with closing(sqlite3.connect(self.db_path)) as db, db:
             row = db.execute(

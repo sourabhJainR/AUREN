@@ -38,6 +38,25 @@ Repeat `--watch` for each commit and `--required-check` for each required check.
 python auren_cli.py continuous start --project-root . --max-cycles 3
 ```
 
+## Parent-goal continuation
+
+The canonical `AdaptiveRuntime` host exposes `create_continuous_supervisor(...)`. It reuses that runtime's `ExecutionController` and `EngineeringRecoveryLedger`; it does not create another queue or recovery database. Register parent-goal reconcilers only after `configure_trusted_plan_dispatch(...)` has installed the host-owned authority root. The host must re-register its trusted callbacks at startup after restart.
+
+The supervisor accepts host-composed `goal_reconcilers` keyed by durable goal identity. It invokes each reconciler before claiming queued tasks on every cycle, so a reconciler can inspect the canonical plan/run, dispatch the next dependency-ready unit through the trusted plan-dispatch composition root, and let the same controller process that unit in the current cycle. Reconciler outcomes are hash-chained in the supervisor audit log. A transient failure blocks only that goal for persisted exponential backoff; explicit approval or external-dependency outcomes become durable holds. Independent goals and already-authorized queued work continue.
+
+A durable stop request is never cleared by an expired lease or process restart. A replacement supervisor remains stopped until `clear_stop(reason)` is called on a host configured with an operator-authentication callback. The callback must return the authenticated operator identity from a trusted host session; a caller-supplied identity is not accepted. Without that callback, stop clearing fails closed. The verified identity and reason are recorded in the audit chain.
+
+`status` exposes `goal_health` for registered and previously recorded goals, including retry count, last error type and remaining backoff. The durable record remains visible after restart even if a goal reconciler is not registered in the replacement process.
+A reconciler may return `blocked`, `waiting_for_approval`, `waiting_external_dependency`, `paused` or a cancellation state. Explicit `failed`, `failure`, `error` and `retryable_failure` outcomes enter the bounded retry path rather than being treated as successful reconciliation. The supervisor persists that hold and does not call the reconciler again on every cycle. After the external decision or new evidence is recorded, the host calls `wake_goal(goal_id, reason)`; this clears the hold and retry state and writes an audit event. The reconciler must re-check all current authority and evidence before dispatching any work.
+
+The supervisor also persists its active run ID and monotonic cycle count in the existing control row. If a process exits unexpectedly while holding a lease, a replacement supervisor can reclaim the expired lease and resume the same run identity. A clean stop or exhausted per-invocation cycle budget starts a new run on the next explicit service invocation. Existing databases receive an additive nullable run ID column.
+
+Poller network/API errors and goal-reconciler exceptions use persisted exponential retry schedules. Each delay starts at the greater of one second or the configured poll interval, doubles after each consecutive error, and is capped at five minutes. A valid non-error observation resets the relevant backoff. While a poller or goal is waiting, independent task execution and other pollers/goals continue. The `poller_backoff`, `goal_backoff` and `goal_holds` records are committed to the supervisor SQLite database and survive process restart.
+
+A reconciler is not an authorization boundary. It must use stable dispatch keys, canonical plan/recovery stores, host-authenticated assignments, shared budgets and approval gates. It must not mark a parent goal complete from its own return value; completion remains evidence-bound in the plan/evidence stores. The host service must register reconcilers at startup for unattended continuation. No reconciler is synthesized when the host has not configured the trusted composition root.
+
+For EngineeringPlan dispatch, promote dependency-satisfied pending units to `ready` before selection, then persist the `ready -> running` compare-and-swap transition before building the immutable EngineeringContextPacket and calling TrustedPlanDispatchRoot. The packet and approval checkpoint must bind that same run revision. Do not advance the plan/run revision after queue insertion while the worker is active: controller preflight rejects a queued dispatch whose immutable run revision is stale. Reconcile the durable task outcome first, then advance `running -> verifying -> passed/failed/blocked`. Reuse the same stable dispatch key when reconciling an uncertain submission acknowledgement.
+
 ## Lifecycle and recovery contract
 
 - One supervisor owns a finite renewable lease. A second live worker cannot drive the same project concurrently.
@@ -66,3 +85,10 @@ If a run appears stuck, inspect `continuous status` and `continuous audit` first
 ## Current boundary
 
 The continuous loop, exact-head check polling, stop command, task inventory and hash-chain audit are implemented. Remaining gates are: connecting each deployed repair handler to its provider-specific evidence and review contracts; cross-store crash injection for the recovery ledger versus decision journal; child-process hard termination/deadline propagation; external side-effect reconciliation; independent evaluator/isolation custody; and a real staging rollback rehearsal. These must remain visible as pending rather than being marked complete by a green polling result.
+
+
+### Goal retry and operator wake
+
+Goal reconciliation uses a bounded retry budget (`max_goal_retries`, default five) with persisted exponential backoff. Exhaustion creates a durable `retry_budget_exhausted` hold; the supervisor does not keep retrying without new evidence. Holds caused by approval, external dependency or retry exhaustion remain across process restarts.
+
+A held goal can be woken only when the host configured `operator_authorizer`, the callback returns a verified operator identity, and the caller supplies a bounded evidence reference and reason. Waking clears the retry counter, but does not grant execution authority: the reconciler runs again and must re-check the canonical approval, policy and evidence stores before dispatch. Without host authentication, the hold remains active.
