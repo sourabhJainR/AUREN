@@ -75,13 +75,13 @@ class GraphWorkspaceCoordinator:
         top = _git(self.project_root, "rev-parse", "--show-toplevel").decode().strip()
         if Path(top).resolve() != self.project_root:
             raise ValueError("project_root must be the top-level Git checkout")
-        if _git(self.project_root, "status", "--porcelain", "--untracked-files=all").strip():
-            raise PermissionError("source checkout must be clean before graph workspaces are allocated")
         self.base_revision = _git(self.project_root, "rev-parse", "--verify", "HEAD^{commit}").decode().strip()
         self.workspace_root = Path(workspace_root or (Path(tempfile.gettempdir()) / "auren-graph-workspaces")).expanduser().resolve()
         self.workspace_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.artifact_root = self.workspace_root / ".proposals"
         self.artifact_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.adoption_root = self.workspace_root / ".adoptions"
+        self.adoption_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         if self.workspace_root.is_symlink() or self.artifact_root.is_symlink():
             raise PermissionError("workspace and proposal roots must not be symlinks")
         self._lock = threading.RLock()
@@ -111,9 +111,18 @@ class GraphWorkspaceCoordinator:
         columns = {row[1] for row in self._registry.execute("PRAGMA table_info(graph_workspace_registry)")}
         if "termination_evidence" not in columns:
             self._registry.execute("ALTER TABLE graph_workspace_registry ADD COLUMN termination_evidence TEXT")
+        self._registry.execute("""CREATE TABLE IF NOT EXISTS graph_workspace_adoptions (
+            adoption_id TEXT PRIMARY KEY, base_revision TEXT NOT NULL, worker_ids TEXT NOT NULL,
+            paths TEXT NOT NULL, artifact_path TEXT NOT NULL, artifact_digest TEXT NOT NULL,
+            state TEXT NOT NULL
+        )""")
         self._registry.commit()
+        self._recovered_adoption_pending_commit = False
         try:
             self._restore_registry()
+            self._reconcile_adoption_journal()
+            if _git(self.project_root, "status", "--porcelain", "--untracked-files=all").strip() and not self._recovered_adoption_pending_commit:
+                raise PermissionError("source checkout must be clean before graph workspaces are allocated")
         except BaseException:
             self._registry.close()
             self._registry = None
