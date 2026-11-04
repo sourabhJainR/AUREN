@@ -166,7 +166,7 @@ class GraphWorkspaceCoordinator:
 
     def _persist_adoption_intent(self, worker_ids, paths, patch):
         digest = hashlib.sha256(patch).hexdigest()
-        adoption_id = hashlib.sha256((self.base_revision + digest + '|'.join(worker_ids)).encode()).hexdigest()
+        adoption_id = hashlib.sha256((self.base_revision + digest + '|'.join(worker_ids) + os.urandom(8).hex()).encode()).hexdigest()
         artifact = self.adoption_root / (adoption_id + '.patch')
         if artifact.is_symlink():
             raise PermissionError('adoption artifact path must not be a symlink')
@@ -190,9 +190,26 @@ class GraphWorkspaceCoordinator:
         self._registry.commit()
 
     def _reconcile_adoption_journal(self) -> None:
-        rows = self._registry.execute("SELECT adoption_id, base_revision, state FROM graph_workspace_adoptions WHERE state='applying'").fetchall()
-        if rows:
-            raise RuntimeError("an interrupted graph adoption requires explicit reconciliation before new work")
+        rows = self._registry.execute("SELECT adoption_id, base_revision FROM graph_workspace_adoptions WHERE state='applying'").fetchall()
+        for adoption_id, base in rows:
+            outcomes = self._registry.execute(
+                "SELECT state FROM graph_workspace_adoptions WHERE adoption_id IN (?, ?, ?)",
+                (adoption_id + ':not_applied', adoption_id + ':blocked', adoption_id + ':completed'),
+            ).fetchall()
+            recorded = {row[0] for row in outcomes}
+            if 'completed' in recorded:
+                self._recovered_adoption_pending_commit = True
+                continue
+            if 'blocked' in recorded:
+                raise RuntimeError("interrupted adoption is blocked; manual reconciliation required")
+            if 'not_applied' in recorded:
+                continue
+            if base != self.base_revision:
+                raise RuntimeError("interrupted adoption has a stale base revision")
+            if _git(self.project_root, "status", "--porcelain", "--untracked-files=all").strip():
+                self._record_adoption_outcome(adoption_id, "blocked")
+                raise RuntimeError("interrupted adoption left a dirty target; manual reconciliation required")
+            self._record_adoption_outcome(adoption_id, "not_applied")
 
     def _restore_registry(self) -> None:
         """Restore only records bound to this exact base; ambiguous records stay blocked."""
@@ -417,7 +434,7 @@ class GraphWorkspaceCoordinator:
                     self._states[proposal.worker_id] = "adopted"
                     result[proposal.worker_id] = tuple(sorted(proposal.paths))
                 self._persist_registry()
-                self._set_adoption_state(adoption_id, "completed")
+                self._record_adoption_outcome(adoption_id, "completed")
                 return result
         except BaseException as exc:
             rollback_error = None
