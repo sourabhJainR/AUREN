@@ -1104,5 +1104,126 @@ class ContinuousEngineeringIntegrationTests(unittest.TestCase):
 
 
 
+    def test_verified_learning_and_receiver_ack_share_budget_identity_after_restart(self):
+        import gc
+        import hashlib
+        import time
+        from portable.engineering_dashboard import EngineeringDashboard
+        from portable.execution_controller import ExecutionController
+        from portable.harness_experiments import canonical_digest
+        from portable.progress_journal import ProgressJournal
+        from portable.response_delivery_supervisor import ResponseDeliverySupervisor
+        from portable.runtime_recovery import RuntimeExecutionGuard
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            work_key = "AUREN:issue-696:continuous-engineering"
+            plan, _store, ledger, bridge = _start_integrated_plan(root, work_key)
+            manifest, result, adopted = _run_integrated_harness_experiment(
+                work_key=work_key,
+                plan=plan,
+                ledger=ledger,
+                guard=RuntimeExecutionGuard(max_steps=20, max_attempts=20, deadline_seconds=60),
+            )
+            self.assertTrue(result.success)
+            self.assertEqual("adopted", result.status)
+            self.assertEqual([result.adopted_digest], adopted)
+            learning = ledger.get_checkpoint(work_key, "harness_experiment")
+            self.assertIsNotNone(learning)
+            self.assertEqual("verified", learning.status)
+            self.assertEqual(work_key, learning.payload["work_key"])
+
+            runtime = ExecutionController(root)
+            delivery = ResponseDeliverySupervisor(
+                runtime, root / ".auren" / "progress.jsonl"
+            )
+            response_bytes = (
+                b"verified learning manifest=" + manifest.digest.encode("ascii")
+                + b"; plan=" + plan.digest.encode("ascii")
+            )
+            response_id = hashlib.sha256(response_bytes).hexdigest()
+            delivery_id = "learning-evidence-" + response_id[:16]
+            delivery_guard = RuntimeExecutionGuard(
+                max_steps=8, max_attempts=4, max_delivery_bytes=4096
+            )
+            delivery_task_id = delivery.create(
+                response_id, delivery_id, response_id,
+                deadline_seconds=10, execution_guard=delivery_guard,
+                budget_id=work_key,
+            )
+            operation_key = work_key + ":response:" + response_id + ":chunk:1"
+            self.assertTrue(delivery.consume_delivery_bytes(
+                delivery_task_id, len(response_bytes), operation_key=operation_key
+            ))
+            self.assertTrue(delivery.start(delivery_task_id))
+            ProgressJournal(root / ".auren" / "progress.jsonl").record(
+                delivery_task_id, "response_delivery_receiver_acknowledged",
+                state="running", stage="response-delivery",
+                message="receiver confirmed the immutable response digest",
+                evidence_ref="sha256:" + response_id,
+            )
+            end = time.monotonic() + 4
+            while delivery.state(delivery_task_id) != "completed" and time.monotonic() < end:
+                time.sleep(0.01)
+            self.assertEqual("completed", delivery.state(delivery_task_id))
+            self.assertEqual(
+                "completed", runtime.progress_journal.snapshot(delivery_task_id)["state"]
+            )
+            charged = delivery.delivery_budget_snapshot(delivery_task_id)
+            self.assertEqual(
+                len(response_bytes), charged["delivery_charges"][operation_key]
+            )
+            del delivery, runtime
+            gc.collect()
+
+            restarted_runtime = ExecutionController(root)
+            restarted_delivery = ResponseDeliverySupervisor(
+                restarted_runtime, root / ".auren" / "progress.jsonl"
+            )
+            resumed_id = restarted_delivery.create(
+                response_id, delivery_id, response_id, budget_id=work_key
+            )
+            self.assertEqual(delivery_task_id, resumed_id)
+            self.assertEqual("completed", restarted_delivery.state(resumed_id))
+            self.assertTrue(restarted_delivery.consume_delivery_bytes(
+                resumed_id, len(response_bytes), operation_key=operation_key
+            ))
+            resumed_budget = restarted_delivery.delivery_budget_snapshot(resumed_id)
+            self.assertEqual(
+                len(response_bytes), resumed_budget["delivery_charges"][operation_key]
+            )
+            self.assertFalse(restarted_delivery.start(resumed_id))
+            metrics = restarted_delivery.metrics_snapshot()
+            self.assertGreaterEqual(metrics["completed_tasks"], 1)
+            self.assertGreaterEqual(metrics["receiver_acknowledged_deliveries"], 1)
+
+            evidence_refs = (
+                "learning://" + work_key + "/" + manifest.digest,
+                "sha256:" + canonical_digest(learning.payload),
+                "delivery://" + resumed_id,
+                "sha256:" + response_id,
+            )
+            bridge.transition_task(
+                work_key, "learn-and-deliver", "passed",
+                reason="verified learning checkpoint and receiver acknowledgement share the durable budget",
+                evidence_refs=evidence_refs,
+            )
+            restarted_bridge = EngineeringPlanRecoveryBridge(
+                store=EngineeringPlanStore(root / ".auren" / "plans.sqlite3"),
+                ledger=EngineeringRecoveryLedger(root / ".auren" / "recovery.sqlite3"),
+            )
+            loaded_plan, loaded_run = restarted_bridge.load_verified(work_key)
+            self.assertEqual(plan.digest, loaded_plan.digest)
+            self.assertEqual("passed", loaded_run.tasks[0].status)
+            snapshot = EngineeringDashboard(root).snapshot().as_dict()
+            plan_row = next(row for row in snapshot["plan_runs"] if row["run_id"] == work_key)
+            self.assertEqual("completed", plan_row["status"])
+            self.assertEqual({"passed": 1}, plan_row["task_counts"])
+            self.assertGreaterEqual(plan_row["evidence_count"], 4)
+            restarted_delivery.shutdown(wait_seconds=1)
+            del restarted_runtime
+            gc.collect()
+
+
 if __name__ == "__main__":
     unittest.main()
