@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 import threading
 import time
@@ -17,6 +18,7 @@ from .execution_controller import (
     ExecutionController,
     LeaseLostError,
     TaskCancellationRequested,
+    TaskDeadlineExceeded,
 )
 
 
@@ -43,6 +45,14 @@ def await_receiver_acknowledgement(payload: Mapping[str, Any]) -> dict[str, Any]
         task_id = str(row[0]) if row else None
     response_id = payload.get("response_id")
     digest = payload.get("response_sha256")
+    deadline_epoch = payload.get("auren_deadline_epoch")
+    if deadline_epoch is not None and (
+        isinstance(deadline_epoch, bool)
+        or not isinstance(deadline_epoch, (int, float))
+        or not math.isfinite(float(deadline_epoch))
+        or float(deadline_epoch) <= 0
+    ):
+        raise ValueError("response delivery deadline binding is invalid")
     if not all(isinstance(value, str) and value for value in (journal_path, task_id, response_id, digest)):
         raise ValueError("response delivery task envelope is incomplete")
     if response_id != digest or len(digest) != 64:
@@ -69,6 +79,8 @@ def await_receiver_acknowledgement(payload: Mapping[str, Any]) -> dict[str, Any]
             raise LeaseLostError("response delivery supervisor lease was replaced; stale worker stopped")
         if cancel_event is not None and cancel_event.is_set():
             raise TaskCancellationRequested("response delivery cancelled by supervisor")
+        if deadline_epoch is not None and time.time() >= float(deadline_epoch):
+            raise TaskDeadlineExceeded("response delivery deadline expired before receiver acknowledgement")
         rows = [row for row in journal._events() if row.get("task_id") == task_id]
         for row in reversed(rows):
             if row.get("event") == "response_delivery_receiver_acknowledged":
@@ -77,7 +89,10 @@ def await_receiver_acknowledgement(payload: Mapping[str, Any]) -> dict[str, Any]
                 return {"success": True, "detail": "receiver acknowledgement verified", "evidence": ["sha256:" + digest]}
             if row.get("state") in {"failed", "cancelled", "blocked_reconciliation"}:
                 raise RuntimeError("response delivery became terminal before receiver acknowledgement")
-        time.sleep(0.05)
+        sleep_for = 0.05
+        if deadline_epoch is not None:
+            sleep_for = min(sleep_for, max(0.0, float(deadline_epoch) - time.time()))
+        time.sleep(sleep_for)
 
 
 class ResponseDeliverySupervisor:
