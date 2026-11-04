@@ -62,8 +62,10 @@ def _paths(values: list[str] | tuple[str, ...]) -> tuple[str, ...]:
 def load() -> dict[str, dict[str, Any]]:
     if not STATE.exists():
         return {}
-    if STATE.is_symlink():
-        raise PermissionError("worktree registry must not be a symlink")
+    if STATE.parent.is_symlink():
+        raise PermissionError("worktree registry parent must not be a symlink")
+    if STATE.parent.is_symlink() or STATE.is_symlink():
+        raise PermissionError("worktree registry path must not contain symlinks")
     try:
         value = json.loads(STATE.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -103,7 +105,7 @@ def save(records: dict[str, dict[str, Any]]) -> None:
 
 def _managed_path(record: dict[str, Any]) -> Path:
     raw = Path(record.get("path", ""))
-    if not str(raw) or raw.is_symlink():
+    if WORKTREES.parent.is_symlink() or not str(raw) or raw.is_symlink():
         raise PermissionError("persisted worktree path is missing or a symlink")
     root = WORKTREES.resolve()
     resolved = raw.resolve()
@@ -143,6 +145,8 @@ def create(
             raise ValueError("intent, budget and owned paths require a task_id")
         paths = ()
     WORKTREES.mkdir(parents=True, exist_ok=True)
+    if WORKTREES.parent.is_symlink() or WORKTREES.is_symlink():
+        raise PermissionError("worktree root path must not contain symlinks")
     if WORKTREES.is_symlink():
         raise PermissionError("worktree root must not be a symlink")
     stamp = dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%SZ")
