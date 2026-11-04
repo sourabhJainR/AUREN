@@ -204,10 +204,7 @@ class EngineeringPlanGoalReconcilerTests(unittest.TestCase):
         self.assertEqual(final["status"], "complete")
         plan, run = self.bridge.load_verified(self.plan.run_id)
         self.assertEqual({item.task_id for item in run.tasks}, {"implement", "review"})
-        self.assertTrue(
-            all(item.status == "passed" and item.evidence_refs for item in run.tasks),
-            f"plan progress={run.tasks!r}; supervisor={status!r}",
-        )
+        self.assertTrue(all(item.status == "passed" and item.evidence_refs for item in run.tasks))
         checkpoint = self.bridge.ledger.get_checkpoint(self.plan.run_id, self.bridge.PHASE)
         self.assertEqual(checkpoint.status, "verified")
 
@@ -246,8 +243,11 @@ class EngineeringPlanGoalReconcilerTests(unittest.TestCase):
 
         self.assertTrue(report["audit_chain_valid"])
         _, run = self.bridge.load_verified(self.plan.run_id)
-        self.assertTrue(all(item.status == "passed" and item.evidence_refs for item in run.tasks))
         status = supervisor.status(event_limit=100)
+        self.assertTrue(
+            all(item.status == "passed" and item.evidence_refs for item in run.tasks),
+            f"plan progress={run.tasks!r}; supervisor={status!r}",
+        )
         self.assertEqual(2, status["task_counts"]["completed"])
         self.assertTrue(any(
             event["event_type"] == "goal_reconciled"
