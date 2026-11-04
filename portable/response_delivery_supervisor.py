@@ -177,10 +177,19 @@ class ResponseDeliverySupervisor:
                 "SELECT task_id,response_sha256,artifact_sha256,budget_id FROM deliveries WHERE response_id=? AND delivery_id=?",
                 (response_id, delivery_id),
             ).fetchone()
-            # A supplied budget ID always denotes a durable checkpoint, even
-            # for an idempotent delivery lookup. Validate before returning an
-            # existing task or dispatching a new one.
-            if budget_id is not None and execution_guard is None:
+            # A supplied or previously recorded budget ID always denotes a
+            # durable checkpoint, including idempotent delivery lookups.
+            if row:
+                if row[1] != digest:
+                    raise ValueError("delivery identity is already bound to a different response digest")
+                if artifact_digest is not None and row[2] not in (None, artifact_digest):
+                    raise ValueError("delivery identity is already bound to a different artifact digest")
+                if budget_id is not None and row[3] not in (None, budget_id):
+                    raise ValueError("delivery identity is already bound to a different crew budget")
+                budget_id = budget_id or row[3]
+                if budget_id is None:
+                    raise RuntimeError("existing delivery task has no durable budget binding")
+            if budget_id is not None:
                 existing_budget = db.execute(
                     "SELECT snapshot_json FROM delivery_budgets WHERE budget_id=?",
                     (budget_id,),
@@ -189,15 +198,35 @@ class ResponseDeliverySupervisor:
                     raise FileNotFoundError(
                         "shared delivery budget checkpoint is unavailable; cannot resume by ID alone"
                     )
-                RuntimeExecutionGuard.resume(json.loads(existing_budget[0]))
+                persisted = json.loads(existing_budget[0])
+                if execution_guard is None:
+                    execution_guard = RuntimeExecutionGuard.resume(persisted)
+                else:
+                    snapshot = execution_guard.snapshot()
+                    old_charges = persisted.get("delivery_charges", {})
+                    new_charges = snapshot.get("delivery_charges", {})
+                    if (
+                        persisted.get("max_delivery_bytes") != snapshot.get("max_delivery_bytes")
+                        or any(new_charges.get(key) != value for key, value in old_charges.items())
+                    ):
+                        raise ValueError("shared crew budget does not match its durable checkpoint")
+                    db.execute(
+                        "UPDATE delivery_budgets SET snapshot_json=?,updated_at=CURRENT_TIMESTAMP WHERE budget_id=?",
+                        (json.dumps(snapshot, sort_keys=True, separators=(",", ":")), budget_id),
+                    )
+                self._execution_guards[budget_id] = execution_guard
             if row:
-                if row[1] != digest:
-                    raise ValueError("delivery identity is already bound to a different response digest")
-                if artifact_digest is not None and row[2] not in (None, artifact_digest):
-                    raise ValueError("delivery identity is already bound to a different artifact digest")
-                if budget_id is not None and row[3] not in (None, budget_id):
-                    raise ValueError("delivery identity is already bound to a different crew budget")
                 task_id = str(row[0])
+                if row[3] is None and budget_id is not None:
+                    db.execute(
+                        "UPDATE deliveries SET budget_id=? WHERE response_id=? AND delivery_id=?",
+                        (budget_id, response_id, delivery_id),
+                    )
+                if artifact_digest is not None and row[2] is None:
+                    db.execute(
+                        "UPDATE deliveries SET artifact_sha256=? WHERE response_id=? AND delivery_id=?",
+                        (artifact_digest, response_id, delivery_id),
+                    )
                 task = self.controller.task(task_id)
                 if task is None:
                     raise RuntimeError("delivery registry references a missing supervisor task")

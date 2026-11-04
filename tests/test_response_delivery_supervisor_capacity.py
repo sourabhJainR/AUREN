@@ -218,6 +218,53 @@ class ResponseDeliverySupervisorCapacityTests(unittest.TestCase):
         delivery._release_worker_slot("task-one", first_token)
 
 
+    def test_idempotent_delivery_lookup_revalidates_the_durable_shared_budget(self):
+        from portable.execution_controller import ExecutionController
+        from portable.runtime_recovery import RuntimeExecutionGuard
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            controller = ExecutionController(root)
+            delivery = supervisor_module.ResponseDeliverySupervisor(
+                controller, controller.progress_journal.path
+            )
+            try:
+                response_id = "c" * 64
+                delivery_id = "shared-budget-idempotency"
+                budget_id = "AUREN:issue-696:continuous-engineering"
+                guard = RuntimeExecutionGuard(
+                    max_steps=8, max_attempts=4, max_delivery_bytes=4096
+                )
+                task_id = delivery.create(
+                    response_id, delivery_id, response_id,
+                    execution_guard=guard, budget_id=budget_id,
+                )
+                self.assertTrue(delivery.consume_delivery_bytes(
+                    task_id, 12, operation_key=budget_id + ":chunk:1"
+                ))
+
+                mismatched = RuntimeExecutionGuard(
+                    max_steps=8, max_attempts=4, max_delivery_bytes=2048
+                )
+                with self.assertRaisesRegex(ValueError, "shared crew budget does not match"):
+                    delivery.create(
+                        response_id, delivery_id, response_id,
+                        execution_guard=mismatched, budget_id=budget_id,
+                    )
+                # Omitting the ID on an idempotent lookup must still reuse and
+                # validate the budget bound to the existing delivery row.
+                with self.assertRaisesRegex(ValueError, "shared crew budget does not match"):
+                    delivery.create(
+                        response_id, delivery_id, response_id,
+                        execution_guard=mismatched,
+                    )
+                self.assertEqual(
+                    task_id,
+                    delivery.create(response_id, delivery_id, response_id, execution_guard=guard),
+                )
+            finally:
+                delivery.shutdown(wait_seconds=1)
+
     def test_cancellation_and_deadline_reach_the_waiting_delivery_handler(self):
         from portable.execution_controller import ExecutionController
 
