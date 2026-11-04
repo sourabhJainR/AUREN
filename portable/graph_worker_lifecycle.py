@@ -287,7 +287,7 @@ class GraphWorkerLifecycle:
                 raise PermissionError("persisted graph verification receipt has an invalid output digest")
             seen.add(check.get("check_id"))
         recovery_node = self.recovery_bridge.load()["nodes"][task_id]
-        if recovery_node.get("status") != "adopting" or recovery_node.get("worker_id") != worker_id:
+        if recovery_node.get("status") not in {"adopting", "complete"} or recovery_node.get("worker_id") != worker_id:
             raise PermissionError("recovery ledger does not authorize resuming this prepared adoption")
         workspace_id = recovery_node.get("workspace_id")
         if not isinstance(workspace_id, str) or not workspace_id:
@@ -687,6 +687,7 @@ class GraphWorkerLifecycle:
             prepared = [self._prepared[worker_id] for worker_id in worker_ids]
         adoption_started = False
         recovered_adoption = False
+        journal_finalized: set[str] = set()
         try:
             self.runtime_guard.check()
             for item in prepared:
@@ -728,19 +729,24 @@ class GraphWorkerLifecycle:
                         ) + "; next_action=reconcile_target_tree_and_recovery_ledger",
                         evidence_ref=item.receipt_path,
                     )
-                elif recovery_node["status"] == "adopting":
+                elif recovery_node["status"] in {"adopting", "complete"}:
                     recovered_adoption = True
                     prior = self.journal.snapshot(item.task_id)
-                    expected_binding = self._binding(
+                    start_binding = self._binding(
                         item.task_id, item.worker_id, item.task_digest, item.intent_digest,
                         "adoption_started",
                     )
-                    if (
-                        prior.get("stage") != "adoption"
-                        or expected_binding not in prior.get("message", "")
-                        or prior.get("evidence_ref") != item.receipt_path
-                    ):
+                    complete_binding = self._binding(
+                        item.task_id, item.worker_id, item.task_digest, item.intent_digest,
+                        "complete",
+                    )
+                    prior_state = prior.get("reported_state", prior.get("state"))
+                    if prior.get("stage") != "adoption" or prior.get("evidence_ref") != item.receipt_path:
                         raise PermissionError("adopting recovery node has no matching durable ProgressJournal receipt")
+                    if prior.get("message") == complete_binding and prior_state == "completed":
+                        journal_finalized.add(item.task_id)
+                    elif start_binding not in prior.get("message", ""):
+                        raise PermissionError("adopting recovery node has contradictory ProgressJournal evidence")
                 else:
                     raise PermissionError(
                         f"worker {item.worker_id} is not in a working or recoverable adopting state"
@@ -769,11 +775,26 @@ class GraphWorkerLifecycle:
             for item in prepared:
                 task = self.task_plan.tasks[item.task_id]
                 paths = adopted[item.worker_id]
-                self.journal.record(
-                    item.task_id, "verified-proposal-adopted", state="completed", stage="adoption",
-                    message=self._binding(item.task_id, item.worker_id, item.task_digest, item.intent_digest, "complete"),
-                    completed_units=1, total_units=1, evidence_ref=item.receipt_path,
+                completion_binding = self._binding(
+                    item.task_id, item.worker_id, item.task_digest, item.intent_digest, "complete"
                 )
+                progress = self.journal.snapshot(item.task_id)
+                progress_state = progress.get("reported_state", progress.get("state"))
+                if progress_state == "completed":
+                    if (
+                        progress.get("stage") != "adoption"
+                        or progress.get("message") != completion_binding
+                        or progress.get("evidence_ref") != item.receipt_path
+                    ):
+                        raise PermissionError("completed ProgressJournal receipt contradicts the verified adoption")
+                    journal_finalized.add(item.task_id)
+                else:
+                    self.journal.record(
+                        item.task_id, "verified-proposal-adopted", state="completed", stage="adoption",
+                        message=completion_binding,
+                        completed_units=1, total_units=1, evidence_ref=item.receipt_path,
+                    )
+                    journal_finalized.add(item.task_id)
                 recovery_node = self.recovery_bridge.load()["nodes"][item.task_id]
                 if recovery_node["status"] == "adopting":
                     self._record_recovery_node(
