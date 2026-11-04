@@ -9,6 +9,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / ".ai-harness"))
 
 from portable.progress_journal import ProgressJournal
+from portable.agent_execution_guard import agent_assignment_scope
+from portable.agent_profiles import resolve_agent_profile
+from portable.execution_controller import ExecutionController
+from portable.team_budget_adapters import TeamBudgetAdapterDenied, TeamBudgetAdapterEnforcer
 from portable.crew_adapters import (
     ApprovedTool,
     ApprovedToolRegistry,
@@ -30,6 +34,129 @@ class ProviderBackedCrewAdapterTests(unittest.TestCase):
             "blockers": [],
             "acceptance_check_results": [{"check": "contract", "passed": True}],
         }
+
+    def _budgeted_provider_setup(self, root, *, settlement_verifier=None):
+        controller = ExecutionController(
+            root,
+            team_budget_settlement_verifier=settlement_verifier or (lambda receipt: receipt["usage_evidence"]),
+        )
+        controller.register_handler(
+            "provider-budget-test", lambda payload: {"ok": True},
+            execution_class="read_only",
+        )
+        task = controller.submit(
+            "provider-budget-test", {"work": "provider budget acceptance"},
+            goal="verify provider adapter shared budget",
+        )
+        members = []
+        for member_id, profile_id in (
+            ("implementer", "backend_implementer"),
+            ("qa", "qa_reviewer"),
+        ):
+            profile = resolve_agent_profile(profile_id, revision=1)
+            members.append({
+                "member_id": member_id, "profile_id": profile_id,
+                "profile_revision": 1, "profile_digest": profile.digest,
+            })
+        controller.register_team_members(task.id, "provider-budget-run", members)
+        for member_id in ("implementer", "qa"):
+            controller.transition_team_member(
+                task.id, "provider-budget-run", member_id,
+                expected_state="pending", new_state="assigned",
+            )
+        controller.transition_team_member(
+            task.id, "provider-budget-run", "implementer",
+            expected_state="assigned", new_state="running",
+        )
+
+        def context_resolver(request):
+            metadata = request["request"]
+            return {
+                "task_id": task.id,
+                "run_id": "provider-budget-run",
+                "member_id": request["principal_id"],
+                "principal_id": request["principal_id"],
+                "operation_key": f"provider:{task.id}:{metadata['crew_id']}",
+                "tokens": 100, "tool_calls": 0, "wall_seconds": 30,
+            }
+
+        enforcer = TeamBudgetAdapterEnforcer(
+            controller,
+            context_resolver=context_resolver,
+            usage_evidence_resolver=lambda _request: {
+                "tokens": 25, "tool_calls": 0, "wall_seconds": 2,
+            },
+        )
+        return controller, task.id, enforcer
+
+    def test_provider_adapter_settles_usage_through_shared_team_ledger(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp:
+            controller, task_id, enforcer = self._budgeted_provider_setup(Path(temp))
+            calls = []
+            response = json.dumps({"tool_calls": [], "proposal": self.proposal()})
+            tools = ApprovedToolRegistry([], team_budget_enforcer=enforcer)
+            adapter = ProviderBackedCrewAdapter(
+                "backend_api", "host-provider", "pinned-v1",
+                lambda prompt, timeout: calls.append((prompt, timeout)) or response,
+                tools, allowed_tools=(),
+            )
+            with agent_assignment_scope(
+                ("src/app.py",), role_id="BE-01", principal_id="implementer",
+            ):
+                result = adapter.propose({
+                    "task_id": task_id, "crew_id": "backend_api",
+                    "task": "Review the provider integration",
+                })
+            self.assertEqual(result, self.proposal())
+            self.assertEqual(len(calls), 1)
+            budget = controller.team_budget(task_id, "provider-budget-run")
+            self.assertEqual(budget["charged_tokens"], 25)
+            self.assertEqual(budget["charged_wall_seconds"], 2)
+            self.assertEqual(budget["reserved_tokens"], 0)
+            self.assertEqual(controller.unresolved_team_budget_operations(task_id, "provider-budget-run"), ())
+
+    def test_assigned_provider_without_shared_budget_is_denied_before_provider_call(self):
+        calls = []
+        adapter = ProviderBackedCrewAdapter(
+            "backend_api", "host-provider", "pinned-v1",
+            lambda _prompt, _timeout: calls.append("called") or "{}",
+            ApprovedToolRegistry(), allowed_tools=(),
+        )
+        with agent_assignment_scope(
+            ("src/app.py",), role_id="BE-01", principal_id="implementer",
+        ):
+            with self.assertRaisesRegex(PermissionError, "requires the host-configured shared team-budget enforcer"):
+                adapter.propose({"task_id": "task-1", "crew_id": "backend_api", "task": "safe"})
+        self.assertEqual(calls, [])
+
+    def test_provider_usage_settlement_failure_keeps_shared_reservation_held(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp:
+            controller, task_id, enforcer = self._budgeted_provider_setup(
+                Path(temp), settlement_verifier=lambda _receipt: False,
+            )
+            calls = []
+            response = json.dumps({"tool_calls": [], "proposal": self.proposal()})
+            adapter = ProviderBackedCrewAdapter(
+                "backend_api", "host-provider", "pinned-v1",
+                lambda _prompt, _timeout: calls.append("called") or response,
+                ApprovedToolRegistry([], team_budget_enforcer=enforcer), allowed_tools=(),
+            )
+            with agent_assignment_scope(
+                ("src/app.py",), role_id="BE-01", principal_id="implementer",
+            ):
+                with self.assertRaisesRegex(TeamBudgetAdapterDenied, "reservation remains held"):
+                    adapter.propose({
+                        "task_id": task_id, "crew_id": "backend_api",
+                        "task": "Review the provider integration",
+                    })
+            self.assertEqual(calls, ["called"])
+            unresolved = controller.unresolved_team_budget_operations(task_id, "provider-budget-run")
+            self.assertEqual(
+                [item["operation_key"] for item in unresolved],
+                [f"provider:{task_id}:backend_api"],
+            )
 
     def test_provider_response_uses_allowlisted_read_only_tools_and_strict_schema(self):
         tool_calls = []
@@ -196,6 +323,26 @@ class ProviderBackedCrewAdapterTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(PermissionError, "not approved"):
             bad_tool.propose({"crew_id": "backend_api", "task": "test"})
+
+    def test_shared_budget_enforcer_is_injected_and_bound_into_adapter_identity(self):
+        class Enforcer:
+            def execute(self, _kind, _name, _request, invoke, **_kwargs):
+                return invoke()
+
+        enforcer = Enforcer()
+        plain = ProviderBackedCrewAdapter(
+            "backend_api", "provider", "v1",
+            lambda _prompt, _timeout: "{}",
+            ApprovedToolRegistry(), allowed_tools=(),
+        )
+        budgeted_tools = ApprovedToolRegistry([], team_budget_enforcer=enforcer)
+        budgeted = ProviderBackedCrewAdapter(
+            "backend_api", "provider", "v1",
+            lambda _prompt, _timeout: "{}",
+            budgeted_tools, allowed_tools=(),
+        )
+        self.assertIs(budgeted._team_budget_enforcer, enforcer)
+        self.assertNotEqual(plain.configuration_digest, budgeted.configuration_digest)
 
     def test_builder_requires_all_pinned_provider_and_tool_scope_registrations(self):
         tools = ApprovedToolRegistry()
