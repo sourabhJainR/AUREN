@@ -26,7 +26,7 @@ class EngineeringDecisionStoreTests(unittest.TestCase):
             ),
         )
         self.run = self.plans.create(self.plan)
-        self.decisions = EngineeringDecisionStore(self.plans)
+        self.decisions = EngineeringDecisionStore(self.plans, actor_authorizer=lambda _decision: "user:test")
 
     def _record(self, **overrides):
         values = {
@@ -42,10 +42,14 @@ class EngineeringDecisionStoreTests(unittest.TestCase):
             "rationale": "Public redistribution requires explicit rights.",
             "rejected_alternatives": (("Use non-redistributable data internally", "It conflicts with public distribution."),),
             "affected_task_ids": ("data", "ui"),
-            "actor_id": "user:sourabh",
+            "actor_id": "user:test",
         }
         values.update(overrides)
         return self.decisions.record(**values)
+
+    def test_decision_actor_is_host_authenticated_and_caller_spoof_is_rejected(self):
+        with self.assertRaisesRegex(PermissionError, "does not match"):
+            self._record(actor_id="user:spoof")
 
     def test_record_is_bound_to_exact_plan_and_run_revision(self):
         receipt = self._record()
