@@ -907,12 +907,13 @@ class GraphWorkerLifecycle:
                 if not isinstance(marker, Mapping) or marker.get("status") != "verified":
                     raise PermissionError(f"worker {worker_id} lacks a verified graph result")
             missing = [worker_id for worker_id in ids if worker_id not in prepared_workers]
+            restore_errors = {}
             for worker_id in tuple(missing):
                 marker = state.get("graph_worker_prepared_" + worker_id)
                 try:
                     prepared_workers[worker_id] = self._restore_prepared_worker(worker_id, marker)
-                except BaseException:
-                    pass
+                except BaseException as exc:
+                    restore_errors[worker_id] = exc
             missing = [worker_id for worker_id in ids if worker_id not in prepared_workers]
             if missing:
                 self.runtime_guard.cancel("prepared graph worker state was lost during restart")
@@ -965,7 +966,14 @@ class GraphWorkerLifecycle:
                     "prepared worker state was lost during restart",
                     "reconcile_persisted_receipt_and_workspace_before_resume",
                 )
-                raise PermissionError("prepared worker state was lost; restart reconciliation is required")
+                detail = "; ".join(
+                    f"{worker_id}: {type(restore_errors[worker_id]).__name__}: {restore_errors[worker_id]}"
+                    for worker_id in missing if worker_id in restore_errors
+                )
+                raise PermissionError(
+                    "prepared worker state was lost; restart reconciliation is required"
+                    + (f"; restore detail: {detail}" if detail else "")
+                )
             return {"graph_worker_adoption": self.adopt_prepared(ids)}
         return node
 
