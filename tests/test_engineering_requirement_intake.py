@@ -35,12 +35,13 @@ class EngineeringRequirementIntakeTests(unittest.TestCase):
             )
 
     def test_inline_credentials_are_redacted_from_intake_evidence(self):
-        intent = "Configure API key=sk-live-example and password=hunter2."
+        intent = 'Configure API key=sk-live-example and password="hunter2 phrase".'
         result = parse_engineering_request(intent)
         serialized = json.dumps(result, sort_keys=True)
 
         self.assertNotIn("sk-live-example", serialized)
         self.assertNotIn("hunter2", serialized)
+        self.assertNotIn("phrase", serialized)
         self.assertEqual(result["redacted_statement_count"], 1)
         self.assertEqual(result["redacted_value_count"], 2)
         statement = result["statements"][0]
