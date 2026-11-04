@@ -216,6 +216,7 @@ class ContinuousExecutionSupervisor:
         lease_seconds: int = 30,
         repair_handler: str | None = None,
         recovery_ledger: Any | None = None,
+        goal_reconcilers: Mapping[str, Callable[[], Mapping[str, Any]]] | None = None,
     ) -> None:
         if not isinstance(controller, ExecutionController):
             raise TypeError("controller must be an ExecutionController")
@@ -226,6 +227,10 @@ class ContinuousExecutionSupervisor:
         self.path = self.root / ".auren" / "continuous-execution.sqlite3"
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.pollers = dict(pollers or {})
+        self.goal_reconcilers = dict(goal_reconcilers or {})
+        for name, callback in self.goal_reconcilers.items():
+            if not isinstance(name, str) or not name.strip() or not callable(callback):
+                raise ValueError("goal_reconcilers require non-empty names and callable values")
         if repair_handler is not None and (not isinstance(repair_handler, str) or not repair_handler.strip()):
             raise ValueError("repair_handler must be a registered handler name")
         self.repair_handler = repair_handler.strip() if isinstance(repair_handler, str) else None
@@ -600,6 +605,26 @@ class ContinuousExecutionSupervisor:
                 self._heartbeat(run_id, cycles)
                 self._event(run_id, "cycle_started", {"cycle": cycles})
                 batch_error = None
+                # Reconcile durable parent goals before claiming queued tasks. A
+                # host-composed reconciler may dispatch the next dependency-ready
+                # plan unit through the trusted plan-dispatch root. It must use
+                # stable dispatch keys and the canonical plan/evidence stores.
+                # Reconciler failures block only that goal; independent goals and
+                # already-authorized queued work continue under the same controller.
+                for goal_name, reconcile in self.goal_reconcilers.items():
+                    try:
+                        outcome = reconcile()
+                        if not isinstance(outcome, Mapping):
+                            raise TypeError("goal reconciler must return a mapping")
+                        self._event(run_id, "goal_reconciled", {
+                            "cycle": cycles, "goal": goal_name,
+                            "outcome": _safe_value(dict(outcome)),
+                        })
+                    except Exception as reconcile_error:
+                        self._event(run_id, "goal_reconciliation_blocked", {
+                            "cycle": cycles, "goal": goal_name,
+                            "error_type": type(reconcile_error).__name__,
+                        })
                 try:
                     self.controller.resume_pending(limit=batch_size, continue_after_durable_failure=True)
                     if self.repair_watchdog is not None:
