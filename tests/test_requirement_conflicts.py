@@ -70,3 +70,8 @@ def test_conflict_identity_changes_when_source_statement_changes():
             RequirementFact("r2", "recommendation_approval", "human_approval_required", second),
         ]).conflicts[0].conflict_id
     assert detect("Require approval") != detect("Require investment committee approval")
+
+def test_empty_fact_set_is_unscored_not_clear():
+    report = RequirementConflictAnalyzer.analyze([])
+    assert report.status == "unscored"
+    assert report.fact_count == 0
