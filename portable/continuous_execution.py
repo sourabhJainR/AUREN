@@ -897,7 +897,12 @@ class ContinuousExecutionSupervisor:
                         if not isinstance(outcome, Mapping):
                             raise TypeError("goal reconciler must return a mapping")
                         outcome_status = str(outcome.get("status", "")).strip().lower()
-                        if outcome_status in {"blocked", "waiting_for_approval", "waiting_external_dependency", "paused"}:
+                        if outcome_status in {"failed", "failure", "error", "retryable_failure"}:
+                            raise RuntimeError("goal reconciler returned a failure status")
+                        if outcome_status in {
+                            "blocked", "waiting_for_approval", "waiting_external_dependency",
+                            "paused", "cancelled", "cancel_requested", "user_cancelled",
+                        }:
                             reason = outcome.get("blocker", outcome.get("reason", outcome_status))
                             self._set_goal_hold(
                                 goal_name, status=outcome_status,
