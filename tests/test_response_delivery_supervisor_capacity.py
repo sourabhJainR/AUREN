@@ -225,7 +225,7 @@ class ResponseDeliverySupervisorCapacityTests(unittest.TestCase):
             root = Path(tmp)
             controller = ExecutionController(root)
             delivery = supervisor_module.ResponseDeliverySupervisor(
-                controller, root / "progress.jsonl"
+                controller, controller.progress_journal.path
             )
             try:
                 response_id = "a" * 64
@@ -250,7 +250,7 @@ class ResponseDeliverySupervisorCapacityTests(unittest.TestCase):
             root = Path(tmp)
             controller = ExecutionController(root)
             delivery = supervisor_module.ResponseDeliverySupervisor(
-                controller, root / "progress.jsonl"
+                controller, controller.progress_journal.path
             )
             try:
                 response_id = "b" * 64
