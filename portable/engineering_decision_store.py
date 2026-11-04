@@ -214,37 +214,29 @@ class EngineeringDecisionStore:
             raise ValueError("plan_digest must be a lowercase SHA-256 digest")
         if not isinstance(run_id, str) or not _TOKEN.fullmatch(run_id):
             raise ValueError("run_id must be a bounded identifier token")
-        actor_payload = {
-            "run_id": run_id, "decision_id": decision_id,
-            "plan_digest": plan_digest, "run_revision": run_revision,
-            "decision_type": decision_type, "question": question,
-            "options": list(options) if not isinstance(options, (str, bytes)) else options,
-            "selected_option": selected_option, "rationale": rationale,
-        }
-        try:
-            verified_actor = self.actor_authorizer(actor_payload)
-        except Exception as exc:
-            raise PermissionError("decision actor authentication failed") from exc
-        if not isinstance(verified_actor, str) or not verified_actor.strip() or len(verified_actor) > 128 or not verified_actor.isprintable():
-            raise PermissionError("decision authorizer did not return a verified actor identity")
-        if actor_id is not None and actor_id != verified_actor:
-            raise PermissionError("caller-supplied actor identity does not match the authenticated actor")
         if not isinstance(options, (str, bytes)):
             options = tuple(options)
         if not isinstance(rejected_alternatives, (str, bytes)):
             rejected_alternatives = tuple(rejected_alternatives)
         if not isinstance(affected_task_ids, (str, bytes)):
             affected_task_ids = tuple(affected_task_ids)
-        actor_payload["rejected_alternatives"] = (
-            list(rejected_alternatives)
-            if not isinstance(rejected_alternatives, (str, bytes))
-            else rejected_alternatives
-        )
-        actor_payload["affected_task_ids"] = (
-            list(affected_task_ids)
-            if not isinstance(affected_task_ids, (str, bytes))
-            else affected_task_ids
-        )
+        actor_payload = {
+            "run_id": run_id, "decision_id": decision_id,
+            "plan_digest": plan_digest, "run_revision": run_revision,
+            "decision_type": decision_type, "question": question,
+            "options": list(options) if not isinstance(options, (str, bytes)) else options,
+            "selected_option": selected_option, "rationale": rationale,
+            "rejected_alternatives": list(rejected_alternatives) if not isinstance(rejected_alternatives, (str, bytes)) else rejected_alternatives,
+            "affected_task_ids": list(affected_task_ids) if not isinstance(affected_task_ids, (str, bytes)) else affected_task_ids,
+        }
+        try:
+            verified_actor = self.actor_authorizer(dict(actor_payload))
+        except Exception as exc:
+            raise PermissionError("decision actor authentication failed") from exc
+        if not isinstance(verified_actor, str) or not verified_actor.strip() or len(verified_actor) > 128 or not verified_actor.isprintable():
+            raise PermissionError("decision authorizer did not return a verified actor identity")
+        if actor_id is not None and actor_id != verified_actor:
+            raise PermissionError("caller-supplied actor identity does not match the authenticated actor")
         normalized = self._validate(
             decision_id=decision_id, decision_type=decision_type, question=question,
             options=options, selected_option=selected_option, rationale=rationale,
