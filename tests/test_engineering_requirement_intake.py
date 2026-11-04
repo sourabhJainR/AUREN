@@ -147,6 +147,7 @@ class EngineeringRequirementIntakeTests(unittest.TestCase):
             Node("implement", NodeKind.DETERMINISTIC, lambda state: {"ok": True})
         ])
         run = Orchestrator(graph).run("redacted-review", intent)
+        self.assertEqual(run.status, RunStatus.BLOCKED)
         evidence_text = "\\n".join(item.summary for item in run.evidence)
 
         self.assertNotIn(secret, evidence_text)
