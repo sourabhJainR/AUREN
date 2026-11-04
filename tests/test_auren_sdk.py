@@ -121,7 +121,9 @@ class AurenClientTests(unittest.TestCase):
                         role_id="BE-01", manager_id="EM-ENG-01",
                         action_class="edit_assigned_paths", scope=["allowed.txt"],
                         authorizer=lambda _request: True,
-                        work_key="AUREN:test:sdk-forged", registry_path=REGISTRY_PATH,
+                        work_key="AUREN:test:sdk-forged",
+                        principal_id="host:sdk-forged",
+                        registry_path=REGISTRY_PATH,
                     )
             finally:
                 client.close()
