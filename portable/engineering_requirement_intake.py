@@ -36,7 +36,7 @@ _CONSTRAINT = re.compile(
     re.I,
 )
 _REQUIREMENT = re.compile(
-    r"\b(must|shall|should|required|needs? to|need to|build|create|"
+    r"\b(must|shall|should|require(?:s|d)?|needs? to|need to|build|create|"
     r"implement|provide|support|include|add|preserve|ensure|prevent|"
     r"reject|deny|allow|deliver|ship|display|show|fetch|integrate|"
     r"compare|recommend|record|retain|verify|keep|use|generate)\b",
