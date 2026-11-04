@@ -93,6 +93,23 @@ class EngineeringDecisionStoreTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "rejected alternatives"):
             self._record(rejected_alternatives=(("Use a licensed provider", "cannot reject selected"),))
 
+    def test_history_detects_row_identity_tampering(self):
+        self._record()
+        import sqlite3
+        with sqlite3.connect(self.path) as db:
+            db.execute(
+                "UPDATE engineering_decision_records SET decision_id=? WHERE run_id=? AND decision_id=?",
+                ("renamed-decision", self.plan.run_id, "provider-licensing"),
+            )
+        with self.assertRaisesRegex(ValueError, "identity or binding mismatch"):
+            self.decisions.history(self.plan.run_id, "renamed-decision")
+
+    def test_decision_payload_has_bounded_option_and_task_counts(self):
+        with self.assertRaisesRegex(ValueError, "between two and twenty options"):
+            self._record(options=tuple(f"option-{index}" for index in range(21)))
+        with self.assertRaisesRegex(ValueError, "one hundred affected task IDs"):
+            self._record(affected_task_ids=tuple(f"task-{index}" for index in range(101)))
+
     def test_history_detects_broken_supersession_chain(self):
         first = self._record()
         self._record(
