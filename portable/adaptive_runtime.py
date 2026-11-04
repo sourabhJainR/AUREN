@@ -123,6 +123,7 @@ class AdaptiveRuntime:
             self.execution_controller._team_budget_enforcer = enforcer
         self.execution_controller._trusted_plan_dispatch_required = True
         self.trusted_plan_dispatch_root = None
+        self.engineering_decision_store = None
         self.recovery_ledger = EngineeringRecoveryLedger(
             state / "engineering-recovery.sqlite3",
             max_same_hypothesis_attempts=2,
@@ -167,7 +168,17 @@ class AdaptiveRuntime:
             approval_resolver=approval_resolver,
             assignment_resolver=assignment_resolver,
         )
+        from .engineering_decision_store import EngineeringDecisionStore
+        self.engineering_decision_store = EngineeringDecisionStore(store)
         return self.trusted_plan_dispatch_root
+
+    def record_engineering_decision(self, **decision: Any) -> Any:
+        """Persist a versioned user/owner decision against the configured plan store."""
+        if self.engineering_decision_store is None:
+            raise RuntimeError(
+                "trusted plan dispatch and canonical plan store must be configured before recording decisions"
+            )
+        return self.engineering_decision_store.record(**decision)
 
     def dispatch_engineering_plan_task(self, **request: Any) -> Any:
         """Dispatch only through the host-configured trusted plan composition root."""
