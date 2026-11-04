@@ -236,6 +236,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             execution_class="read_only", agent_action_class="run_tests",
         )
         dispatched = {}
+        reconciliation_diagnostics = []
 
         def reconcile_goal():
             current_plan, current_run = recovery.load_verified(plan.run_id)
@@ -288,6 +289,11 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                 if task_id not in dispatched and task_id in ready_ids
             ), None)
             if next_task is None:
+                reconciliation_diagnostics.append({
+                    "dispatched": sorted(dispatched),
+                    "progress": {item.task_id: item.status for item in current_run.tasks},
+                    "ready_ids": sorted(ready_ids),
+                })
                 return {"status": "in_progress", "next_action": "wait_for_active_task"}
 
             self.assignment_manager_id = "EM-ENG-01"
@@ -327,7 +333,11 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         )
         report = supervisor.run(poll_seconds=0.1, batch_size=10, max_cycles=4)
 
-        self.assertEqual({"implement", "review"}, set(dispatched))
+        self.assertEqual(
+            {"implement", "review"}, set(dispatched),
+            "reconciliation_diagnostics=" + repr(reconciliation_diagnostics)
+            + "; supervisor_events=" + repr(supervisor.status(event_limit=100)["recent_events"]),
+        )
         self.assertEqual(2, len(DISPATCH_HANDLER_CALLS) - handler_calls_before)
         self.assertTrue(all(self.controller.task(task_id).state == "completed" for task_id in dispatched.values()))
         _, final_run = recovery.load_verified(plan.run_id)
