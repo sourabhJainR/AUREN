@@ -158,14 +158,25 @@ class EngineeringPlanGoalReconcilerTests(unittest.TestCase):
 
     def test_reconciler_resumes_by_work_key_and_completes_dependency_chain(self):
         reconciler = self._reconciler()
-        first = reconciler()
-        self.assertEqual(first["status"], "in_progress")
-        self.assertEqual(first["task_id"], "implement")
-        first_key = first["dispatch_key"]
+        original_dispatch = self.root.dispatch
+        dispatch_state = {"lose_ack": True}
+
+        def lose_first_acknowledgement(**kwargs):
+            task = original_dispatch(**kwargs)
+            if dispatch_state["lose_ack"]:
+                dispatch_state["lose_ack"] = False
+                raise RuntimeError("simulated lost dispatch acknowledgement")
+            return task
+
+        self.root.dispatch = lose_first_acknowledgement
+        first_key = reconciler.work_key(self.plan.tasks[0], 0)
+        with self.assertRaisesRegex(RuntimeError, "simulated lost dispatch acknowledgement"):
+            reconciler()
         first_task = self.controller.task_by_work_key(first_key)
         self.assertIsNotNone(first_task)
 
-        # A fresh reconciler instance recovers the same pending durable task.
+        # A fresh reconciler instance recovers the same pending task after the
+        # submit acknowledgement was lost; it must not create a second row.
         resumed = self._reconciler()()
         self.assertEqual(resumed["active_task_id"], "implement")
         self.assertEqual(resumed["durable_task_id"], first_task.id)
