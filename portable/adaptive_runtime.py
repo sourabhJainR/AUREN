@@ -176,6 +176,7 @@ class AdaptiveRuntime:
         goal_reconcilers: Mapping[str, Callable[[], Mapping[str, Any]]] | None = None,
         operator_authorizer: Callable[[str], str | None] | None = None,
         repair_handler: str | None = None,
+        max_goal_retries: int = 5,
     ) -> Any:
         """Build the continuous supervisor over this runtime's canonical stores.
 
@@ -195,6 +196,7 @@ class AdaptiveRuntime:
             repair_handler=repair_handler,
             goal_reconcilers=goal_reconcilers,
             operator_authorizer=operator_authorizer,
+            max_goal_retries=max_goal_retries,
         )
 
     def dispatch_engineering_plan_task(self, **request: Any) -> Any:
