@@ -1,6 +1,7 @@
 """Public SDK contract tests."""
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 import unittest
 
@@ -145,7 +146,8 @@ class AurenClientTests(unittest.TestCase):
                         work_key="AUREN:test:sdk-missing-principal",
                         registry_path=REGISTRY_PATH,
                     )
-                self.assertEqual([], client.controller.list_tasks())
+                with sqlite3.connect(client.controller.db_path) as db:
+                    self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
             finally:
                 client.close()
 
