@@ -14,6 +14,7 @@ from portable.execution_controller import ExecutionController
 from portable.engineering_plan_recovery import EngineeringPlanCheckpointMismatch
 from portable.runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
 from portable.trusted_plan_dispatch import TrustedPlanDispatchRoot
+from portable.continuous_execution import ContinuousExecutionSupervisor
 from portable.agent_org_runtime import authorize_agent_assignment
 from tests.test_engineering_plan_dispatch import DISPATCH_HANDLER_CALLS, prepared
 
@@ -128,6 +129,214 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             "evidence_digest": "2" * 64,
             "policy_digest": "3" * 64,
         }
+
+    def test_continuous_supervisor_reconciles_parent_goal_through_trusted_dispatch_root(self):
+        approvals, request, record = self._approval(self.controller, context=self.context)
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        root = self._root(
+            self.controller, approvals, request, record, guard, context=self.context,
+        )
+        dispatched = []
+        handler_calls_before = len(DISPATCH_HANDLER_CALLS)
+
+        def reconcile_goal():
+            if not dispatched:
+                task = root.dispatch(
+                    run_id=self.plan.run_id,
+                    task_id="implement",
+                    dispatch_key="goal:dispatch-run:implement",
+                    handler="dispatch-test",
+                    packet=self.packet,
+                    payload={"resource": "tests"},
+                )
+                dispatched.append(task.id)
+            return {"status": "in_progress", "next_action": "verify_parent_acceptance"}
+
+        supervisor = ContinuousExecutionSupervisor(
+            self.controller,
+            goal_reconcilers={"AUREN:test:trusted-parent-goal": reconcile_goal},
+        )
+        report = supervisor.run(poll_seconds=0.1, batch_size=10, max_cycles=2)
+
+        self.assertEqual(1, len(dispatched))
+        self.assertEqual("completed", self.controller.task(dispatched[0]).state)
+        self.assertTrue(report["audit_chain_valid"])
+        self.assertTrue(supervisor.verify_audit_chain())
+        events = supervisor.status(event_limit=100)["recent_events"]
+        self.assertTrue(any(
+            event["event_type"] == "goal_reconciled"
+            and event["payload"]["goal"] == "AUREN:test:trusted-parent-goal"
+            for event in events
+        ))
+        self.assertEqual(handler_calls_before + 1, len(DISPATCH_HANDLER_CALLS))
+        self.assertEqual("goal:dispatch-run:implement", DISPATCH_HANDLER_CALLS[-1]["work_key"])
+
+    def test_supervisor_dispatches_dependency_ready_followup_through_trusted_root(self):
+        import hashlib
+        from portable.engineering_context_packet import build_context_packet
+        from portable.engineering_plan import new_plan_run
+        from portable.engineering_plan_recovery import EngineeringPlanRecoveryBridge
+        from portable.engineering_plan_store import EngineeringPlanStore
+        from portable.engineering_recovery import EngineeringRecoveryLedger
+
+        handler_calls_before = len(DISPATCH_HANDLER_CALLS)
+        tasks = tuple(
+            replace(item, depends_on=("implement",))
+            if item.task_id == "review" else item
+            for item in self.plan.tasks
+        )
+        plan = replace(self.plan, tasks=tasks)
+        run = new_plan_run(plan).transition_task(
+            "implement", "ready", plan=plan, reason="first dependency-ready unit",
+        )
+        store = EngineeringPlanStore(Path(self.temp.name) / "sequential-plans.sqlite3")
+        store.create(plan, run)
+        recovery = EngineeringPlanRecoveryBridge(
+            store=store,
+            ledger=EngineeringRecoveryLedger(Path(self.temp.name) / "sequential-recovery.sqlite3"),
+        )
+        recovery.ledger.start_run(plan.run_id, recovery._intent(plan))
+        recovery.ledger.checkpoint(
+            plan.run_id, recovery.PHASE, status="in_progress",
+            head_sha=plan.source_revision,
+            payload=recovery._checkpoint_payload(
+                plan, run, next_safe_action="dispatch_first_dependency_ready_unit",
+            ),
+        )
+        self.plan = plan
+        self.plan_store = store
+        self.recovery_bridge = recovery
+        self.packet = build_context_packet(
+            plan=plan, run=run, task_id="implement",
+            policy_constraints=("Do not weaken security gates",),
+            budget_remaining={"attempts": 4, "dispatches": 2},
+            next_safe_action="Implement the first bounded stock-research unit",
+        )
+        approvals, request, record = self._approval(self.controller, context=self.context)
+        guard = RuntimeExecutionGuard(max_steps=12, max_attempts=6)
+        root = TrustedPlanDispatchRoot(
+            controller=self.controller,
+            store=store,
+            recovery_bridge=recovery,
+            approval_store=approvals,
+            budget_resolver=lambda _run_id, _task_id, _handler: {
+                "budget_id": "crew:stock-research:run-1",
+                "guard": guard,
+                "checkpoint_digest": guard.snapshot()["digest"],
+                "policy_digest": "a" * 64,
+            },
+            approval_resolver=lambda _run_id, task_id, _handler: (
+                {"approval_id": record.approval_id, "request": request}
+                if task_id == "implement" else None
+            ),
+            assignment_resolver=self._assignment_resolver,
+        )
+        self.controller.register_handler(
+            "dispatch-review", "tests.test_engineering_plan_dispatch:dispatch_test_handler",
+            execution_class="read_only", agent_action_class="run_tests",
+        )
+        dispatched = {}
+
+        def reconcile_goal():
+            current_plan, current_run = recovery.load_verified(plan.run_id)
+            for task_id in ("implement", "review"):
+                progress = next(item for item in current_run.tasks if item.task_id == task_id)
+                if task_id in dispatched:
+                    durable = self.controller.task(dispatched[task_id])
+                    if durable is not None and durable.state == "completed" and progress.status == "running":
+                        recovery.transition_task(
+                            plan.run_id, task_id, "verifying",
+                            reason="canonical controller reports completed task",
+                        )
+                        evidence = "sha256:" + hashlib.sha256(
+                            f"trusted-dispatch:{task_id}:{durable.id}:completed".encode("utf-8")
+                        ).hexdigest()
+                        recovery.transition_task(
+                            plan.run_id, task_id, "passed",
+                            reason="test handler completion receipt verified",
+                            evidence_refs=(evidence,),
+                        )
+                        current_plan, current_run = recovery.load_verified(plan.run_id)
+                    elif durable is not None and durable.state in {"failed", "cancelled"}:
+                        raise RuntimeError(f"{task_id} did not complete successfully")
+            if all(item.status == "passed" for item in current_run.tasks):
+                return {"status": "complete", "passed_tasks": len(current_run.tasks)}
+
+            # Promote dependency-satisfied pending units before selecting the
+            # next ready unit. Otherwise a follow-up task can remain pending
+            # forever even after every prerequisite has passed.
+            for candidate in current_plan.tasks:
+                candidate_state = next(
+                    item for item in current_run.tasks if item.task_id == candidate.task_id
+                )
+                if (
+                    candidate.task_id not in dispatched
+                    and candidate_state.status == "pending"
+                    and set(candidate.depends_on) <= {
+                        item.task_id for item in current_run.tasks if item.status == "passed"
+                    }
+                ):
+                    recovery.transition_task(
+                        plan.run_id, candidate.task_id, "ready",
+                        reason="all declared dependencies have passed",
+                    )
+                    current_plan, current_run = recovery.load_verified(plan.run_id)
+
+            ready_ids = set(current_run.ready_tasks(current_plan))
+            next_task = next((
+                task_id for task_id in ("implement", "review")
+                if task_id not in dispatched and task_id in ready_ids
+            ), None)
+            if next_task is None:
+                return {"status": "in_progress", "next_action": "wait_for_active_task"}
+
+            self.assignment_manager_id = "EM-ENG-01"
+            self.assignment_scope = ("tests",)
+            if next_task == "implement":
+                self.assignment_role_id = "BE-01"
+                self.assignment_principal_id = "worker-1"
+                self.assignment_action_class = "edit_assigned_paths"
+                handler = "dispatch-test"
+                packet = self.packet
+            else:
+                self.assignment_role_id = "QA-01"
+                self.assignment_principal_id = "qa-worker-1"
+                self.assignment_action_class = "run_tests"
+                handler = "dispatch-review"
+                packet = build_context_packet(
+                    plan=current_plan, run=current_run, task_id="review",
+                    policy_constraints=("Verify implementation evidence; do not approve own work",),
+                    budget_remaining={"attempts": 4, "dispatches": 2},
+                    next_safe_action="Run independent review tests for the stock-research unit",
+                )
+            task = root.dispatch(
+                run_id=plan.run_id, task_id=next_task,
+                dispatch_key=f"goal:dispatch-run:{next_task}",
+                handler=handler, packet=packet, payload={"resource": "tests"},
+            )
+            dispatched[next_task] = task.id
+            recovery.transition_task(
+                plan.run_id, next_task, "running",
+                reason="trusted plan dispatch persisted task identity",
+            )
+            return {"status": "in_progress", "next_action": f"wait_for_{next_task}"}
+
+        supervisor = ContinuousExecutionSupervisor(
+            self.controller,
+            goal_reconcilers={"AUREN:test:stock-research-parent-goal": reconcile_goal},
+        )
+        report = supervisor.run(poll_seconds=0.1, batch_size=10, max_cycles=4)
+
+        self.assertEqual({"implement", "review"}, set(dispatched))
+        self.assertEqual(2, len(DISPATCH_HANDLER_CALLS) - handler_calls_before)
+        self.assertTrue(all(self.controller.task(task_id).state == "completed" for task_id in dispatched.values()))
+        _, final_run = recovery.load_verified(plan.run_id)
+        self.assertTrue(all(item.status == "passed" for item in final_run.tasks))
+        checkpoint = recovery.ledger.get_checkpoint(plan.run_id, recovery.PHASE)
+        self.assertEqual("verified", checkpoint.status)
+        self.assertTrue(report["audit_chain_valid"])
+        self.assertTrue(supervisor.verify_audit_chain())
+
 
     def test_declared_plan_owner_must_match_host_authorized_role_before_queue_insert(self):
         approvals, request, record = self._approval(self.controller, context=self.context)
