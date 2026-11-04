@@ -2707,6 +2707,9 @@ def test_task_by_work_key_recovers_same_durable_task_after_restart(tmp_path: Pat
     assert recovered.payload["work_key"] == "AUREN:test:work-key-recovery"
     assert restarted.task_by_work_key("AUREN:test:missing") is None
 
+    restarted.register_handler(
+        "tests.durable_handler", durable_handler, execution_class="read_only",
+    )
     assert restarted.run_once(recovered.id) is True
     after_completion = ExecutionController(root).task_by_work_key("AUREN:test:work-key-recovery")
     assert after_completion is not None
