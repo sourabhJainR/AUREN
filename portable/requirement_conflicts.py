@@ -22,7 +22,7 @@ class RequirementFact:
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip() or not value.isprintable():
                 raise ValueError(f"{name} must be non-empty printable text")
-        if max(map(len, (self.statement_id, self.key, self.value))) > 128:
+        if max(map(len, (self.statement_id, self.key, self.value, self.scope))) > 128:
             raise ValueError("requirement fact identity fields exceed their length limit")
         if len(self.statement) > 2000:
             raise ValueError("requirement statement exceeds the 2000-character limit")
