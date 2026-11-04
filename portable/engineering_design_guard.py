@@ -484,7 +484,7 @@ class EngineeringDesignGuard:
             result: list[str] = []
             for value in values:
                 if isinstance(value, str):
-                    value = " ".join(value.split())[:600]
+                    value = " ".join(value.split())[:2_000]
                     if value and value not in result:
                         result.append(value)
                 if len(result) >= limit:
