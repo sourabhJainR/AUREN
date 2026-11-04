@@ -140,6 +140,30 @@ class EngineeringRequirementIntakeTests(unittest.TestCase):
         )
         self.assertIn("candidate_extraction", intake.summary)
 
+    def test_review_evidence_uses_sanitized_intent_and_binds_original_digest(self):
+        secret = "sk-test-super-secret-value"
+        intent = f"Build live quotes. Delayed quotes. API key={secret}."
+        graph = Graph([
+            Node("implement", NodeKind.DETERMINISTIC, lambda state: {"ok": True})
+        ])
+        run = Orchestrator(graph).run("redacted-review", intent)
+        evidence_text = "\\n".join(item.summary for item in run.evidence)
+
+        self.assertNotIn(secret, evidence_text)
+        intake = next(
+            item for item in run.evidence
+            if item.kind == "engineering-requirement-intake"
+        )
+        review = next(
+            item for item in run.evidence
+            if item.kind == "preimplementation-review"
+        )
+        intake_payload = json.loads(intake.summary)
+        review_payload = json.loads(review.summary)
+        self.assertEqual(review_payload["source_intent_digest"], intake_payload["source_digest"])
+        self.assertEqual(review_payload["intake_digest"], intake_payload["digest"])
+        self.assertIn("[REDACTED]", review.summary)
+
     def test_incomplete_intake_blocks_before_graph_side_effects(self):
         calls = []
         graph = Graph([
