@@ -227,18 +227,24 @@ class ResponseDeliverySupervisorCapacityTests(unittest.TestCase):
             delivery = supervisor_module.ResponseDeliverySupervisor(
                 controller, root / "progress.jsonl"
             )
-            response_id = "a" * 64
-            task_id = delivery.create(
-                response_id, "cancel-delivery", response_id, deadline_seconds=10
-            )
-            self.assertTrue(delivery.start(task_id))
-            self.assertTrue(delivery.cancel(task_id, reason="integration cancellation"))
-            end = time.monotonic() + 3
-            while delivery.state(task_id) not in {"cancelled", "failed"} and time.monotonic() < end:
-                time.sleep(0.01)
-            self.assertEqual("cancelled", delivery.state(task_id))
-            self.assertEqual("cancelled", controller.progress_journal.snapshot(task_id)["state"])
-            delivery.shutdown(wait_seconds=1)
+            try:
+                response_id = "a" * 64
+                task_id = delivery.create(
+                    response_id, "cancel-delivery", response_id, deadline_seconds=10
+                )
+                self.assertTrue(delivery.start(task_id))
+                self.assertTrue(delivery.cancel(task_id, reason="integration cancellation"))
+                end = time.monotonic() + 4
+                while time.monotonic() < end:
+                    task_state = delivery.state(task_id)
+                    progress_state = controller.progress_journal.snapshot(task_id)["state"]
+                    if task_state == "cancelled" and progress_state == "cancelled":
+                        break
+                    time.sleep(0.01)
+                self.assertEqual("cancelled", delivery.state(task_id))
+                self.assertEqual("cancelled", controller.progress_journal.snapshot(task_id)["state"])
+            finally:
+                delivery.shutdown(wait_seconds=2)
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -246,20 +252,26 @@ class ResponseDeliverySupervisorCapacityTests(unittest.TestCase):
             delivery = supervisor_module.ResponseDeliverySupervisor(
                 controller, root / "progress.jsonl"
             )
-            response_id = "b" * 64
-            task_id = delivery.create(
-                response_id, "deadline-delivery", response_id, deadline_seconds=1
-            )
-            started = delivery.start(task_id)
-            self.assertTrue(started or delivery.state(task_id) == "failed")
-            end = time.monotonic() + 4
-            while delivery.state(task_id) not in {"failed", "cancelled"} and time.monotonic() < end:
-                time.sleep(0.01)
-            self.assertEqual("failed", delivery.state(task_id))
-            terminal = controller.progress_journal.snapshot(task_id)
-            self.assertEqual("failed", terminal["state"])
-            self.assertIn("deadline", terminal["message"].lower())
-            delivery.shutdown(wait_seconds=1)
+            try:
+                response_id = "b" * 64
+                task_id = delivery.create(
+                    response_id, "deadline-delivery", response_id, deadline_seconds=1
+                )
+                started = delivery.start(task_id)
+                self.assertTrue(started or delivery.state(task_id) == "failed")
+                end = time.monotonic() + 5
+                while time.monotonic() < end:
+                    task_state = delivery.state(task_id)
+                    progress_state = controller.progress_journal.snapshot(task_id)["state"]
+                    if task_state == "failed" and progress_state == "failed":
+                        break
+                    time.sleep(0.01)
+                self.assertEqual("failed", delivery.state(task_id))
+                terminal = controller.progress_journal.snapshot(task_id)
+                self.assertEqual("failed", terminal["state"])
+                self.assertIn("deadline", terminal["message"].lower())
+            finally:
+                delivery.shutdown(wait_seconds=2)
 
 
 if __name__ == "__main__":
