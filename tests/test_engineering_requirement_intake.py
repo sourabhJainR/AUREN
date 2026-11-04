@@ -48,6 +48,18 @@ class EngineeringRequirementIntakeTests(unittest.TestCase):
         self.assertIsNone(statement["statement_digest"])
         self.assertIn("[REDACTED]", statement["text"])
 
+    def test_sentence_boundaries_preserve_abbreviations_and_decimal_values(self):
+        result = parse_engineering_request(
+            "Build a service e.g. a FastAPI endpoint. Keep 99.9% availability."
+        )
+        self.assertEqual(
+            [item["text"] for item in result["statements"]],
+            [
+                "Build a service e.g. a FastAPI endpoint.",
+                "Keep 99.9% availability.",
+            ],
+        )
+
     def test_oversized_statement_is_incomplete_not_silently_truncated(self):
         intent = "Build an application. " + ("requirement " * 80)
         result = parse_engineering_request(intent)
