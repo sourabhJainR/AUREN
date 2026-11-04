@@ -128,6 +128,25 @@ class DurableGraphWorkspaceRegistryTests(unittest.TestCase):
         self.assertEqual(third.worker_states()["worker-a"], "cleaned")
         third.create_worker("worker-b", ["src/b.py"])
 
+    def test_existing_adoption_receipt_rejects_dirty_checkout_and_revalidates_commit(self):
+        first = self.make_coordinator()
+        workspace = first.create_worker("worker-a", ["src/a.py"])
+        (workspace / "src").mkdir()
+        (workspace / "src" / "a.py").write_text("answer = 42\\n", encoding="utf-8")
+        proposal = first.prepare_proposal("worker-a")
+        first.adopt(proposal)
+        git(self.repo, "add", "src/a.py")
+        git(self.repo, "commit", "-qm", "commit verified graph adoption")
+        first.confirm_adoption_committed(("worker-a",))
+
+        readme = self.repo / "README.md"
+        original = readme.read_text(encoding="utf-8")
+        readme.write_text(original + "uncommitted drift\\n", encoding="utf-8")
+        with self.assertRaisesRegex(PermissionError, "clean before reusing an adoption commit receipt"):
+            first.confirm_adoption_committed(("worker-a",))
+        readme.write_text(original, encoding="utf-8")
+        self.assertEqual(first.base_revision, git(self.repo, "rev-parse", "HEAD"))
+
     def test_adoption_commit_receipt_rejects_modified_result(self):
         first = self.make_coordinator()
         workspace = first.create_worker("worker-a", ["src/a.py"])

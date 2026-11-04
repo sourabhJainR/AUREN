@@ -422,7 +422,11 @@ class GraphWorkspaceCoordinator:
             adoption_id, base, stored_workers, paths, manifest = found
             existing = self._committed_adoptions.get(adoption_id)
             if existing is not None:
-                self.base_revision = _git(self.project_root, "rev-parse", "--verify", "HEAD^{commit}").decode().strip()
+                current = _git(self.project_root, "rev-parse", "--verify", "HEAD^{commit}").decode().strip()
+                self._validate_commit_payload(existing, self._canonical_digest(existing))
+                if _git(self.project_root, "status", "--porcelain", "--untracked-files=all").strip():
+                    raise PermissionError("target checkout must be clean before reusing an adoption commit receipt")
+                self.base_revision = current
                 return dict(existing)
             if not isinstance(manifest, dict) or set(manifest) != set(paths):
                 raise RuntimeError("completed adoption has no valid immutable result manifest")
