@@ -185,6 +185,10 @@ class EngineeringPlanGoalReconcilerTests(unittest.TestCase):
         first_task = self.controller.task_by_work_key(first_key)
         self.assertIsNotNone(first_task)
 
+        # Simulate a process restart: the trusted root's private dispatch-context
+        # cache is gone, but the canonical plan and durable assignment remain.
+        self.root._assignment_contexts.clear()
+
         # A fresh reconciler instance recovers the same pending task after the
         # submit acknowledgement was lost; it must not create a second row.
         resumed = self._reconciler()()
