@@ -52,3 +52,19 @@ def test_reviewer_conflict_without_source_statements_requires_exact_decision():
     assert "source statements" in conflict["recommended_option"]
     assert conflict["decision_required"] is True
     assert review["implementation_may_start"] is False
+
+
+
+def test_dependency_conflict_captures_the_requested_package_statement():
+    review = EngineeringDesignGuard.review_request(
+        intent="Build an offline-capable application",
+        constraints=("The runtime must remain dependency-free.",),
+        requirements=("Install the httpx package to call the data service.",),
+    )
+
+    conflict = next(
+        item for item in review["conflict_details"]
+        if item["id"] == "dependency-policy-conflict"
+    )
+    assert conflict["requirement_a"]["statement"] == "The runtime must remain dependency-free."
+    assert conflict["requirement_b"]["statement"] == "Install the httpx package to call the data service."
