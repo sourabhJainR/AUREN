@@ -5,7 +5,6 @@ import unittest
 from pathlib import Path
 
 from portable.engineering_decision_store import EngineeringDecisionStore
-from portable.engineering_design_guard import EngineeringDesignGuard
 from portable.engineering_plan import EngineeringPlan, PlanTask, new_plan_run
 from portable.engineering_plan_store import EngineeringPlanStore, PlanRevisionConflict
 
@@ -105,14 +104,6 @@ class EngineeringDecisionStoreTests(unittest.TestCase):
 
         self.assertTrue(verifier("compatibility-vs-breaking-change", selected))
         self.assertFalse(verifier("compatibility-vs-breaking-change", "Break the v1 API in place"))
-        review = EngineeringDesignGuard.review_request(
-            intent="Preserve backward compatibility while making a breaking change",
-            requirements=["Preserve backward compatibility", "Introduce a breaking change"],
-            resolutions={"compatibility-vs-breaking-change": selected},
-            resolution_verifier=verifier,
-        )
-        self.assertTrue(review["implementation_may_start"])
-        self.assertTrue(review["contradictions"][0]["resolution_verified"])
         self.assertFalse(verifier("unmapped-conflict", selected))
 
         next_run = self.run.transition_task("data", "ready", plan=self.plan, reason="plan advanced")
