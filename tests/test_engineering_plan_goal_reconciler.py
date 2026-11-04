@@ -123,12 +123,23 @@ class EngineeringPlanGoalReconcilerTests(unittest.TestCase):
             assignment_resolver=assignment_resolver,
         )
 
+    def _task_failure_details(self, work_key):
+        durable = self.controller.task_by_work_key(work_key)
+        if durable is None:
+            return {"durable_task": None}
+        with closing(sqlite3.connect(self.controller.company.db_path)) as db:
+            events = db.execute(
+                "SELECT kind,status,detail FROM events WHERE work_unit_id=? ORDER BY created_at",
+                (durable.work_unit_id,),
+            ).fetchall()
+        return {"durable_task": durable, "company_events": events}
+
     def _reconciler(self, *, verifier=None):
         def handler(plan, task):
             return "goal-implement" if task.task_id == "implement" else "goal-review"
 
         def payload(plan, task):
-            return {"resource": "tests", "plan_digest": plan.digest, "task_id": task.task_id}
+            return {"resource": "tests"}
 
         def budget(_plan, _run, _task):
             return {"attempts": 4, "steps": 16, "tool_calls": 8, "tokens": 2000}
@@ -184,7 +195,7 @@ class EngineeringPlanGoalReconcilerTests(unittest.TestCase):
 
         self.controller.resume_pending(limit=10, continue_after_durable_failure=True)
         second = reconciler()
-        self.assertEqual(second["status"], "in_progress")
+        self.assertEqual(second["status"], "in_progress", repr(self._task_failure_details(first_key)))
         self.assertEqual(second["task_id"], "review")
         self.assertNotEqual(second["dispatch_key"], first_key)
         self.controller.resume_pending(limit=10, continue_after_durable_failure=True)
@@ -193,7 +204,10 @@ class EngineeringPlanGoalReconcilerTests(unittest.TestCase):
         self.assertEqual(final["status"], "complete")
         plan, run = self.bridge.load_verified(self.plan.run_id)
         self.assertEqual({item.task_id for item in run.tasks}, {"implement", "review"})
-        self.assertTrue(all(item.status == "passed" and item.evidence_refs for item in run.tasks))
+        self.assertTrue(
+            all(item.status == "passed" and item.evidence_refs for item in run.tasks),
+            f"plan progress={run.tasks!r}; supervisor={status!r}",
+        )
         checkpoint = self.bridge.ledger.get_checkpoint(self.plan.run_id, self.bridge.PHASE)
         self.assertEqual(checkpoint.status, "verified")
 
