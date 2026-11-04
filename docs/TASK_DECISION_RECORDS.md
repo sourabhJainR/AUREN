@@ -41,3 +41,14 @@ reviews.
 The architecture-integrity workflow runs these tests and compiles the new
 module. No runtime dependency is added and no cross-repository coupling is
 introduced.
+
+
+## Versioned requirement and assumption decisions
+
+`EngineeringDecisionStore` appends requirement-conflict resolutions, explicit assumptions and scope changes to the same SQLite database owned by `EngineeringPlanStore`. Each record binds the stable decision ID and revision to the exact plan digest, plan-run revision, options, selected option, rationale, rejected alternatives, affected task IDs and actor ID. The store rejects stale plan/run revisions, unknown task references, malformed alternatives and tampered history.
+
+A retry after a committed write returns the same receipt. A changed decision appends a new revision linked to the prior record digest; it never overwrites history. If the plan run advances, prior decisions remain readable but report `current_binding=false`. A new decision must bind to the current plan/run revision.
+
+The record's `affected_task_ids` identify work that requires planner review and possible replanning. Recording a decision does not silently rewrite task state or authorize execution. The canonical planner must create and persist the revised plan/run and dependency changes before dispatch. Independent, unaffected work may continue only when the host planner proves it cannot be invalidated by the decision.
+
+Rollback: stop writing new decision records and retain the append-only table for audit. No plan, task, approval or execution record is deleted or rewritten.
