@@ -522,7 +522,7 @@ class EngineeringDesignGuard:
              "Preserve existing behavior and add a versioned path unless the user explicitly approves a breaking release."),
             ("dependency-policy-conflict",
              r"no (?:new )?(?:third.party |external )?dependencies|dependency.free|without adding dependencies",
-             r"add (?:a )?(?:new )?dependency|introduce (?:the )?\\w+ package|install (?:the )?\\w+ package",
+             r"add (?:a )?(?:new )?dependency|introduce (?:the )?\w+ package|install (?:the )?\w+ package",
              "A dependency-free constraint conflicts with a request to add/install a dependency.",
              "The implementation cannot both add the requested package and remain dependency-free.",
              ("Use an existing or standard-library capability", "Avoids supply-chain and packaging changes but may require more maintenance code."),
