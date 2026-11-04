@@ -9,12 +9,20 @@ import hashlib
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import threading
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Iterable
+
+
+class _RecoveredLease:
+    def __init__(self, path: Path, base_revision: str) -> None:
+        self.path = path
+        self.base_revision = base_revision
+
 
 from .vibe_coding_host import IsolatedGitWorktree
 
@@ -62,7 +70,7 @@ class WorkspaceProposal:
 class GraphWorkspaceCoordinator:
     """Own isolated worker leases and serialize adoption into a clean checkout."""
 
-    def __init__(self, project_root: str | Path, *, workspace_root: str | Path | None = None) -> None:
+    def __init__(self, project_root: str | Path, *, workspace_root: str | Path | None = None, registry_path: str | Path | None = None) -> None:
         self.project_root = Path(project_root).expanduser().resolve()
         top = _git(self.project_root, "rev-parse", "--show-toplevel").decode().strip()
         if Path(top).resolve() != self.project_root:
@@ -84,6 +92,73 @@ class GraphWorkspaceCoordinator:
         self._states: dict[str, str] = {}
         self._proposals: dict[str, WorkspaceProposal] = {}
         self._captured_artifacts: dict[str, str] = {}
+        self.registry_path = Path(registry_path or (self.workspace_root / "workspace-registry.sqlite3")).expanduser().resolve()
+        self.registry_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if self.registry_path.is_symlink():
+            raise PermissionError("workspace registry must not be a symlink")
+        self._registry = sqlite3.connect(self.registry_path, timeout=10, check_same_thread=False)
+        os.chmod(self.registry_path, 0o600)
+        self._registry.execute("PRAGMA journal_mode=WAL")
+        self._registry.execute("PRAGMA synchronous=FULL")
+        self._registry.execute("""CREATE TABLE IF NOT EXISTS graph_workspace_registry (
+            worker_id TEXT PRIMARY KEY, base_revision TEXT NOT NULL, owned_paths TEXT NOT NULL,
+            workspace_path TEXT NOT NULL, state TEXT NOT NULL, artifact_path TEXT,
+            artifact_digest TEXT, proposal_paths TEXT, cancellation_reason TEXT
+        )""")
+        self._registry.commit()
+        self._restore_registry()
+
+    def _persist_registry(self) -> None:
+        """Durably snapshot worker ownership and lifecycle before returning to callers."""
+        with self._registry:
+            for worker_id, state in self._states.items():
+                lease = self._leases[worker_id]
+                proposal = self._proposals.get(worker_id)
+                artifact_path = proposal.artifact_path if proposal else self._captured_artifacts.get(worker_id)
+                artifact_digest = proposal.artifact_digest if proposal else None
+                proposal_paths = json.dumps(list(proposal.paths)) if proposal else None
+                self._registry.execute(
+                    """INSERT INTO graph_workspace_registry VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(worker_id) DO UPDATE SET base_revision=excluded.base_revision,
+                    owned_paths=excluded.owned_paths, workspace_path=excluded.workspace_path,
+                    state=excluded.state, artifact_path=excluded.artifact_path,
+                    artifact_digest=excluded.artifact_digest, proposal_paths=excluded.proposal_paths,
+                    cancellation_reason=excluded.cancellation_reason""",
+                    (worker_id, self.base_revision, json.dumps(list(self._owners[worker_id])),
+                     str(lease.path), state, artifact_path, artifact_digest, proposal_paths, self._cancel_reason),
+                )
+
+    def _restore_registry(self) -> None:
+        """Restore only records bound to this exact base; ambiguous records stay blocked."""
+        rows = self._registry.execute(
+            "SELECT worker_id, base_revision, owned_paths, workspace_path, state, artifact_path, artifact_digest, proposal_paths, cancellation_reason FROM graph_workspace_registry ORDER BY worker_id"
+        ).fetchall()
+        for worker_id, base, owned, workspace, state, artifact, digest, proposal_paths, reason in rows:
+            if base != self.base_revision:
+                raise RuntimeError("durable graph workspace registry is bound to a stale base revision; operator reconciliation required")
+            path = Path(workspace)
+            if not path.is_dir() or path.is_symlink():
+                raise RuntimeError("durable graph workspace is missing or unsafe; refusing to treat it as empty")
+            if _git(path, "rev-parse", "--verify", "HEAD^{commit}").decode().strip() != base:
+                raise RuntimeError("durable graph worker worktree has drifted from its pinned base")
+            self._owners[worker_id] = tuple(json.loads(owned))
+            self._leases[worker_id] = _RecoveredLease(path, base)
+            restored_state = "unknown" if state == "running" else state
+            self._states[worker_id] = restored_state
+            if artifact:
+                self._captured_artifacts[worker_id] = artifact
+            if artifact and digest and proposal_paths:
+                artifact_file = Path(artifact)
+                if artifact_file.is_symlink() or not artifact_file.is_file():
+                    raise RuntimeError("durable proposal artifact is missing or unsafe")
+                patch = artifact_file.read_bytes()
+                if hashlib.sha256(patch).hexdigest() != digest:
+                    raise RuntimeError("durable proposal artifact digest mismatch")
+                self._proposals[worker_id] = WorkspaceProposal(worker_id, base, tuple(json.loads(proposal_paths)), patch, digest, str(artifact_file))
+            if reason:
+                self._cancel_reason = reason
+        if self._cancel_reason:
+            self._cancel_event.set()
 
     @property
     def cancellation_event(self) -> threading.Event:
@@ -113,6 +188,7 @@ class GraphWorkspaceCoordinator:
             self._owners[worker_id] = paths
             self._leases[worker_id] = lease
             self._states[worker_id] = "running"
+            self._persist_registry()
             return path
 
     def prepare_proposal(self, worker_id: str) -> WorkspaceProposal:
@@ -170,6 +246,7 @@ class GraphWorkspaceCoordinator:
             proposal = WorkspaceProposal(worker_id, self.base_revision, changed, patch, digest, str(artifact))
             self._proposals[worker_id] = proposal
             self._states[worker_id] = "proposal_ready"
+            self._persist_registry()
             return proposal
 
     def adopt(self, proposal: WorkspaceProposal) -> tuple[str, ...]:
@@ -255,6 +332,7 @@ class GraphWorkspaceCoordinator:
                 for proposal in rows:
                     self._states[proposal.worker_id] = "adopted"
                     result[proposal.worker_id] = tuple(sorted(proposal.paths))
+                self._persist_registry()
                 return result
         except BaseException as exc:
             rollback_error = None
@@ -287,6 +365,7 @@ class GraphWorkspaceCoordinator:
                     continue
                 self._states[worker_id] = "cancel_requested"
                 requested[worker_id] = "cancel_requested"
+            self._persist_registry()
             return requested
 
     def mark_worker_stopped(self, worker_id: str) -> None:
@@ -296,6 +375,7 @@ class GraphWorkspaceCoordinator:
             if self._states[worker_id] != "cancel_requested":
                 raise RuntimeError("worker stop may only be recorded after cancellation was requested")
             self._states[worker_id] = "stopped"
+            self._persist_registry()
 
     def cleanup_worker(self, worker_id: str) -> str:
         """Remove only a confirmed-stopped or completed isolated worktree."""
@@ -311,6 +391,7 @@ class GraphWorkspaceCoordinator:
                 raise PermissionError("dirty worker has no persisted proposal artifact; refusing destructive cleanup")
             _git(self.project_root, "worktree", "remove", "--force", str(lease.path))
             self._states[worker_id] = "cleaned"
+            self._persist_registry()
             return str(lease.path)
 
     def worker_states(self) -> dict[str, str]:
