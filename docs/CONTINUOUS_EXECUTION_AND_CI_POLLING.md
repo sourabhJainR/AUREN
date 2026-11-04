@@ -40,6 +40,8 @@ python auren_cli.py continuous start --project-root . --max-cycles 3
 
 ## Parent-goal continuation
 
+The canonical `AdaptiveRuntime` host exposes `create_continuous_supervisor(...)`. It reuses that runtime's `ExecutionController` and `EngineeringRecoveryLedger`; it does not create another queue or recovery database. Register parent-goal reconcilers only after `configure_trusted_plan_dispatch(...)` has installed the host-owned authority root. The host must re-register its trusted callbacks at startup after restart.
+
 The supervisor accepts host-composed `goal_reconcilers` keyed by durable goal identity. It invokes each reconciler before claiming queued tasks on every cycle, so a reconciler can inspect the canonical plan/run, dispatch the next dependency-ready unit through the trusted plan-dispatch composition root, and let the same controller process that unit in the current cycle. Reconciler outcomes are hash-chained in the supervisor audit log. A transient failure blocks only that goal for persisted exponential backoff; explicit approval or external-dependency outcomes become durable holds. Independent goals and already-authorized queued work continue.
 
 A durable stop request is never cleared by an expired lease or process restart. A replacement supervisor remains stopped until `clear_stop(reason)` is called on a host configured with an operator-authentication callback. The callback must return the authenticated operator identity from a trusted host session; a caller-supplied identity is not accepted. Without that callback, stop clearing fails closed. The verified identity and reason are recorded in the audit chain.
