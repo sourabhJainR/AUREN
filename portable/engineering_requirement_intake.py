@@ -31,7 +31,7 @@ _NON_GOAL = re.compile(
     re.I,
 )
 _CONSTRAINT = re.compile(
-    r"\b(must not|shall not|cannot|can't|do not|don't|never|without|"
+    r"\b(must not|shall not|cannot|can't|do not|don't|never|without|prohibit(?:s|ed)?|forbid(?:s|den)?|restrict(?:s|ed|ions)?|"
     r"only|no (?:new |external |user )?[a-z][a-z -]{0,35})\b",
     re.I,
 )
@@ -39,7 +39,7 @@ _REQUIREMENT = re.compile(
     r"\b(must|shall|should|required|needs? to|need to|build|create|"
     r"implement|provide|support|include|add|preserve|ensure|prevent|"
     r"reject|deny|allow|deliver|ship|display|show|fetch|integrate|"
-    r"compare|recommend|record|retain|verify|keep)\b",
+    r"compare|recommend|record|retain|verify|keep|use|generate)\b",
     re.I,
 )
 _ACCEPTANCE = re.compile(
