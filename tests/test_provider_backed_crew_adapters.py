@@ -23,6 +23,11 @@ from portable.crew_adapters import (
 import runtime
 
 
+def provider_budget_test_handler(payload):
+    """Importable durable handler for provider shared-budget acceptance tests."""
+    return {"ok": True}
+
+
 class ProviderBackedCrewAdapterTests(unittest.TestCase):
     def proposal(self):
         return {
@@ -41,7 +46,7 @@ class ProviderBackedCrewAdapterTests(unittest.TestCase):
             team_budget_settlement_verifier=settlement_verifier or (lambda receipt: receipt["usage_evidence"]),
         )
         controller.register_handler(
-            "provider-budget-test", lambda payload: {"ok": True},
+            "provider-budget-test", provider_budget_test_handler,
             execution_class="read_only",
         )
         task = controller.submit(
