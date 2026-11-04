@@ -55,6 +55,8 @@ Poller network/API errors and goal-reconciler exceptions use persisted exponenti
 
 A reconciler is not an authorization boundary. It must use stable dispatch keys, canonical plan/recovery stores, host-authenticated assignments, shared budgets and approval gates. It must not mark a parent goal complete from its own return value; completion remains evidence-bound in the plan/evidence stores. The host service must register reconcilers at startup for unattended continuation. No reconciler is synthesized when the host has not configured the trusted composition root.
 
+For EngineeringPlan dispatch, promote dependency-satisfied pending units to `ready` before selection, then persist the `ready -> running` compare-and-swap transition before building the immutable EngineeringContextPacket and calling TrustedPlanDispatchRoot. The packet and approval checkpoint must bind that same run revision. Do not advance the plan/run revision after queue insertion while the worker is active: controller preflight rejects a queued dispatch whose immutable run revision is stale. Reconcile the durable task outcome first, then advance `running -> verifying -> passed/failed/blocked`. Reuse the same stable dispatch key when reconciling an uncertain submission acknowledgement.
+
 ## Lifecycle and recovery contract
 
 - One supervisor owns a finite renewable lease. A second live worker cannot drive the same project concurrently.
