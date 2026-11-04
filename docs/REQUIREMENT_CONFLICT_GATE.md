@@ -24,3 +24,6 @@ Conflict matching is scoped. Opposing facts about different products, user group
 
 
 Unknown requirement keys produce a partial result and are listed in unrecognized_keys. The caller must not report the plan as conflict-free until every relevant requirement dimension is mapped to a recognized rule set or explicitly marked not applicable by the requirements owner.
+
+
+Unsupported values for a known dimension also produce a partial result. A key is considered fully analyzed only when each fact uses a value from that dimension's declared vocabulary.
