@@ -44,6 +44,8 @@ The supervisor accepts host-composed `goal_reconcilers` keyed by durable goal id
 
 A durable stop request is never cleared by an expired lease or process restart. A replacement supervisor remains stopped until `clear_stop(reason)` is called on a host configured with an operator-authentication callback. The callback must return the authenticated operator identity from a trusted host session; a caller-supplied identity is not accepted. Without that callback, stop clearing fails closed. The verified identity and reason are recorded in the audit chain.
 
+`status` exposes `goal_health` for registered and previously recorded goals, including retry count, last error type and remaining backoff. The durable record remains visible after restart even if a goal reconciler is not registered in the replacement process.
+
 The supervisor also persists its active run ID and monotonic cycle count in the existing control row. If a process exits unexpectedly while holding a lease, a replacement supervisor can reclaim the expired lease and resume the same run identity. A clean stop or exhausted per-invocation cycle budget starts a new run on the next explicit service invocation. Existing databases receive an additive nullable run ID column.
 
 Poller network/API errors use a persisted exponential retry schedule. The delay starts at the greater of one second or the configured poll interval, doubles after each consecutive error, and is capped at five minutes. A valid non-error observation resets the backoff. While a poller is waiting, task execution and other pollers continue. The retry state is stored in this supervisor database and survives process restart.
