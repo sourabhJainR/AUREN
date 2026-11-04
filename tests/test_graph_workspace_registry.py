@@ -29,16 +29,26 @@ class DurableGraphWorkspaceRegistryTests(unittest.TestCase):
         git(self.repo, "commit", "-qm", "seed")
         self.workspaces = self.root / "workspaces"
         self.registry = self.root / "state" / "registry.sqlite3"
+        self.coordinators = []
+
+    def make_coordinator(self):
+        coordinator = GraphWorkspaceCoordinator(
+            self.repo, workspace_root=self.workspaces, registry_path=self.registry
+        )
+        self.coordinators.append(coordinator)
+        return coordinator
 
     def tearDown(self):
+        for coordinator in self.coordinators:
+            coordinator.close()
         self.temp.cleanup()
 
     def test_fresh_coordinator_restores_worker_ownership_and_blocks_duplicate_id(self):
-        first = GraphWorkspaceCoordinator(self.repo, workspace_root=self.workspaces, registry_path=self.registry)
+        first = self.make_coordinator()
         workspace = first.create_worker("worker-a", ["src/a.py"])
         (workspace / "src").mkdir()
         (workspace / "src" / "a.py").write_text("answer = 42\\n", encoding="utf-8")
-        second = GraphWorkspaceCoordinator(self.repo, workspace_root=self.workspaces, registry_path=self.registry)
+        second = self.make_coordinator()
         self.assertEqual(second.worker_states(), {"worker-a": "unknown"})
         with self.assertRaisesRegex(ValueError, "already exists"):
             second.create_worker("worker-a", ["src/a.py"])
@@ -50,7 +60,7 @@ class DurableGraphWorkspaceRegistryTests(unittest.TestCase):
             second.confirm_recovered_worker_stopped("worker-a", evidence="")
         second.confirm_recovered_worker_stopped("worker-a", evidence="supervisor process table confirms pid exited")
         self.assertEqual(second.worker_states()["worker-a"], "stopped")
-        third = GraphWorkspaceCoordinator(self.repo, workspace_root=self.workspaces, registry_path=self.registry)
+        third = self.make_coordinator()
         self.assertEqual(third.worker_states()["worker-a"], "stopped")
         with sqlite3.connect(self.registry) as db:
             evidence = db.execute(
@@ -62,26 +72,26 @@ class DurableGraphWorkspaceRegistryTests(unittest.TestCase):
             second.cleanup_worker("worker-a")
 
     def test_fresh_coordinator_restores_proposal_and_adopts_only_verified_artifact(self):
-        first = GraphWorkspaceCoordinator(self.repo, workspace_root=self.workspaces, registry_path=self.registry)
+        first = self.make_coordinator()
         workspace = first.create_worker("worker-a", ["src/a.py"])
         (workspace / "src").mkdir()
         (workspace / "src" / "a.py").write_text("answer = 42\\n", encoding="utf-8")
         proposal = first.prepare_proposal("worker-a")
-        second = GraphWorkspaceCoordinator(self.repo, workspace_root=self.workspaces, registry_path=self.registry)
+        second = self.make_coordinator()
         restored = second._proposals["worker-a"]
         self.assertEqual(restored.artifact_digest, proposal.artifact_digest)
         self.assertEqual(second.adopt(restored), ("src/a.py",))
         self.assertEqual((self.repo / "src" / "a.py").read_text(encoding="utf-8"), "answer = 42\\n")
 
     def test_cleaned_worktree_tombstone_restores_without_reserving_paths(self):
-        first = GraphWorkspaceCoordinator(self.repo, workspace_root=self.workspaces, registry_path=self.registry)
+        first = self.make_coordinator()
         workspace = first.create_worker("worker-a", ["src/a.py"])
         (workspace / "src").mkdir()
         (workspace / "src" / "a.py").write_text("answer = 42\\n", encoding="utf-8")
         first.prepare_proposal("worker-a")
         first.cleanup_worker("worker-a")
 
-        second = GraphWorkspaceCoordinator(self.repo, workspace_root=self.workspaces, registry_path=self.registry)
+        second = self.make_coordinator()
         self.assertEqual(second.worker_states(), {"worker-a": "cleaned"})
         with self.assertRaisesRegex(ValueError, "already exists"):
             second.create_worker("worker-a", ["src/a.py"])
@@ -89,14 +99,14 @@ class DurableGraphWorkspaceRegistryTests(unittest.TestCase):
         second.create_worker("worker-b", ["src/a.py"])
 
     def test_missing_worktree_is_not_treated_as_empty(self):
-        first = GraphWorkspaceCoordinator(self.repo, workspace_root=self.workspaces, registry_path=self.registry)
+        first = self.make_coordinator()
         workspace = first.create_worker("worker-a", ["src/a.py"])
         git(self.repo, "worktree", "remove", "--force", str(workspace))
         with self.assertRaisesRegex(RuntimeError, "missing or unsafe"):
-            GraphWorkspaceCoordinator(self.repo, workspace_root=self.workspaces, registry_path=self.registry)
+            self.make_coordinator()
 
     def test_registry_file_is_private_and_symlink_is_rejected(self):
-        GraphWorkspaceCoordinator(self.repo, workspace_root=self.workspaces, registry_path=self.registry)
+        self.make_coordinator()
         if os.name == "posix":
             self.assertEqual(self.registry.stat().st_mode & 0o777, 0o600)
         linked = self.root / "linked.sqlite3"
