@@ -51,10 +51,13 @@ class RequirementConflictReport:
     blocked_workstreams: tuple[str, ...]
     independent_workstreams: tuple[str, ...]
     fact_count: int
+    unrecognized_keys: tuple[str, ...] = ()
     @property
     def status(self) -> str:
         if self.fact_count == 0:
             return "unscored"
+        if self.unrecognized_keys:
+            return "partial"
         return "decision_required" if self.conflicts else "clear"
 
 @dataclass(frozen=True, slots=True)
@@ -170,8 +173,11 @@ class RequirementConflictAnalyzer:
             if any(not isinstance(key, str) or not key.strip() for key in keys):
                 raise ValueError("workstream requirement keys must be non-empty text")
             (blocked if blocked_keys.intersection(keys) else independent).append(workstream)
+        recognized_keys = {rule.key for rule in _RULES}
+        unrecognized_keys = tuple(sorted({fact.key for fact in facts if fact.key not in recognized_keys}))
         return RequirementConflictReport(
-            tuple(conflicts), tuple(sorted(blocked)), tuple(sorted(independent)), len(facts),
+            tuple(conflicts), tuple(sorted(blocked)), tuple(sorted(independent)),
+            len(facts), unrecognized_keys,
         )
 
     @staticmethod
