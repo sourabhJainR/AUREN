@@ -324,6 +324,26 @@ class ProviderBackedCrewAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(PermissionError, "not approved"):
             bad_tool.propose({"crew_id": "backend_api", "task": "test"})
 
+    def test_shared_budget_enforcer_is_injected_and_bound_into_adapter_identity(self):
+        class Enforcer:
+            def execute(self, _kind, _name, _request, invoke, **_kwargs):
+                return invoke()
+
+        enforcer = Enforcer()
+        plain = ProviderBackedCrewAdapter(
+            "backend_api", "provider", "v1",
+            lambda _prompt, _timeout: "{}",
+            ApprovedToolRegistry(), allowed_tools=(),
+        )
+        budgeted_tools = ApprovedToolRegistry([], team_budget_enforcer=enforcer)
+        budgeted = ProviderBackedCrewAdapter(
+            "backend_api", "provider", "v1",
+            lambda _prompt, _timeout: "{}",
+            budgeted_tools, allowed_tools=(),
+        )
+        self.assertIs(budgeted._team_budget_enforcer, enforcer)
+        self.assertNotEqual(plain.configuration_digest, budgeted.configuration_digest)
+
     def test_builder_requires_all_pinned_provider_and_tool_scope_registrations(self):
         tools = ApprovedToolRegistry()
         invokers = {crew: (lambda _prompt, _timeout: "{}") for crew in SPECIALIST_CREW_IDS}
