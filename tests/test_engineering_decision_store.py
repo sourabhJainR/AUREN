@@ -87,6 +87,37 @@ class EngineeringDecisionStoreTests(unittest.TestCase):
         self.assertEqual(1, len(historical))
         self.assertFalse(historical[0].current_binding)
 
+    def test_host_conflict_verifier_uses_current_authenticated_decision_binding(self):
+        selected = "Ship v2 separately and preserve the v1 contract"
+        self._record(
+            decision_id="compatibility-vs-breaking-change",
+            question="How should the incompatible API change ship?",
+            options=(selected, "Break the v1 API in place"),
+            selected_option=selected,
+            rejected_alternatives=(("Break the v1 API in place", "It violates the compatibility requirement."),),
+            affected_task_ids=("data", "ui"),
+        )
+        verifier = self.decisions.conflict_resolution_verifier(
+            run_id=self.plan.run_id,
+            decision_ids={"compatibility-vs-breaking-change": "compatibility-vs-breaking-change"},
+        )
+
+        self.assertTrue(verifier("compatibility-vs-breaking-change", selected))
+        self.assertFalse(verifier("compatibility-vs-breaking-change", "Break the v1 API in place"))
+        self.assertFalse(verifier("unmapped-conflict", selected))
+
+        next_run = self.run.transition_task("data", "ready", plan=self.plan, reason="plan advanced")
+        self.plans.save_run(self.plan.run_id, next_run, expected_revision=0)
+        self.assertFalse(verifier("compatibility-vs-breaking-change", selected))
+
+    def test_conflict_verifier_rejects_invalid_host_mapping(self):
+        with self.assertRaisesRegex(ValueError, "decision_ids"):
+            self.decisions.conflict_resolution_verifier(run_id=self.plan.run_id, decision_ids={})
+        with self.assertRaisesRegex(ValueError, "conflict IDs"):
+            self.decisions.conflict_resolution_verifier(
+                run_id=self.plan.run_id, decision_ids={"bad conflict": "decision-1"},
+            )
+
     def test_unknown_affected_task_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "unknown plan tasks"):
             self._record(affected_task_ids=("not-a-plan-task",))
