@@ -42,6 +42,8 @@ python auren_cli.py continuous start --project-root . --max-cycles 3
 
 The supervisor accepts host-composed `goal_reconcilers` keyed by durable goal identity. It invokes each reconciler before claiming queued tasks on every cycle, so a reconciler can inspect the canonical plan/run, dispatch the next dependency-ready unit through the trusted plan-dispatch composition root, and let the same controller process that unit in the current cycle. Reconciler outcomes are hash-chained in the supervisor audit log. A failure blocks only that goal for the cycle; independent goals and already-authorized queued work continue.
 
+A durable stop request is never cleared by an expired lease or process restart. A replacement supervisor remains stopped until an explicit operator calls `clear_stop(reason)`; the action is recorded in the audit chain.
+
 The supervisor also persists its active run ID and monotonic cycle count in the existing control row. If a process exits unexpectedly while holding a lease, a replacement supervisor can reclaim the expired lease and resume the same run identity. A clean stop or exhausted per-invocation cycle budget starts a new run on the next explicit service invocation. Existing databases receive an additive nullable run ID column.
 
 Poller network/API errors use a persisted exponential retry schedule. The delay starts at the greater of one second or the configured poll interval, doubles after each consecutive error, and is capped at five minutes. A valid non-error observation resets the backoff. While a poller is waiting, task execution and other pollers continue. The retry state is stored in this supervisor database and survives process restart.
