@@ -42,6 +42,7 @@ class AgentDelegationLimitTests(unittest.TestCase):
                     scope=[resource],
                     authorizer=lambda _request: True,
                     work_key=f"AUREN:test:delegation-race:{index}",
+                    principal_id=f"host:worker-{index}",
                     registry_path=REGISTRY_PATH,
                 )
 
@@ -87,6 +88,7 @@ class AgentDelegationLimitTests(unittest.TestCase):
                     scope=[resource],
                     authorizer=lambda _request: True,
                     work_key=f"AUREN:test:cto-manager-limit:{index}",
+                    principal_id=f"host:manager-{index}",
                     registry_path=REGISTRY_PATH,
                 )
 
@@ -120,6 +122,7 @@ class AgentDelegationLimitTests(unittest.TestCase):
                     scope=[resource],
                     authorizer=lambda _request: True,
                     work_key=f"AUREN:test:delegation-limit:{index}",
+                    principal_id=f"host:worker-{index}",
                     registry_path=REGISTRY_PATH,
                 )
 
