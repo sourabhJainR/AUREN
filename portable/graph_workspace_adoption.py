@@ -112,7 +112,12 @@ class GraphWorkspaceCoordinator:
         if "termination_evidence" not in columns:
             self._registry.execute("ALTER TABLE graph_workspace_registry ADD COLUMN termination_evidence TEXT")
         self._registry.commit()
-        self._restore_registry()
+        try:
+            self._restore_registry()
+        except BaseException:
+            self._registry.close()
+            self._registry = None
+            raise
 
     def _persist_registry(self) -> None:
         """Durably snapshot worker ownership and lifecycle before returning to callers."""
