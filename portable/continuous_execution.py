@@ -347,7 +347,7 @@ class ContinuousExecutionSupervisor:
 
     def _record_poller_error(self, name: str, *, poll_seconds: float, error_type: str) -> float:
         """Persist bounded exponential backoff so restarts cannot create a retry storm."""
-        with closing(sqlite3.connect(self.path, timeout=5)) as db:
+        with closing(sqlite3.connect(self.path, timeout=5)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 "SELECT consecutive_errors FROM poller_backoff WHERE poller=?", (name,),
@@ -366,7 +366,7 @@ class ContinuousExecutionSupervisor:
 
     def _clear_poller_error(self, name: str) -> None:
         """Reset a poller's retry state only after a valid non-error observation."""
-        with closing(sqlite3.connect(self.path, timeout=5)) as db:
+        with closing(sqlite3.connect(self.path, timeout=5)) as db, db:
             db.execute(
                 "INSERT INTO poller_backoff(poller,consecutive_errors,next_poll_at,last_error_type,updated_at) "
                 "VALUES(?,0,0,NULL,?) ON CONFLICT(poller) DO UPDATE SET "
@@ -385,7 +385,7 @@ class ContinuousExecutionSupervisor:
 
     def _record_goal_error(self, name: str, *, poll_seconds: float, error_type: str) -> float:
         """Persist bounded exponential retry after a reconciler exception."""
-        with closing(sqlite3.connect(self.path, timeout=5)) as db:
+        with closing(sqlite3.connect(self.path, timeout=5)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 "SELECT consecutive_errors FROM goal_backoff WHERE goal=?", (name,),
@@ -404,7 +404,7 @@ class ContinuousExecutionSupervisor:
 
     def _clear_goal_error(self, name: str) -> None:
         """Reset retry state only after a valid reconciler outcome."""
-        with closing(sqlite3.connect(self.path, timeout=5)) as db:
+        with closing(sqlite3.connect(self.path, timeout=5)) as db, db:
             db.execute(
                 "INSERT INTO goal_backoff(goal,consecutive_errors,next_retry_at,last_error_type,updated_at) "
                 "VALUES(?,0,0,NULL,?) ON CONFLICT(goal) DO UPDATE SET "
@@ -422,7 +422,7 @@ class ContinuousExecutionSupervisor:
     def _set_goal_hold(self, name: str, *, status: str, reason: str) -> None:
         safe_status = status[:80]
         safe_reason = reason[:500] if isinstance(reason, str) else "goal is waiting for an external decision"
-        with closing(sqlite3.connect(self.path, timeout=5)) as db:
+        with closing(sqlite3.connect(self.path, timeout=5)) as db, db:
             db.execute(
                 "INSERT INTO goal_holds(goal,status,reason,updated_at) VALUES(?,?,?,?) "
                 "ON CONFLICT(goal) DO UPDATE SET status=excluded.status,reason=excluded.reason,updated_at=excluded.updated_at",
@@ -430,7 +430,7 @@ class ContinuousExecutionSupervisor:
             )
 
     def _clear_goal_hold(self, name: str) -> None:
-        with closing(sqlite3.connect(self.path, timeout=5)) as db:
+        with closing(sqlite3.connect(self.path, timeout=5)) as db, db:
             db.execute("DELETE FROM goal_holds WHERE goal=?", (name,))
 
     def wake_goal(self, name: str, reason: str) -> dict[str, Any]:
