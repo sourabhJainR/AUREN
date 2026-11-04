@@ -75,22 +75,28 @@ class ProviderBackedCrewAdapterTests(unittest.TestCase):
         )
 
         def context_resolver(request):
-            metadata = request["request"]
+            adapter_kind = request["adapter_kind"]
+            adapter_name = request["adapter_name"]
             return {
                 "task_id": task.id,
                 "run_id": "provider-budget-run",
                 "member_id": request["principal_id"],
                 "principal_id": request["principal_id"],
-                "operation_key": f"provider:{task.id}:{metadata['crew_id']}",
-                "tokens": 100, "tool_calls": 0, "wall_seconds": 30,
+                "operation_key": f"{adapter_kind}:{task.id}:{adapter_name}",
+                "tokens": 100 if adapter_kind == "provider" else 0,
+                "tool_calls": 1 if adapter_kind == "tool" else 0,
+                "wall_seconds": 30 if adapter_kind == "provider" else 10,
             }
+
+        def usage_evidence_resolver(request):
+            if request["adapter_kind"] == "tool":
+                return {"tokens": 0, "tool_calls": 1, "wall_seconds": 1}
+            return {"tokens": 25, "tool_calls": 0, "wall_seconds": 2}
 
         enforcer = TeamBudgetAdapterEnforcer(
             controller,
             context_resolver=context_resolver,
-            usage_evidence_resolver=lambda _request: {
-                "tokens": 25, "tool_calls": 0, "wall_seconds": 2,
-            },
+            usage_evidence_resolver=usage_evidence_resolver,
         )
         return controller, task.id, enforcer
 
@@ -119,6 +125,50 @@ class ProviderBackedCrewAdapterTests(unittest.TestCase):
             self.assertEqual(budget["charged_tokens"], 25)
             self.assertEqual(budget["charged_wall_seconds"], 2)
             self.assertEqual(budget["reserved_tokens"], 0)
+            self.assertEqual(controller.unresolved_team_budget_operations(task_id, "provider-budget-run"), ())
+
+    def test_provider_tool_call_settles_tool_usage_through_the_same_shared_ledger(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp:
+            controller, task_id, enforcer = self._budgeted_provider_setup(Path(temp))
+            tool_calls = []
+            response = json.dumps({
+                "tool_calls": [{
+                    "name": "lookup_ticket",
+                    "arguments": {"ticket": "AUREN-438"},
+                }],
+                "proposal": self.proposal(),
+            })
+            tools = ApprovedToolRegistry([
+                ApprovedTool(
+                    "lookup_ticket",
+                    lambda arguments: tool_calls.append(dict(arguments)) or {
+                        "ticket": arguments["ticket"], "status": "open",
+                    },
+                    "Read one ticket by ID.",
+                ),
+            ], team_budget_enforcer=enforcer)
+            adapter = ProviderBackedCrewAdapter(
+                "backend_api", "host-provider", "pinned-v1",
+                lambda _prompt, _timeout: response,
+                tools, allowed_tools=("lookup_ticket",),
+            )
+            with agent_assignment_scope(
+                ("src/app.py",), role_id="BE-01", principal_id="implementer",
+            ):
+                result = adapter.propose({
+                    "task_id": task_id, "crew_id": "backend_api",
+                    "task": "Review the provider integration",
+                })
+
+            self.assertEqual(result, self.proposal())
+            self.assertEqual(tool_calls, [{"ticket": "AUREN-438"}])
+            budget = controller.team_budget(task_id, "provider-budget-run")
+            self.assertEqual(budget["charged_tokens"], 25)
+            self.assertEqual(budget["charged_tool_calls"], 1)
+            self.assertEqual(budget["charged_wall_seconds"], 3)
+            self.assertEqual(budget["reserved_tokens"], 0)
+            self.assertEqual(budget["reserved_tool_calls"], 0)
             self.assertEqual(controller.unresolved_team_budget_operations(task_id, "provider-budget-run"), ())
 
     def test_assigned_provider_without_shared_budget_is_denied_before_provider_call(self):
