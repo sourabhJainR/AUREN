@@ -90,6 +90,7 @@ class AurenClientTests(unittest.TestCase):
                     action_class="edit_assigned_paths", scope=["allowed.txt"],
                     authorizer=lambda request: authorized.append(dict(request)) or True,
                     work_key="AUREN:test:sdk-entrypoint", deadline_seconds=30,
+                    principal_id="host:sdk-entrypoint",
                     registry_path=REGISTRY_PATH,
                 )
                 self.assertEqual("pending", client.task(task.id).state)
@@ -139,7 +140,9 @@ class AurenClientTests(unittest.TestCase):
                         role_id="BE-01", manager_id="EM-ENG-01",
                         action_class="edit_assigned_paths", scope=["allowed.txt"],
                         authorizer=lambda _request: True,
-                        work_key="AUREN:test:sdk-no-verifier", registry_path=REGISTRY_PATH,
+                        work_key="AUREN:test:sdk-no-verifier",
+                        principal_id="host:sdk-no-verifier",
+                        registry_path=REGISTRY_PATH,
                     )
                 self.assertEqual([], _SDK_NO_VERIFIER_INVOCATIONS)
             finally:
