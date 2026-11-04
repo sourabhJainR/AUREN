@@ -21,3 +21,6 @@ An empty or unavailable extraction result is reported as unscored, not clear. Th
 
 
 Conflict matching is scoped. Opposing facts about different products, user groups or delivery phases do not conflict unless the trusted parser assigns them the same scope. The default scope is global.
+
+
+Unknown requirement keys produce a partial result and are listed in unrecognized_keys. The caller must not report the plan as conflict-free until every relevant requirement dimension is mapped to a recognized rule set or explicitly marked not applicable by the requirements owner.
