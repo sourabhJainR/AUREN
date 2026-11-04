@@ -207,6 +207,98 @@ class GraphWorkerLifecycle:
             raise GraphWorkerLifecycleError("verification receipt digest mismatch")
         return expected
 
+    def _restore_prepared_worker(self, worker_id: str, marker: Mapping[str, Any]) -> PreparedGraphWorker:
+        """Rebuild a prepared worker from immutable proposal and verifier artifacts after restart."""
+        if not isinstance(marker, Mapping) or marker.get("status") != "verified" or marker.get("worker_id") != worker_id:
+            raise PermissionError("persisted graph worker marker is missing or unverified")
+        task_id = marker.get("task_id")
+        task_digest = marker.get("task_digest")
+        intent_digest = marker.get("intent_digest")
+        receipt_ref = marker.get("receipt_path")
+        if (
+            not isinstance(task_id, str) or task_id not in self.task_plan.tasks
+            or task_digest != self.task_plan.digest()
+            or intent_digest != self.intent_digest
+        ):
+            raise PermissionError("persisted graph worker marker is bound to a stale TaskPlan or intent")
+        task = self.task_plan.tasks[task_id]
+        if task.status != "pending":
+            raise PermissionError("persisted graph worker task is no longer pending")
+        proposal = self.coordinator.proposal_for(worker_id)
+        if (
+            proposal is None or proposal.base_revision != self.coordinator.base_revision
+            or marker.get("artifact_digest") != proposal.artifact_digest
+        ):
+            raise PermissionError("persisted graph worker proposal is missing or stale")
+        if not isinstance(receipt_ref, str) or not receipt_ref:
+            raise PermissionError("persisted graph verification receipt reference is missing")
+        receipt_path = Path(receipt_ref)
+        expected_path = Path(proposal.artifact_path).with_suffix(".verification.json")
+        if receipt_path.is_symlink() or receipt_path.resolve() != expected_path.resolve() or not receipt_path.is_file():
+            raise PermissionError("persisted graph verification receipt is missing or unsafe")
+        try:
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise PermissionError("persisted graph verification receipt is invalid") from exc
+        if not isinstance(receipt, Mapping):
+            raise PermissionError("persisted graph verification receipt is malformed")
+        receipt_digest = self._receipt_digest(receipt)
+        if marker.get("receipt_digest") != receipt_digest:
+            raise PermissionError("persisted graph verification receipt digest differs from graph state")
+        worker_identity = receipt.get("worker_identity")
+        verifier_identity = receipt.get("verifier_identity")
+        if (
+            receipt.get("schema") != "auren-independent-graph-verification-v1"
+            or receipt.get("verification_mode") != "fresh-isolated-worktree"
+            or receipt.get("status") != "passed"
+            or receipt.get("cleanup_status") != "passed"
+            or receipt.get("external_evaluator_independence") != "not_proven"
+            or not isinstance(worker_identity, str) or not worker_identity
+            or verifier_identity != self.verifier.verifier_identity
+            or verifier_identity == worker_identity
+            or verifier_identity not in self.verifier.trusted_verifier_ids
+            or receipt.get("task_digest") != task_digest
+            or receipt.get("intent_digest") != intent_digest
+            or receipt.get("source_revision") != proposal.base_revision
+            or receipt.get("artifact_digest") != proposal.artifact_digest
+            or receipt.get("verified_paths") != list(sorted(proposal.paths))
+        ):
+            raise PermissionError("persisted graph verification receipt binding is invalid")
+        checks = receipt.get("checks")
+        if not isinstance(checks, list) or not checks or len(checks) > self.verifier.max_checks:
+            raise PermissionError("persisted graph verification receipt has missing or out-of-bound check evidence")
+        seen = set()
+        for check in checks:
+            if (
+                not isinstance(check, Mapping)
+                or not isinstance(check.get("check_id"), str)
+                or not check.get("check_id")
+                or check.get("check_id") in seen
+                or check.get("status") != "passed"
+                or not isinstance(check.get("argv"), list) or not check.get("argv")
+                or any(not isinstance(arg, str) or not arg for arg in check.get("argv", ()))
+                or type(check.get("return_code")) is not int
+                or check.get("return_code") != 0
+            ):
+                raise PermissionError("persisted graph verification receipt has contradictory check evidence")
+            output_digest = check.get("output_digest")
+            if (
+                not isinstance(output_digest, str) or len(output_digest) != 64
+                or any(char not in "0123456789abcdef" for char in output_digest)
+            ):
+                raise PermissionError("persisted graph verification receipt has an invalid output digest")
+            seen.add(check.get("check_id"))
+        recovery_node = self.recovery_bridge.load()["nodes"][task_id]
+        if recovery_node.get("status") not in {"adopting", "complete"} or recovery_node.get("worker_id") != worker_id:
+            raise PermissionError("recovery ledger does not authorize resuming this prepared adoption")
+        workspace_id = recovery_node.get("workspace_id")
+        if not isinstance(workspace_id, str) or not workspace_id:
+            raise PermissionError("recovery ledger has no durable workspace identity")
+        return PreparedGraphWorker(
+            task_id, worker_id, task_digest, intent_digest,
+            proposal, dict(receipt), str(receipt_path), workspace_id,
+        )
+
     def _validate_verification_receipt(
         self, receipt: Any, *, worker_identity: str,
         expected_checks: Sequence[Mapping[str, Any]],
@@ -587,7 +679,7 @@ class GraphWorkerLifecycle:
         ).__dict__
 
     def adopt_prepared(self, worker_ids: Sequence[str]) -> dict[str, Any]:
-        """Adopt all prepared siblings in one checked apply, then record truthful completion."""
+        """Adopt verified siblings once and resume a completed adoption without replay."""
         if not worker_ids or len(set(worker_ids)) != len(worker_ids):
             raise ValueError("a non-empty unique worker id list is required")
         with self._lock:
@@ -596,6 +688,7 @@ class GraphWorkerLifecycle:
                 raise PermissionError(f"prepared worker receipts are unavailable; reconcile before adoption: {missing}")
             prepared = [self._prepared[worker_id] for worker_id in worker_ids]
         adoption_started = False
+        recovered_adoption = False
         try:
             self.runtime_guard.check()
             for item in prepared:
@@ -619,61 +712,102 @@ class GraphWorkerLifecycle:
                 if persisted_receipt != receipt:
                     raise PermissionError("persisted verification receipt does not match prepared result")
             self.runtime_guard.check()
-            # Persist the irreversible boundary before applying any patch. A process
-            # crash after apply must resume as adopting, never as runnable work.
             for item in prepared:
                 recovery_node = self.recovery_bridge.load()["nodes"][item.task_id]
-                if recovery_node["status"] != "working":
-                    raise PermissionError(
-                        f"worker {item.worker_id} is not in the working recovery state"
-                    )
                 evidence_refs = (item.proposal.artifact_path, item.receipt_path)
-                self._record_recovery_node(
-                    task_id=item.task_id, status="adopting",
-                    next_safe_action="reconcile_target_tree_and_recovery_ledger",
-                    worker_id=item.worker_id, workspace_id=item.workspace_id,
-                    attempts=recovery_node["attempts"], evidence_refs=evidence_refs,
-                )
-                self.journal.record(
-                    item.task_id, "adoption-started", state="running", stage="adoption",
-                    message=self._binding(
+                if recovery_node["status"] == "working":
+                    self._record_recovery_node(
+                        task_id=item.task_id, status="adopting",
+                        next_safe_action="reconcile_target_tree_and_recovery_ledger",
+                        worker_id=item.worker_id, workspace_id=item.workspace_id,
+                        attempts=recovery_node["attempts"], evidence_refs=evidence_refs,
+                    )
+                    self.journal.record(
+                        item.task_id, "adoption-started", state="running", stage="adoption",
+                        message=self._binding(
+                            item.task_id, item.worker_id, item.task_digest, item.intent_digest,
+                            "adoption_started",
+                        ) + "; next_action=reconcile_target_tree_and_recovery_ledger",
+                        evidence_ref=item.receipt_path,
+                    )
+                elif recovery_node["status"] in {"adopting", "complete"}:
+                    recovered_adoption = True
+                    prior = self.journal.snapshot(item.task_id)
+                    start_binding = self._binding(
                         item.task_id, item.worker_id, item.task_digest, item.intent_digest,
                         "adoption_started",
-                    ) + "; next_action=reconcile_target_tree_and_recovery_ledger",
-                    evidence_ref=item.receipt_path,
-                )
-            # Once the coordinator is entered, a failed return can mean rollback
-            # itself was interrupted. Treat the target tree as uncertain until
-            # explicit reconciliation proves otherwise.
-            adoption_started = True
-            adopted = self.coordinator.adopt_many([item.proposal for item in prepared])
+                    )
+                    complete_binding = self._binding(
+                        item.task_id, item.worker_id, item.task_digest, item.intent_digest,
+                        "complete",
+                    )
+                    prior_state = prior.get("reported_state", prior.get("state"))
+                    if (
+                        prior.get("stage") != "adoption"
+                        or prior.get("evidence_ref") != item.receipt_path
+                        or not (
+                            prior.get("message") == complete_binding and prior_state == "completed"
+                            or start_binding in prior.get("message", "")
+                        )
+                    ):
+                        raise PermissionError("adopting recovery node has missing or contradictory ProgressJournal evidence")
+                else:
+                    raise PermissionError(
+                        f"worker {item.worker_id} is not in a working or recoverable adopting state"
+                    )
+            existing = self.coordinator.completed_adoption_for_workers(worker_ids)
+            if existing is None:
+                if recovered_adoption:
+                    raise PermissionError("adoption outcome is unknown; reconcile the target and recovery ledger before retry")
+                adoption_started = True
+                adopted = self.coordinator.adopt_many([item.proposal for item in prepared])
+                existing = self.coordinator.completed_adoption_for_workers(worker_ids)
+                if existing is None:
+                    raise GraphWorkerLifecycleError("coordinator returned without a durable completed adoption receipt")
+            else:
+                adoption_started = True
+                adopted = existing["workers"]
+            adoption_id = existing["adoption_id"]
             for item in prepared:
                 if tuple(adopted[item.worker_id]) != tuple(sorted(item.proposal.paths)):
                     raise GraphWorkerLifecycleError("adopted paths differ from verified proposal")
-            # Complete cleanup for the whole sibling set before any task is marked
-            # complete. A cleanup failure leaves all journal tasks non-terminal.
+            worker_states = self.coordinator.worker_states()
             for item in prepared:
-                self.coordinator.cleanup_worker(item.worker_id)
+                if worker_states.get(item.worker_id) != "cleaned":
+                    self.coordinator.cleanup_worker(item.worker_id)
             results = {}
             for item in prepared:
                 task = self.task_plan.tasks[item.task_id]
                 paths = adopted[item.worker_id]
-                # Commit the progress projection before the recovery node can make
-                # the entire graph terminal. If the ledger write fails, the catch
-                # path can still block the run and correct this journal projection.
-                self.journal.record(
-                    item.task_id, "verified-proposal-adopted", state="completed", stage="adoption",
-                    message=self._binding(item.task_id, item.worker_id, item.task_digest, item.intent_digest, "complete"),
-                    completed_units=1, total_units=1, evidence_ref=item.receipt_path,
+                completion_binding = self._binding(
+                    item.task_id, item.worker_id, item.task_digest, item.intent_digest, "complete"
                 )
+                progress = self.journal.snapshot(item.task_id)
+                progress_state = progress.get("reported_state", progress.get("state"))
+                if progress_state == "completed":
+                    if (
+                        progress.get("stage") != "adoption"
+                        or progress.get("message") != completion_binding
+                        or progress.get("evidence_ref") != item.receipt_path
+                    ):
+                        raise PermissionError("completed ProgressJournal receipt contradicts the verified adoption")
+                else:
+                    self.journal.record(
+                        item.task_id, "verified-proposal-adopted", state="completed", stage="adoption",
+                        message=completion_binding,
+                        completed_units=1, total_units=1, evidence_ref=item.receipt_path,
+                    )
                 recovery_node = self.recovery_bridge.load()["nodes"][item.task_id]
-                self._record_recovery_node(
-                    task_id=item.task_id, status="complete",
-                    next_safe_action="continue_dependency_ready_nodes",
-                    worker_id=item.worker_id, workspace_id=item.workspace_id,
-                    attempts=recovery_node["attempts"],
-                    evidence_refs=(item.proposal.artifact_path, item.receipt_path),
-                )
+                if recovery_node["status"] == "adopting":
+                    self._record_recovery_node(
+                        task_id=item.task_id, status="complete",
+                        next_safe_action="continue_dependency_ready_nodes",
+                        worker_id=item.worker_id, workspace_id=item.workspace_id,
+                        attempts=recovery_node["attempts"],
+                        evidence_refs=(item.proposal.artifact_path, item.receipt_path),
+                    )
+                elif recovery_node["status"] != "complete":
+                    raise PermissionError("recovery ledger changed before graph adoption finalization")
                 task.status = "done"
                 results[item.worker_id] = {
                     "status": "completed", "task_id": item.task_id, "worker_id": item.worker_id,
@@ -681,9 +815,10 @@ class GraphWorkerLifecycle:
                     "source_revision": item.proposal.base_revision,
                     "artifact_digest": item.proposal.artifact_digest,
                     "receipt_digest": item.receipt["receipt_digest"], "receipt_path": item.receipt_path,
+                    "adoption_id": adoption_id,
                     "adopted_paths": list(paths), "external_evaluator_independence": "not_proven",
                 }
-            return {"status": "completed", "workers": results}
+            return {"status": "completed", "adoption_id": adoption_id, "workers": results}
         except BaseException as exc:
             try:
                 self.runtime_guard.cancel(f"graph adoption lifecycle failed: {type(exc).__name__}")
@@ -709,9 +844,6 @@ class GraphWorkerLifecycle:
                     recovery_status = node.get("status")
                 except BaseException:
                     pass
-                # Preserve a task whose terminal evidence and recovery node already
-                # agree. For an incomplete/unknown node, never leave a completed
-                # progress projection behind after an adoption-side failure.
                 if recovery_status == "complete":
                     continue
                 try:
@@ -775,6 +907,17 @@ class GraphWorkerLifecycle:
                 if not isinstance(marker, Mapping) or marker.get("status") != "verified":
                     raise PermissionError(f"worker {worker_id} lacks a verified graph result")
             missing = [worker_id for worker_id in ids if worker_id not in prepared_workers]
+            restore_errors = {}
+            for worker_id in tuple(missing):
+                marker = state.get("graph_worker_prepared_" + worker_id)
+                try:
+                    restored = self._restore_prepared_worker(worker_id, marker)
+                    prepared_workers[worker_id] = restored
+                    with self._lock:
+                        self._prepared[worker_id] = restored
+                except BaseException as exc:
+                    restore_errors[worker_id] = exc
+            missing = [worker_id for worker_id in ids if worker_id not in prepared_workers]
             if missing:
                 self.runtime_guard.cancel("prepared graph worker state was lost during restart")
                 self.coordinator.cancel_siblings("prepared graph worker state was lost during restart")
@@ -826,7 +969,14 @@ class GraphWorkerLifecycle:
                     "prepared worker state was lost during restart",
                     "reconcile_persisted_receipt_and_workspace_before_resume",
                 )
-                raise PermissionError("prepared worker state was lost; restart reconciliation is required")
+                detail = "; ".join(
+                    f"{worker_id}: {type(restore_errors[worker_id]).__name__}: {restore_errors[worker_id]}"
+                    for worker_id in missing if worker_id in restore_errors
+                )
+                raise PermissionError(
+                    "prepared worker state was lost; restart reconciliation is required"
+                    + (f"; restore detail: {detail}" if detail else "")
+                )
             return {"graph_worker_adoption": self.adopt_prepared(ids)}
         return node
 

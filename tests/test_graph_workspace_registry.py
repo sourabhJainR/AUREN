@@ -81,10 +81,85 @@ class DurableGraphWorkspaceRegistryTests(unittest.TestCase):
         (workspace / "src" / "a.py").write_text("answer = 42\\n", encoding="utf-8")
         proposal = first.prepare_proposal("worker-a")
         second = self.make_coordinator()
-        restored = second._proposals["worker-a"]
+        restored = second.proposal_for("worker-a")
         self.assertEqual(restored.artifact_digest, proposal.artifact_digest)
         self.assertEqual(second.adopt(restored), ("src/a.py",))
         self.assertEqual((self.repo / "src" / "a.py").read_text(encoding="utf-8"), "answer = 42\\n")
+        third = self.make_coordinator()
+        self.assertEqual(third.worker_states()["worker-a"], "adopted")
+        with self.assertRaisesRegex(RuntimeError, "commit recovered graph adoption"):
+            third.create_worker("worker-b", ["src/b.py"])
+        git(self.repo, "add", "src/a.py")
+        git(self.repo, "commit", "-qm", "commit verified graph adoption")
+        receipt = third.confirm_adoption_committed(("worker-a",))
+        self.assertEqual(receipt["base_revision"], proposal.base_revision)
+        self.assertEqual(receipt["commit_sha"], git(self.repo, "rev-parse", "HEAD"))
+        self.assertEqual(third.base_revision, receipt["commit_sha"])
+        fourth = self.make_coordinator()
+        self.assertEqual(fourth.worker_states()["worker-a"], "adopted")
+        fourth.create_worker("worker-b", ["src/b.py"])
+
+    def test_completed_adoption_survives_cleanup_and_restart_with_immutable_evidence(self):
+        first = self.make_coordinator()
+        workspace = first.create_worker("worker-a", ["src/a.py"])
+        (workspace / "src").mkdir()
+        (workspace / "src" / "a.py").write_text("answer = 42\\n", encoding="utf-8")
+        proposal = first.prepare_proposal("worker-a")
+        first.adopt(proposal)
+        first.cleanup_worker("worker-a")
+        first.close()
+
+        second = self.make_coordinator()
+        self.assertEqual(second.worker_states()["worker-a"], "cleaned")
+        restored = second.proposal_for("worker-a")
+        self.assertIsNotNone(restored)
+        self.assertEqual(restored.artifact_digest, proposal.artifact_digest)
+        recovered = second.completed_adoption_for_workers(("worker-a",))
+        self.assertEqual(recovered["workers"]["worker-a"], ("src/a.py",))
+        self.assertFalse(recovered["committed"])
+        with self.assertRaisesRegex(RuntimeError, "commit recovered graph adoption"):
+            second.create_worker("worker-b", ["src/b.py"])
+
+        git(self.repo, "add", "src/a.py")
+        git(self.repo, "commit", "-qm", "commit cleaned graph adoption")
+        receipt = second.confirm_adoption_committed(("worker-a",))
+        self.assertEqual(receipt["paths"], ["src/a.py"])
+        third = self.make_coordinator()
+        self.assertEqual(third.worker_states()["worker-a"], "cleaned")
+        third.create_worker("worker-b", ["src/b.py"])
+
+    def test_existing_adoption_receipt_rejects_dirty_checkout_and_revalidates_commit(self):
+        first = self.make_coordinator()
+        workspace = first.create_worker("worker-a", ["src/a.py"])
+        (workspace / "src").mkdir()
+        (workspace / "src" / "a.py").write_text("answer = 42\\n", encoding="utf-8")
+        proposal = first.prepare_proposal("worker-a")
+        first.adopt(proposal)
+        git(self.repo, "add", "src/a.py")
+        git(self.repo, "commit", "-qm", "commit verified graph adoption")
+        first.confirm_adoption_committed(("worker-a",))
+
+        readme = self.repo / "README.md"
+        original = readme.read_text(encoding="utf-8")
+        readme.write_text(original + "uncommitted drift\\n", encoding="utf-8")
+        with self.assertRaisesRegex(PermissionError, "clean before reusing an adoption commit receipt"):
+            first.confirm_adoption_committed(("worker-a",))
+        readme.write_text(original, encoding="utf-8")
+        self.assertEqual(first.base_revision, git(self.repo, "rev-parse", "HEAD"))
+
+    def test_adoption_commit_receipt_rejects_modified_result(self):
+        first = self.make_coordinator()
+        workspace = first.create_worker("worker-a", ["src/a.py"])
+        (workspace / "src").mkdir()
+        (workspace / "src" / "a.py").write_text("answer = 42\\n", encoding="utf-8")
+        proposal = first.prepare_proposal("worker-a")
+        first.adopt(proposal)
+        (self.repo / "src" / "a.py").write_text("tampered = True\\n", encoding="utf-8")
+        git(self.repo, "add", "src/a.py")
+        git(self.repo, "commit", "-qm", "tamper after graph adoption")
+        with self.assertRaisesRegex(RuntimeError, "commit content differs"):
+            first.confirm_adoption_committed(("worker-a",))
+        self.assertTrue(first._recovered_adoption_pending_commit)
 
     def test_cleaned_worktree_tombstone_restores_without_reserving_paths(self):
         first = self.make_coordinator()
@@ -116,6 +191,45 @@ class DurableGraphWorkspaceRegistryTests(unittest.TestCase):
         linked.symlink_to(self.registry)
         with self.assertRaisesRegex(PermissionError, "must not be a symlink"):
             GraphWorkspaceCoordinator(self.repo, workspace_root=self.workspaces, registry_path=linked)
+
+
+    def test_restart_reconciles_crash_before_apply_without_replaying_completed_work(self):
+        first = self.make_coordinator()
+        workspace = first.create_worker("worker-a", ["src/a.py"])
+        (workspace / "src").mkdir()
+        (workspace / "src" / "a.py").write_text("answer = 42\\n", encoding="utf-8")
+        proposal = first.prepare_proposal("worker-a")
+        first._persist_adoption_intent(("worker-a",), proposal.paths, proposal.patch)
+        first.close()
+
+        second = self.make_coordinator()
+        self.assertEqual(second.worker_states()["worker-a"], "proposal_ready")
+        db = sqlite3.connect(self.registry)
+        try:
+            state = db.execute("SELECT state FROM graph_workspace_adoptions WHERE state='not_applied'").fetchone()[0]
+        finally:
+            db.close()
+        self.assertEqual(state, "not_applied")
+
+    def test_restart_blocks_partial_target_mutation_without_false_success(self):
+        first = self.make_coordinator()
+        workspace = first.create_worker("worker-a", ["src/a.py"])
+        (workspace / "src").mkdir()
+        (workspace / "src" / "a.py").write_text("answer = 42\\n", encoding="utf-8")
+        proposal = first.prepare_proposal("worker-a")
+        first._persist_adoption_intent(("worker-a",), proposal.paths, proposal.patch)
+        first.close()
+
+        (self.repo / "src").mkdir()
+        (self.repo / "src" / "a.py").write_text("partial write\\n", encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "dirty target"):
+            GraphWorkspaceCoordinator(self.repo, workspace_root=self.workspaces, registry_path=self.registry)
+        db = sqlite3.connect(self.registry)
+        try:
+            state = db.execute("SELECT state FROM graph_workspace_adoptions WHERE state='blocked'").fetchone()[0]
+        finally:
+            db.close()
+        self.assertEqual(state, "blocked")
 
 
 if __name__ == "__main__":

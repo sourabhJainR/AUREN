@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 import threading
 import time
@@ -17,6 +18,7 @@ from .execution_controller import (
     ExecutionController,
     LeaseLostError,
     TaskCancellationRequested,
+    TaskDeadlineExceeded,
 )
 
 
@@ -43,6 +45,14 @@ def await_receiver_acknowledgement(payload: Mapping[str, Any]) -> dict[str, Any]
         task_id = str(row[0]) if row else None
     response_id = payload.get("response_id")
     digest = payload.get("response_sha256")
+    deadline_epoch = payload.get("auren_deadline_epoch")
+    if deadline_epoch is not None and (
+        isinstance(deadline_epoch, bool)
+        or not isinstance(deadline_epoch, (int, float))
+        or not math.isfinite(float(deadline_epoch))
+        or float(deadline_epoch) <= 0
+    ):
+        raise ValueError("response delivery deadline binding is invalid")
     if not all(isinstance(value, str) and value for value in (journal_path, task_id, response_id, digest)):
         raise ValueError("response delivery task envelope is incomplete")
     if response_id != digest or len(digest) != 64:
@@ -63,12 +73,14 @@ def await_receiver_acknowledgement(payload: Mapping[str, Any]) -> dict[str, Any]
     while True:
         with sqlite3.connect(db_path) as db:
             current = db.execute(
-                "SELECT state,lease_generation,lease_token FROM tasks WHERE id=?", (task_id,)
+                "SELECT state,lease_generation,lease_token,cancel_requested FROM tasks WHERE id=?", (task_id,)
             ).fetchone()
         if current is None or current[0] != "running" or int(current[1]) != owned_generation or current[2] != owned_token:
             raise LeaseLostError("response delivery supervisor lease was replaced; stale worker stopped")
-        if cancel_event is not None and cancel_event.is_set():
+        if (cancel_event is not None and cancel_event.is_set()) or bool(current[3]):
             raise TaskCancellationRequested("response delivery cancelled by supervisor")
+        if deadline_epoch is not None and time.time() >= float(deadline_epoch):
+            raise TaskDeadlineExceeded("response delivery deadline expired before receiver acknowledgement")
         rows = [row for row in journal._events() if row.get("task_id") == task_id]
         for row in reversed(rows):
             if row.get("event") == "response_delivery_receiver_acknowledged":
@@ -77,7 +89,10 @@ def await_receiver_acknowledgement(payload: Mapping[str, Any]) -> dict[str, Any]
                 return {"success": True, "detail": "receiver acknowledgement verified", "evidence": ["sha256:" + digest]}
             if row.get("state") in {"failed", "cancelled", "blocked_reconciliation"}:
                 raise RuntimeError("response delivery became terminal before receiver acknowledgement")
-        time.sleep(0.05)
+        sleep_for = 0.05
+        if deadline_epoch is not None:
+            sleep_for = min(sleep_for, max(0.0, float(deadline_epoch) - time.time()))
+        time.sleep(sleep_for)
 
 
 class ResponseDeliverySupervisor:
@@ -162,10 +177,19 @@ class ResponseDeliverySupervisor:
                 "SELECT task_id,response_sha256,artifact_sha256,budget_id FROM deliveries WHERE response_id=? AND delivery_id=?",
                 (response_id, delivery_id),
             ).fetchone()
-            # A supplied budget ID always denotes a durable checkpoint, even
-            # for an idempotent delivery lookup. Validate before returning an
-            # existing task or dispatching a new one.
-            if budget_id is not None and execution_guard is None:
+            # Existing delivery rows must resume an already persisted budget.
+            # New rows may initialize that budget from a supplied guard, but an
+            # ID-only request may never invent a missing checkpoint.
+            if row:
+                if row[1] != digest:
+                    raise ValueError("delivery identity is already bound to a different response digest")
+                if artifact_digest is not None and row[2] not in (None, artifact_digest):
+                    raise ValueError("delivery identity is already bound to a different artifact digest")
+                if budget_id is not None and row[3] not in (None, budget_id):
+                    raise ValueError("delivery identity is already bound to a different crew budget")
+                budget_id = budget_id or row[3]
+                if budget_id is None:
+                    raise RuntimeError("existing delivery task has no durable budget binding")
                 existing_budget = db.execute(
                     "SELECT snapshot_json FROM delivery_budgets WHERE budget_id=?",
                     (budget_id,),
@@ -174,19 +198,70 @@ class ResponseDeliverySupervisor:
                     raise FileNotFoundError(
                         "shared delivery budget checkpoint is unavailable; cannot resume by ID alone"
                     )
-                RuntimeExecutionGuard.resume(json.loads(existing_budget[0]))
-            if row:
-                if row[1] != digest:
-                    raise ValueError("delivery identity is already bound to a different response digest")
-                if artifact_digest is not None and row[2] not in (None, artifact_digest):
-                    raise ValueError("delivery identity is already bound to a different artifact digest")
-                if budget_id is not None and row[3] not in (None, budget_id):
-                    raise ValueError("delivery identity is already bound to a different crew budget")
+                persisted = json.loads(existing_budget[0])
+                if execution_guard is None:
+                    execution_guard = RuntimeExecutionGuard.resume(persisted)
+                else:
+                    snapshot = execution_guard.snapshot()
+                    old_charges = persisted.get("delivery_charges", {})
+                    new_charges = snapshot.get("delivery_charges", {})
+                    if (
+                        persisted.get("max_delivery_bytes") != snapshot.get("max_delivery_bytes")
+                        or any(new_charges.get(key) != value for key, value in old_charges.items())
+                    ):
+                        raise ValueError("shared crew budget does not match its durable checkpoint")
+                    db.execute(
+                        "UPDATE delivery_budgets SET snapshot_json=?,updated_at=CURRENT_TIMESTAMP WHERE budget_id=?",
+                        (json.dumps(snapshot, sort_keys=True, separators=(",", ":")), budget_id),
+                    )
+                self._execution_guards[budget_id] = execution_guard
                 task_id = str(row[0])
+                if row[3] is None:
+                    db.execute(
+                        "UPDATE deliveries SET budget_id=? WHERE response_id=? AND delivery_id=?",
+                        (budget_id, response_id, delivery_id),
+                    )
+                if artifact_digest is not None and row[2] is None:
+                    db.execute(
+                        "UPDATE deliveries SET artifact_sha256=? WHERE response_id=? AND delivery_id=?",
+                        (artifact_digest, response_id, delivery_id),
+                    )
                 task = self.controller.task(task_id)
                 if task is None:
                     raise RuntimeError("delivery registry references a missing supervisor task")
                 return task_id
+
+            if budget_id is not None:
+                existing_budget = db.execute(
+                    "SELECT snapshot_json FROM delivery_budgets WHERE budget_id=?",
+                    (budget_id,),
+                ).fetchone()
+                if existing_budget is None:
+                    if execution_guard is None:
+                        raise FileNotFoundError(
+                            "shared delivery budget checkpoint is unavailable; cannot resume by ID alone"
+                        )
+                    db.execute(
+                        "INSERT INTO delivery_budgets(budget_id,snapshot_json) VALUES(?,?)",
+                        (budget_id, json.dumps(execution_guard.snapshot(), sort_keys=True, separators=(",", ":"))),
+                    )
+                elif execution_guard is None:
+                    execution_guard = RuntimeExecutionGuard.resume(json.loads(existing_budget[0]))
+                else:
+                    persisted = json.loads(existing_budget[0])
+                    snapshot = execution_guard.snapshot()
+                    old_charges = persisted.get("delivery_charges", {})
+                    new_charges = snapshot.get("delivery_charges", {})
+                    if (
+                        persisted.get("max_delivery_bytes") != snapshot.get("max_delivery_bytes")
+                        or any(new_charges.get(key) != value for key, value in old_charges.items())
+                    ):
+                        raise ValueError("shared crew budget does not match its durable checkpoint")
+                    db.execute(
+                        "UPDATE delivery_budgets SET snapshot_json=?,updated_at=CURRENT_TIMESTAMP WHERE budget_id=?",
+                        (json.dumps(snapshot, sort_keys=True, separators=(",", ":")), budget_id),
+                    )
+                self._execution_guards[budget_id] = execution_guard
             work_key = f"dashboard-response:{response_id}:{delivery_id}"
             task = self.controller.submit(
                 _HANDLER,

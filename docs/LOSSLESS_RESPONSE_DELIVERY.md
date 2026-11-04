@@ -251,6 +251,13 @@ fails closed. Keep the parent task nonterminal until the caller has both a valid
 stage result and a complete delivery receipt. Hosts that do not configure a
 receiver retain the existing bounded atomic result path.
 
+The controller-backed `ResponseDeliverySupervisor` acknowledgement wait checks
+both the live cancellation event and the durable `cancel_requested` flag on each
+poll. It also checks the immutable absolute task deadline while waiting. A
+cancellation produces a terminal cancelled task; deadline expiry produces a
+failed task and rejects a late receiver acknowledgement. Restart does not reset
+the task deadline or create a new delivery identity.
+
 ## Host-path disposition inventory — 2026-11-03
 
 The inventory assigns every known repository output path to an owning component.

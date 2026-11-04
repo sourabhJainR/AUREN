@@ -5,6 +5,7 @@ import multiprocessing
 import os
 import sqlite3
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -215,6 +216,109 @@ class ResponseDeliverySupervisorCapacityTests(unittest.TestCase):
         self.assertIsNone(duplicate_token)
         self.assertEqual(delivery.shared_capacity_snapshot()["active_workers"], 1)
         delivery._release_worker_slot("task-one", first_token)
+
+
+    def test_idempotent_delivery_lookup_revalidates_the_durable_shared_budget(self):
+        from portable.execution_controller import ExecutionController
+        from portable.runtime_recovery import RuntimeExecutionGuard
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            controller = ExecutionController(root)
+            delivery = supervisor_module.ResponseDeliverySupervisor(
+                controller, controller.progress_journal.path
+            )
+            try:
+                response_id = "c" * 64
+                delivery_id = "shared-budget-idempotency"
+                budget_id = "AUREN:issue-696:continuous-engineering"
+                guard = RuntimeExecutionGuard(
+                    max_steps=8, max_attempts=4, max_delivery_bytes=4096
+                )
+                task_id = delivery.create(
+                    response_id, delivery_id, response_id,
+                    execution_guard=guard, budget_id=budget_id,
+                )
+                self.assertTrue(delivery.consume_delivery_bytes(
+                    task_id, 12, operation_key=budget_id + ":chunk:1"
+                ))
+
+                mismatched = RuntimeExecutionGuard(
+                    max_steps=8, max_attempts=4, max_delivery_bytes=2048
+                )
+                with self.assertRaisesRegex(ValueError, "shared crew budget does not match"):
+                    delivery.create(
+                        response_id, delivery_id, response_id,
+                        execution_guard=mismatched, budget_id=budget_id,
+                    )
+                # Omitting the ID on an idempotent lookup must still reuse and
+                # validate the budget bound to the existing delivery row.
+                with self.assertRaisesRegex(ValueError, "shared crew budget does not match"):
+                    delivery.create(
+                        response_id, delivery_id, response_id,
+                        execution_guard=mismatched,
+                    )
+                self.assertEqual(
+                    task_id,
+                    delivery.create(response_id, delivery_id, response_id, execution_guard=guard),
+                )
+            finally:
+                delivery.shutdown(wait_seconds=1)
+
+    def test_cancellation_and_deadline_reach_the_waiting_delivery_handler(self):
+        from portable.execution_controller import ExecutionController
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            controller = ExecutionController(root)
+            delivery = supervisor_module.ResponseDeliverySupervisor(
+                controller, controller.progress_journal.path
+            )
+            try:
+                response_id = "a" * 64
+                task_id = delivery.create(
+                    response_id, "cancel-delivery", response_id, deadline_seconds=10
+                )
+                self.assertTrue(delivery.start(task_id))
+                self.assertTrue(delivery.cancel(task_id, reason="integration cancellation"))
+                end = time.monotonic() + 4
+                while time.monotonic() < end:
+                    task_state = delivery.state(task_id)
+                    progress_state = controller.progress_journal.snapshot(task_id)["state"]
+                    if task_state == "cancelled" and progress_state == "cancelled":
+                        break
+                    time.sleep(0.01)
+                self.assertEqual("cancelled", delivery.state(task_id))
+                self.assertEqual("cancelled", controller.progress_journal.snapshot(task_id)["state"])
+            finally:
+                delivery.shutdown(wait_seconds=2)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            controller = ExecutionController(root)
+            delivery = supervisor_module.ResponseDeliverySupervisor(
+                controller, controller.progress_journal.path
+            )
+            try:
+                response_id = "b" * 64
+                task_id = delivery.create(
+                    response_id, "deadline-delivery", response_id, deadline_seconds=1
+                )
+                started = delivery.start(task_id)
+                self.assertTrue(started or delivery.state(task_id) == "failed")
+                end = time.monotonic() + 5
+                while time.monotonic() < end:
+                    task_state = delivery.state(task_id)
+                    progress_state = controller.progress_journal.snapshot(task_id)["state"]
+                    if task_state == "failed" and progress_state == "failed":
+                        break
+                    time.sleep(0.01)
+                self.assertEqual("failed", delivery.state(task_id))
+                terminal = controller.progress_journal.snapshot(task_id)
+                self.assertEqual("failed", terminal["state"])
+                self.assertIn("deadline", terminal["message"].lower())
+            finally:
+                delivery.shutdown(wait_seconds=2)
 
 
 if __name__ == "__main__":
