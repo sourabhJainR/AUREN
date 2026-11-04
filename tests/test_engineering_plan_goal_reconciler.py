@@ -12,6 +12,7 @@ from portable.agent_org_runtime import authorize_agent_assignment
 from portable.durable_approval import DurableApprovalStore
 from portable.engineering_plan import EngineeringPlan, PlanTask, new_plan_run
 from portable.engineering_plan_goal_reconciler import EngineeringPlanGoalReconciler
+from portable.continuous_execution import ContinuousExecutionSupervisor
 from portable.engineering_plan_recovery import EngineeringPlanRecoveryBridge
 from portable.engineering_plan_store import EngineeringPlanStore
 from portable.engineering_recovery import EngineeringRecoveryLedger
@@ -212,3 +213,23 @@ class EngineeringPlanGoalReconcilerTests(unittest.TestCase):
         self.assertEqual(resumed["status"], "in_progress")
         self.assertEqual(resumed["task_id"], "review")
 
+
+    def test_continuous_supervisor_completes_parent_goal_without_another_prompt(self):
+        reconciler = self._reconciler()
+        supervisor = ContinuousExecutionSupervisor(
+            self.controller,
+            goal_reconcilers={reconciler.goal_key: reconciler},
+        )
+        report = supervisor.run(poll_seconds=0.1, batch_size=10, max_cycles=3)
+
+        self.assertTrue(report["audit_chain_valid"])
+        _, run = self.bridge.load_verified(self.plan.run_id)
+        self.assertTrue(all(item.status == "passed" and item.evidence_refs for item in run.tasks))
+        status = supervisor.status(event_limit=100)
+        self.assertEqual(2, status["task_counts"]["completed"])
+        self.assertTrue(any(
+            event["event_type"] == "goal_reconciled"
+            and event["payload"]["goal"] == reconciler.goal_key
+            and event["payload"]["outcome"]["status"] == "complete"
+            for event in status["recent_events"]
+        ))
