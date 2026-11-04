@@ -124,6 +124,7 @@ class AdaptiveRuntime:
         self.execution_controller._trusted_plan_dispatch_required = True
         self.trusted_plan_dispatch_root = None
         self.engineering_decision_store = None
+        self.decision_authorizer = None
         self.recovery_ledger = EngineeringRecoveryLedger(
             state / "engineering-recovery.sqlite3",
             max_same_hypothesis_attempts=2,
@@ -148,6 +149,7 @@ class AdaptiveRuntime:
         approval_resolver: Any,
         assignment_resolver: Any,
         conflict_scope_verifier: Callable[[Mapping[str, Any], Mapping[str, tuple[str, ...]], str], bool] | None = None,
+        decision_authorizer: Callable[[Mapping[str, Any]], str | None] | None = None,
     ) -> Any:
         """Install host authority and conflict verification before engineering work starts.
 
@@ -156,6 +158,8 @@ class AdaptiveRuntime:
         """
         if self.trusted_plan_dispatch_root is not None:
             raise RuntimeError("trusted plan dispatch is already configured")
+        if decision_authorizer is not None and not callable(decision_authorizer):
+            raise TypeError("decision_authorizer must be callable when configured")
         if conflict_scope_verifier is not None:
             self.orchestrator.configure_conflict_scope_verifier(conflict_scope_verifier)
         from .engineering_decision_store import EngineeringDecisionStore
@@ -171,16 +175,33 @@ class AdaptiveRuntime:
             assignment_resolver=assignment_resolver,
         )
         self.engineering_decision_store = decision_store
+        self.decision_authorizer = decision_authorizer
         self.trusted_plan_dispatch_root = dispatch_root
         return dispatch_root
 
     def record_engineering_decision(self, **decision: Any) -> Any:
-        """Persist a versioned user/owner decision against the configured plan store."""
+        """Persist a decision only after host authentication resolves its actor identity."""
         if self.engineering_decision_store is None:
             raise RuntimeError(
                 "trusted plan dispatch and canonical plan store must be configured before recording decisions"
             )
-        return self.engineering_decision_store.record(**decision)
+        if self.decision_authorizer is None:
+            raise PermissionError("host decision authentication is not configured")
+        supplied = dict(decision)
+        claimed_actor = supplied.pop("actor_id", None)
+        try:
+            actor_id = self.decision_authorizer(dict(supplied))
+        except Exception as exc:
+            raise PermissionError("decision actor authentication failed") from exc
+        if (
+            not isinstance(actor_id, str) or not actor_id.strip()
+            or len(actor_id) > 128 or not actor_id.isprintable()
+        ):
+            raise PermissionError("decision authorizer did not return a verified actor identity")
+        if claimed_actor is not None and claimed_actor != actor_id:
+            raise PermissionError("caller-supplied actor identity does not match the authenticated actor")
+        supplied["actor_id"] = actor_id
+        return self.engineering_decision_store.record(**supplied)
 
     def dispatch_engineering_plan_task(self, **request: Any) -> Any:
         """Dispatch only through the host-configured trusted plan composition root."""
