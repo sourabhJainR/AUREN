@@ -96,14 +96,15 @@ class TeamReleaseAuthorization:
 
 def authorize_team_release(
     *,
-    readiness: Mapping[str, Any],
+    readiness_resolver: Callable[[str, str], Mapping[str, Any]] | None,
+    implementer_principals_resolver: Callable[[str, str], Sequence[str]] | None,
+    provider_reports_resolver: Callable[[str, str, str, str], Sequence[Mapping[str, Any]]] | None,
+    verify_provider_report: Callable[[Mapping[str, Any]], bool] | None,
     task_id: str,
     run_id: str,
     artifact_digest: str,
     commit_sha: str,
     plan_digest: str,
-    implementer_principal_ids: Sequence[str],
-    provider_reports: Sequence[Mapping[str, Any]],
     workspace_receipt: Mapping[str, Any] | None,
     qa_receipt: Mapping[str, Any] | None,
     security_receipt: Mapping[str, Any] | None,
@@ -134,6 +135,12 @@ def authorize_team_release(
     current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     reasons: list[str] = []
 
+    readiness: Mapping[str, Any] | None = None
+    try:
+        if callable(readiness_resolver):
+            readiness = readiness_resolver(task_id, run_id)
+    except Exception:
+        readiness = None
     if not isinstance(readiness, Mapping) or readiness.get("task_id") != task_id or readiness.get("run_id") != run_id:
         reasons.append("canonical_team_readiness_missing_or_mismatched")
     else:
@@ -144,12 +151,31 @@ def authorize_team_release(
         if readiness.get("blocking_reasons"):
             reasons.append("canonical_team_readiness_has_blockers")
 
+    try:
+        resolved_implementers = (
+            implementer_principals_resolver(task_id, run_id)
+            if callable(implementer_principals_resolver) else ()
+        )
+    except Exception:
+        resolved_implementers = ()
+    if not isinstance(resolved_implementers, Sequence) or isinstance(resolved_implementers, (str, bytes)):
+        resolved_implementers = ()
     implementers = tuple(dict.fromkeys(
-        _text(item, "implementer_principal_id") for item in implementer_principal_ids
+        _text(item, "implementer_principal_id") for item in resolved_implementers
     ))
     if not implementers:
         reasons.append("implementer_identity_missing")
 
+    try:
+        resolved_provider_reports = (
+            provider_reports_resolver(task_id, run_id, artifact_digest, plan_digest)
+            if callable(provider_reports_resolver) else ()
+        )
+    except Exception:
+        resolved_provider_reports = ()
+    if not isinstance(resolved_provider_reports, Sequence) or isinstance(resolved_provider_reports, (str, bytes)):
+        resolved_provider_reports = ()
+    provider_reports = tuple(resolved_provider_reports)
     if not provider_reports:
         reasons.append("provider_readiness_evidence_missing")
     for report in provider_reports:
@@ -167,9 +193,14 @@ def authorize_team_release(
         ):
             reasons.append("provider_or_license_readiness_not_passed_for_candidate")
         try:
-            _sha256(report.get("evidence_digest"), "provider readiness evidence_digest")
-        except TeamReleaseAuthorizationError:
-            reasons.append("provider_readiness_evidence_digest_invalid")
+            report_digest = _sha256(report.get("evidence_digest"), "provider readiness evidence_digest")
+            report_payload = {key: value for key, value in report.items() if key not in {"ready", "evidence_digest"}}
+            if report_digest != hashlib.sha256(_canonical(report_payload)).hexdigest():
+                raise TeamReleaseAuthorizationError("provider readiness report digest mismatch")
+            if not callable(verify_provider_report) or verify_provider_report(report) is not True:
+                raise TeamReleaseAuthorizationError("provider readiness report is not host-authenticated")
+        except Exception:
+            reasons.append("provider_readiness_evidence_invalid_or_untrusted")
 
     if workspace_receipt is None:
         reasons.append("host_isolation_receipt_missing")
@@ -295,7 +326,7 @@ def authorize_team_release(
         or not persisted["record_id"].strip()
         or persisted.get("authorization_digest") != authorization_digest
         or not isinstance(persisted.get("record_digest"), str)
-        or re.fullmatch(r"[0-9a-f]{64}", persisted["record_digest"]) is None
+        or persisted.get("record_digest") != hashlib.sha256(_canonical(record_payload)).hexdigest()
     ):
         return TeamReleaseAuthorization(
             "blocked", False, task_id, run_id, artifact_digest, commit_sha,
