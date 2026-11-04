@@ -14,7 +14,7 @@ import re
 import sqlite3
 from contextlib import closing
 import time
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable, Mapping
 
 from .engineering_plan_store import EngineeringPlanStore, PlanRevisionConflict
 
@@ -82,10 +82,18 @@ class EngineeringDecisionRecord:
 class EngineeringDecisionStore:
     """Append-only decision history in the same SQLite database as the plan store."""
 
-    def __init__(self, plan_store: EngineeringPlanStore) -> None:
+    def __init__(
+        self,
+        plan_store: EngineeringPlanStore,
+        *,
+        actor_authorizer: Callable[[Mapping[str, Any]], str | None],
+    ) -> None:
         if not isinstance(plan_store, EngineeringPlanStore):
             raise TypeError("plan_store must be the canonical EngineeringPlanStore")
+        if not callable(actor_authorizer):
+            raise TypeError("actor_authorizer must be a trusted host callback")
         self.plan_store = plan_store
+        self.actor_authorizer = actor_authorizer
         with closing(plan_store._connect()) as db:
             db.execute("""
                 CREATE TABLE IF NOT EXISTS engineering_decision_records (
@@ -196,7 +204,7 @@ class EngineeringDecisionStore:
         plan_digest: str, run_revision: int, decision_type: str, question: str,
         options: Iterable[str], selected_option: str, rationale: str,
         rejected_alternatives: Iterable[tuple[str, str]] = (),
-        affected_task_ids: Iterable[str] = (), actor_id: str,
+        affected_task_ids: Iterable[str] = (), actor_id: str | None = None,
     ) -> EngineeringDecisionRecord:
         if type(expected_revision) is not int or expected_revision < 0:
             raise ValueError("expected_revision must be a non-negative integer")
@@ -206,11 +214,26 @@ class EngineeringDecisionStore:
             raise ValueError("plan_digest must be a lowercase SHA-256 digest")
         if not isinstance(run_id, str) or not _TOKEN.fullmatch(run_id):
             raise ValueError("run_id must be a bounded identifier token")
+        actor_payload = {
+            "run_id": run_id, "decision_id": decision_id,
+            "plan_digest": plan_digest, "run_revision": run_revision,
+            "decision_type": decision_type, "question": question,
+            "options": list(options) if not isinstance(options, (str, bytes)) else options,
+            "selected_option": selected_option, "rationale": rationale,
+        }
+        try:
+            verified_actor = self.actor_authorizer(actor_payload)
+        except Exception as exc:
+            raise PermissionError("decision actor authentication failed") from exc
+        if not isinstance(verified_actor, str) or not verified_actor.strip() or len(verified_actor) > 128 or not verified_actor.isprintable():
+            raise PermissionError("decision authorizer did not return a verified actor identity")
+        if actor_id is not None and actor_id != verified_actor:
+            raise PermissionError("caller-supplied actor identity does not match the authenticated actor")
         normalized = self._validate(
             decision_id=decision_id, decision_type=decision_type, question=question,
             options=options, selected_option=selected_option, rationale=rationale,
             rejected_alternatives=rejected_alternatives,
-            affected_task_ids=affected_task_ids, actor_id=actor_id,
+            affected_task_ids=affected_task_ids, actor_id=verified_actor,
         )
         plan, run = self.plan_store.load(run_id)
         if plan.digest != plan_digest:
