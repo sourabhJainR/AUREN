@@ -92,7 +92,7 @@ class DurableGraphWorkspaceRegistryTests(unittest.TestCase):
         git(self.repo, "add", "src/a.py")
         git(self.repo, "commit", "-qm", "commit verified graph adoption")
         receipt = third.confirm_adoption_committed(("worker-a",))
-        self.assertEqual(receipt["base_revision"], self.base)
+        self.assertEqual(receipt["base_revision"], proposal.base_revision)
         self.assertEqual(receipt["commit_sha"], git(self.repo, "rev-parse", "HEAD"))
         self.assertEqual(third.base_revision, receipt["commit_sha"])
         fourth = self.make_coordinator()
