@@ -61,7 +61,7 @@ class EngineeringRequirementIntakeTests(unittest.TestCase):
         )
 
     def test_long_but_bounded_statement_is_retained_without_truncation(self):
-        statement = "Build an application that " + ("preserves verified source evidence and explicit timestamps " * 12)
+        statement = ("Build an application that " + ("preserves verified source evidence and explicit timestamps " * 12)).strip()
         result = parse_engineering_request(statement)
         self.assertTrue(result["complete"])
         self.assertEqual(result["requirements"], [statement])
@@ -179,7 +179,7 @@ class EngineeringRequirementIntakeTests(unittest.TestCase):
         graph = Graph([
             Node("implement", NodeKind.DETERMINISTIC, lambda state: calls.append("ran"))
         ])
-        intent = "Implement " + ("a very long requirement " * 50)
+        intent = "Implement " + ("a very long requirement " * 100)
         run = Orchestrator(graph).run("oversized-intake", intent)
         self.assertEqual(run.status, RunStatus.BLOCKED)
         self.assertEqual(calls, [])
