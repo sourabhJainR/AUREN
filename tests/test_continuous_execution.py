@@ -52,6 +52,264 @@ def test_continuous_loop_processes_tasks_and_keeps_hash_chained_audit(tmp_path):
     assert any(event["event_type"] == "cycle_completed" for event in status["recent_events"])
 
 
+def test_blocked_goal_waits_for_explicit_wake_and_does_not_spin(tmp_path):
+    calls = []
+    controller = ExecutionController(tmp_path)
+
+    def reconcile():
+        calls.append("called")
+        if len(calls) == 1:
+            return {"status": "waiting_for_approval", "blocker": "release approval is pending"}
+        return {"status": "in_progress", "next_action": "continue_after_approval"}
+
+    supervisor = ContinuousExecutionSupervisor(
+        controller, goal_reconcilers={"AUREN:test:approval-goal": reconcile},
+    )
+    supervisor.run(poll_seconds=0.1, batch_size=1, max_cycles=2)
+    assert calls == ["called"]
+    # Simulate interruption after the hold write but before retry-state reset.
+    with __import__("sqlite3").connect(supervisor.path) as db:
+        db.execute("DELETE FROM goal_backoff WHERE goal=?", ("AUREN:test:approval-goal",))
+    health = supervisor.status()["goal_health"]
+    assert health[0]["status"] == "held"
+    assert health[0]["hold"] == {
+        "status": "waiting_for_approval", "reason": "release approval is pending",
+    }
+
+    replacement = ContinuousExecutionSupervisor(
+        ExecutionController(tmp_path),
+        goal_reconcilers={"AUREN:test:approval-goal": reconcile},
+        operator_authorizer=lambda _reason: "operator:test",
+    )
+    replacement.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    assert calls == ["called"]
+    assert any(
+        event["event_type"] == "goal_reconciliation_hold_wait"
+        for event in replacement.status(event_limit=100)["recent_events"]
+    )
+
+    replacement.wake_goal(
+        "AUREN:test:approval-goal", "independent approval evidence was recorded",
+        evidence_ref="approval:release-approval-123",
+    )
+    replacement.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    assert calls == ["called", "called"]
+    health = replacement.status()["goal_health"]
+    assert health[0]["status"] == "ready"
+    assert health[0]["hold"] is None
+    events = replacement.status(event_limit=100)["recent_events"]
+    event_types = {event["event_type"] for event in events}
+    assert "goal_reconciliation_wake_authorized" in event_types
+    assert "goal_reconciliation_woken" in event_types
+    assert replacement.verify_audit_chain()
+
+
+def test_held_goal_cannot_be_woken_without_authenticated_operator_or_evidence(tmp_path):
+    controller = ExecutionController(tmp_path)
+    supervisor = ContinuousExecutionSupervisor(
+        controller,
+        goal_reconcilers={"AUREN:test:approval-goal": lambda: {
+            "status": "waiting_for_approval", "blocker": "approval required",
+        }},
+    )
+    supervisor.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    with __import__("pytest").raises(PermissionError, match="operator authentication"):
+        supervisor.wake_goal(
+            "AUREN:test:approval-goal", "approval was granted",
+            evidence_ref="approval:release-123",
+        )
+
+    authenticated = ContinuousExecutionSupervisor(
+        ExecutionController(tmp_path),
+        goal_reconcilers={"AUREN:test:approval-goal": lambda: {"status": "in_progress"}},
+        operator_authorizer=lambda _reason: "operator:test",
+    )
+    with __import__("pytest").raises(ValueError, match="evidence_ref"):
+        authenticated.wake_goal(
+            "AUREN:test:approval-goal", "approval was granted", evidence_ref="",
+        )
+    assert authenticated.status()["goal_health"][0]["status"] == "held"
+
+
+def test_goal_reconciler_backoff_survives_restart_and_resets_after_recovery(tmp_path):
+    controller = ExecutionController(tmp_path)
+    calls = []
+
+    def fail_goal():
+        calls.append("failed")
+        raise OSError("temporary plan store outage")
+
+    first = ContinuousExecutionSupervisor(
+        controller, goal_reconcilers={"AUREN:test:retry-goal": fail_goal},
+    )
+    first.run(poll_seconds=2, batch_size=1, max_cycles=1)
+    with __import__("sqlite3").connect(first.path) as db:
+        failures, next_retry, error_type = db.execute(
+            "SELECT consecutive_errors,next_retry_at,last_error_type FROM goal_backoff WHERE goal=?",
+            ("AUREN:test:retry-goal",),
+        ).fetchone()
+    assert failures == 1
+    assert next_retry > __import__("time").time()
+    assert error_type == "OSError"
+    first_health = first.status()["goal_health"]
+    assert first_health[0]["goal"] == "AUREN:test:retry-goal"
+    assert first_health[0]["status"] == "backoff"
+    assert first_health[0]["consecutive_errors"] == 1
+
+    resumed_calls = []
+
+    def recover_goal():
+        resumed_calls.append("recovered")
+        return {"status": "in_progress", "next_action": "dispatch_next_ready_task"}
+
+    resumed = ContinuousExecutionSupervisor(
+        ExecutionController(tmp_path),
+        goal_reconcilers={"AUREN:test:retry-goal": recover_goal},
+    )
+    resumed.run(poll_seconds=2, batch_size=1, max_cycles=1)
+    assert resumed_calls == []
+    assert any(
+        event["event_type"] == "goal_reconciliation_backoff_wait"
+        for event in resumed.status(event_limit=100)["recent_events"]
+    )
+
+    with __import__("sqlite3").connect(resumed.path) as db:
+        db.execute(
+            "UPDATE goal_backoff SET next_retry_at=0 WHERE goal=?",
+            ("AUREN:test:retry-goal",),
+        )
+    resumed.run(poll_seconds=2, batch_size=1, max_cycles=1)
+    assert resumed_calls == ["recovered"]
+    with __import__("sqlite3").connect(resumed.path) as db:
+        state = db.execute(
+            "SELECT consecutive_errors,next_retry_at,last_error_type FROM goal_backoff WHERE goal=?",
+            ("AUREN:test:retry-goal",),
+        ).fetchone()
+    assert state == (0, 0.0, None)
+    assert resumed.verify_audit_chain()
+
+
+def test_failed_goal_outcome_uses_persisted_backoff(tmp_path):
+    calls = []
+
+    def reconcile():
+        calls.append("called")
+        return {"status": "failed", "reason": "provider outcome was not verified"}
+
+    supervisor = ContinuousExecutionSupervisor(
+        ExecutionController(tmp_path),
+        goal_reconcilers={"AUREN:test:failed-outcome": reconcile},
+        max_goal_retries=3,
+    )
+    supervisor.run(poll_seconds=2, batch_size=1, max_cycles=1)
+    health = supervisor.status()["goal_health"]
+    assert calls == ["called"]
+    assert health[0]["status"] == "backoff"
+    assert health[0]["consecutive_errors"] == 1
+    assert health[0]["last_error_type"] == "RuntimeError"
+
+    replacement = ContinuousExecutionSupervisor(
+        ExecutionController(tmp_path),
+        goal_reconcilers={"AUREN:test:failed-outcome": reconcile},
+        max_goal_retries=3,
+    )
+    replacement.run(poll_seconds=2, batch_size=1, max_cycles=1)
+    assert calls == ["called"]
+    assert any(
+        event["event_type"] == "goal_reconciliation_backoff_wait"
+        for event in replacement.status(event_limit=100)["recent_events"]
+    )
+
+
+def test_goal_retry_budget_exhaustion_holds_until_authenticated_evidence_wake(tmp_path):
+    calls = []
+    controller = ExecutionController(tmp_path)
+
+    def fail_goal():
+        calls.append("failed")
+        raise OSError("plan store unavailable")
+
+    first = ContinuousExecutionSupervisor(
+        controller,
+        goal_reconcilers={"AUREN:test:bounded-goal": fail_goal},
+        max_goal_retries=2,
+    )
+    first.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    with __import__("sqlite3").connect(first.path) as db:
+        db.execute(
+            "UPDATE goal_backoff SET next_retry_at=0 WHERE goal=?",
+            ("AUREN:test:bounded-goal",),
+        )
+
+    second = ContinuousExecutionSupervisor(
+        ExecutionController(tmp_path),
+        goal_reconcilers={"AUREN:test:bounded-goal": fail_goal},
+        max_goal_retries=2,
+    )
+    second.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    assert calls == ["failed", "failed"]
+    assert second.status()["goal_health"][0]["status"] == "held"
+
+    second.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    assert calls == ["failed", "failed"]
+    assert any(
+        event["event_type"] == "goal_reconciliation_hold_wait"
+        for event in second.status(event_limit=100)["recent_events"]
+    )
+
+    recovered_calls = []
+
+    def recover_goal():
+        recovered_calls.append("recovered")
+        return {"status": "in_progress", "next_action": "continue_with_new_evidence"}
+
+    resumed = ContinuousExecutionSupervisor(
+        ExecutionController(tmp_path),
+        goal_reconcilers={"AUREN:test:bounded-goal": recover_goal},
+        operator_authorizer=lambda _reason: "operator:test",
+    )
+    resumed.wake_goal(
+        "AUREN:test:bounded-goal",
+        "new plan-store recovery evidence is available",
+        evidence_ref="evidence:plan-store-recovery-456",
+    )
+    resumed.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    assert recovered_calls == ["recovered"]
+    assert resumed.status()["goal_health"][0]["status"] == "ready"
+
+
+def test_goal_reconciler_dispatches_followup_work_without_another_prompt(tmp_path):
+    controller = ExecutionController(tmp_path)
+    controller.register_handler("tests.goal_continuation", durable_continuous_handler, execution_class="read_only")
+    invocations = []
+    task_ids = []
+
+    def reconcile_goal():
+        invocations.append(len(invocations) + 1)
+        if not task_ids:
+            task = controller.submit(
+                "tests.goal_continuation", {"work_key": "goal-unit-1"},
+                goal="complete the parent engineering goal", work_key="AUREN:test:goal-unit-1",
+            )
+            task_ids.append(task.id)
+        return {"status": "in_progress", "next_action": "reconcile_remaining_acceptance"}
+
+    supervisor = ContinuousExecutionSupervisor(
+        controller, goal_reconcilers={"AUREN:test:parent-goal": reconcile_goal},
+    )
+    report = supervisor.run(poll_seconds=0.1, batch_size=10, max_cycles=2)
+
+    assert len(invocations) == 2
+    assert controller.task(task_ids[0]).state == "completed"
+    assert report["audit_chain_valid"] is True
+    events = supervisor.status(event_limit=100)["recent_events"]
+    assert any(
+        event["event_type"] == "goal_reconciled"
+        and event["payload"]["goal"] == "AUREN:test:parent-goal"
+        for event in events
+    )
+
+
 def test_stop_command_is_durable_and_worker_exits_without_losing_pending_work(tmp_path):
     controller = ExecutionController(tmp_path)
     supervisor = ContinuousExecutionSupervisor(controller)
@@ -73,6 +331,113 @@ def test_stop_command_is_durable_and_worker_exits_without_losing_pending_work(tm
     assert result["state"] == "stopped"
     assert result["stop_reason"] == "test_interrupt"
     assert supervisor.verify_audit_chain() is True
+
+
+def test_expired_supervisor_lease_does_not_clear_durable_stop_without_operator_action(tmp_path):
+    controller = ExecutionController(tmp_path)
+    first = ContinuousExecutionSupervisor(controller, lease_seconds=5)
+    run_id, _ = first._claim("stop-recovery-run")
+    first.request_stop("operator requested stop")
+
+    with __import__("sqlite3").connect(first.path) as db:
+        expired = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+        db.execute("UPDATE control SET lease_until=? WHERE id=1", (expired,))
+
+    replacement = ContinuousExecutionSupervisor(ExecutionController(tmp_path), lease_seconds=5)
+    try:
+        replacement.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    except RuntimeError as exc:
+        assert "explicit operator clear" in str(exc)
+    else:
+        raise AssertionError("replacement supervisor must not discard a durable stop")
+
+    assert replacement.status()["state"] == "stop_requested"
+    try:
+        replacement.clear_stop("unauthenticated attempt")
+    except PermissionError as exc:
+        assert "operator authentication is not configured" in str(exc)
+    else:
+        raise AssertionError("stop clear must fail closed without host operator authentication")
+
+    replacement = ContinuousExecutionSupervisor(
+        ExecutionController(tmp_path), lease_seconds=5,
+        operator_authorizer=lambda _reason: "operator:verified-test-principal",
+    )
+    cleared = replacement.clear_stop("operator confirmed restart")
+    assert cleared["state"] == "stopped"
+    report = replacement.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    assert report["run_id"] != run_id
+    events = replacement.status(event_limit=100)["recent_events"]
+    assert any(event["event_type"] == "stop_cleared" for event in events)
+    assert replacement.verify_audit_chain()
+
+
+def test_poller_error_backoff_persists_across_restart_and_resets_on_success(tmp_path):
+    calls = []
+    controller = ExecutionController(tmp_path)
+
+    def poller():
+        calls.append(len(calls) + 1)
+        if len(calls) == 1:
+            return {"status": "poll_error", "error_type": "TimeoutError"}
+        return {"status": "success", "head_sha": "f" * 40}
+
+    first = ContinuousExecutionSupervisor(controller, pollers={"ci:owner/repo": poller})
+    first.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    assert calls == [1]
+    assert first._poller_retry_after("ci:owner/repo") > 0
+
+    resumed = ContinuousExecutionSupervisor(
+        ExecutionController(tmp_path), pollers={"ci:owner/repo": poller},
+    )
+    report = resumed.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    assert calls == [1]
+    assert any(
+        event["event_type"] == "poller_backoff_wait"
+        for event in resumed.status(event_limit=100)["recent_events"]
+    )
+
+    with __import__("sqlite3").connect(resumed.path) as db:
+        db.execute(
+            "UPDATE poller_backoff SET next_poll_at=0 WHERE poller=?",
+            ("ci:owner/repo",),
+        )
+    resumed.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    assert calls == [1, 2]
+    with __import__("sqlite3").connect(resumed.path) as db:
+        state = db.execute(
+            "SELECT consecutive_errors,next_poll_at,last_error_type FROM poller_backoff WHERE poller=?",
+            ("ci:owner/repo",),
+        ).fetchone()
+    assert state == (0, 0.0, None)
+    assert resumed.verify_audit_chain()
+
+
+def test_supervisor_reuses_run_identity_after_expired_process_lease(tmp_path):
+    controller = ExecutionController(tmp_path)
+    first = ContinuousExecutionSupervisor(controller, lease_seconds=5)
+    original_run_id, _ = first._claim("durable-run-identity")
+    first._heartbeat(original_run_id, 7)
+
+    with __import__("sqlite3").connect(first.path) as db:
+        expired = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+        db.execute(
+            "UPDATE control SET lease_until=?,cycle_count=7 WHERE id=1",
+            (expired,),
+        )
+
+    resumed_controller = ExecutionController(tmp_path)
+    resumed = ContinuousExecutionSupervisor(resumed_controller, lease_seconds=5)
+    report = resumed.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+
+    assert report["run_id"] == original_run_id
+    assert report["cycles_this_run"] == 1
+    assert report["cycle_count"] == 8
+    events = resumed.status(event_limit=100)["recent_events"]
+    started = [event for event in events if event["event_type"] == "supervisor_started"]
+    assert started[-1]["payload"]["resumed_after_lease_expiry"] is True
+    assert started[-1]["payload"]["starting_cycle"] == 7
+    assert resumed.verify_audit_chain()
 
 
 def test_second_live_supervisor_cannot_claim_same_project(tmp_path):
