@@ -137,6 +137,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             self.controller, self.plan_store, request, record, guard, context=self.context,
         )
         dispatched = []
+        handler_calls_before = len(DISPATCH_HANDLER_CALLS)
 
         def reconcile_goal():
             if not dispatched:
@@ -167,7 +168,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             and event["payload"]["goal"] == "AUREN:test:trusted-parent-goal"
             for event in events
         ))
-        self.assertEqual(1, len(DISPATCH_HANDLER_CALLS))
+        self.assertEqual(handler_calls_before + 1, len(DISPATCH_HANDLER_CALLS))
         self.assertEqual("goal:dispatch-run:implement", DISPATCH_HANDLER_CALLS[-1]["work_key"])
 
     def test_declared_plan_owner_must_match_host_authorized_role_before_queue_insert(self):
