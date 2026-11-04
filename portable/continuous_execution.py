@@ -497,6 +497,11 @@ class ContinuousExecutionSupervisor:
                     "SELECT goal,status,reason FROM goal_holds ORDER BY goal"
                 ).fetchall()
             }
+        for name in holds:
+            recorded.setdefault(name, {
+                "goal": name, "consecutive_errors": 0,
+                "retry_in_seconds": 0.0, "last_error_type": None,
+            })
         for name in self.goal_reconcilers:
             recorded.setdefault(name, {
                 "goal": name, "consecutive_errors": 0,
