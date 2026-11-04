@@ -217,6 +217,7 @@ class ContinuousExecutionSupervisor:
         repair_handler: str | None = None,
         recovery_ledger: Any | None = None,
         goal_reconcilers: Mapping[str, Callable[[], Mapping[str, Any]]] | None = None,
+        operator_authorizer: Callable[[str], str | None] | None = None,
     ) -> None:
         if not isinstance(controller, ExecutionController):
             raise TypeError("controller must be an ExecutionController")
@@ -228,6 +229,9 @@ class ContinuousExecutionSupervisor:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.pollers = dict(pollers or {})
         self.goal_reconcilers = dict(goal_reconcilers or {})
+        if operator_authorizer is not None and not callable(operator_authorizer):
+            raise ValueError("operator_authorizer must be callable when configured")
+        self.operator_authorizer = operator_authorizer
         for name, callback in self.goal_reconcilers.items():
             if not isinstance(name, str) or not name.strip() or not callable(callback):
                 raise ValueError("goal_reconcilers require non-empty names and callable values")
@@ -575,9 +579,17 @@ class ContinuousExecutionSupervisor:
         return requested_run_id, starting_cycle
 
     def clear_stop(self, reason: str) -> dict[str, Any]:
-        """Explicitly clear a durable stop after confirming no live owner remains."""
+        """Clear a durable stop only after host-authenticated operator approval."""
         if not isinstance(reason, str) or not reason.strip() or len(reason) > 200:
             raise ValueError("clear reason must be non-empty text of at most 200 characters")
+        if self.operator_authorizer is None:
+            raise PermissionError("trusted operator authentication is not configured; durable stop remains active")
+        try:
+            operator_id = self.operator_authorizer(reason.strip())
+        except Exception as exc:
+            raise PermissionError("operator authentication failed; durable stop remains active") from exc
+        if not isinstance(operator_id, str) or not operator_id.strip() or len(operator_id) > 256 or not operator_id.isprintable():
+            raise PermissionError("operator authentication did not return a verified identity; durable stop remains active")
         now = datetime.now(timezone.utc)
         with sqlite3.connect(self.path, timeout=5) as db:
             db.execute("BEGIN IMMEDIATE")
@@ -599,6 +611,7 @@ class ContinuousExecutionSupervisor:
                 (_now(),),
             )
         self._event(run_id or "operator", "stop_cleared", {
+            "operator_id": operator_id.strip(),
             "reason": reason.strip(), "previous_stop_reason": stop_reason,
         })
         return self.status()
