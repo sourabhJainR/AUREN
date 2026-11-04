@@ -108,7 +108,7 @@ class DurableGraphWorkspaceRegistryTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "missing or unsafe"):
             self.make_coordinator()
 
-    def test_registry_file_is_private_and_symlink_is_rejected(self):
+    def test_registry_file_permissions_and_symlink_rejection(self):
         self.make_coordinator()
         if os.name == "posix":
             self.assertEqual(self.registry.stat().st_mode & 0o777, 0o600)
