@@ -76,6 +76,7 @@ def test_blocked_goal_waits_for_explicit_wake_and_does_not_spin(tmp_path):
     replacement = ContinuousExecutionSupervisor(
         ExecutionController(tmp_path),
         goal_reconcilers={"AUREN:test:approval-goal": reconcile},
+        operator_authorizer=lambda _reason: "operator:test",
     )
     replacement.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
     assert calls == ["called"]
@@ -86,6 +87,7 @@ def test_blocked_goal_waits_for_explicit_wake_and_does_not_spin(tmp_path):
 
     replacement.wake_goal(
         "AUREN:test:approval-goal", "independent approval evidence was recorded",
+        evidence_ref="approval:release-approval-123",
     )
     replacement.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
     assert calls == ["called", "called"]
@@ -97,6 +99,32 @@ def test_blocked_goal_waits_for_explicit_wake_and_does_not_spin(tmp_path):
     assert "goal_reconciliation_wake_authorized" in event_types
     assert "goal_reconciliation_woken" in event_types
     assert replacement.verify_audit_chain()
+
+
+def test_held_goal_cannot_be_woken_without_authenticated_operator_or_evidence(tmp_path):
+    controller = ExecutionController(tmp_path)
+    supervisor = ContinuousExecutionSupervisor(
+        controller,
+        goal_reconcilers={"AUREN:test:approval-goal": lambda: {
+            "status": "waiting_for_approval", "blocker": "approval required",
+        }},
+    )
+    supervisor.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    with __import__("pytest").raises(PermissionError, match="operator authentication"):
+        supervisor.wake_goal(
+            "AUREN:test:approval-goal", "approval was granted",
+            evidence_ref="approval:release-123",
+        )
+
+    authenticated = ContinuousExecutionSupervisor(
+        ExecutionController(tmp_path),
+        goal_reconcilers={"AUREN:test:approval-goal": lambda: {"status": "in_progress"}},
+        operator_authorizer=lambda _reason: "operator:test",
+    )
+    with __import__("pytest").raises(ValueError, match="evidence_ref"):
+        authenticated.wake_goal(
+            "AUREN:test:approval-goal", "approval was granted", evidence_ref="",
+        )
 
 
 def test_goal_reconciler_backoff_survives_restart_and_resets_after_recovery(tmp_path):
