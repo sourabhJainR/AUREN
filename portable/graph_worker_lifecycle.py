@@ -209,7 +209,7 @@ class GraphWorkerLifecycle:
 
     def _restore_prepared_worker(self, worker_id: str, marker: Mapping[str, Any]) -> PreparedGraphWorker:
         """Rebuild a prepared worker from immutable proposal and verifier artifacts after restart."""
-        if not isinstance(marker, Mapping) or marker.get("status") != "verified":
+        if not isinstance(marker, Mapping) or marker.get("status") != "verified" or marker.get("worker_id") != worker_id:
             raise PermissionError("persisted graph worker marker is missing or unverified")
         task_id = marker.get("task_id")
         task_digest = marker.get("task_digest")
@@ -265,8 +265,8 @@ class GraphWorkerLifecycle:
         ):
             raise PermissionError("persisted graph verification receipt binding is invalid")
         checks = receipt.get("checks")
-        if not isinstance(checks, list) or not checks:
-            raise PermissionError("persisted graph verification receipt has no check evidence")
+        if not isinstance(checks, list) or not checks or len(checks) > self.verifier.max_checks:
+            raise PermissionError("persisted graph verification receipt has missing or out-of-bound check evidence")
         seen = set()
         for check in checks:
             if (
@@ -275,6 +275,8 @@ class GraphWorkerLifecycle:
                 or not check.get("check_id")
                 or check.get("check_id") in seen
                 or check.get("status") != "passed"
+                or not isinstance(check.get("argv"), list) or not check.get("argv")
+                or any(not isinstance(arg, str) or not arg for arg in check.get("argv", ()))
                 or type(check.get("return_code")) is not int
                 or check.get("return_code") != 0
             ):
@@ -687,7 +689,6 @@ class GraphWorkerLifecycle:
             prepared = [self._prepared[worker_id] for worker_id in worker_ids]
         adoption_started = False
         recovered_adoption = False
-        journal_finalized: set[str] = set()
         try:
             self.runtime_guard.check()
             for item in prepared:
@@ -744,7 +745,6 @@ class GraphWorkerLifecycle:
                     if prior.get("stage") != "adoption" or prior.get("evidence_ref") != item.receipt_path:
                         raise PermissionError("adopting recovery node has no matching durable ProgressJournal receipt")
                     if prior.get("message") == complete_binding and prior_state == "completed":
-                        journal_finalized.add(item.task_id)
                     elif start_binding not in prior.get("message", ""):
                         raise PermissionError("adopting recovery node has contradictory ProgressJournal evidence")
                 else:
@@ -787,7 +787,6 @@ class GraphWorkerLifecycle:
                         or progress.get("evidence_ref") != item.receipt_path
                     ):
                         raise PermissionError("completed ProgressJournal receipt contradicts the verified adoption")
-                    journal_finalized.add(item.task_id)
                 else:
                     self.journal.record(
                         item.task_id, "verified-proposal-adopted", state="completed", stage="adoption",
