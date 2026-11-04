@@ -93,7 +93,9 @@ def test_blocked_goal_waits_for_explicit_wake_and_does_not_spin(tmp_path):
     assert health[0]["status"] == "ready"
     assert health[0]["hold"] is None
     events = replacement.status(event_limit=100)["recent_events"]
-    assert any(event["event_type"] == "goal_reconciliation_woken" for event in events)
+    event_types = {event["event_type"] for event in events}
+    assert "goal_reconciliation_wake_authorized" in event_types
+    assert "goal_reconciliation_woken" in event_types
     assert replacement.verify_audit_chain()
 
 
