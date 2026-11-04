@@ -395,6 +395,7 @@ class GraphWorkspaceCoordinator:
                     for proposal in rows
                 )
                 _git(self.project_root, "apply", "--check", "--", input_bytes=combined_patch)
+                adoption_id = self._persist_adoption_intent(tuple(worker_ids), tuple(sorted(union_paths)), combined_patch)
                 _git(self.project_root, "apply", "--", input_bytes=combined_patch)
                 applied = True
                 adopted_paths = {
@@ -414,6 +415,7 @@ class GraphWorkspaceCoordinator:
                     self._states[proposal.worker_id] = "adopted"
                     result[proposal.worker_id] = tuple(sorted(proposal.paths))
                 self._persist_registry()
+                self._set_adoption_state(adoption_id, "completed")
                 return result
         except BaseException as exc:
             rollback_error = None
