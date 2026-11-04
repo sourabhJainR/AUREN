@@ -406,6 +406,31 @@ class ContinuousExecutionSupervisor:
                 (name, _now()),
             )
 
+    def _goal_health(self, *, now: float | None = None) -> list[dict[str, Any]]:
+        """Expose durable goal retry state, including goals not registered in this process."""
+        current = time.time() if now is None else float(now)
+        with closing(sqlite3.connect(self.path, timeout=5)) as db:
+            rows = db.execute(
+                "SELECT goal,consecutive_errors,next_retry_at,last_error_type FROM goal_backoff ORDER BY goal"
+            ).fetchall()
+        recorded = {
+            str(row[0]): {
+                "goal": str(row[0]), "consecutive_errors": int(row[1]),
+                "retry_in_seconds": max(0.0, float(row[2]) - current),
+                "last_error_type": row[3],
+            }
+            for row in rows
+        }
+        for name in self.goal_reconcilers:
+            recorded.setdefault(name, {
+                "goal": name, "consecutive_errors": 0,
+                "retry_in_seconds": 0.0, "last_error_type": None,
+            })
+        return [
+            {**value, "status": "backoff" if value["retry_in_seconds"] > 0 else "ready"}
+            for _, value in sorted(recorded.items())
+        ]
+
     def _poller_health(
         self, *, stale_after_seconds: float = 300.0, now: float | None = None,
     ) -> list[dict[str, Any]]:
@@ -498,6 +523,7 @@ class ContinuousExecutionSupervisor:
             "task_counts": counts, "pending_tasks": pending_tasks,
             "recent_terminal_tasks": recent_terminal_tasks, "pollers": sorted(self.pollers),
             "poller_health": self._poller_health(),
+            "goal_health": self._goal_health(),
             "recent_events": [
                 {"sequence": int(e[0]), "event_type": e[1], "payload": json.loads(e[2]), "digest": e[3], "created_at": e[4]}
                 for e in events
