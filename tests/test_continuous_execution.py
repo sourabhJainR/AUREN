@@ -67,6 +67,9 @@ def test_blocked_goal_waits_for_explicit_wake_and_does_not_spin(tmp_path):
     )
     supervisor.run(poll_seconds=0.1, batch_size=1, max_cycles=2)
     assert calls == ["called"]
+    # Simulate interruption after the hold write but before retry-state reset.
+    with __import__("sqlite3").connect(supervisor.path) as db:
+        db.execute("DELETE FROM goal_backoff WHERE goal=?", ("AUREN:test:approval-goal",))
     health = supervisor.status()["goal_health"]
     assert health[0]["status"] == "held"
     assert health[0]["hold"] == {
