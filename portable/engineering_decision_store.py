@@ -12,6 +12,7 @@ import hashlib
 import json
 import re
 import sqlite3
+from contextlib import closing
 import time
 from typing import Any, Iterable
 
@@ -85,7 +86,7 @@ class EngineeringDecisionStore:
         if not isinstance(plan_store, EngineeringPlanStore):
             raise TypeError("plan_store must be the canonical EngineeringPlanStore")
         self.plan_store = plan_store
-        with plan_store._connect() as db:
+        with closing(plan_store._connect()) as db:
             db.execute("""
                 CREATE TABLE IF NOT EXISTS engineering_decision_records (
                     run_id TEXT NOT NULL,
@@ -113,8 +114,10 @@ class EngineeringDecisionStore:
     ) -> dict[str, Any]:
         if not isinstance(decision_id, str) or not _TOKEN.fullmatch(decision_id):
             raise ValueError("decision_id must be a bounded identifier token")
-        if decision_type not in _TYPES:
+        if not isinstance(decision_type, str) or decision_type not in _TYPES:
             raise ValueError(f"decision_type must be one of {sorted(_TYPES)}")
+        if isinstance(options, (str, bytes)):
+            raise ValueError("options must be a sequence of option strings")
         normalized_options = tuple(_text(item, "option", limit=500) for item in options)
         if len(normalized_options) < 2 or len(set(normalized_options)) != len(normalized_options):
             raise ValueError("a decision requires at least two unique options")
@@ -129,6 +132,8 @@ class EngineeringDecisionStore:
             raise ValueError("rejected alternatives must be unique")
         if any(option not in normalized_options or option == selected for option, _ in rejected):
             raise ValueError("rejected alternatives must be declared options other than the selected option")
+        if isinstance(affected_task_ids, (str, bytes)):
+            raise ValueError("affected_task_ids must be a sequence of task IDs")
         affected = tuple(_text(item, "affected task ID", limit=128) for item in affected_task_ids)
         if len(set(affected)) != len(affected):
             raise ValueError("affected task IDs must be unique")
@@ -187,8 +192,8 @@ class EngineeringDecisionStore:
             raise ValueError("run_revision must be a non-negative integer")
         if not isinstance(plan_digest, str) or not _DIGEST.fullmatch(plan_digest):
             raise ValueError("plan_digest must be a lowercase SHA-256 digest")
-        if not isinstance(run_id, str) or not run_id.strip():
-            raise ValueError("run_id is required")
+        if not isinstance(run_id, str) or not _TOKEN.fullmatch(run_id):
+            raise ValueError("run_id must be a bounded identifier token")
         normalized = self._validate(
             decision_id=decision_id, decision_type=decision_type, question=question,
             options=options, selected_option=selected_option, rationale=rationale,
@@ -215,7 +220,47 @@ class EngineeringDecisionStore:
                 "WHERE run_id=? AND decision_id=? ORDER BY revision DESC LIMIT 1",
                 (run_id, decision_id),
             ).fetchone()
+            # Re-read the plan/run inside this write transaction. The earlier
+            # load validates public input; this closes the race with a concurrent
+            # plan-run update before the decision is committed.
+            current_plan_row = db.execute(
+                "SELECT plan_digest,run_json,run_digest FROM engineering_plan_runs WHERE run_id=?",
+                (run_id,),
+            ).fetchone()
+            if current_plan_row is None or current_plan_row["plan_digest"] != plan_digest:
+                raise PlanRevisionConflict("canonical plan changed before decision commit")
+            try:
+                current_run_payload = json.loads(current_plan_row["run_json"])
+            except (TypeError, json.JSONDecodeError) as exc:
+                raise ValueError("canonical plan run JSON is corrupt") from exc
+            current_run_digest = hashlib.sha256(_canonical(current_run_payload).encode("utf-8")).hexdigest()
+            if current_run_digest != current_plan_row["run_digest"]:
+                raise ValueError("canonical plan run digest mismatch")
+            if current_run_payload.get("revision") != run_revision:
+                raise PlanRevisionConflict("canonical plan run advanced before decision commit")
+
             latest_revision = int(latest["revision"]) if latest else 0
+            # A retry after a committed insert returns the same receipt instead of
+            # appending a duplicate decision version.
+            if latest and latest_revision == expected_revision + 1:
+                existing = json.loads(latest["record_json"])
+                retry_payload = {
+                    "run_id": run_id, "revision": latest_revision,
+                    "plan_digest": plan_digest, "run_revision": run_revision,
+                    **normalized,
+                    "supersedes_digest": existing.get("supersedes_digest"),
+                    "created_at": existing.get("created_at"),
+                }
+                if retry_payload == existing and latest["record_digest"] == hashlib.sha256(
+                    _canonical(existing).encode("utf-8")
+                ).hexdigest():
+                    db.commit()
+                    return self._decode(latest, current_run_revision=run_revision)
+                raise PlanRevisionConflict("decision retry conflicts with the committed decision revision")
+            if latest_revision != expected_revision:
+                raise PlanRevisionConflict(
+                    f"expected decision revision {expected_revision}, found {latest_revision}"
+                )
             next_revision = latest_revision + 1
             supersedes = latest["record_digest"] if latest else None
             payload = {
@@ -227,22 +272,6 @@ class EngineeringDecisionStore:
             canonical = _canonical(payload)
             digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
-            # A retry after a committed insert returns the same receipt instead of
-            # appending a duplicate decision version.
-            if latest and latest_revision == expected_revision + 1:
-                existing = json.loads(latest["record_json"])
-                candidate = dict(payload)
-                candidate["created_at"] = existing.get("created_at")
-                if candidate == existing and latest["record_digest"] == hashlib.sha256(
-                    _canonical(existing).encode("utf-8")
-                ).hexdigest():
-                    db.commit()
-                    return self._decode(latest, current_run_revision=run_revision)
-                raise PlanRevisionConflict("decision retry conflicts with the committed decision revision")
-            if latest_revision != expected_revision:
-                raise PlanRevisionConflict(
-                    f"expected decision revision {expected_revision}, found {latest_revision}"
-                )
             db.execute(
                 "INSERT INTO engineering_decision_records "
                 "(run_id,decision_id,revision,plan_digest,run_revision,record_json,record_digest,created_at) "
