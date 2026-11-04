@@ -128,6 +128,7 @@ def test_held_goal_cannot_be_woken_without_authenticated_operator_or_evidence(tm
         authenticated.wake_goal(
             "AUREN:test:approval-goal", "approval was granted", evidence_ref="",
         )
+    assert authenticated.status()["goal_health"][0]["status"] == "held"
 
 
 def test_goal_reconciler_backoff_survives_restart_and_resets_after_recovery(tmp_path):
