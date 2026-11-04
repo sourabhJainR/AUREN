@@ -66,12 +66,3 @@ If a run appears stuck, inspect `continuous status` and `continuous audit` first
 ## Current boundary
 
 The continuous loop, exact-head check polling, stop command, task inventory and hash-chain audit are implemented. Remaining gates are: connecting each deployed repair handler to its provider-specific evidence and review contracts; cross-store crash injection for the recovery ledger versus decision journal; child-process hard termination/deadline propagation; external side-effect reconciliation; independent evaluator/isolation custody; and a real staging rollback rehearsal. These must remain visible as pending rather than being marked complete by a green polling result.
-
-
-## Durable isolated worktree identity
-
-The `.ai-harness/worktree.py` helper stores a versioned, atomically replaced registry before and after each Git worktree side effect. Task-bound records pin the full base commit SHA, task ID, intent digest, budget digest and normalized owned paths. Duplicate identities are rejected rather than overwriting a previous worker record.
-
-After restart, `resume` verifies the exact task/intent/budget/scope binding, confirms the path is a registered Git worktree, checks the immutable base SHA and rejects any changed or untracked path outside the declared ownership. `reconcile` reports missing and orphaned managed worktrees without mutating them. Corrupt registry data fails closed instead of being treated as an empty registry.
-
-Removing a task-bound worktree requires explicit operator confirmation that the worker has stopped. Dirty worktrees still require an explicit force flag. The helper does not infer process termination from a host restart; unresolved workers remain for operator reconciliation.
