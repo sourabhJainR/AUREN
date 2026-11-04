@@ -93,7 +93,7 @@ class GraphWorkspaceCoordinator:
         self.artifact_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.adoption_root = self.workspace_root / ".adoptions"
         self.adoption_root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        if self.workspace_root.is_symlink() or self.artifact_root.is_symlink():
+        if self.workspace_root.is_symlink() or self.artifact_root.is_symlink() or self.adoption_root.is_symlink():
             raise PermissionError("workspace and proposal roots must not be symlinks")
         self._lock = threading.RLock()
         self._cancel_event = threading.Event()
