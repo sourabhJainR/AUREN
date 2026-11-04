@@ -216,6 +216,9 @@ class ContinuousExecutionSupervisor:
         lease_seconds: int = 30,
         repair_handler: str | None = None,
         recovery_ledger: Any | None = None,
+        goal_reconcilers: Mapping[str, Callable[[], Mapping[str, Any]]] | None = None,
+        operator_authorizer: Callable[[str], str | None] | None = None,
+        max_goal_retries: int = 5,
     ) -> None:
         if not isinstance(controller, ExecutionController):
             raise TypeError("controller must be an ExecutionController")
@@ -226,6 +229,16 @@ class ContinuousExecutionSupervisor:
         self.path = self.root / ".auren" / "continuous-execution.sqlite3"
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.pollers = dict(pollers or {})
+        self.goal_reconcilers = dict(goal_reconcilers or {})
+        if operator_authorizer is not None and not callable(operator_authorizer):
+            raise ValueError("operator_authorizer must be callable when configured")
+        if type(max_goal_retries) is not int or not 1 <= max_goal_retries <= 20:
+            raise ValueError("max_goal_retries must be between 1 and 20")
+        self.operator_authorizer = operator_authorizer
+        self.max_goal_retries = max_goal_retries
+        for name, callback in self.goal_reconcilers.items():
+            if not isinstance(name, str) or not name.strip() or not callable(callback):
+                raise ValueError("goal_reconcilers require non-empty names and callable values")
         if repair_handler is not None and (not isinstance(repair_handler, str) or not repair_handler.strip()):
             raise ValueError("repair_handler must be a registered handler name")
         self.repair_handler = repair_handler.strip() if isinstance(repair_handler, str) else None
@@ -255,7 +268,8 @@ class ContinuousExecutionSupervisor:
                     cycle_count INTEGER NOT NULL DEFAULT 0,
                     last_cycle_at TEXT,
                     stop_reason TEXT,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    run_id TEXT
                 );
                 CREATE TABLE IF NOT EXISTS events(
                     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -266,7 +280,30 @@ class ContinuousExecutionSupervisor:
                     digest TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS poller_backoff(
+                    poller TEXT PRIMARY KEY,
+                    consecutive_errors INTEGER NOT NULL,
+                    next_poll_at REAL NOT NULL,
+                    last_error_type TEXT,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS goal_backoff(
+                    goal TEXT PRIMARY KEY,
+                    consecutive_errors INTEGER NOT NULL,
+                    next_retry_at REAL NOT NULL,
+                    last_error_type TEXT,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS goal_holds(
+                    goal TEXT PRIMARY KEY,
+                    status TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
             """)
+            control_columns = {row[1] for row in db.execute("PRAGMA table_info(control)").fetchall()}
+            if "run_id" not in control_columns:
+                db.execute("ALTER TABLE control ADD COLUMN run_id TEXT")
             db.execute(
                 "INSERT OR IGNORE INTO control(id,state,updated_at) VALUES(1,'stopped',?)",
                 (_now(),),
@@ -302,6 +339,182 @@ class ContinuousExecutionSupervisor:
             )
         self._event("operator", "stop_requested", {"reason": reason.strip(), "prior_state": prior})
         return self.status()
+
+    def _poller_retry_after(self, name: str, *, now: float | None = None) -> float:
+        """Return persisted retry delay; zero means the poller is due."""
+        current = time.time() if now is None else float(now)
+        with closing(sqlite3.connect(self.path, timeout=5)) as db:
+            row = db.execute(
+                "SELECT next_poll_at FROM poller_backoff WHERE poller=?", (name,),
+            ).fetchone()
+        return max(0.0, float(row[0]) - current) if row else 0.0
+
+    def _record_poller_error(self, name: str, *, poll_seconds: float, error_type: str) -> float:
+        """Persist bounded exponential backoff so restarts cannot create a retry storm."""
+        with closing(sqlite3.connect(self.path, timeout=5)) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT consecutive_errors FROM poller_backoff WHERE poller=?", (name,),
+            ).fetchone()
+            failures = (int(row[0]) if row else 0) + 1
+            delay = min(300.0, max(1.0, float(poll_seconds)) * (2 ** min(failures - 1, 8)))
+            next_poll_at = time.time() + delay
+            db.execute(
+                "INSERT INTO poller_backoff(poller,consecutive_errors,next_poll_at,last_error_type,updated_at) "
+                "VALUES(?,?,?,?,?) ON CONFLICT(poller) DO UPDATE SET "
+                "consecutive_errors=excluded.consecutive_errors,next_poll_at=excluded.next_poll_at,"
+                "last_error_type=excluded.last_error_type,updated_at=excluded.updated_at",
+                (name, failures, next_poll_at, error_type[:120], _now()),
+            )
+        return delay
+
+    def _clear_poller_error(self, name: str) -> None:
+        """Reset a poller's retry state only after a valid non-error observation."""
+        with closing(sqlite3.connect(self.path, timeout=5)) as db, db:
+            db.execute(
+                "INSERT INTO poller_backoff(poller,consecutive_errors,next_poll_at,last_error_type,updated_at) "
+                "VALUES(?,0,0,NULL,?) ON CONFLICT(poller) DO UPDATE SET "
+                "consecutive_errors=0,next_poll_at=0,last_error_type=NULL,updated_at=excluded.updated_at",
+                (name, _now()),
+            )
+
+    def _goal_retry_after(self, name: str, *, now: float | None = None) -> float:
+        """Return persisted goal retry delay; zero means reconciliation is due."""
+        current = time.time() if now is None else float(now)
+        with closing(sqlite3.connect(self.path, timeout=5)) as db:
+            row = db.execute(
+                "SELECT next_retry_at FROM goal_backoff WHERE goal=?", (name,),
+            ).fetchone()
+        return max(0.0, float(row[0]) - current) if row else 0.0
+
+    def _record_goal_error(
+        self, name: str, *, poll_seconds: float, error_type: str,
+    ) -> tuple[float, bool]:
+        """Persist bounded retry; exhaust into a durable hold pending new evidence."""
+        with closing(sqlite3.connect(self.path, timeout=5)) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT consecutive_errors FROM goal_backoff WHERE goal=?", (name,),
+            ).fetchone()
+            failures = (int(row[0]) if row else 0) + 1
+            exhausted = failures >= self.max_goal_retries
+            delay = 0.0 if exhausted else min(
+                300.0, max(1.0, float(poll_seconds)) * (2 ** min(failures - 1, 8))
+            )
+            next_retry_at = 0.0 if exhausted else time.time() + delay
+            db.execute(
+                "INSERT INTO goal_backoff(goal,consecutive_errors,next_retry_at,last_error_type,updated_at) "
+                "VALUES(?,?,?,?,?) ON CONFLICT(goal) DO UPDATE SET "
+                "consecutive_errors=excluded.consecutive_errors,next_retry_at=excluded.next_retry_at,"
+                "last_error_type=excluded.last_error_type,updated_at=excluded.updated_at",
+                (name, failures, next_retry_at, error_type[:120], _now()),
+            )
+        return delay, exhausted
+
+    def _clear_goal_error(self, name: str) -> None:
+        """Reset retry state only after a valid reconciler outcome."""
+        with closing(sqlite3.connect(self.path, timeout=5)) as db, db:
+            db.execute(
+                "INSERT INTO goal_backoff(goal,consecutive_errors,next_retry_at,last_error_type,updated_at) "
+                "VALUES(?,0,0,NULL,?) ON CONFLICT(goal) DO UPDATE SET "
+                "consecutive_errors=0,next_retry_at=0,last_error_type=NULL,updated_at=excluded.updated_at",
+                (name, _now()),
+            )
+
+    def _goal_hold(self, name: str) -> dict[str, str] | None:
+        with closing(sqlite3.connect(self.path, timeout=5)) as db:
+            row = db.execute(
+                "SELECT status,reason FROM goal_holds WHERE goal=?", (name,),
+            ).fetchone()
+        return {"status": str(row[0]), "reason": str(row[1])} if row else None
+
+    def _set_goal_hold(self, name: str, *, status: str, reason: str) -> None:
+        safe_status = status[:80]
+        safe_reason = reason[:500] if isinstance(reason, str) else "goal is waiting for an external decision"
+        with closing(sqlite3.connect(self.path, timeout=5)) as db, db:
+            db.execute(
+                "INSERT INTO goal_holds(goal,status,reason,updated_at) VALUES(?,?,?,?) "
+                "ON CONFLICT(goal) DO UPDATE SET status=excluded.status,reason=excluded.reason,updated_at=excluded.updated_at",
+                (name, safe_status, safe_reason, _now()),
+            )
+
+    def _clear_goal_hold(self, name: str) -> None:
+        with closing(sqlite3.connect(self.path, timeout=5)) as db, db:
+            db.execute("DELETE FROM goal_holds WHERE goal=?", (name,))
+
+    def wake_goal(self, name: str, reason: str, *, evidence_ref: str) -> dict[str, Any]:
+        """Release a durable goal hold only with host-authenticated operator evidence."""
+        if not isinstance(name, str) or not name.strip() or len(name) > 256:
+            raise ValueError("goal name must be non-empty text of at most 256 characters")
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > 500:
+            raise ValueError("wake reason must be non-empty text of at most 500 characters")
+        if not isinstance(evidence_ref, str) or not evidence_ref.strip() or len(evidence_ref) > 500 or not evidence_ref.isprintable():
+            raise ValueError("wake evidence_ref must be printable non-empty text of at most 500 characters")
+        if self.operator_authorizer is None:
+            raise PermissionError("trusted operator authentication is not configured; goal hold remains active")
+        try:
+            operator_id = self.operator_authorizer(reason.strip())
+        except Exception as exc:
+            raise PermissionError("operator authentication failed; goal hold remains active") from exc
+        if not isinstance(operator_id, str) or not operator_id.strip() or len(operator_id) > 256 or not operator_id.isprintable():
+            raise PermissionError("operator authentication did not return a verified identity; goal hold remains active")
+        goal = name.strip()
+        hold = self._goal_hold(goal)
+        if hold is None:
+            raise RuntimeError("goal is not held; refusing an implicit wake")
+        evidence = evidence_ref.strip()
+        self._event("operator", "goal_reconciliation_wake_authorized", {
+            "goal": goal, "reason": reason.strip(), "evidence_ref": evidence,
+            "operator_id": operator_id, "previous_status": hold["status"],
+        })
+        self._clear_goal_hold(goal)
+        self._clear_goal_error(goal)
+        self._event("operator", "goal_reconciliation_woken", {
+            "goal": goal, "reason": reason.strip(), "evidence_ref": evidence,
+            "operator_id": operator_id, "previous_status": hold["status"],
+        })
+        return self.status()
+
+    def _goal_health(self, *, now: float | None = None) -> list[dict[str, Any]]:
+        """Expose durable goal retry state, including goals not registered in this process."""
+        current = time.time() if now is None else float(now)
+        with closing(sqlite3.connect(self.path, timeout=5)) as db:
+            rows = db.execute(
+                "SELECT goal,consecutive_errors,next_retry_at,last_error_type FROM goal_backoff ORDER BY goal"
+            ).fetchall()
+        recorded = {
+            str(row[0]): {
+                "goal": str(row[0]), "consecutive_errors": int(row[1]),
+                "retry_in_seconds": max(0.0, float(row[2]) - current),
+                "last_error_type": row[3],
+            }
+            for row in rows
+        }
+        with closing(sqlite3.connect(self.path, timeout=5)) as db:
+            holds = {
+                str(row[0]): {"status": str(row[1]), "reason": str(row[2])}
+                for row in db.execute(
+                    "SELECT goal,status,reason FROM goal_holds ORDER BY goal"
+                ).fetchall()
+            }
+        for name in holds:
+            recorded.setdefault(name, {
+                "goal": name, "consecutive_errors": 0,
+                "retry_in_seconds": 0.0, "last_error_type": None,
+            })
+        for name in self.goal_reconcilers:
+            recorded.setdefault(name, {
+                "goal": name, "consecutive_errors": 0,
+                "retry_in_seconds": 0.0, "last_error_type": None,
+            })
+        return [
+            {
+                **value,
+                "status": "held" if name in holds else ("backoff" if value["retry_in_seconds"] > 0 else "ready"),
+                "hold": holds.get(name),
+            }
+            for name, value in sorted(recorded.items())
+        ]
 
     def _poller_health(
         self, *, stale_after_seconds: float = 300.0, now: float | None = None,
@@ -395,6 +608,7 @@ class ContinuousExecutionSupervisor:
             "task_counts": counts, "pending_tasks": pending_tasks,
             "recent_terminal_tasks": recent_terminal_tasks, "pollers": sorted(self.pollers),
             "poller_health": self._poller_health(),
+            "goal_health": self._goal_health(),
             "recent_events": [
                 {"sequence": int(e[0]), "event_type": e[1], "payload": json.loads(e[2]), "digest": e[3], "created_at": e[4]}
                 for e in events
@@ -429,21 +643,28 @@ class ContinuousExecutionSupervisor:
             row = db.execute("SELECT state,stop_reason FROM control WHERE id=1").fetchone()
         return (row[0] == "stop_requested", row[1])
 
-    def _claim(self, run_id: str) -> None:
+    def _claim(self, requested_run_id: str) -> tuple[str, int]:
+        """Claim the supervisor lease and resume an interrupted durable run identity."""
         now = datetime.now(timezone.utc)
         lease_until = (now + timedelta(seconds=self.lease_seconds)).isoformat()
+        resumed_run = False
         with sqlite3.connect(self.path, timeout=5) as db:
             db.execute("BEGIN IMMEDIATE")
-            state, owner, lease = db.execute(
-                "SELECT state,owner_id,lease_until FROM control WHERE id=1"
+            row = db.execute(
+                "SELECT state,owner_id,lease_until,run_id,cycle_count FROM control WHERE id=1"
             ).fetchone()
-            if state == "stop_requested" and owner and lease:
-                try:
-                    lease_time = datetime.fromisoformat(lease)
-                except ValueError:
-                    lease_time = datetime.min.replace(tzinfo=timezone.utc)
-                if lease_time.tzinfo is not None and lease_time > now and owner != self.owner_id:
-                    raise RuntimeError("stop is being honored by the live AUREN supervisor")
+            state, owner, lease, persisted_run_id, cycle_count = row
+            if state == "stop_requested":
+                if owner and lease:
+                    try:
+                        lease_time = datetime.fromisoformat(lease)
+                    except ValueError:
+                        lease_time = datetime.min.replace(tzinfo=timezone.utc)
+                    if lease_time.tzinfo is not None and lease_time > now and owner != self.owner_id:
+                        raise RuntimeError("stop is being honored by the live AUREN supervisor")
+                raise RuntimeError(
+                    "durable stop request remains active; explicit operator clear is required before restart"
+                )
             if state == "running" and owner and lease:
                 try:
                     lease_time = datetime.fromisoformat(lease)
@@ -451,11 +672,60 @@ class ContinuousExecutionSupervisor:
                     lease_time = datetime.min.replace(tzinfo=timezone.utc)
                 if lease_time.tzinfo is not None and lease_time > now and owner != self.owner_id:
                     raise RuntimeError("another AUREN continuous supervisor holds the live lease")
+                if (
+                    lease_time.tzinfo is not None and lease_time <= now
+                    and isinstance(persisted_run_id, str) and persisted_run_id.strip()
+                ):
+                    requested_run_id = persisted_run_id
+                    resumed_run = True
+            starting_cycle = int(cycle_count or 0) if resumed_run else 0
             db.execute(
-                "UPDATE control SET state='running',owner_id=?,lease_until=?,stop_reason=NULL,updated_at=? WHERE id=1",
-                (self.owner_id, lease_until, _now()),
+                "UPDATE control SET state='running',owner_id=?,lease_until=?,stop_reason=NULL,updated_at=?,run_id=?,cycle_count=? WHERE id=1",
+                (self.owner_id, lease_until, _now(), requested_run_id, starting_cycle),
             )
-        self._event(run_id, "supervisor_started", {"owner_id": self.owner_id, "lease_until": lease_until})
+        self._event(requested_run_id, "supervisor_started", {
+            "owner_id": self.owner_id, "lease_until": lease_until,
+            "resumed_after_lease_expiry": resumed_run, "starting_cycle": starting_cycle,
+        })
+        return requested_run_id, starting_cycle
+
+    def clear_stop(self, reason: str) -> dict[str, Any]:
+        """Clear a durable stop only after host-authenticated operator approval."""
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > 200:
+            raise ValueError("clear reason must be non-empty text of at most 200 characters")
+        if self.operator_authorizer is None:
+            raise PermissionError("trusted operator authentication is not configured; durable stop remains active")
+        try:
+            operator_id = self.operator_authorizer(reason.strip())
+        except Exception as exc:
+            raise PermissionError("operator authentication failed; durable stop remains active") from exc
+        if not isinstance(operator_id, str) or not operator_id.strip() or len(operator_id) > 256 or not operator_id.isprintable():
+            raise PermissionError("operator authentication did not return a verified identity; durable stop remains active")
+        now = datetime.now(timezone.utc)
+        with sqlite3.connect(self.path, timeout=5) as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT state,owner_id,lease_until,run_id,stop_reason FROM control WHERE id=1"
+            ).fetchone()
+            state, owner, lease, run_id, stop_reason = row
+            if state != "stop_requested":
+                raise RuntimeError("there is no pending durable stop request to clear")
+            if owner and lease:
+                try:
+                    lease_time = datetime.fromisoformat(lease)
+                except ValueError:
+                    lease_time = datetime.min.replace(tzinfo=timezone.utc)
+                if lease_time.tzinfo is not None and lease_time > now and owner != self.owner_id:
+                    raise RuntimeError("cannot clear a stop while another supervisor holds a live lease")
+            db.execute(
+                "UPDATE control SET state='stopped',owner_id=NULL,lease_until=NULL,stop_reason=NULL,updated_at=? WHERE id=1",
+                (_now(),),
+            )
+        self._event(run_id or "operator", "stop_cleared", {
+            "operator_id": operator_id.strip(),
+            "reason": reason.strip(), "previous_stop_reason": stop_reason,
+        })
+        return self.status()
 
     def _heartbeat(self, run_id: str, cycle: int) -> None:
         lease_until = (datetime.now(timezone.utc) + timedelta(seconds=self.lease_seconds)).isoformat()
@@ -583,13 +853,13 @@ class ContinuousExecutionSupervisor:
             raise ValueError("batch_size must be between 1 and 100")
         if max_cycles is not None and (type(max_cycles) is not int or max_cycles < 1):
             raise ValueError("max_cycles must be None or a positive integer")
-        run_id = uuid4().hex
-        self._claim(run_id)
-        cycles = 0
+        run_id, starting_cycle = self._claim(uuid4().hex)
+        cycles = starting_cycle
+        cycles_this_run = 0
         terminal = False
         try:
             self._event(run_id, "execution_started", {"poll_seconds": poll_seconds, "batch_size": batch_size, "pollers": sorted(self.pollers)})
-            while max_cycles is None or cycles < max_cycles:
+            while max_cycles is None or cycles_this_run < max_cycles:
                 if stop_event is not None and stop_event.is_set():
                     self.request_stop("local_interrupt")
                 should_stop, reason = self._should_stop()
@@ -597,9 +867,81 @@ class ContinuousExecutionSupervisor:
                     terminal = True
                     break
                 cycles += 1
+                cycles_this_run += 1
                 self._heartbeat(run_id, cycles)
                 self._event(run_id, "cycle_started", {"cycle": cycles})
                 batch_error = None
+                # Reconcile durable parent goals before claiming queued tasks. A
+                # host-composed reconciler may dispatch the next dependency-ready
+                # plan unit through the trusted plan-dispatch root. It must use
+                # stable dispatch keys and the canonical plan/evidence stores.
+                # Reconciler failures block only that goal; independent goals and
+                # already-authorized queued work continue under the same controller.
+                for goal_name, reconcile in self.goal_reconcilers.items():
+                    hold = self._goal_hold(goal_name)
+                    if hold is not None:
+                        self._event(run_id, "goal_reconciliation_hold_wait", {
+                            "cycle": cycles, "goal": goal_name,
+                            "status": hold["status"], "reason": hold["reason"],
+                        })
+                        continue
+                    retry_after = self._goal_retry_after(goal_name)
+                    if retry_after > 0:
+                        self._event(run_id, "goal_reconciliation_backoff_wait", {
+                            "cycle": cycles, "goal": goal_name,
+                            "retry_in_seconds": round(retry_after, 3),
+                        })
+                        continue
+                    try:
+                        outcome = reconcile()
+                        if not isinstance(outcome, Mapping):
+                            raise TypeError("goal reconciler must return a mapping")
+                        outcome_status = str(outcome.get("status", "")).strip().lower()
+                        if outcome_status in {"failed", "failure", "error", "retryable_failure"}:
+                            raise RuntimeError("goal reconciler returned a failure status")
+                        if outcome_status in {
+                            "blocked", "waiting_for_approval", "waiting_external_dependency",
+                            "paused", "cancelled", "cancel_requested", "user_cancelled",
+                        }:
+                            reason = outcome.get("blocker", outcome.get("reason", outcome_status))
+                            self._set_goal_hold(
+                                goal_name, status=outcome_status,
+                                reason=str(reason) if reason is not None else outcome_status,
+                            )
+                            self._clear_goal_error(goal_name)
+                            self._event(run_id, "goal_reconciliation_held", {
+                                "cycle": cycles, "goal": goal_name,
+                                "status": outcome_status, "reason": str(reason)[:500],
+                            })
+                        else:
+                            self._clear_goal_hold(goal_name)
+                            self._clear_goal_error(goal_name)
+                            self._event(run_id, "goal_reconciled", {
+                                "cycle": cycles, "goal": goal_name,
+                                "outcome": _safe_value(dict(outcome)),
+                            })
+                    except Exception as reconcile_error:
+                        delay, exhausted = self._record_goal_error(
+                            goal_name, poll_seconds=poll_seconds,
+                            error_type=type(reconcile_error).__name__,
+                        )
+                        if exhausted:
+                            self._set_goal_hold(
+                                goal_name, status="retry_budget_exhausted",
+                                reason="bounded goal retries were exhausted; new evidence and authenticated operator wake are required",
+                            )
+                            self._event(run_id, "goal_reconciliation_retry_budget_exhausted", {
+                                "cycle": cycles, "goal": goal_name,
+                                "error_type": type(reconcile_error).__name__,
+                                "retry_limit": self.max_goal_retries,
+                                "new_evidence_required": True,
+                            })
+                        else:
+                            self._event(run_id, "goal_reconciliation_blocked", {
+                                "cycle": cycles, "goal": goal_name,
+                                "error_type": type(reconcile_error).__name__,
+                                "retry_in_seconds": round(delay, 3),
+                            })
                 try:
                     self.controller.resume_pending(limit=batch_size, continue_after_durable_failure=True)
                     if self.repair_watchdog is not None:
@@ -624,6 +966,16 @@ class ContinuousExecutionSupervisor:
                             "last_poll_at": finding["last_poll_at"], "last_status": finding["last_status"],
                         })
                 for name, poller in self.pollers.items():
+                    retry_after = self._poller_retry_after(name)
+                    if retry_after > 0:
+                        poll_results[name] = {
+                            "status": "backoff", "retry_in_seconds": round(retry_after, 3),
+                        }
+                        self._event(run_id, "poller_backoff_wait", {
+                            "cycle": cycles, "poller": name,
+                            "retry_in_seconds": round(retry_after, 3),
+                        })
+                        continue
                     try:
                         result = poller()
                         if not isinstance(result, Mapping):
@@ -633,6 +985,18 @@ class ContinuousExecutionSupervisor:
                             raise ValueError("poller returned an unsupported status")
                         poll_results[name] = clean
                         self._event(run_id, "poll_result", {"cycle": cycles, "poller": name, "result": clean})
+                        if clean.get("status") == "poll_error":
+                            delay = self._record_poller_error(
+                                name, poll_seconds=poll_seconds,
+                                error_type=str(clean.get("error_type", "poll_error")),
+                            )
+                            self._event(run_id, "poller_backoff_scheduled", {
+                                "cycle": cycles, "poller": name,
+                                "retry_in_seconds": round(delay, 3),
+                                "consecutive_errors": True,
+                            })
+                        else:
+                            self._clear_poller_error(name)
                         if clean.get("status") == "failure" and self.repair_handler and self.recovery_ledger is not None:
                             failed_checks = clean.get("failed_checks", [])
                             check_details = clean.get("checks", {})
@@ -699,8 +1063,17 @@ class ContinuousExecutionSupervisor:
                                         "head_sha": head_sha, "error_type": type(repair_exc).__name__,
                                     })
                     except Exception as exc:
-                        poll_results[name] = {"status": "poll_error", "error_type": type(exc).__name__}
-                        self._event(run_id, "poll_error", {"cycle": cycles, "poller": name, "error_type": type(exc).__name__})
+                        error_type = type(exc).__name__
+                        poll_results[name] = {"status": "poll_error", "error_type": error_type}
+                        self._event(run_id, "poll_error", {"cycle": cycles, "poller": name, "error_type": error_type})
+                        delay = self._record_poller_error(
+                            name, poll_seconds=poll_seconds, error_type=error_type,
+                        )
+                        self._event(run_id, "poller_backoff_scheduled", {
+                            "cycle": cycles, "poller": name,
+                            "retry_in_seconds": round(delay, 3),
+                            "consecutive_errors": True,
+                        })
                 task_counts = self.status(event_limit=1)["task_counts"]
                 pending_count = sum(count for state, count in task_counts.items() if state not in {"completed", "failed", "cancelled"})
                 self._event(run_id, "cycle_completed", {
@@ -708,7 +1081,7 @@ class ContinuousExecutionSupervisor:
                     "pollers": {name: value.get("status") for name, value in poll_results.items()},
                     "batch_error": batch_error,
                 })
-                if max_cycles is not None and cycles >= max_cycles:
+                if max_cycles is not None and cycles_this_run >= max_cycles:
                     break
                 # The CI poll interval may be minutes, but a durable stop command
                 # must be noticed promptly rather than waiting for that full interval.
@@ -731,14 +1104,14 @@ class ContinuousExecutionSupervisor:
                         (_now(),),
                     )
                 self._event(run_id, "supervisor_stopped", {"reason": stop_reason or "stop_requested", "cycles": cycles})
-            elif max_cycles is not None and cycles >= max_cycles:
+            elif max_cycles is not None and cycles_this_run >= max_cycles:
                 with sqlite3.connect(self.path, timeout=5) as db:
                     db.execute(
                         "UPDATE control SET state='stopped',owner_id=NULL,lease_until=NULL,updated_at=? WHERE id=1",
                         (_now(),),
                     )
                 self._event(run_id, "supervisor_stopped", {"reason": "cycle_budget_exhausted", "cycles": cycles})
-            return {**self.status(), "run_id": run_id, "cycles_this_run": cycles, "audit_chain_valid": self.verify_audit_chain()}
+            return {**self.status(), "run_id": run_id, "cycles_this_run": cycles_this_run, "audit_chain_valid": self.verify_audit_chain()}
         except Exception as exc:
             with sqlite3.connect(self.path, timeout=5) as db:
                 db.execute(
