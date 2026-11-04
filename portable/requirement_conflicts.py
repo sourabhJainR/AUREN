@@ -16,8 +16,9 @@ class RequirementFact:
     key: str
     value: str
     statement: str
+    scope: str = "global"
     def __post_init__(self) -> None:
-        for name in ("statement_id", "key", "value", "statement"):
+        for name in ("statement_id", "key", "value", "statement", "scope"):
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip() or not value.isprintable():
                 raise ValueError(f"{name} must be non-empty printable text")
@@ -36,6 +37,7 @@ class ConflictOption:
 class RequirementConflict:
     conflict_id: str
     key: str
+    scope: str
     title: str
     statements: tuple[RequirementFact, ...]
     impact: str
@@ -136,21 +138,26 @@ class RequirementConflictAnalyzer:
         blocked_keys = set()
         for rule in _RULES:
             items = by_key.get(rule.key, [])
-            values = {item.value for item in items}
-            found = [item for item in items if any(pair.issubset(values) and item.value in pair for pair in rule.pairs)]
-            if not found:
-                continue
-            ordered = tuple(sorted(found, key=lambda item: (item.statement_id, item.value)))
-            identity = {"key": rule.key, "statements": [
-                {"id": item.statement_id, "value": item.value, "statement": item.statement}
-                for item in ordered]}
-            conflict_id = hashlib.sha256(json.dumps(
-                identity, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-            ).encode("utf-8")).hexdigest()
-            conflicts.append(RequirementConflict(
-                conflict_id, rule.key, rule.title, ordered, rule.impact,
-                rule.options, rule.recommended_option))
-            blocked_keys.add(rule.key)
+            for scope in sorted({item.scope for item in items}):
+                scoped_items = [item for item in items if item.scope == scope]
+                values = {item.value for item in scoped_items}
+                found = [
+                    item for item in scoped_items
+                    if any(pair.issubset(values) and item.value in pair for pair in rule.pairs)
+                ]
+                if not found:
+                    continue
+                ordered = tuple(sorted(found, key=lambda item: (item.statement_id, item.value)))
+                identity = {"key": rule.key, "scope": scope, "statements": [
+                    {"id": item.statement_id, "value": item.value, "statement": item.statement}
+                    for item in ordered]}
+                conflict_id = hashlib.sha256(json.dumps(
+                    identity, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+                ).encode("utf-8")).hexdigest()
+                conflicts.append(RequirementConflict(
+                    conflict_id, rule.key, scope, rule.title, ordered, rule.impact,
+                    rule.options, rule.recommended_option))
+                blocked_keys.add(rule.key)
         blocked, independent = [], []
         dependencies = workstream_dependencies or {}
         if not isinstance(dependencies, Mapping):
