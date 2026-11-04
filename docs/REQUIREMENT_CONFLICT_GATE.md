@@ -18,3 +18,6 @@ The tests cover the six known contradiction classes, dependent versus independen
 
 
 An empty or unavailable extraction result is reported as unscored, not clear. The caller must not treat a missing requirements parse as evidence that the plan has no conflicts.
+
+
+Conflict matching is scoped. Opposing facts about different products, user groups or delivery phases do not conflict unless the trusted parser assigns them the same scope. The default scope is global.
