@@ -199,6 +199,19 @@ class AgentOrgRuntimeTests(unittest.TestCase):
         self.assertEqual(result["work_key"], "AUREN:test:agent-assignment")
         self.assertEqual(result["deadline_seconds"], 30)
 
+    def test_submission_requires_host_authenticated_principal_before_persistence(self):
+        controller = _Controller()
+        with self.assertRaisesRegex(ValueError, "host-authenticated principal_id"):
+            submit_agent_task(
+                controller, "backend_handler", {"task": "edit API contract"},
+                role_id="BE-01", manager_id="EM-ENG-01",
+                action_class="edit_assigned_paths", scope=["portable/api.py"],
+                authorizer=lambda _request: True,
+                work_key="AUREN:test:missing-principal",
+                registry_path=REGISTRY,
+            )
+        self.assertEqual([], controller.submissions)
+
     def test_caller_cannot_overwrite_reserved_assignment_metadata(self):
         with self.assertRaises(ValueError):
             submit_agent_task(
