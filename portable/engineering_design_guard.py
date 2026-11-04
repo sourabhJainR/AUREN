@@ -589,7 +589,7 @@ class EngineeringDesignGuard:
              "Keep live and delayed modes distinct and ask the product owner to choose the required freshness and budget."),
             ("public-redistribution-vs-license",
              r"\b(public(?:ly)? redistribut(?:e|ion)|redistribut(?:e|ion).{0,30}public)\b",
-             r"\b(no redistribution|non.redistributable|redistribution prohibited|license.{0,50}(?:prohibit|forbid|restrict).{0,40}redistribut|(?:prohibit|forbid).{0,40}redistribut)\b",
+             r"\b(no redistribution|non.redistributable|redistribution prohibited|license.{0,50}(?:prohibit|forbid|restrict).{0,40}redistribut(?:e|ion)|(?:prohibit|forbid).{0,40}redistribut(?:e|ion))\b",
              "Public redistribution conflicts with a provider license that prohibits or restricts redistribution.",
              "Publishing licensed market data without redistribution rights can breach provider terms and create legal and service risk.",
              ("Use a provider/license that explicitly permits the intended redistribution", "May increase cost and restrict provider choices but aligns the product with the required distribution model."),
