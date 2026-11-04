@@ -469,6 +469,7 @@ class EngineeringDesignGuard:
         constraints: Iterable[str] = (), non_goals: Iterable[str] = (),
         candidate_contradictions: Iterable[str] = (), candidate_blind_spots: Iterable[str] = (),
         resolutions: Mapping[str, str] | None = None,
+        resolution_verifier: Callable[[str, str], bool] | None = None,
     ) -> dict[str, object]:
         """Review a request for common conflicts and blind spots before side effects.
 
@@ -495,7 +496,23 @@ class EngineeringDesignGuard:
         candidate_conflicts, candidate_blind = clean(candidate_contradictions), clean(candidate_blind_spots)
         if not isinstance(resolutions, Mapping):
             resolutions = {}
-        resolved = {str(k).strip(): str(v).strip() for k, v in resolutions.items() if str(k).strip() and str(v).strip()}
+        resolution_notes = {
+            str(k).strip(): str(v).strip()
+            for k, v in resolutions.items()
+            if str(k).strip() and str(v).strip()
+        }
+        if resolution_verifier is not None and not callable(resolution_verifier):
+            raise TypeError("resolution_verifier must be callable when configured")
+
+        def verified_resolution(rule_id: str) -> bool:
+            note = resolution_notes.get(rule_id)
+            if not note or resolution_verifier is None:
+                return False
+            try:
+                return resolution_verifier(rule_id, note) is True
+            except Exception:
+                # Failed evidence lookup never turns a conflict into an implementation permit.
+                return False
         text = " ".join([intent, *reqs, *constraints_list, *goals]).lower()
 
         source_statements = (
@@ -575,10 +592,12 @@ class EngineeringDesignGuard:
             if re.search(left, text, re.I) and re.search(right, text, re.I):
                 requirement_a = matching_statement(left)
                 requirement_b = matching_statement(right)
-                status = "resolved" if rule_id in resolved else "unresolved"
+                is_verified = verified_resolution(rule_id)
+                status = "resolved" if is_verified else "unresolved"
                 conflict = {
                     "id": rule_id, "message": message, "status": status,
-                    "resolution": resolved.get(rule_id, ""),
+                    "resolution": resolution_notes.get(rule_id, ""),
+                    "resolution_verified": is_verified,
                 }
                 conflicts.append(conflict)
                 conflict_details.append({
@@ -595,10 +614,12 @@ class EngineeringDesignGuard:
                 })
         for i, item in enumerate(candidate_conflicts):
             key = f"reviewer-conflict-{i + 1}"
-            status = "resolved" if key in resolved else "unresolved"
+            is_verified = verified_resolution(key)
+            status = "resolved" if is_verified else "unresolved"
             conflict = {
                 "id": key, "message": item, "status": status,
-                "resolution": resolved.get(key, ""),
+                "resolution": resolution_notes.get(key, ""),
+                "resolution_verified": is_verified,
             }
             conflicts.append(conflict)
             conflict_details.append({
