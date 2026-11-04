@@ -90,3 +90,11 @@ def test_unrecognized_requirement_dimensions_are_partial_not_clear():
     ])
     assert report.status == "partial"
     assert report.unrecognized_keys == ("portfolio_export",)
+
+def test_unrecognized_value_for_known_dimension_is_partial_not_clear():
+    report = RequirementConflictAnalyzer.analyze([
+        RequirementFact("r1", "market_data_latency", "real_time", "Quotes must be real time"),
+        RequirementFact("r2", "market_data_latency", "unknown", "Freshness is unspecified"),
+    ])
+    assert report.status == "partial"
+    assert report.unrecognized_keys == ("market_data_latency",)
