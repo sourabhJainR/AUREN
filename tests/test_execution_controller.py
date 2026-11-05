@@ -2480,7 +2480,30 @@ def test_template_team_enforces_dependencies_and_host_verified_isolated_workspac
     ]
     assert next(item for item in members if item["member_id"] == "implementer")["depends_on"] == ["architect"]
 
-    def receipt(member):
+    def assignment_receipt(member):
+        profile = resolve_agent_profile(member["profile_id"], revision=member["profile_revision"])
+        payload = {
+            "schema_version": "auren-team-member-assignment-v1",
+            "task_id": task.id,
+            "run_id": "feature-run",
+            "member_id": member["member_id"],
+            "profile_id": member["profile_id"],
+            "profile_revision": member["profile_revision"],
+            "principal_id": "principal-" + member["member_id"],
+            "role_id": profile.role_id,
+            "manager_role_id": profile.manager_role_id,
+            "action_class": profile.action_classes[0],
+            "scope_digest": hashlib.sha256(("scope-" + member["member_id"]).encode()).hexdigest(),
+            "status": "passed",
+            "issued_at": datetime.now(timezone.utc).isoformat(),
+        }
+        payload["assignment_digest"] = hashlib.sha256(json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+        ).encode()).hexdigest()
+        payload["signature"] = "host-signed-assignment"
+        return payload
+
+    def receipt(member, assignment):
         profile = resolve_agent_profile(member["profile_id"], revision=member["profile_revision"])
         payload = {
             "schema_version": "auren-team-member-workspace-v1",
@@ -2489,6 +2512,8 @@ def test_template_team_enforces_dependencies_and_host_verified_isolated_workspac
             "member_id": member["member_id"],
             "profile_id": member["profile_id"],
             "profile_revision": member["profile_revision"],
+            "principal_id": assignment["principal_id"],
+            "assignment_digest": assignment["assignment_digest"],
             "workspace_id": "workspace-" + member["member_id"],
             "sandbox_id": "sandbox-" + member["member_id"],
             "workspace_mode": profile.workspace_mode,
@@ -2512,6 +2537,15 @@ def test_template_team_enforces_dependencies_and_host_verified_isolated_workspac
             expected_state="pending", new_state="assigned",
         )
 
+    assignments = {}
+    for member in members:
+        assignments[member["member_id"]] = assignment_receipt(member)
+        controller.bind_team_member_assignment(
+            task.id, "feature-run", member["member_id"],
+            receipt=assignments[member["member_id"]],
+            verify_assignment=lambda _receipt: True,
+        )
+
     architect = next(item for item in members if item["member_id"] == "architect")
     with pytest.raises(ValueError, match="isolated workspace is required"):
         controller.transition_team_member(
@@ -2520,7 +2554,7 @@ def test_template_team_enforces_dependencies_and_host_verified_isolated_workspac
         )
     controller.bind_team_member_workspace(
         task.id, "feature-run", "architect",
-        receipt=receipt(architect), verify_receipt=lambda _receipt: True,
+        receipt=receipt(architect, assignments["architect"]), verify_receipt=lambda _receipt: True,
     )
     controller.transition_team_member(
         task.id, "feature-run", "architect",
@@ -2542,7 +2576,7 @@ def test_template_team_enforces_dependencies_and_host_verified_isolated_workspac
         )
     controller.bind_team_member_workspace(
         task.id, "feature-run", "implementer",
-        receipt=receipt(implementer), verify_receipt=lambda _receipt: True,
+        receipt=receipt(implementer, assignments["implementer"]), verify_receipt=lambda _receipt: True,
     )
     controller.transition_team_member(
         task.id, "feature-run", "implementer",
@@ -2561,7 +2595,7 @@ def test_template_team_enforces_dependencies_and_host_verified_isolated_workspac
         member = next(item for item in members if item["member_id"] == member_id)
         controller.bind_team_member_workspace(
             task.id, "feature-run", member_id,
-            receipt=receipt(member), verify_receipt=lambda _receipt: True,
+            receipt=receipt(member, assignments[member_id]), verify_receipt=lambda _receipt: True,
         )
         controller.transition_team_member(
             task.id, "feature-run", member_id,
