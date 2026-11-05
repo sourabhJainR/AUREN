@@ -5355,6 +5355,15 @@ class ExecutionController:
         ).hexdigest()
         if record["evidence_digest"] != expected_evidence:
             raise ValueError("persona execution receipt digest mismatch")
+        try:
+            issued_at = datetime.fromisoformat(str(record["issued_at"]).replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("persona execution receipt issued_at must be ISO-8601") from exc
+        if issued_at.tzinfo is None or issued_at.utcoffset() is None:
+            raise ValueError("persona execution receipt issued_at must include a timezone")
+        current_time = datetime.now(timezone.utc)
+        if issued_at > current_time + timedelta(seconds=30) or (current_time - issued_at).total_seconds() > 600:
+            raise ValueError("persona execution receipt is stale or future-dated")
         if verify_execution_receipt(record) is not True:
             raise PermissionError("persona execution receipt is not host-authenticated")
         receipt_digest = hashlib.sha256(
