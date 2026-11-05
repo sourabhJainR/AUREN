@@ -488,6 +488,86 @@
           "depends_on": []
         }
       ]
+    },
+    {
+      "template_id": "full_company_delivery",
+      "revision": 1,
+      "description": "Full CEO-to-engineering delivery team with implementation, reliability, QA, security and finance; independent evaluation remains external.",
+      "members": [
+        {
+          "member_id": "ceo",
+          "profile_id": "chief_executive",
+          "profile_revision": 1,
+          "depends_on": []
+        },
+        {
+          "member_id": "cto",
+          "profile_id": "chief_technology",
+          "profile_revision": 1,
+          "depends_on": [
+            "ceo"
+          ]
+        },
+        {
+          "member_id": "engineering_manager",
+          "profile_id": "engineering_manager",
+          "profile_revision": 1,
+          "depends_on": [
+            "cto"
+          ]
+        },
+        {
+          "member_id": "architect",
+          "profile_id": "principal_architect",
+          "profile_revision": 1,
+          "depends_on": [
+            "engineering_manager"
+          ]
+        },
+        {
+          "member_id": "implementer",
+          "profile_id": "backend_implementer",
+          "profile_revision": 1,
+          "depends_on": [
+            "architect"
+          ]
+        },
+        {
+          "member_id": "reliability_engineer",
+          "profile_id": "reliability_engineer",
+          "profile_revision": 1,
+          "depends_on": [
+            "implementer"
+          ]
+        },
+        {
+          "member_id": "qa",
+          "profile_id": "qa_reviewer",
+          "profile_revision": 1,
+          "depends_on": [
+            "implementer",
+            "reliability_engineer"
+          ]
+        },
+        {
+          "member_id": "security_review",
+          "profile_id": "security_reviewer",
+          "profile_revision": 1,
+          "depends_on": [
+            "implementer",
+            "reliability_engineer"
+          ]
+        },
+        {
+          "member_id": "finance",
+          "profile_id": "finance_reporting",
+          "profile_revision": 1,
+          "depends_on": [
+            "qa",
+            "security_review"
+          ]
+        }
+      ]
     }
   ]
 }
