@@ -73,6 +73,43 @@ def test_adaptive_runtime_freezes_persona_dispatch_after_trusted_root(tmp_path):
         runtime.configure_team_persona_dispatch(**callbacks)
 
 
+def test_runtime_release_authorization_requires_host_root_and_persisted_reverification(tmp_path):
+    runtime = AdaptiveRuntime(_graph(), state_root=tmp_path)
+    callbacks = {
+        "implementer_principals_resolver": lambda _task, _run: ["implementer"],
+        "provider_reports_resolver": lambda _task, _run, _artifact, _plan: [],
+        "verify_provider_report": lambda _receipt: True,
+        "verify_approval": lambda _receipt: True,
+        "verify_workspace_receipt": lambda _receipt: True,
+        "persist_authorization": lambda _record: {},
+        "release_approver_role_id": "CTO-01",
+    }
+    with pytest.raises(RuntimeError, match="trusted plan dispatch root"):
+        runtime.configure_team_release_authorization(**callbacks)
+    runtime.trusted_plan_dispatch_root = object()
+    runtime.configure_team_release_authorization(**callbacks)
+    with pytest.raises(RuntimeError, match="already configured"):
+        runtime.configure_team_release_authorization(**callbacks)
+
+    authorization = {
+        "status": "authorized",
+        "authorized": True,
+        "authorization_digest": "a" * 64,
+        "authorization_record_id": "release-record-1",
+    }
+    with pytest.raises(PermissionError, match="could not be re-verified"):
+        runtime.promote_authorized_team_release(
+            authorization,
+            verify_persisted_authorization=lambda _record: False,
+            promote=lambda _record: "released",
+        )
+    assert runtime.promote_authorized_team_release(
+        authorization,
+        verify_persisted_authorization=lambda _record: True,
+        promote=lambda _record: "released",
+    ) == "released"
+
+
 def test_adaptive_runtime_rejects_invalid_enforcer_factory_result(tmp_path):
     with pytest.raises(TypeError, match="must return an adapter enforcer"):
         AdaptiveRuntime(
