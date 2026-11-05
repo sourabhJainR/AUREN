@@ -316,6 +316,145 @@
         "present_internal_ci_as_production_validation"
       ],
       "approval_boundary": "Reports must preserve denominators, baseline definitions, skipped states, uncertainty, and source evidence."
+    },
+    {
+      "id": "PM-01",
+      "title": "Product and Requirements Analyst Agent",
+      "reports_to": "EM-ENG-01",
+      "expertise": [
+        "requirements_analysis",
+        "conflict_detection",
+        "acceptance_design"
+      ],
+      "accountable_for": [
+        "requirement qualification",
+        "assumption and decision records",
+        "conflict identification",
+        "acceptance criteria"
+      ],
+      "allowed_action_classes": [
+        "qualify_requirements",
+        "record_assumptions",
+        "identify_conflicts",
+        "define_acceptance_criteria",
+        "request_user_decisions"
+      ],
+      "prohibited_actions": [
+        "silently_resolve_blocking_conflicts",
+        "invent_user_decisions",
+        "change_approved_scope_without_authorization"
+      ],
+      "approval_boundary": "May qualify and record requirements; blocking product decisions remain with the user or authorized stakeholder."
+    },
+    {
+      "id": "FE-01",
+      "title": "Frontend Engineer Agent",
+      "reports_to": "EM-ENG-01",
+      "expertise": [
+        "frontend_architecture",
+        "accessible_ui",
+        "client_state"
+      ],
+      "accountable_for": [
+        "scoped frontend implementation",
+        "API contract integration",
+        "accessibility and UI regression"
+      ],
+      "allowed_action_classes": [
+        "edit_assigned_paths",
+        "run_scoped_tests",
+        "propose_changes",
+        "validate_accessibility"
+      ],
+      "prohibited_actions": [
+        "change_unassigned_sensitive_paths",
+        "embed_provider_secrets",
+        "approve_own_consequential_change"
+      ],
+      "approval_boundary": "Frontend changes remain subject to assigned path scope, API contracts, QA and security review."
+    },
+    {
+      "id": "DATA-01",
+      "title": "Data Integration Engineer Agent",
+      "reports_to": "EM-ENG-01",
+      "expertise": [
+        "provider_adapters",
+        "data_quality",
+        "provenance"
+      ],
+      "accountable_for": [
+        "typed provider adapters",
+        "normalization and freshness",
+        "source attribution and provenance"
+      ],
+      "allowed_action_classes": [
+        "edit_assigned_paths",
+        "run_scoped_tests",
+        "propose_changes",
+        "validate_provider_contracts",
+        "verify_data_provenance"
+      ],
+      "prohibited_actions": [
+        "fabricate_live_data",
+        "bypass_provider_license_gates",
+        "expose_provider_credentials"
+      ],
+      "approval_boundary": "Provider integrations require current license, secret isolation, provenance and data-freshness verification."
+    },
+    {
+      "id": "RESEARCH-01",
+      "title": "Research and Domain Specialist Agent",
+      "reports_to": "EM-ENG-01",
+      "expertise": [
+        "market_research",
+        "company_fundamentals",
+        "sentiment_methodology"
+      ],
+      "accountable_for": [
+        "source quality assessment",
+        "research methodology",
+        "uncertainty and risk reporting"
+      ],
+      "allowed_action_classes": [
+        "analyze_domain_sources",
+        "define_recommendation_methodology",
+        "report_uncertainty",
+        "request_data_review"
+      ],
+      "prohibited_actions": [
+        "fabricate_sources_or_sentiment",
+        "present_unsupported_certainty",
+        "issue_personalized_financial_advice"
+      ],
+      "approval_boundary": "Research outputs must retain source evidence, timestamps, methodology, uncertainty and limitations."
+    },
+    {
+      "id": "REL-01",
+      "title": "Release Manager Agent",
+      "reports_to": "CTO-01",
+      "expertise": [
+        "release_coordination",
+        "evidence_completeness",
+        "rollback_planning"
+      ],
+      "accountable_for": [
+        "release checklist",
+        "evidence report",
+        "rollback readiness",
+        "promotion coordination"
+      ],
+      "allowed_action_classes": [
+        "prepare_release",
+        "verify_release_evidence",
+        "coordinate_promotion",
+        "request_rollback"
+      ],
+      "prohibited_actions": [
+        "self-authorize_release",
+        "bypass_required_checks",
+        "claim_unverified_deployment"
+      ],
+      "approval_boundary": "Coordinates release only; host policy, independent approvals and canonical release authorization remain mandatory."
     }
   ]
 }
