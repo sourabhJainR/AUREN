@@ -34,6 +34,41 @@ class AgentProfileRegistryTests(unittest.TestCase):
         self.assertEqual("agent-profile:backend_implementer:r1", profile.memory_namespace)
         self.assertEqual(64, len(profile.digest))
 
+    def test_every_canonical_organization_role_has_a_versioned_persona_profile(self):
+        from portable.agent_org_runtime import load_agent_org_registry
+
+        registry, _ = load_agent_profile_registry(
+            PROFILE_PATH, organization_registry_path=ROLE_PATH,
+        )
+        organization = load_agent_org_registry(ROLE_PATH)
+        expected_roles = {role["id"] for role in organization["roles"]}
+        actual_roles = {profile["role_id"] for profile in registry["profiles"]}
+        self.assertEqual(expected_roles, actual_roles)
+        self.assertEqual(10, len(registry["profiles"]))
+        for profile in registry["profiles"]:
+            resolved = resolve_agent_profile(
+                profile["profile_id"], revision=profile["revision"],
+                profile_path=PROFILE_PATH, organization_registry_path=ROLE_PATH,
+            )
+            self.assertTrue(resolved.required_capabilities)
+            self.assertTrue(resolved.tool_preferences)
+            self.assertTrue(resolved.provider_preferences)
+            self.assertTrue(resolved.memory_namespace)
+            self.assertGreater(resolved.deadline_seconds, 0)
+
+    def test_all_operating_templates_resolve_with_role_bound_personas(self):
+        for template_id in (
+            "feature_delivery", "executive_governance",
+            "reliability_assurance", "independent_evaluation",
+        ):
+            template = resolve_team_template(
+                template_id, revision=1,
+                profile_path=PROFILE_PATH, organization_registry_path=ROLE_PATH,
+            )
+            self.assertTrue(template["members"])
+            self.assertEqual(64, len(template["digest"]))
+
+
     def test_boolean_revision_is_not_accepted_as_integer_revision(self):
         with self.assertRaises(AgentProfileError):
             resolve_agent_profile("backend_implementer", revision=True, profile_path=PROFILE_PATH, organization_registry_path=ROLE_PATH)
