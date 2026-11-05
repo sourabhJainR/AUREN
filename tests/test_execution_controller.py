@@ -2495,9 +2495,33 @@ def test_template_team_enforces_dependencies_and_host_verified_isolated_workspac
             "manager_role_id": profile.manager_role_id,
             "action_class": profile.action_classes[0],
             "scope_digest": hashlib.sha256(("scope-" + member["member_id"]).encode()).hexdigest(),
+            "provider_id": "provider-" + member["member_id"],
+            "model_id": "model-" + member["member_id"],
+            "provider_capabilities": list(profile.required_capabilities),
+            "provider_preferences": list(profile.provider_preferences),
+            "available_tools": list(profile.tool_preferences),
+            "provider_readiness_digest": "a" * 64,
+            "memory_namespace": profile.memory_namespace,
+            "memory_isolated": True,
+            "workspace_mode": profile.workspace_mode,
             "status": "passed",
             "issued_at": datetime.now(timezone.utc).isoformat(),
         }
+        readiness_payload = {
+            "profile_digest": member["profile_digest"],
+            "provider_id": payload["provider_id"],
+            "model_id": payload["model_id"],
+            "provider_capabilities": sorted(payload["provider_capabilities"]),
+            "provider_preferences": sorted(payload["provider_preferences"]),
+            "available_tools": sorted(payload["available_tools"]),
+            "provider_readiness_digest": payload["provider_readiness_digest"],
+            "memory_namespace": payload["memory_namespace"],
+            "memory_isolated": payload["memory_isolated"],
+            "workspace_mode": payload["workspace_mode"],
+        }
+        payload["readiness_digest"] = hashlib.sha256(json.dumps(
+            readiness_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+        ).encode()).hexdigest()
         payload["assignment_digest"] = hashlib.sha256(json.dumps(
             payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
         ).encode()).hexdigest()
