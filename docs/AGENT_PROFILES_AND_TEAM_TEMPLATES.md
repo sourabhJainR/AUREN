@@ -15,7 +15,7 @@ The versioned profile registry is `config/agent_profiles.v1.json`. It now covers
 - `independent_evaluator@1` — separately controlled evaluation of pinned artifacts and holdout evidence.
 - `finance_reporting@1` — cost, budget variance and evidence-backed reporting.
 
-Versioned templates cover `feature_delivery`, `executive_governance`, `reliability_assurance`, and `independent_evaluation`. The evaluator template is intentionally separate: a distinct persona ID is not proof of evaluator independence. The host must place its runner, credentials, holdouts and receipts outside the candidate trust domain.
+Versioned templates cover `feature_delivery`, `executive_governance`, `reliability_assurance`, `full_company_delivery`, and `independent_evaluation`. The full company template runs CEO → CTO → engineering manager → architect → implementer → reliability, then QA/security, followed by finance reporting. Independent evaluation remains a separate template and trust domain. The evaluator template is intentionally separate: a distinct persona ID is not proof of evaluator independence. The host must place its runner, credentials, holdouts and receipts outside the candidate trust domain.
 
 Each profile pins its canonical role and reporting manager, an action-class subset, capability requirements, provider/tool preferences, workspace mode, memory namespace, budget defaults, deadline and approval policy. The profile digest is SHA-256 over its normalized versioned content.
 
