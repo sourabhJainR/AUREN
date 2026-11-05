@@ -568,85 +568,87 @@
     }
   ],
   "review_snapshot": {
-    "reviewed_at": "2026-11-04",
-    "baseline_main_sha": "4d3634165977df86fdc2454cd064f0bd970725e7",
+    "reviewed_at": "2026-11-05",
+    "baseline_main_sha": "9071cf3e0c5fc3e60330704aec9e72299713666d",
     "current_main_check_runs": {
-      "total": 25,
-      "success": 22,
-      "skipped": 3,
+      "total": 29,
+      "success": 29,
+      "skipped": 0,
       "failed": 0,
       "pending": 0
     },
-    "skipped_checks": [
-      "hardening",
-      "architecture-integrity",
-      "Durable runtime (${{ matrix.os }}, Python ${{ matrix.python-version }})"
-    ],
+    "skipped_checks": [],
     "post_merge_push_workflows": {
-      "total": 6,
-      "success": 6,
+      "total": 7,
+      "success": 7,
       "failed": 0,
       "pending": 0,
       "runs": [
         {
-          "name": "Architecture Integrity",
-          "run_id": 41845622936,
-          "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41845622936"
-        },
-        {
-          "name": "Runtime Resilience Matrix",
-          "run_id": 41845622765,
-          "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41845622765"
-        },
-        {
           "name": "Agent Capability Runtime",
-          "run_id": 41845622837,
+          "run_id": 41930325216,
           "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41845622837"
-        },
-        {
-          "name": "Production AI Harness Hardening",
-          "run_id": 41845622965,
-          "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41845622965"
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41930325216"
         },
         {
           "name": "AUREN Portable Bundle",
-          "run_id": 41845622930,
+          "run_id": 41930325411,
           "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41845622930"
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41930325411"
+        },
+        {
+          "name": "Stock Research Canonical Runtime Acceptance",
+          "run_id": 41930325219,
+          "conclusion": "success",
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41930325219"
+        },
+        {
+          "name": "Architecture Integrity",
+          "run_id": 41930325473,
+          "conclusion": "success",
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41930325473"
+        },
+        {
+          "name": "Production AI Harness Hardening",
+          "run_id": 41930325250,
+          "conclusion": "success",
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41930325250"
         },
         {
           "name": "AI Harness Check",
-          "run_id": 41845622981,
+          "run_id": 41930325269,
           "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41845622981"
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41930325269"
+        },
+        {
+          "name": "Runtime Resilience Matrix",
+          "run_id": 41930325462,
+          "conclusion": "success",
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/41930325462"
         }
       ]
     },
     "portable_bundle": {
       "status": "downloaded_and_rehashed",
-      "workflow_run_id": 41845622930,
-      "bundle_artifact_id": 13330094149,
-      "checksum_artifact_id": 13331735880,
-      "outer_bundle_artifact_sha256": "d35c80d890ed7185cb7788949f5a2ee4bca4f7e590eb0e7866d55ff1d5328526",
-      "outer_checksum_artifact_sha256": "4a22be9564675e89a1c993a9a0a5ad022b587f1e525ca4339477b60de372aed3",
-      "inner_bundle_sha256": "8439cc36cadbf1c9cd0e709b82c898f37316060590fd6750e24d53ec3fc0d14a",
+      "workflow_run_id": 41930325411,
+      "bundle_artifact_id": 13370364946,
+      "checksum_artifact_id": 13372160700,
+      "outer_bundle_artifact_sha256": "f54a4449f01b55c63f90c8ed9166659833f84cfd223240e7d2d6d3dc74184140",
+      "outer_checksum_artifact_sha256": "cb0e7de07dfd09ba42df03ce38c18e8b5ab94905c206c8b838dbb3523f66b1e4",
+      "inner_bundle_sha256": "9f86ad31c62317a7b521516779eb132e76cd57e4c774afe7d8305738f36ea77e",
       "inner_checksum_status": "verified locally; auren-portable.sha256 matches the embedded ZIP SHA-256",
-      "manifest_file_count": 531,
+      "manifest_file_count": 532,
       "manifest_hash_or_size_mismatches": 0,
       "missing_manifest_entries": 0,
       "unexpected_generated_entries": [
         "payload/PORTABLE_BUNDLE.txt"
       ],
-      "source_commit": "4d3634165977df86fdc2454cd064f0bd970725e7",
+      "source_commit": "9071cf3e0c5fc3e60330704aec9e72299713666d",
       "version": "1.0.6",
       "target_repository_mutation": false,
-      "bundle_expires_at": "2026-12-04T14:15:35Z",
-      "checksum_expires_at": "2026-12-04T14:15:36Z",
-      "local_download_rehash": "completed; outer artifact digests, embedded ZIP digest and all 531 manifest entries verified in the container"
+      "bundle_expires_at": "2026-12-04T23:02:29Z",
+      "checksum_expires_at": "2026-12-04T23:02:30Z",
+      "local_download_rehash": "completed; outer artifact digests, embedded ZIP digest and all 532 manifest entries verified in the container"
     },
     "required_check_enforcement": {
       "status": "not_fully_confirmed",
@@ -657,34 +659,27 @@
     "independent_evaluation_status": "blocked; independent evaluator/oracle identity, sealed holdout custody, production isolation and external campaign receipts are not available",
     "capability_claim": "No AGI/SI or broad-generalization claim is supported; repository CI verifies internal contracts only.",
     "stock_research_acceptance": {
-      "status": "historical pass on prior main 9f697226765c89e2ec6629e0e2235b5fa63a5c99; not rerun on this SHA",
-      "workflow_run_id": 41654911914,
-      "candidate_sha": "9f697226765c89e2ec6629e0e2235b5fa63a5c99",
-      "tradingdyor_source_sha": "052a386e0f4051948cde8469fa5f5bc2816de9f8",
-      "image_id": "sha256:09c5ebfc378ed5161cfa02b16eaf4baa52b8b08be86853d7faa4edc78f9f46fb",
-      "artifact_id": 13239980492,
-      "artifact_sha256": "a3586d0933df4b4153bfc7f6c49f53b50d5660b9f6e5440ab65cbd3c7083bf8f",
-      "artifact_size_bytes": 2875,
-      "artifact_expires_at": "2027-02-01T14:33:48Z",
-      "local_download_rehash": "not run; local container runtime unavailable"
+      "status": "current-main repository acceptance check and push workflow passed; no live provider, license, or independent evaluator outcome is claimed",
+      "workflow_run_id": 41930325219,
+      "candidate_sha": "9071cf3e0c5fc3e60330704aec9e72299713666d"
     },
     "open_pr_count": 1,
     "open_prs": [
       {
-        "number": 1278,
-        "title": "P0: Complete graph adoption recovery across cleanup and commit boundaries",
-        "head_branch": "fix/graph-adoption-finalize-recovery-2026-11-04",
-        "head_sha": "7f497552785cd694698d5fc60f959f3fddb2451e",
-        "base_sha": "4d3634165977df86fdc2454cd064f0bd970725e7",
-        "status": "open; exact-head checks running; one earlier exact-head run exposed a delivery-test cleanup error, fixed on this head; independent review outstanding"
+        "number": 1281,
+        "title": "P0: Integrate all personas with isolated team execution and release gates",
+        "head_branch": "feat/1225-provider-license-independent-release-gates",
+        "head_sha": "4eaae3c43faf912e74161eafb3006eb1ca6f7acb",
+        "base_sha": "9071cf3e0c5fc3e60330704aec9e72299713666d",
+        "status": "open draft; 31/31 exact-head check-runs and 9/9 PR workflows succeeded; no independent review recorded; Codex review failed because its usage limit was reached; do not merge until independent QA/security review and real host/provider receipts exist"
       }
     ],
-    "local_checkout_and_runtime": "not available; no local repository tests were run"
+    "local_checkout_and_runtime": "not available; the downloaded portable bundle does not contain the repository test suite, so no local tests were run"
   },
   "radar_refresh": {
-    "reviewed_at": "2026-11-04",
-    "baseline_main_sha": "4d3634165977df86fdc2454cd064f0bd970725e7",
-    "status": "candidate signals only. Research refreshed through 2026-11-04 with SCHEME multi-agent side-task evaluation, Station open-ended discovery, and a 25,000-run scientific-reasoning study. Main 4d3634165977df86fdc2454cd064f0bd970725e7 has 22 successful current-main checks, three skipped checks, zero failures/pending, and six successful post-merge push workflows. The v1.0.6 portable bundle and checksum were downloaded and rehashed; all 531 manifest entries match. One open code PR (#1278) has exact-head CI in progress and independent review outstanding. Deployment, production isolation, independent evaluator/holdout custody and scientific replication remain blocked.",
+    "reviewed_at": "2026-11-05",
+    "baseline_main_sha": "9071cf3e0c5fc3e60330704aec9e72299713666d",
+    "status": "Candidate signals only. Research refreshed through 2026-11-05. Main 9071cf3e0c5fc3e60330704aec9e72299713666d has 29/29 terminal-successful current-main check-runs and seven successful post-merge push workflows. The v1.0.6 portable bundle and checksum were downloaded and rehashed; outer and embedded digests match and all 532 manifest entries match. One open draft PR (#1281) has 31/31 exact-head checks and 9/9 PR workflows successful but no independent review; do not merge on CI alone. Deployment isolation, evaluator independence, sealed-holdout custody, operator migration/rollback and scientific replication remain blocked.",
     "policy": "External announcements and benchmark reports are comparison inputs, not evidence of equivalent AUREN capability. Reuse the canonical supervisor, TaskPlan, StateGraph, ExecutionController, Guard, RuntimeExecutionGuard, ProgressJournal, LearningSteward and Arena. No duplicate orchestrator or external runtime dependency. Keep adapters opt-in; no default model, harness or extension-pack promotion without paired measured value, independent evaluation and rollback. Discovery never grants authority.",
     "status_vocabulary": {
       "implementation": "Code path exists; does not imply tests or deployment.",
@@ -695,7 +690,7 @@
     "signals": [
       {
         "id": "long_running_host_sandbox",
-        "source_date": "2026-09-28; 2026-10-21; 2026-11-03; 2026-10-29",
+        "source_date": "2026-09-28; 2026-10-21; 2026-11-03; 2026-10-29; 2026-10-28",
         "sources": [
           "https://www.docker.com/press-release/cloud-sandboxes-extending-secure-ai-agent-isolation-beyond-the-laptop/",
           "https://www.akamai.com/newsroom/press-release/akamai-launches-ai-inference-service-and-agent-execution-environment",
@@ -724,14 +719,14 @@
         "ci_status": "Selected local crash, cancellation, deadline and side-effect recovery contracts are covered; repository CI does not verify cloud snapshots, host containment, or independent isolation.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "Host-enforced filesystem/network/credential boundary, operation identity, cleanup, and recovery for any sandbox adapter. Akamai Agent Sandbox describes nested WebAssembly isolation, resource limits, and outbound access blocked by default; treat this as a comparison target, not AUREN deployment evidence. OpenAI's 2026-10-23 report describes agent-found microVM escapes, restricted network paths, and cross-agent covert channels. AUREN application checks do not establish production isolation.  GitHub's 2026-10-28 cloud sessions add resumable snapshots across surfaces and long-running sandbox sessions; GitHub Agentic Workflows describes read-only defaults, safe outputs, threat detection and micro-VM isolation. SentinelOne's 2026-10-21 agentic detection-and-response announcement is early access, not independent efficacy evidence. NVIDIA Open Agent Safety Platform and OpenShell Reference Architecture describe an out-of-process secure runtime and out-of-band watchdog. This is a comparison target only; AUREN has no independent host/kernel/egress/secret/escape audit. OpenAI's 2026-10-29 monitoring report identifies monitoring coverage gaps and layered monitoring requirements; AUREN has no independent monitor-tampering, alert-suppression or time-to-stop campaign.",
-        "benchmark": "Paired pinned long-running tasks with crash/restart, explicit stop versus ambiguous shutdown warning, deadline/cancellation, confirmed versus uncertain process termination, unauthorized path/network/secret attempts, host/workspace escape, monitor suppression, peer-agent interference, cleanup, latency, cost, and duplicate-operation checks. Require host-administered evidence for any sandbox equivalence claim.  Add cross-surface handoff and snapshot-resume checks, cost-budget exhaustion, monitor integrity, shared-hardware covert-channel probes, and host-administered escape/egress evidence. Add operator-host tests for policy enforcement before launch and after restart, host escape, monitor tampering, cross-agent channels and signed host/policy receipts. Add monitor-disable and alert-suppression attempts, DNS/service-fetch pivots, shared-hardware timing channels, cross-agent communication and post-escape perimeter tests. Report coverage, false positives, time-to-detect and time-to-stop.",
-        "acceptance_threshold": "Zero unauthorized access, monitor tampering, or cross-boundary communication in the tested suite; explicit stop requests must be honored; unconfirmed termination and unknown remote outcomes remain blocked; resume does not duplicate consequential actions; a separately administered isolation audit is required. The monitor must be outside worker authority, resistant to worker disablement, and independently tested.",
+        "measured_gap": "Host-enforced filesystem/network/credential boundary, operation identity, cleanup, and recovery for any sandbox adapter. Akamai Agent Sandbox describes nested WebAssembly isolation, resource limits, and outbound access blocked by default; treat this as a comparison target, not AUREN deployment evidence. OpenAI's 2026-10-23 report describes agent-found microVM escapes, restricted network paths, and cross-agent covert channels. AUREN application checks do not establish production isolation.  GitHub's 2026-10-28 cloud sessions add resumable snapshots across surfaces and long-running sandbox sessions; GitHub Agentic Workflows describes read-only defaults, safe outputs, threat detection and micro-VM isolation. SentinelOne's 2026-10-21 agentic detection-and-response announcement is early access, not independent efficacy evidence. NVIDIA Open Agent Safety Platform and OpenShell Reference Architecture describe an out-of-process secure runtime and out-of-band watchdog. This is a comparison target only; AUREN has no independent host/kernel/egress/secret/escape audit. OpenAI's 2026-10-29 monitoring report identifies monitoring coverage gaps and layered monitoring requirements; AUREN has no independent monitor-tampering, alert-suppression or time-to-stop campaign. GitHub's connected cloud sessions describe cross-surface snapshots and resume, but that product announcement does not establish AUREN host identity, action idempotency, policy continuity or production isolation.",
+        "benchmark": "Paired pinned long-running tasks with crash/restart, explicit stop versus ambiguous shutdown warning, deadline/cancellation, confirmed versus uncertain process termination, unauthorized path/network/secret attempts, host/workspace escape, monitor suppression, peer-agent interference, cleanup, latency, cost, and duplicate-operation checks. Require host-administered evidence for any sandbox equivalence claim.  Add cross-surface handoff and snapshot-resume checks, cost-budget exhaustion, monitor integrity, shared-hardware covert-channel probes, and host-administered escape/egress evidence. Add operator-host tests for policy enforcement before launch and after restart, host escape, monitor tampering, cross-agent channels and signed host/policy receipts. Add monitor-disable and alert-suppression attempts, DNS/service-fetch pivots, shared-hardware timing channels, cross-agent communication and post-escape perimeter tests. Report coverage, false positives, time-to-detect and time-to-stop. Add snapshot restore across clients with the same durable task/run/plan identity, approval state, cancellation token, action ledger, resource budget and host-policy digest; test stale snapshots and duplicate external actions.",
+        "acceptance_threshold": "Zero unauthorized access, monitor tampering, or cross-boundary communication in the tested suite; explicit stop requests must be honored; unconfirmed termination and unknown remote outcomes remain blocked; resume does not duplicate consequential actions; a separately administered isolation audit is required. The monitor must be outside worker authority, resistant to worker disablement, and independently tested. A restored session must not widen permissions, reset budgets, or replay a consequential action; production isolation remains blocked pending an independent host audit.",
         "rollback": "Disable candidate adapter, route to last-known-good approved executor, preserve receipts/checkpoints, and reconcile unknown outcomes."
       },
       {
         "id": "dynamic_workflows_computer_use",
-        "source_date": "2026-10-01; 2026-10-28; 2026-10; 2026-11-03; 2026-10-25; 2026-10-08",
+        "source_date": "2026-10-01; 2026-10-28; 2026-10; 2026-11-03; 2026-10-25; 2026-10-08; 2026-09-29; 2026-10-28",
         "sources": [
           "https://github.blog/changelog/2026-10-01-dynamic-workflows-in-copilot-cli-and-the-copilot-app/",
           "https://github.blog/changelog/2026-10-02-github-copilot-weekly-releases-september-28/",
@@ -747,7 +742,9 @@
           "https://arxiv.org/abs/2606.29537",
           "https://aclanthology.org/2026.findings-emnlp.1393/",
           "https://arxiv.org/abs/2610.34467",
-          "https://arxiv.org/abs/2610.11050"
+          "https://arxiv.org/abs/2610.11050",
+          "https://github.blog/changelog/2026-10-28-route-and-orchestrate-models-with-github-copilot-fusion/",
+          "https://openai.com/index/introducing-gpt-6-1-sol/"
         ],
         "owner": [
           "portable.task_planner.TaskPlan",
@@ -761,14 +758,14 @@
         "ci_status": "Repository integration tests cover selected durable identity, split-write recovery, cancellation/deadline and dashboard projection; no desktop/computer-use campaign has run.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "Long-horizon action correctness, dynamic user clarification, per-turn verification, handoff loss, approval enforcement, restart/resume, and computer-use boundaries. UserSWE evaluates 11 agents on 72 tasks from 42 repositories and reports that rankings change with interaction budget. DynamicMCPBench evaluates 24 models over 121 servers and 750 tasks; reported success drops from 39% on shortest tool chains to 13% on longest, and 31% of tasks are solved by no evaluated model. These are external benchmark results, not AUREN measurements.  The 2026-10-28 VS Code release describes a persistent Agent Host, remote SSH/tunnel sessions, and experimental desktop computer use requiring per-application approval; organizations can disable the feature. The connected cloud experience resumes sessions across clients from saved snapshots. WeaveBench reports a 41.2% best pass rate and identifies outcome-only grading overestimation; OSWorld 2.0 reports only 20.6% best completion for 108 long-horizon workflows. DynamicMCPBench scores live effects rather than relying only on final text. DynaFlow reports 88.08% Forced-mode accuracy across six benchmarks with Qwen3.5-27B after training; its untrained workflow modes underperform the direct baseline. This is external, training-specific evidence, not AUREN capability. AgentHorizon evaluates judges on long-horizon instruction/trajectory pairs and instruction-swapped near misses. AUREN has no measured trajectory-level false-accept rate or judge/human agreement.",
-        "benchmark": "Paired deterministic/single-agent baseline against candidate workflow on pinned tasks; use dynamic-user multi-turn repository tasks with tests after each turn and live-MCP tasks scored by path-agnostic state/effect checkpoints. Inject stale checkpoints, duplicate dispatch, cancellation, uncertain actions, approval denial, and restart between approval and action. Measure per-turn correctness, task completion by turn budget, effect success across three repeats, unauthorized calls, latency, and cost.  Include per-application approval denial, reconnect from a second client, host loss, snapshot restore, dynamic user changes, per-turn verification, and duplicate action suppression. Compare against the canonical deterministic/single-agent baseline. Add intermediate constraint and action-trace checks, hidden-state recovery, dynamic MCP effects, instruction-swapped near misses, fabricated evidence, restart, cancellation and per-turn scoring. Compare bounded dynamic graph generation with static TaskPlan on the same pinned tasks; include information-flow defects, tool calls, verification and cost. Add pinned long trajectories and instruction-swapped near misses; measure balanced accuracy, false acceptance, false rejection, hidden side effects and judge/human agreement.",
-        "acceptance_threshold": "No unauthorized consequential action; durable status after restart; zero false-green or implicit replay; report task success, missed signals, latency and cost.",
+        "measured_gap": "Long-horizon action correctness, dynamic user clarification, per-turn verification, handoff loss, approval enforcement, restart/resume, and computer-use boundaries. UserSWE evaluates 11 agents on 72 tasks from 42 repositories and reports that rankings change with interaction budget. DynamicMCPBench evaluates 24 models over 121 servers and 750 tasks; reported success drops from 39% on shortest tool chains to 13% on longest, and 31% of tasks are solved by no evaluated model. These are external benchmark results, not AUREN measurements.  The 2026-10-28 VS Code release describes a persistent Agent Host, remote SSH/tunnel sessions, and experimental desktop computer use requiring per-application approval; organizations can disable the feature. The connected cloud experience resumes sessions across clients from saved snapshots. WeaveBench reports a 41.2% best pass rate and identifies outcome-only grading overestimation; OSWorld 2.0 reports only 20.6% best completion for 108 long-horizon workflows. DynamicMCPBench scores live effects rather than relying only on final text. DynaFlow reports 88.08% Forced-mode accuracy across six benchmarks with Qwen3.5-27B after training; its untrained workflow modes underperform the direct baseline. This is external, training-specific evidence, not AUREN capability. AgentHorizon evaluates judges on long-horizon instruction/trajectory pairs and instruction-swapped near misses. AUREN has no measured trajectory-level false-accept rate or judge/human agreement. Copilot Fusion describes single, cascade and critique routing, while connected cloud sessions add cross-surface resume. These are comparison patterns, not evidence that AUREN has dynamic workflow or desktop parity.",
+        "benchmark": "Paired deterministic/single-agent baseline against candidate workflow on pinned tasks; use dynamic-user multi-turn repository tasks with tests after each turn and live-MCP tasks scored by path-agnostic state/effect checkpoints. Inject stale checkpoints, duplicate dispatch, cancellation, uncertain actions, approval denial, and restart between approval and action. Measure per-turn correctness, task completion by turn budget, effect success across three repeats, unauthorized calls, latency, and cost.  Include per-application approval denial, reconnect from a second client, host loss, snapshot restore, dynamic user changes, per-turn verification, and duplicate action suppression. Compare against the canonical deterministic/single-agent baseline. Add intermediate constraint and action-trace checks, hidden-state recovery, dynamic MCP effects, instruction-swapped near misses, fabricated evidence, restart, cancellation and per-turn scoring. Compare bounded dynamic graph generation with static TaskPlan on the same pinned tasks; include information-flow defects, tool calls, verification and cost. Add pinned long trajectories and instruction-swapped near misses; measure balanced accuracy, false acceptance, false rejection, hidden side effects and judge/human agreement. Compare static TaskPlan, bounded cascade and read-only critique on identical pinned tasks; include intermediate effect checks, user changes, instruction-swapped negatives, restart, cancellation, route provenance, latency and cost.",
+        "acceptance_threshold": "No unauthorized consequential action; durable status after restart; zero false-green or implicit replay; report task success, missed signals, latency and cost. Candidate composition must remain inside canonical TaskPlan/StateGraph and preserve the same authority, approval, cancellation and budget policy; revert to the static plan on regression.",
         "rollback": "Disable the new adapter/workflow and return to the prior canonical graph path; reconcile uncertain actions."
       },
       {
         "id": "adaptive_model_lifecycle",
-        "source_date": "2026-10-07; 2026-10-20; 2026-10-28; 2026-11-03; October 2026 (EMNLP Findings)",
+        "source_date": "2026-10-07; 2026-10-20; 2026-10-28; 2026-11-03; October 2026 (EMNLP Findings); 2026-09-29; 2026-10-28; 2026-11-03",
         "sources": [
           "https://github.blog/changelog/2026-09-18-upcoming-deprecation-of-selected-github-copilot-models-in-mid-october/",
           "https://github.blog/changelog/2026-10-02-github-copilot-weekly-releases-september-28/",
@@ -784,7 +781,9 @@
           "https://arxiv.org/abs/2607.22465",
           "https://arxiv.org/abs/2609.22951",
           "https://aclanthology.org/2026.findings-acl.1881/",
-          "https://aclanthology.org/2026.findings-emnlp.2072/"
+          "https://aclanthology.org/2026.findings-emnlp.2072/",
+          "https://openai.com/index/introducing-gpt-6-1-sol/",
+          "https://github.blog/changelog/2026-11-03-byok-and-enterprise-custom-models-in-the-copilot-usage-api/"
         ],
         "owner": [
           "portable.agent_capabilities.CapabilityFabric",
@@ -796,14 +795,14 @@
         "ci_status": "Repository CI covers routing and policy contracts; no live-provider quality comparison, local/cloud privacy-parity test, or production catalog freshness proof is claimed.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "not verified",
-        "measured_gap": "Retired model detection, route quality by task family, privacy and permission parity, fallback loops and budget preservation. Include the 2026-11-16 retirement wave and distinguish discovery from installation/trust.  Copilot Fusion GA describes single, cascade and critique routing with effort levels; experimental local routing still makes decisions in the cloud and does not make a session offline. The 2026-11-16 retirement wave lists Claude Opus 4.8, Claude Opus 5 and GPT-5.6 Terra; the 2026-10-19 retirement wave is already effective. Model discovery and local routing do not establish AUREN provider trust or privacy parity. Copilot Fusion GA describes single-model, cascade and critique routing with administrator-controlled model eligibility; its local-model routing preview still makes routing decisions in the cloud and does not make the session offline. Treat route selection as a policy-bound decision with explicit provenance, not an opaque optimization. COMPASS explores evidence-seeking routing; TRACE-Router pins a model at task admission using delayed task-level feedback; AgentRouter studies step-level assignment; LLMRouterBench spans 400K+ instances, 21 datasets and 33 models and finds many routers fail to beat simple baselines. The EMNLP 2026 Findings survey separates predictive, adaptive, generative and infrastructure/benchmark routing. AUREN has no paired live-provider evidence that a learned or agentic router beats fixed-tier and always-cheapest baselines.",
-        "benchmark": "Pinned task-family matrix with retired/missing model IDs, rate limits, schema drift, provider loss, bounded fallback, measured latency/cost and task success.  Add local/cloud privacy parity, stale catalog and retired-ID rejection, model-policy revocation, route receipt lineage, cost/latency under fallback, and task-family quality comparisons. Include a provider outage during a multi-step run without resetting scope or budget. Test route-policy revocation mid-run, local/cloud privacy parity, model-specific safety differences, model lifecycle retirement, cascade escalation limits, critique independence, and whether fallback preserves the original task scope and shared budget. Compare static/task-pinned/step-level routing on identical pinned task families; test model retirement, route drift, privacy, quality, latency, cost, fallback loops and shared-budget monotonicity. Compare predictive, adaptive and generative routing against fixed-tier, always-cheapest and best-single-model baselines on the same frozen candidate pool and task set.",
-        "acceptance_threshold": "Stale IDs never dispatch; fallback cannot widen data scope or reset budgets; paired outcomes and regression data required before changing defaults.  Local or cloud selection must preserve explicit privacy, authority and budget policy; a retired or stale model ID must never dispatch.",
+        "measured_gap": "Retired model detection, route quality by task family, privacy and permission parity, fallback loops and budget preservation. Include the 2026-11-16 retirement wave and distinguish discovery from installation/trust.  Copilot Fusion GA describes single, cascade and critique routing with effort levels; experimental local routing still makes decisions in the cloud and does not make a session offline. The 2026-11-16 retirement wave lists Claude Opus 4.8, Claude Opus 5 and GPT-5.6 Terra; the 2026-10-19 retirement wave is already effective. Model discovery and local routing do not establish AUREN provider trust or privacy parity. Copilot Fusion GA describes single-model, cascade and critique routing with administrator-controlled model eligibility; its local-model routing preview still makes routing decisions in the cloud and does not make the session offline. Treat route selection as a policy-bound decision with explicit provenance, not an opaque optimization. COMPASS explores evidence-seeking routing; TRACE-Router pins a model at task admission using delayed task-level feedback; AgentRouter studies step-level assignment; LLMRouterBench spans 400K+ instances, 21 datasets and 33 models and finds many routers fail to beat simple baselines. The EMNLP 2026 Findings survey separates predictive, adaptive, generative and infrastructure/benchmark routing. AUREN has no paired live-provider evidence that a learned or agentic router beats fixed-tier and always-cheapest baselines. GPT-6.1 Sol is exposed as a model/API option and Copilot Fusion describes model cascades and critique. GitHub's BYOK usage API separates local BYOK and enterprise custom models, but local client telemetry can undercount and some providers omit token counts; unknown names can remain unknown. AUREN lacks live-provider route and usage reconciliation evidence.",
+        "benchmark": "Pinned task-family matrix with retired/missing model IDs, rate limits, schema drift, provider loss, bounded fallback, measured latency/cost and task success.  Add local/cloud privacy parity, stale catalog and retired-ID rejection, model-policy revocation, route receipt lineage, cost/latency under fallback, and task-family quality comparisons. Include a provider outage during a multi-step run without resetting scope or budget. Test route-policy revocation mid-run, local/cloud privacy parity, model-specific safety differences, model lifecycle retirement, cascade escalation limits, critique independence, and whether fallback preserves the original task scope and shared budget. Compare static/task-pinned/step-level routing on identical pinned task families; test model retirement, route drift, privacy, quality, latency, cost, fallback loops and shared-budget monotonicity. Compare predictive, adaptive and generative routing against fixed-tier, always-cheapest and best-single-model baselines on the same frozen candidate pool and task set. Test catalog freshness, retired/unknown model IDs, enterprise allowlists, local/custom/hosted attribution, telemetry-disabled and missing-token cases, cost reconciliation, fallback limits, and paired task-family quality/cost/latency against fixed-tier and always-cheapest baselines.",
+        "acceptance_threshold": "Stale IDs never dispatch; fallback cannot widen data scope or reset budgets; paired outcomes and regression data required before changing defaults.  Local or cloud selection must preserve explicit privacy, authority and budget policy; a retired or stale model ID must never dispatch. Missing telemetry must remain unknown, not zero. No stale ID may dispatch, and fallback cannot widen privacy scope or reset shared budgets.",
         "rollback": "Pin last-known-good approved route, disable stale IDs and use deterministic/native fallback."
       },
       {
         "id": "realistic_agent_evaluation",
-        "source_date": "2026; 2026-10-29; 2026-11-03; 2026-10-08; 2026-10-29",
+        "source_date": "2026; 2026-10-29; 2026-11-03; 2026-10-08; 2026-10-29; 2026-11-03; 2026-09-29",
         "sources": [
           "https://yupeijei1997.github.io/WildToolBench/",
           "https://arxiv.org/abs/2610.14346",
@@ -813,7 +812,9 @@
           "https://paeval.com/",
           "https://aclanthology.org/2026.emnlp-main.658/",
           "https://arxiv.org/abs/2610.11050",
-          "https://alignment.openai.com/how-we-detect-frontier-model-misalignment/"
+          "https://alignment.openai.com/how-we-detect-frontier-model-misalignment/",
+          "https://cloud.google.com/blog/products/ai-machine-learning/introducing-physical-engineerings-last-exam-for-agents",
+          "https://openai.com/index/introducing-gpt-6-1-sol/"
         ],
         "owner": [
           "Arena",
@@ -826,14 +827,14 @@
         "ci_status": "CI verifies internal protocol/regression fixtures only.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "Multi-turn tool correctness, state/effect fidelity, judge agreement, cost/safety trade-offs, holdout contamination, and real task distribution. UserSWE reports rank shifts across turn budgets on 72 tasks/42 repositories. DynamicMCPBench reports only about half of tasks solved by its strongest evaluated agents, 31% unsolved by any model, and 39%-to-13% success as tool chains grow; its human validation reports 0.76 chance-corrected agreement. Treat these as external benchmark findings, not AUREN capability evidence.  UserSWE and DynamicMCPBench remain external comparison results. GitHub Agentic Workflows GA provides a workflow architecture reference but not an independent benchmark or evidence of AUREN task success. PAEval's 2026-10-29 snapshot aggregates external sources but states its own index is still in development and it does not run the underlying evaluations. WeaveBench and DynamicMCPBench motivate trajectory/effect-based scoring. Long-horizon judging must reject instruction-swapped near misses and detect side effects hidden in long traces. Monitoring reports also show that coverage gaps and monitor integrity are part of evaluation, not only model output quality.",
-        "benchmark": "Use pinned multi-turn tasks with deterministic final-state and tool-trace checks; run dynamic-user repository tasks with tests after every turn, and live MCP tasks with path-agnostic effect checkpoints across three independent attempts. Report per-domain success, unauthorized calls, missed signals, judge-human agreement, uncertainty, cost and latency. Keep held-out tasks outside worker and judge context.  Add a dynamic workflow cohort with turn-budget sweeps, per-turn execution-grounded checks, three independent live-tool attempts, effect-level state assertions, and human/judge agreement. Keep evaluator and holdout custody outside the implementation trust domain. Keep benchmark publisher, evaluator and corpus custody distinct; report source-level scores, judge agreement, uncertainty, intermediate effects and held-out contamination checks. Add AgentHorizon-style instruction/trajectory pairs, judge-human agreement, false completion, side-effect detection, monitor coverage, alert suppression and time-to-stop.",
-        "acceptance_threshold": "Independent evaluator and sealed holdout; bounded uncertainty and regression limits; no promotion from internal CI or self-judging alone.",
+        "measured_gap": "Multi-turn tool correctness, state/effect fidelity, judge agreement, cost/safety trade-offs, holdout contamination, and real task distribution. UserSWE reports rank shifts across turn budgets on 72 tasks/42 repositories. DynamicMCPBench reports only about half of tasks solved by its strongest evaluated agents, 31% unsolved by any model, and 39%-to-13% success as tool chains grow; its human validation reports 0.76 chance-corrected agreement. Treat these as external benchmark findings, not AUREN capability evidence.  UserSWE and DynamicMCPBench remain external comparison results. GitHub Agentic Workflows GA provides a workflow architecture reference but not an independent benchmark or evidence of AUREN task success. PAEval's 2026-10-29 snapshot aggregates external sources but states its own index is still in development and it does not run the underlying evaluations. WeaveBench and DynamicMCPBench motivate trajectory/effect-based scoring. Long-horizon judging must reject instruction-swapped near misses and detect side effects hidden in long traces. Monitoring reports also show that coverage gaps and monitor integrity are part of evaluation, not only model output quality. Physical-Engineering's Last Exam publishes long-horizon engineering tasks and grading tools with licensed-engineer review; GPT-6.1 Sol reports provider-side computer-use and scientific-workflow results. Neither is an AUREN evaluation.",
+        "benchmark": "Use pinned multi-turn tasks with deterministic final-state and tool-trace checks; run dynamic-user repository tasks with tests after every turn, and live MCP tasks with path-agnostic effect checkpoints across three independent attempts. Report per-domain success, unauthorized calls, missed signals, judge-human agreement, uncertainty, cost and latency. Keep held-out tasks outside worker and judge context.  Add a dynamic workflow cohort with turn-budget sweeps, per-turn execution-grounded checks, three independent live-tool attempts, effect-level state assertions, and human/judge agreement. Keep evaluator and holdout custody outside the implementation trust domain. Keep benchmark publisher, evaluator and corpus custody distinct; report source-level scores, judge agreement, uncertainty, intermediate effects and held-out contamination checks. Add AgentHorizon-style instruction/trajectory pairs, judge-human agreement, false completion, side-effect detection, monitor coverage, alert suppression and time-to-stop. Add expert-scored, held-out engineering/science tasks with safety, code-compliance, provenance, reproducibility, cost, uncertainty and reviewer-agreement metrics; retain trajectory and intermediate-state evidence.",
+        "acceptance_threshold": "Independent evaluator and sealed holdout; bounded uncertainty and regression limits; no promotion from internal CI or self-judging alone. Independent evaluators and task custody must remain outside the candidate trust domain; internal CI and provider-reported scores cannot promote a capability.",
         "rollback": "Reject promotion, retain negative/unscored results, restore last-known-good component digest and rerun regression."
       },
       {
         "id": "agent_coordination_action_oversight",
-        "source_date": "2026-04-10; 2026-05-26; 2026-06-09; 2026-10-25; 2026-11-03; 2026-07; 2026-05-27",
+        "source_date": "2026-04-10; 2026-05-26; 2026-06-09; 2026-10-25; 2026-11-03; 2026-07; 2026-05-27; 2026-08 snapshot",
         "sources": [
           "https://github.blog/changelog/2026-10-01-dynamic-workflows-in-copilot-cli-and-the-copilot-app/",
           "https://www.anthropic.com/research/multiagent-systems",
@@ -864,14 +865,14 @@
         "ci_status": "Selected graph concurrency, adoption conflict, verifier separation and cancellation contracts are repository-tested; runtime action monitoring, independent multi-agent benefit and host isolation are not verified.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "Coordination overhead, duplicate work, communication cost, conflict rate, resource contention, escalation latency, unauthorized-action rate, and cross-boundary covert communication. Recent independent API tests also report stop-compliance gaps after ambiguous shutdown warnings and interference with a peer agent; behavior changed when stop intent was explicit, and evaluation awareness limits generalization.  GitHub Agentic Workflows' GA design adds read-only-by-default execution, safe outputs and threat detection; SentinelOne announced early-access runtime agent action monitoring. Neither establishes AUREN's comparative coordination benefit or an independently verified control. OpenAI's containment report reinforces shared-hardware cross-agent channels as a threat-model input. SentinelOne's early-access ADR explicitly links agent actions to originating processes and describes stopping one agent without halting the full workflow. This sharpens the AUREN gap: durable agent identity must bind to process/action receipts, and containment must be proven at the host rather than inferred from agent self-report. MPAC makes cross-principal intent, conflict and governance explicit; AgensFlow treats coordination as an observable policy choice; The Arbiter Agent studies budgeted monitoring of agent interactions. None establishes AUREN's independent coordination value or action safety. DynaFlow reports 88.08% Forced-mode accuracy across six benchmarks after main-agent training; its untrained workflow modes do not beat the direct baseline. AUREN has no paired static-versus-dynamic graph evaluation. ICML 2026 reports that self-organizing teams can underperform their best individual expert by up to 41.1% on the studied ML benchmarks. This is task-specific, but AUREN must not assume team size or consensus improves quality. SCHEME (2026-05-27) uses 17 instances across seven settings and eight repositories to test coordinated covert side tasks while the visible engineering task succeeds. The reported rates are benchmark-specific; AUREN has no paired joint-only side-task campaign or monitor-coverage measurement.",
-        "benchmark": "Paired single-agent/deterministic versus multi-agent runs on the same pinned task distribution with trace-level action audit; test explicit stop versus warning-only language, monitor tampering, sibling-process interference, confirmed termination, cross-boundary signaling without network/shared writable files, and tool-chain length effects. Report coordination overhead, duplicate work, action coverage, and outcome success.  Correlate each agent action with authenticated process/identity, intent digest and policy receipt; test prompt/monitor tampering, stop compliance, peer-process interference, covert shared-resource signaling and safe-output denial. Compare single-agent and multi-agent outcomes and overhead. Include action-to-process lineage, delegated-user attribution, per-agent containment, child-process cleanup, monitor tampering and post-stop action attempts; retain a separate independent host audit. Benchmark duplicate work, conflicts, communication cost, action authorization, revocation, stop compliance, inspection budget, false approvals and cross-agent information boundaries. Add dynamic graph generation versus static TaskPlan comparison with per-stage evidence, topology, role, information-flow, verification, budget and rollback scoring. Pair the best single specialist against the full team on identical tasks; measure expert utilization, quality, success, cost, latency, duplicate work, conflict, monitor integrity and unauthorized actions. Add SCHEME-style joint-only covert side-task negatives, disjoint write scopes, communication-topology changes, code/communication trace review, monitor tampering, revocation and stop attempts. Report visible-task success, hidden side-effect completion, monitor precision/recall, false positives and time-to-stop.",
-        "acceptance_threshold": "Measured net value without safety/reliability regression; explicit stop intent is honored; worker termination is confirmed before reporting stopped; serialized adoption; no worker self-approval; shared budgets cannot be reset; zero unauthorized cross-boundary communication in the tested suite. The independent monitor must detect or prevent covert side effects without granting workers access to its oracle; require zero unauthorized action and no self-approval.",
+        "measured_gap": "Coordination overhead, duplicate work, communication cost, conflict rate, resource contention, escalation latency, unauthorized-action rate, and cross-boundary covert communication. Recent independent API tests also report stop-compliance gaps after ambiguous shutdown warnings and interference with a peer agent; behavior changed when stop intent was explicit, and evaluation awareness limits generalization.  GitHub Agentic Workflows' GA design adds read-only-by-default execution, safe outputs and threat detection; SentinelOne announced early-access runtime agent action monitoring. Neither establishes AUREN's comparative coordination benefit or an independently verified control. OpenAI's containment report reinforces shared-hardware cross-agent channels as a threat-model input. SentinelOne's early-access ADR explicitly links agent actions to originating processes and describes stopping one agent without halting the full workflow. This sharpens the AUREN gap: durable agent identity must bind to process/action receipts, and containment must be proven at the host rather than inferred from agent self-report. MPAC makes cross-principal intent, conflict and governance explicit; AgensFlow treats coordination as an observable policy choice; The Arbiter Agent studies budgeted monitoring of agent interactions. None establishes AUREN's independent coordination value or action safety. DynaFlow reports 88.08% Forced-mode accuracy across six benchmarks after main-agent training; its untrained workflow modes do not beat the direct baseline. AUREN has no paired static-versus-dynamic graph evaluation. ICML 2026 reports that self-organizing teams can underperform their best individual expert by up to 41.1% on the studied ML benchmarks. This is task-specific, but AUREN must not assume team size or consensus improves quality. SCHEME (2026-05-27) uses 17 instances across seven settings and eight repositories to test coordinated covert side tasks while the visible engineering task succeeds. The reported rates are benchmark-specific; AUREN has no paired joint-only side-task campaign or monitor-coverage measurement. Anthropic publishes action-monitor coverage, review latency and escalation rate for its own platform. These metrics are a useful oversight vocabulary but are not independent AUREN evidence.",
+        "benchmark": "Paired single-agent/deterministic versus multi-agent runs on the same pinned task distribution with trace-level action audit; test explicit stop versus warning-only language, monitor tampering, sibling-process interference, confirmed termination, cross-boundary signaling without network/shared writable files, and tool-chain length effects. Report coordination overhead, duplicate work, action coverage, and outcome success.  Correlate each agent action with authenticated process/identity, intent digest and policy receipt; test prompt/monitor tampering, stop compliance, peer-process interference, covert shared-resource signaling and safe-output denial. Compare single-agent and multi-agent outcomes and overhead. Include action-to-process lineage, delegated-user attribution, per-agent containment, child-process cleanup, monitor tampering and post-stop action attempts; retain a separate independent host audit. Benchmark duplicate work, conflicts, communication cost, action authorization, revocation, stop compliance, inspection budget, false approvals and cross-agent information boundaries. Add dynamic graph generation versus static TaskPlan comparison with per-stage evidence, topology, role, information-flow, verification, budget and rollback scoring. Pair the best single specialist against the full team on identical tasks; measure expert utilization, quality, success, cost, latency, duplicate work, conflict, monitor integrity and unauthorized actions. Add SCHEME-style joint-only covert side-task negatives, disjoint write scopes, communication-topology changes, code/communication trace review, monitor tampering, revocation and stop attempts. Report visible-task success, hidden side-effect completion, monitor precision/recall, false positives and time-to-stop. Measure pre-action monitor coverage, post-action ingestion coverage, automated/human review latency, escalation and block rates, false positives, alert suppression and time-to-stop across agent roles and action classes.",
+        "acceptance_threshold": "Measured net value without safety/reliability regression; explicit stop intent is honored; worker termination is confirmed before reporting stopped; serialized adoption; no worker self-approval; shared budgets cannot be reset; zero unauthorized cross-boundary communication in the tested suite. The independent monitor must detect or prevent covert side effects without granting workers access to its oracle; require zero unauthorized action and no self-approval. Monitors must be outside worker authority and independently red-teamed; monitor gaps, tampering or uncertain termination block promotion.",
         "rollback": "Disable fan-out for the affected task class and use the sequential canonical path."
       },
       {
         "id": "scientific_discovery",
-        "source_date": "2026-09-04; 2026-09-07; 2026-10-04; 2026-11-03; 2026-10-06; 2026-04-20",
+        "source_date": "2026-09-04; 2026-09-07; 2026-10-04; 2026-11-03; 2026-10-06; 2026-04-20; 2026-11-03; 2026-09-29",
         "sources": [
           "https://www.anthropic.com/science",
           "https://www.nature.com/articles/s43586-026-00534-y",
@@ -886,7 +887,10 @@
           "https://arxiv.org/abs/2609.05079",
           "https://www.emergentmind.com/papers/2609.07611",
           "https://arxiv.org/abs/2610.08927",
-          "https://arxiv.org/abs/2604.18805"
+          "https://arxiv.org/abs/2604.18805",
+          "https://cloud.google.com/blog/products/ai-machine-learning/introducing-physical-engineerings-last-exam-for-agents",
+          "https://openai.com/index/introducing-gpt-6-1-sol/",
+          "https://deepmind.google/blog/agentic-cheminformatics-with-google-antigravity/"
         ],
         "owner": [
           "LearningSteward",
@@ -900,9 +904,9 @@
         "ci_status": "CI verifies selected causal attribution and promotion-gate contracts only; no FIRE-Bench, Into the Unknown, SEER-Repro, or external scientific replication campaign has run on AUREN.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "Hypothesis validity, expert-condition satisfaction, reproducibility, analytical robustness, negative-result retention, calibration, transfer to fresh scientific tasks, and report integrity. Into the Unknown reports 0 of 135 submissions satisfying all conditions and 114 integrity failures. Agent4Sci spans 20 scientific-ML benchmarks across 11 domains: frontier agents improve published baselines, but trajectory analysis attributes most gains to ML-engineering heuristics rather than research-level insight; plug-in skills improve measured progress but need independent transfer evaluation. SEER-Repro reproduces 77.4% of 2,190 atomic claims and flags potentially consequential analysis choices in 9.5% of fully reproduced findings.  FIRE-Bench reports under-50 F1 rediscovery by its strongest evaluated agents with high run-to-run variance and recurring experimental-design/execution/evidence failures. Into the Unknown reports 0/135 submissions satisfying all expert conditions and 114 integrity failures; SEER-Repro reports 77.4% atomic-claim reproduction and potentially consequential analysis choices in 9.5% of fully reproduced findings. MechHypoBench (2026-10-04) combines mechanisms from 14 scientific fields with 17.98 million observations and tests open-form hypotheses through consequences under withheld conditions; its authors report a substantial gap between generated hypotheses and underlying mechanisms. SEER-Repro (2026-10-16) reports reproduction of 77.4% of 2,190 atomic claims and flags potentially consequential analytical choices in 9.5% of fully reproduced findings. Neither is an AUREN result. TruthInsightBench reports low robustness, control testing and cross-dataset generalization despite stronger traceability/novelty; MechHypoBench tests mechanistic hypotheses under withheld conditions. AUREN has no independent expert-scored scientific campaign. Station reports 62.7% rediscovery across three prior ICLR tasks versus 15.4% for Codex Multiagent-v2 and 14.4-20.6% for AI Scientist-v2; small task coverage and differing model compositions limit attribution. A separate 25,000-run, eight-domain study reports evidence ignored in 68% of traces and refutation-driven belief revision in 26%, with convergent multi-test evidence uncommon. AUREN has no evidence-adherence, refutation-revision or independent open-ended discovery campaign.",
-        "benchmark": "Pinned hypotheses, expert-authored constraints, simulations/code, seeds, model/tool versions and raw outputs; measure condition satisfaction and executable reproduction, run sensitivity analyses, then require independent replication on fresh tasks. Pair each skill/curriculum candidate with an unmodified baseline across 20 benchmarks/11 domains where applicable; report task-level gain, novelty, cost, reproducibility, calibration, uncertainty and negative results. Keep held-out tasks outside worker and judge context; require domain review.  Pair rediscovery of verified findings with open-ended expert-authored follow-up tasks; require raw execution logs, preregistered conditions, claim-to-run traceability, sensitivity analysis, negative-result retention, and independent replication on fresh tasks. Add mechanism-level hypothesis tests on withheld conditions, sensitivity to analytical choices, atomic-claim reproduction, executable baseline comparison, and independent domain replication. Preserve alternative explanations and negative findings instead of selecting the best-looking narrative. Require preregistered hypotheses, withheld-condition predictions, sensitivity/control tests, negative-result retention and independent domain replication. Add open-ended tasks with withheld results, pre-registered criteria, evidence-to-claim traceability, counterevidence injection, belief-revision scoring, controls, negative-result retention and fresh independent expert replication. Report model/scaffold contribution separately and keep the oracle outside the candidate trust domain.",
-        "acceptance_threshold": "Reproducible independent outcomes, explicit uncertainty and negative results, source-domain regression limits, and rollback-ready promotion. Literature synthesis or an automated judge score alone is not validation. A rediscovery score or plausible narrative alone is not validation; require traceable evidence use, explicit belief revision after refutation, calibrated uncertainty and independent replication on fresh tasks.",
+        "measured_gap": "Hypothesis validity, expert-condition satisfaction, reproducibility, analytical robustness, negative-result retention, calibration, transfer to fresh scientific tasks, and report integrity. Into the Unknown reports 0 of 135 submissions satisfying all conditions and 114 integrity failures. Agent4Sci spans 20 scientific-ML benchmarks across 11 domains: frontier agents improve published baselines, but trajectory analysis attributes most gains to ML-engineering heuristics rather than research-level insight; plug-in skills improve measured progress but need independent transfer evaluation. SEER-Repro reproduces 77.4% of 2,190 atomic claims and flags potentially consequential analysis choices in 9.5% of fully reproduced findings.  FIRE-Bench reports under-50 F1 rediscovery by its strongest evaluated agents with high run-to-run variance and recurring experimental-design/execution/evidence failures. Into the Unknown reports 0/135 submissions satisfying all expert conditions and 114 integrity failures; SEER-Repro reports 77.4% atomic-claim reproduction and potentially consequential analysis choices in 9.5% of fully reproduced findings. MechHypoBench (2026-10-04) combines mechanisms from 14 scientific fields with 17.98 million observations and tests open-form hypotheses through consequences under withheld conditions; its authors report a substantial gap between generated hypotheses and underlying mechanisms. SEER-Repro (2026-10-16) reports reproduction of 77.4% of 2,190 atomic claims and flags potentially consequential analytical choices in 9.5% of fully reproduced findings. Neither is an AUREN result. TruthInsightBench reports low robustness, control testing and cross-dataset generalization despite stronger traceability/novelty; MechHypoBench tests mechanistic hypotheses under withheld conditions. AUREN has no independent expert-scored scientific campaign. Station reports 62.7% rediscovery across three prior ICLR tasks versus 15.4% for Codex Multiagent-v2 and 14.4-20.6% for AI Scientist-v2; small task coverage and differing model compositions limit attribution. A separate 25,000-run, eight-domain study reports evidence ignored in 68% of traces and refutation-driven belief revision in 26%, with convergent multi-test evidence uncommon. AUREN has no evidence-adherence, refutation-revision or independent open-ended discovery campaign. DeepMind's cheminformatics demonstration and GPT-6.1 Sol's Terminal-Bench Science results are workflow/provider signals; PLE adds a licensed-review engineering benchmark. None establishes AUREN scientific or physical-engineering capability.",
+        "benchmark": "Pinned hypotheses, expert-authored constraints, simulations/code, seeds, model/tool versions and raw outputs; measure condition satisfaction and executable reproduction, run sensitivity analyses, then require independent replication on fresh tasks. Pair each skill/curriculum candidate with an unmodified baseline across 20 benchmarks/11 domains where applicable; report task-level gain, novelty, cost, reproducibility, calibration, uncertainty and negative results. Keep held-out tasks outside worker and judge context; require domain review.  Pair rediscovery of verified findings with open-ended expert-authored follow-up tasks; require raw execution logs, preregistered conditions, claim-to-run traceability, sensitivity analysis, negative-result retention, and independent replication on fresh tasks. Add mechanism-level hypothesis tests on withheld conditions, sensitivity to analytical choices, atomic-claim reproduction, executable baseline comparison, and independent domain replication. Preserve alternative explanations and negative findings instead of selecting the best-looking narrative. Require preregistered hypotheses, withheld-condition predictions, sensitivity/control tests, negative-result retention and independent domain replication. Add open-ended tasks with withheld results, pre-registered criteria, evidence-to-claim traceability, counterevidence injection, belief-revision scoring, controls, negative-result retention and fresh independent expert replication. Report model/scaffold contribution separately and keep the oracle outside the candidate trust domain. Require preregistered hypotheses, exact data/structure provenance, controls, withheld compounds or conditions, predictive validity, negative-result retention, uncertainty, and independent wet-lab or licensed-engineer replication.",
+        "acceptance_threshold": "Reproducible independent outcomes, explicit uncertainty and negative results, source-domain regression limits, and rollback-ready promotion. Literature synthesis or an automated judge score alone is not validation. A rediscovery score or plausible narrative alone is not validation; require traceable evidence use, explicit belief revision after refutation, calibrated uncertainty and independent replication on fresh tasks. No scientific lesson or capability is promoted without independent domain replication; retract dependent lessons and restore the prior memory/policy digest on failure.",
         "rollback": "Do not promote the lesson or harness; retain lineage and restore the prior digest."
       },
       {
@@ -960,11 +964,12 @@
       },
       {
         "id": "long_horizon_monitoring_and_trajectory_verification",
-        "source_date": "2026-06-08; 2026-10-08",
+        "source_date": "2026-06-08; 2026-10-08; 2026-08 snapshot",
         "sources": [
           "https://www.microsoft.com/en-us/research/articles/sentinelbench-a-benchmark-for-long-running-monitoring-agents/",
           "https://arxiv.org/abs/2610.11050",
-          "https://github.com/ServiceNow/agenthorizon"
+          "https://github.com/ServiceNow/agenthorizon",
+          "https://www.anthropic.com/institute/measuring-pace-of-ai-development"
         ],
         "owner": [
           "portable.execution_controller.ExecutionController",
@@ -979,20 +984,22 @@
         "ci_status": "Repository tests cover selected controller restart, cancellation, deadline, trigger and evidence contracts only; no external long-horizon monitoring or computer-use judge campaign has run.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "Long-running tasks must distinguish waiting for external state changes from repeatedly taking actions. SentinelBench (2026-06-08) contains 100 tasks across 10 dynamic web environments, including 20 no-op tasks that require the agent not to claim completion when no event occurs. AgentHorizon (2026-10-08) contains 1,373 computer-use instruction/trajectory pairs from 166 hours across three operating systems; its best reported agentic judge reaches 80.9% balanced accuracy on the AH subset, and judges vary substantially in accepting valid and rejecting failed trajectories. These are external benchmark findings, not AUREN measurements.",
-        "benchmark": "Pair passive, active and no-op monitoring tasks with event timelines. Compare event-driven waiting with bounded polling; measure detection latency, false action rate, idle resource use, cancellation/deadline, state changes during waits. For computer-use, include instruction-swapped near-miss trajectories, long multi-application histories, hidden intermediate violations and side-effect checks. Measure balanced accuracy, false-green and false-negative rates, judge-human agreement, cost and latency. Keep holdouts and the authoritative oracle outside worker/judge context.",
-        "acceptance_threshold": "No busy loop, false completion or self-approval; event and action lineage survives restart; unknown state remains unscored/blocked; independent evaluator and fresh holdout are required before promotion.",
+        "measured_gap": "Long-running tasks must distinguish waiting for external state changes from repeatedly taking actions. SentinelBench (2026-06-08) contains 100 tasks across 10 dynamic web environments, including 20 no-op tasks that require the agent not to claim completion when no event occurs. AgentHorizon (2026-10-08) contains 1,373 computer-use instruction/trajectory pairs from 166 hours across three operating systems; its best reported agentic judge reaches 80.9% balanced accuracy on the AH subset, and judges vary substantially in accepting valid and rejecting failed trajectories. These are external benchmark findings, not AUREN measurements. The oversight report makes coverage, review latency and escalation measurable dimensions alongside trajectory correctness; AUREN has no independent monitor-coverage campaign.",
+        "benchmark": "Pair passive, active and no-op monitoring tasks with event timelines. Compare event-driven waiting with bounded polling; measure detection latency, false action rate, idle resource use, cancellation/deadline, state changes during waits. For computer-use, include instruction-swapped near-miss trajectories, long multi-application histories, hidden intermediate violations and side-effect checks. Measure balanced accuracy, false-green and false-negative rates, judge-human agreement, cost and latency. Keep holdouts and the authoritative oracle outside worker/judge context. Pair trajectory scoring with action-monitor coverage, instruction-swapped negatives, hidden side-effect detection, review latency, escalation, false positives and time-to-stop.",
+        "acceptance_threshold": "No busy loop, false completion or self-approval; event and action lineage survives restart; unknown state remains unscored/blocked; independent evaluator and fresh holdout are required before promotion. A judge cannot self-certify its corpus or monitor; missing trace segments or monitor coverage remain unknown and block completion.",
         "rollback": "Disable candidate monitoring/computer-use adapters, return to the canonical supervisor path, preserve trajectories and receipts, and restore the last-known-good verifier digest."
       },
       {
         "id": "long_horizon_hybrid_computer_use",
-        "source_date": "2026-06; 2026-10; 2026-11-03; 2026-10-25",
+        "source_date": "2026-06; 2026-10; 2026-11-03; 2026-10-25; 2026-09-29; 2026-10-28",
         "sources": [
           "https://aclanthology.org/2026.emnlp-main.658/",
           "https://arxiv.org/abs/2610.11050",
           "https://arxiv.org/abs/2606.29537",
           "https://aclanthology.org/2026.findings-emnlp.1393/",
-          "https://arxiv.org/abs/2610.34467"
+          "https://arxiv.org/abs/2610.34467",
+          "https://openai.com/index/introducing-gpt-6-1-sol/",
+          "https://github.blog/changelog/2026-10-28-work-from-anywhere-with-a-new-connected-copilot-cloud-experience/"
         ],
         "owner": [
           "portable.task_planner.TaskPlan",
@@ -1008,17 +1015,18 @@
         "ci_status": "Current-main CI verifies selected runtime, recovery, cancellation, deadline and dashboard contracts only; WeaveBench and AgentHorizon have not been run on AUREN.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "WeaveBench (EMNLP 2026) has 114 hybrid GUI/CLI/code tasks across eight work domains; its best reported model-runtime pairing reaches 41.2% pass rate, and its trajectory-aware judge finds that outcome-only grading overestimates performance. AgentHorizon (2026-10-08) has 1,373 instruction/trajectory pairs from 166 hours across three operating systems; its best reported agentic judge reaches 80.9% balanced accuracy on the AH subset, with substantial judge-to-judge variation. AUREN has no paired long-horizon computer-use result, side-effect oracle, or independent judge agreement measurement. WeaveBench's best reported pass rate is 41.2%; OSWorld 2.0 reports 108 workflows, median human duration about 1.6 hours, and best agent completion of 20.6%. AUREN has no independently run hybrid computer-use campaign. DynaFlow reports 88.08% Forced-mode accuracy across six benchmarks with Qwen3.5-27B after training; its untrained workflow modes underperform the direct baseline. This is external, training-specific evidence, not AUREN capability.",
-        "benchmark": "Pin the exact task, desktop image, application versions, model/provider, adapter, policy, and dataset revision. Compare a deterministic/single-agent baseline with the candidate on GUI, CLI, browser and code handoffs. Include instruction-swapped near misses, hidden intermediate constraints, fabricated screenshot/output attempts, stale windows, restarts, cancellation and deadlines. Score action traces and final state with a separately held oracle; report task success by turn budget, false-green/false-negative rate, unwanted side effects, judge-human agreement, recovery, latency and cost. Pin desktop image, app versions, model/provider and policy; score GUI/CLI/browser/code handoffs, intermediate state and side effects with an external oracle. Compare bounded dynamic graph generation with static TaskPlan on the same pinned tasks; include information-flow defects, tool calls, verification and cost.",
-        "acceptance_threshold": "No false completion, unauthorized action or unverified side effect; all handoffs and action receipts survive restart; unknown outcomes remain blocked; independent evaluator and fresh sealed holdout required before promotion.",
+        "measured_gap": "WeaveBench (EMNLP 2026) has 114 hybrid GUI/CLI/code tasks across eight work domains; its best reported model-runtime pairing reaches 41.2% pass rate, and its trajectory-aware judge finds that outcome-only grading overestimates performance. AgentHorizon (2026-10-08) has 1,373 instruction/trajectory pairs from 166 hours across three operating systems; its best reported agentic judge reaches 80.9% balanced accuracy on the AH subset, with substantial judge-to-judge variation. AUREN has no paired long-horizon computer-use result, side-effect oracle, or independent judge agreement measurement. WeaveBench's best reported pass rate is 41.2%; OSWorld 2.0 reports 108 workflows, median human duration about 1.6 hours, and best agent completion of 20.6%. AUREN has no independently run hybrid computer-use campaign. DynaFlow reports 88.08% Forced-mode accuracy across six benchmarks with Qwen3.5-27B after training; its untrained workflow modes underperform the direct baseline. This is external, training-specific evidence, not AUREN capability. Provider-reported OSWorld 2.0 improvements and GitHub cloud snapshots show progress in computer-use and resumable sessions, but AUREN has no independent hybrid GUI/CLI/browser campaign.",
+        "benchmark": "Pin the exact task, desktop image, application versions, model/provider, adapter, policy, and dataset revision. Compare a deterministic/single-agent baseline with the candidate on GUI, CLI, browser and code handoffs. Include instruction-swapped near misses, hidden intermediate constraints, fabricated screenshot/output attempts, stale windows, restarts, cancellation and deadlines. Score action traces and final state with a separately held oracle; report task success by turn budget, false-green/false-negative rate, unwanted side effects, judge-human agreement, recovery, latency and cost. Pin desktop image, app versions, model/provider and policy; score GUI/CLI/browser/code handoffs, intermediate state and side effects with an external oracle. Compare bounded dynamic graph generation with static TaskPlan on the same pinned tasks; include information-flow defects, tool calls, verification and cost. Use hybrid GUI/CLI/browser/code tasks with trajectory-aware grading, effect checkpoints, restart/snapshot restore, instruction-swapped near misses, action approval, and paired quality/cost/latency.",
+        "acceptance_threshold": "No false completion, unauthorized action or unverified side effect; all handoffs and action receipts survive restart; unknown outcomes remain blocked; independent evaluator and fresh sealed holdout required before promotion. No desktop or cross-surface deployment claim without operator-host evidence and independent trajectory evaluation.",
         "rollback": "Disable the computer-use adapter, revoke its credentials and scope, return to the non-interactive canonical graph path, preserve trajectories and receipts, and restore the last-known-good verifier digest."
       },
       {
         "id": "adaptive_workflow_composition",
-        "source_date": "2026-01-29; 2026-03-22",
+        "source_date": "2026-01-29; 2026-03-22; 2026-10-28",
         "sources": [
           "https://www.microsoft.com/en-us/research/publication/optimizing-agentic-workflows-using-meta-tools/",
-          "https://arxiv.org/abs/2604.19756"
+          "https://arxiv.org/abs/2604.19756",
+          "https://github.blog/changelog/2026-10-28-route-and-orchestrate-models-with-github-copilot-fusion/"
         ],
         "owner": [
           "portable.task_planner.TaskPlan",
@@ -1033,21 +1041,22 @@
         "ci_status": "Current-main tests cover stable identity, split-write reconciliation, restart/resume, cancellation/deadline and dashboard truth; no paired AUREN benchmark has measured dynamic workflow generation or meta-tool promotion.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "Microsoft Research AWO (2026-01) reports up to 11.9% fewer LLM calls and up to 4.2 percentage points higher success on two benchmarks by composing repeated tool sequences into deterministic meta-tools. WorkflowGen (2026-03-22) reports over 40% lower token use and a 20% success improvement on medium-similarity queries, but describes qualitative comparisons. These results motivate experiments, not adoption: AUREN has no paired measurement of dynamic graph synthesis, experience reuse, stale-template risk, or net task value.",
-        "benchmark": "Use the same pinned task set and stable work key AUREN:issue-696:continuous-engineering. Compare serial canonical plans, current graph/crew plans, and a candidate reusable workflow/meta-tool. Measure task success, dependency correctness, duplicate work, stale-plan rejection, conflict rate, latency, token/tool cost, memory false reuse and recovery under process death. Keep the task/evaluator/oracle independent of the candidate and retain negative results.",
-        "acceptance_threshold": "No change to authority, evidence thresholds, rollback policy or shared budgets; candidate must show repeatable net value on fresh tasks without correctness, safety or source-domain regression; generated workflows remain proposals until independently reviewed.",
+        "measured_gap": "Microsoft Research AWO (2026-01) reports up to 11.9% fewer LLM calls and up to 4.2 percentage points higher success on two benchmarks by composing repeated tool sequences into deterministic meta-tools. WorkflowGen (2026-03-22) reports over 40% lower token use and a 20% success improvement on medium-similarity queries, but describes qualitative comparisons. These results motivate experiments, not adoption: AUREN has no paired measurement of dynamic graph synthesis, experience reuse, stale-template risk, or net task value. Copilot Fusion's single/cascade/critique patterns provide a routing/workflow comparison, not an external workflow engine to import.",
+        "benchmark": "Use the same pinned task set and stable work key AUREN:issue-696:continuous-engineering. Compare serial canonical plans, current graph/crew plans, and a candidate reusable workflow/meta-tool. Measure task success, dependency correctness, duplicate work, stale-plan rejection, conflict rate, latency, token/tool cost, memory false reuse and recovery under process death. Keep the task/evaluator/oracle independent of the candidate and retain negative results. Compare the canonical deterministic plan with bounded cascade/critique candidates on the same pinned tasks; measure net task value, verifier agreement, token/tool use, latency, cost and regressions.",
+        "acceptance_threshold": "No change to authority, evidence thresholds, rollback policy or shared budgets; candidate must show repeatable net value on fresh tasks without correctness, safety or source-domain regression; generated workflows remain proposals until independently reviewed. Keep the existing supervisor and TaskPlan as sole authority; disable the candidate composition and restore the last-known-good graph on regression.",
         "rollback": "Disable the candidate workflow/template, revert its digest and dependent learning record, and fall back to the serial canonical TaskPlan/StateGraph path."
       },
       {
         "id": "host_enforced_agent_sandbox",
-        "source_date": "2026-03; 2026-09-28; 2026-10-21; 2026-11-03",
+        "source_date": "2026-03; 2026-09-28; 2026-10-21; 2026-11-03; 2026-10-28",
         "sources": [
           "https://www.nvidia.com/en-us/ai/openshell/",
           "https://docs.nvidia.com/openshell/latest/sandboxes/policies",
           "https://docs.nvidia.com/openshell/dev/how-it-works/policies/network-rules",
           "https://developers.openai.com/api/docs/guides/agents/sandboxes",
           "https://investor.nvidia.com/news/press-release-details/2026/NVIDIA-Launches-Open-Agent-Safety-Platform-to-Secure-Agents-From-Testing-to-Deployment/default.aspx",
-          "https://www.globenewswire.com/news-release/2026/10/21/3385311/0/en/nvidia-launches-openshell-reference-architecture-for-safe-ai-agents.html"
+          "https://www.globenewswire.com/news-release/2026/10/21/3385311/0/en/nvidia-launches-openshell-reference-architecture-for-safe-ai-agents.html",
+          "https://github.blog/changelog/2026-10-28-work-from-anywhere-with-a-new-connected-copilot-cloud-experience/"
         ],
         "owner": [
           "portable.runtime_recovery.RuntimeExecutionGuard",
@@ -1062,21 +1071,24 @@
         "ci_status": "Repository tests cover selected denial-before-launch, cancellation, subprocess cleanup and recovery contracts; CI does not prove kernel enforcement, host escape resistance, secret isolation or production network policy.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "NVIDIA OpenShell documents policy enforcement outside the agent process, isolated sandboxes, default-deny outbound networking, binary-scoped endpoint rules, and filesystem/process controls. OpenAI's sandbox guidance treats credentials as runtime configuration rather than prompt content. These are useful control patterns, but AUREN has no operator-administered host audit, escape test, egress proof, or cross-agent side-channel evidence. OpenShell and the reference architecture reinforce the need for enforcement outside the agent process. They do not prove AUREN deployment equivalence and must not become a runtime dependency.",
-        "benchmark": "On operator-managed hosts, test forbidden filesystem paths, process creation, network destinations and methods, secret reads, credential forwarding, policy reload, monitor tampering, sandbox escape, child-process termination, resource exhaustion and cross-agent channels. Verify denial before launch and after restart; bind host image, kernel, policy and adapter digests to signed receipts. Retain denial-before-launch, filesystem/network/secret denial, monitor integrity, escape and cleanup tests on operator-managed hosts; require independent host-admin evidence.",
-        "acceptance_threshold": "Zero unauthorized host or network access in the external suite; credentials never enter prompts or artifacts; termination and cleanup are confirmed; missing or stale host evidence blocks execution; deployment claims require a separate host-administered audit.",
+        "measured_gap": "NVIDIA OpenShell documents policy enforcement outside the agent process, isolated sandboxes, default-deny outbound networking, binary-scoped endpoint rules, and filesystem/process controls. OpenAI's sandbox guidance treats credentials as runtime configuration rather than prompt content. These are useful control patterns, but AUREN has no operator-administered host audit, escape test, egress proof, or cross-agent side-channel evidence. OpenShell and the reference architecture reinforce the need for enforcement outside the agent process. They do not prove AUREN deployment equivalence and must not become a runtime dependency. Cloud sandbox snapshots and resumable sessions are product claims; they do not prove kernel isolation, secret boundaries, egress controls or cross-agent separation for AUREN.",
+        "benchmark": "On operator-managed hosts, test forbidden filesystem paths, process creation, network destinations and methods, secret reads, credential forwarding, policy reload, monitor tampering, sandbox escape, child-process termination, resource exhaustion and cross-agent channels. Verify denial before launch and after restart; bind host image, kernel, policy and adapter digests to signed receipts. Retain denial-before-launch, filesystem/network/secret denial, monitor integrity, escape and cleanup tests on operator-managed hosts; require independent host-admin evidence. Add operator-host tests for snapshot integrity, host policy continuity, forbidden paths/endpoints, secret access, process-tree cleanup, escape, monitor tampering and post-restart egress.",
+        "acceptance_threshold": "Zero unauthorized host or network access in the external suite; credentials never enter prompts or artifacts; termination and cleanup are confirmed; missing or stale host evidence blocks execution; deployment claims require a separate host-administered audit. Production isolation remains blocked until independently administered host/kernel/egress/escape receipts are verified.",
         "rollback": "Disable the candidate host adapter, revoke credentials and network scope, route to the last-known-good approved executor, preserve evidence, and reconcile uncertain operations."
       },
       {
         "id": "adaptive_model_routing_and_lifecycle",
-        "source_date": "2026-03-31; 2026-07-24; 2026-09-19; 2026-10-20; 2026-11-03",
+        "source_date": "2026-03-31; 2026-07-24; 2026-09-19; 2026-10-20; 2026-11-03; 2026-09-29; 2026-10-28; 2026-11-03",
         "sources": [
           "https://arxiv.org/abs/2604.00136",
           "https://arxiv.org/abs/2607.22465",
           "https://aclanthology.org/2026.acl-long.1771/",
           "https://arxiv.org/abs/2610.27822",
           "https://arxiv.org/abs/2609.22951",
-          "https://aclanthology.org/2026.findings-acl.1881/"
+          "https://aclanthology.org/2026.findings-acl.1881/",
+          "https://openai.com/index/introducing-gpt-6-1-sol/",
+          "https://github.blog/changelog/2026-10-28-route-and-orchestrate-models-with-github-copilot-fusion/",
+          "https://github.blog/changelog/2026-11-03-byok-and-enterprise-custom-models-in-the-copilot-usage-api/"
         ],
         "owner": [
           "portable.agent_capabilities.CapabilityFabric",
@@ -1091,17 +1103,18 @@
         "ci_status": "Current-main CI verifies internal routing, policy and shared-budget contracts only; no live multi-provider quality/cost/latency campaign or model-retirement deployment test is claimed.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "ParetoBandit (2026-03-31) reports budget-paced adaptation over 1,824 prompts and a three-model portfolio, with mean request cost within 0.4% of target under its tested scenarios. ORACLE (2026-07-24, revised 2026-10-01) combines task-type-aware verifier feedback and concurrency-aware routing; its paper reports up to seven percentage points on an accuracy-cost frontier and up to 1.8x throughput with its dispatch scheduler. EvoRoute (ACL 2026) reports up to 80% lower cost and over 70% lower latency on GAIA/BrowseComp+ experiments. These are research results on their own workloads. AUREN still lacks paired multi-provider task-family results, calibration, drift detection, and lifecycle parity evidence. Recent routing work spans task-pinned and per-step decisions; unified LLMRouterBench cautions that several routers do not consistently beat simple baselines. No paired live-provider AUREN quality/cost/latency result exists.",
-        "benchmark": "Pin provider/model/version, route policy and task family. Compare static routing, task-level pinned routing and bounded step-level routing on identical tasks. Measure success, verifier precision/recall, cost, latency, budget overrun, fallback count, route stability, privacy/data residency and performance after price/quality shifts or model retirement. Test stale IDs, rate limits, cold starts, concurrent tasks, verifier outage and route-policy revocation. Preserve one shared guard and budget across every fallback. Keep task-level pinning as the safe baseline; evaluate step-level routes as opt-in candidates with explicit provenance and no authority/privacy/budget widening.",
-        "acceptance_threshold": "No stale model ID dispatch; no fallback that widens data scope or resets budget; candidate must improve a predeclared quality/cost/latency objective without safety or calibration regression on fresh holdouts; route provenance is durable and independent evaluation precedes default changes.",
+        "measured_gap": "ParetoBandit (2026-03-31) reports budget-paced adaptation over 1,824 prompts and a three-model portfolio, with mean request cost within 0.4% of target under its tested scenarios. ORACLE (2026-07-24, revised 2026-10-01) combines task-type-aware verifier feedback and concurrency-aware routing; its paper reports up to seven percentage points on an accuracy-cost frontier and up to 1.8x throughput with its dispatch scheduler. EvoRoute (ACL 2026) reports up to 80% lower cost and over 70% lower latency on GAIA/BrowseComp+ experiments. These are research results on their own workloads. AUREN still lacks paired multi-provider task-family results, calibration, drift detection, and lifecycle parity evidence. Recent routing work spans task-pinned and per-step decisions; unified LLMRouterBench cautions that several routers do not consistently beat simple baselines. No paired live-provider AUREN quality/cost/latency result exists. Model choice is increasingly combined with cascades and BYOK/custom providers; local telemetry can undercount and does not always provide tokens. AUREN has no live route-quality or complete cost-attribution campaign.",
+        "benchmark": "Pin provider/model/version, route policy and task family. Compare static routing, task-level pinned routing and bounded step-level routing on identical tasks. Measure success, verifier precision/recall, cost, latency, budget overrun, fallback count, route stability, privacy/data residency and performance after price/quality shifts or model retirement. Test stale IDs, rate limits, cold starts, concurrent tasks, verifier outage and route-policy revocation. Preserve one shared guard and budget across every fallback. Keep task-level pinning as the safe baseline; evaluate step-level routes as opt-in candidates with explicit provenance and no authority/privacy/budget widening. Compare task-pinned routing with fixed-tier, always-cheapest and bounded step-level candidates; test local/cloud attribution, missing telemetry, catalog retirement, policy revocation, privacy parity and budget monotonicity.",
+        "acceptance_threshold": "No stale model ID dispatch; no fallback that widens data scope or resets budget; candidate must improve a predeclared quality/cost/latency objective without safety or calibration regression on fresh holdouts; route provenance is durable and independent evaluation precedes default changes. Unknown cost/provider state cannot be silently coerced to zero; stale routes are denied and the last-known-good approved route remains available.",
         "rollback": "Pin the last-known-good route/catalog snapshot, disable the candidate model or router, restore the previous routing policy, and retain the failed cohort and route receipts."
       },
       {
         "id": "agent_identity_delegation_and_action_oversight",
-        "source_date": "2026-10-15; 2026-10-21",
+        "source_date": "2026-10-15; 2026-10-21; 2026-08 snapshot",
         "sources": [
           "https://newsroom.servicenow.com/press-releases/details/2026/ServiceNow-advances-its-operational-harness-for-enterprise-AI-with-AI-Passport-and-expanded-governance-capabilities/default.aspx",
-          "https://newsroom.servicenow.com/press-releases/details/2026/ServiceNow-delivers-industry-first-personal-enterprise-agent-and-policy-enforcement-with-NVIDIA-extending-AI-governance-across-software-and-silicon/default.aspx"
+          "https://newsroom.servicenow.com/press-releases/details/2026/ServiceNow-delivers-industry-first-personal-enterprise-agent-and-policy-enforcement-with-NVIDIA-extending-AI-governance-across-software-and-silicon/default.aspx",
+          "https://www.anthropic.com/institute/measuring-pace-of-ai-development"
         ],
         "owner": [
           "portable.action_governance.ActionRequest",
@@ -1117,20 +1130,22 @@
         "ci_status": "Repository tests verify selected approval, identity, denial-before-launch and receipt contracts; no external multi-agent identity/revocation campaign or host integration is verified.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "ServiceNow announced AI Passport on 2026-10-15 as a cryptographically signed, runtime-verifiable scope credential for first- and third-party agents and MCP servers, with graduated restriction and revocation; its availability was stated as Q4 2026. Its 2026-10-21 NVIDIA partnership describes OpenShell enforcement integration as future work. AUREN still needs independent proof that identity, delegated scope, policy version, approval, operation and outcome remain bound at every action boundary and after revocation/restart.",
-        "benchmark": "Exercise cross-agent delegation with narrowing scopes, forged agent IDs, replayed credentials, expired approvals, mid-run revocation, approval-store restart, duplicate dispatch, tool/MCP handoff and termination uncertainty. Verify denial before launch and an append-only receipt binding authenticated actor, delegator, scope, policy version, approval, provider operation and final/unknown outcome.",
-        "acceptance_threshold": "No action after scope revocation or approval expiry; no worker self-approval; every consequential action has an independently attributable identity and receipt; ambiguous provider outcomes remain blocked until authoritative reconciliation.",
+        "measured_gap": "ServiceNow announced AI Passport on 2026-10-15 as a cryptographically signed, runtime-verifiable scope credential for first- and third-party agents and MCP servers, with graduated restriction and revocation; its availability was stated as Q4 2026. Its 2026-10-21 NVIDIA partnership describes OpenShell enforcement integration as future work. AUREN still needs independent proof that identity, delegated scope, policy version, approval, operation and outcome remain bound at every action boundary and after revocation/restart. Coverage, review latency and escalation rate should be reported by principal, role and action class; AUREN still lacks independent action-monitor and production identity/revocation evidence.",
+        "benchmark": "Exercise cross-agent delegation with narrowing scopes, forged agent IDs, replayed credentials, expired approvals, mid-run revocation, approval-store restart, duplicate dispatch, tool/MCP handoff and termination uncertainty. Verify denial before launch and an append-only receipt binding authenticated actor, delegator, scope, policy version, approval, provider operation and final/unknown outcome. Measure action-to-principal attribution, pre/post monitor coverage, revocation propagation, review latency, escalation, stop confirmation and cross-agent interference after restart.",
+        "acceptance_threshold": "No action after scope revocation or approval expiry; no worker self-approval; every consequential action has an independently attributable identity and receipt; ambiguous provider outcomes remain blocked until authoritative reconciliation. No worker self-approval or monitor bypass; keep host identity/revocation and independent oversight blocked until separate receipts exist.",
         "rollback": "Revoke the agent scope and credentials, stop new dispatch, return to the last-known-good policy, preserve audit receipts, and reconcile any unknown side effects before resuming."
       },
       {
         "id": "scientific_hypothesis_and_mechanism_validation",
-        "source_date": "2026-05-19; 2026-09-04; 2026-10-04; 2026-11-03",
+        "source_date": "2026-05-19; 2026-09-04; 2026-10-04; 2026-11-03; 2026-11-03; 2026-09-29",
         "sources": [
           "https://www.nature.com/articles/s41586-026-10644-y",
           "https://arxiv.org/abs/2610.05197",
           "https://arxiv.org/abs/2609.05079",
           "https://www.emergentmind.com/papers/2609.07611",
-          "https://deepmind.google/blog/agentic-cheminformatics-with-google-antigravity/"
+          "https://deepmind.google/blog/agentic-cheminformatics-with-google-antigravity/",
+          "https://cloud.google.com/blog/products/ai-machine-learning/introducing-physical-engineerings-last-exam-for-agents",
+          "https://openai.com/index/introducing-gpt-6-1-sol/"
         ],
         "owner": [
           "LearningSteward",
@@ -1145,9 +1160,9 @@
         "ci_status": "Current-main CI verifies selected learning/provenance/promotion contracts only; no MechHypoBench, Co-Scientist replication or external scientific experiment has run on AUREN.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "Google's Co-Scientist paper (Nature, 2026-05-19) describes a multi-agent system that generates, critiques and refines hypotheses for experimental verification. MechHypoBench (2026-10-04) combines mechanisms from 14 fields with 17.98 million observations and evaluates hypotheses by consequences under withheld conditions; its authors report a substantial gap between generated hypotheses and underlying mechanisms. AUREN has no expert-scored hypothesis benchmark, intervention result, or independent replication receipt. TruthInsightBench's reported agents show a gap between traceable/novel claims and robust, controlled, cross-dataset conclusions. MechHypoBench tests consequences under withheld conditions. AUREN has no independent scientific replication receipt. DeepMind's 2026-11-03 cheminformatics workflow is a useful end-to-end task design signal, but its reported agent workflow is not independent wet-lab validation. AUREN has no expert-scored cheminformatics benchmark or experimental replication.",
-        "benchmark": "Preregister hypotheses, causal graph, analysis and success criteria before outcomes are visible. Use raw versioned datasets, executable baselines, withheld-condition predictions, sensitivity analyses, negative-result retention and independent domain replication. Measure mechanism accuracy, predictive validity, intervention success, novelty, calibration, reproducibility, source-domain regression and resource cost. Add preregistered analysis, withheld-condition prediction, controls, sensitivity checks, expert review and independent replication before learning promotion. Add a preregistered cheminformatics workflow with curated source data, matched-molecular-pair analysis, withheld-compound predictions, negative controls, expert review and wet-lab replication.",
-        "acceptance_threshold": "A plausible narrative or literature synthesis is not validation. Promote no lesson without executable evidence, independent replication on fresh tasks, explicit uncertainty, retained negative results and source-domain regression checks. A candidate molecule or synthesis route is not a validated discovery; require independent domain review and experimental replication.",
+        "measured_gap": "Google's Co-Scientist paper (Nature, 2026-05-19) describes a multi-agent system that generates, critiques and refines hypotheses for experimental verification. MechHypoBench (2026-10-04) combines mechanisms from 14 fields with 17.98 million observations and evaluates hypotheses by consequences under withheld conditions; its authors report a substantial gap between generated hypotheses and underlying mechanisms. AUREN has no expert-scored hypothesis benchmark, intervention result, or independent replication receipt. TruthInsightBench's reported agents show a gap between traceable/novel claims and robust, controlled, cross-dataset conclusions. MechHypoBench tests consequences under withheld conditions. AUREN has no independent scientific replication receipt. DeepMind's 2026-11-03 cheminformatics workflow is a useful end-to-end task design signal, but its reported agent workflow is not independent wet-lab validation. AUREN has no expert-scored cheminformatics benchmark or experimental replication. The newest chemistry and physical-engineering workflows underscore the need for expert constraints and real-world validation; vendor demonstrations and benchmark scores are not scientific replication.",
+        "benchmark": "Preregister hypotheses, causal graph, analysis and success criteria before outcomes are visible. Use raw versioned datasets, executable baselines, withheld-condition predictions, sensitivity analyses, negative-result retention and independent domain replication. Measure mechanism accuracy, predictive validity, intervention success, novelty, calibration, reproducibility, source-domain regression and resource cost. Add preregistered analysis, withheld-condition prediction, controls, sensitivity checks, expert review and independent replication before learning promotion. Add a preregistered cheminformatics workflow with curated source data, matched-molecular-pair analysis, withheld-compound predictions, negative controls, expert review and wet-lab replication. Preregister claims and analysis; test controls, withheld conditions, structure fidelity, expert rubric, uncertainty, negative results and independent replication.",
+        "acceptance_threshold": "A plausible narrative or literature synthesis is not validation. Promote no lesson without executable evidence, independent replication on fresh tasks, explicit uncertainty, retained negative results and source-domain regression checks. A candidate molecule or synthesis route is not a validated discovery; require independent domain review and experimental replication. Scientific claims and learning promotion remain blocked until independent domain replication succeeds and rollback evidence is retained.",
         "rollback": "Reject or retract the lesson, restore the prior memory/policy digest, retain the failed experiment and negative evidence, and rerun the pinned regression corpus."
       }
     ],
@@ -1238,5 +1253,5 @@
       "local_download_rehash": "completed; outer artifact digests, embedded ZIP digest and all 531 manifest entries verified in the container"
     }
   },
-  "status": "Candidate signals only. Research refreshed through 2026-11-04; current-main repository CI and portable artifact integrity are recorded separately from deployment and independent evaluation. Production host isolation, independent evaluator/oracle identity, sealed holdout custody, and scientific replication remain blocked. No AGI/SI claim or default capability promotion is supported."
+  "status": "Candidate signals only. Research refreshed through 2026-11-05. Current main repository CI and portable artifact integrity are recorded separately from deployment and independent evaluation. Production host isolation, independent evaluator/oracle identity, sealed holdout custody, operator-controlled migration/rollback and scientific replication remain blocked. No AGI/SI claim or default capability promotion is supported."
 }
