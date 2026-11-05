@@ -5004,7 +5004,10 @@ class ExecutionController:
         required = {
             "schema_version", "task_id", "run_id", "member_id", "profile_id",
             "profile_revision", "principal_id", "role_id", "manager_role_id",
-            "action_class", "scope_digest", "assignment_digest", "status",
+            "action_class", "scope_digest", "provider_id", "model_id",
+            "provider_capabilities", "provider_preferences", "available_tools",
+            "provider_readiness_digest", "memory_namespace", "memory_isolated",
+            "workspace_mode", "readiness_digest", "assignment_digest", "status",
             "issued_at", "signature",
         }
         if not isinstance(receipt, Mapping) or set(receipt) != required:
@@ -5028,9 +5031,47 @@ class ExecutionController:
             raise ValueError("assignment role hierarchy does not match the versioned persona")
         if record["action_class"] not in profile.action_classes:
             raise ValueError("assignment action class exceeds the versioned persona")
-        for field in ("principal_id", "action_class", "signature"):
+        if record["workspace_mode"] != profile.workspace_mode:
+            raise ValueError("persona readiness workspace mode does not match the versioned profile")
+        if record["memory_namespace"] != profile.memory_namespace or record["memory_isolated"] is not True:
+            raise ValueError("persona memory namespace is not isolated or does not match the profile")
+        for field in ("provider_id", "model_id", "principal_id", "action_class", "signature"):
             if not isinstance(record[field], str) or not record[field].strip():
                 raise ValueError(f"{field} must be non-empty text")
+        for field in ("provider_capabilities", "provider_preferences", "available_tools"):
+            value = record[field]
+            if (
+                not isinstance(value, list) or not value
+                or any(not isinstance(item, str) or not item.strip() for item in value)
+                or len(set(value)) != len(value)
+            ):
+                raise ValueError(f"{field} must be a non-empty unique string list")
+        if not set(profile.required_capabilities).issubset(record["provider_capabilities"]):
+            raise ValueError("selected provider does not satisfy persona required capabilities")
+        if not set(profile.provider_preferences).intersection(record["provider_preferences"]):
+            raise ValueError("selected provider does not match persona provider preferences")
+        if not set(profile.tool_preferences).issubset(record["available_tools"]):
+            raise ValueError("available tools do not satisfy persona tool preferences")
+        for field in ("provider_readiness_digest", "readiness_digest"):
+            if not isinstance(record[field], str) or re.fullmatch(r"[0-9a-f]{64}", record[field]) is None:
+                raise ValueError(f"{field} must be a lowercase SHA-256 digest")
+        readiness_payload = {
+            "profile_digest": member["profile_digest"],
+            "provider_id": record["provider_id"],
+            "model_id": record["model_id"],
+            "provider_capabilities": sorted(record["provider_capabilities"]),
+            "provider_preferences": sorted(record["provider_preferences"]),
+            "available_tools": sorted(record["available_tools"]),
+            "provider_readiness_digest": record["provider_readiness_digest"],
+            "memory_namespace": record["memory_namespace"],
+            "memory_isolated": record["memory_isolated"],
+            "workspace_mode": record["workspace_mode"],
+        }
+        expected_readiness = hashlib.sha256(
+            json.dumps(readiness_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+        ).hexdigest()
+        if record["readiness_digest"] != expected_readiness:
+            raise ValueError("persona readiness digest mismatch")
         for field in ("scope_digest", "assignment_digest"):
             if not isinstance(record[field], str) or re.fullmatch(r"[0-9a-f]{64}", record[field]) is None:
                 raise ValueError(f"{field} must be a lowercase SHA-256 digest")
