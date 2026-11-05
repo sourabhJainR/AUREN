@@ -275,12 +275,29 @@ class ExecutionController:
               template_digest TEXT NOT NULL,
               created_at TEXT NOT NULL,
               PRIMARY KEY(task_id,run_id));
+            CREATE TABLE IF NOT EXISTS team_member_assignments(
+              task_id TEXT NOT NULL,
+              run_id TEXT NOT NULL,
+              member_id TEXT NOT NULL,
+              principal_id TEXT NOT NULL,
+              role_id TEXT NOT NULL,
+              manager_role_id TEXT NOT NULL,
+              action_class TEXT NOT NULL,
+              scope_digest TEXT NOT NULL,
+              assignment_digest TEXT NOT NULL,
+              receipt_digest TEXT NOT NULL,
+              issued_at TEXT NOT NULL,
+              verified_at TEXT NOT NULL,
+              PRIMARY KEY(task_id,run_id,member_id),
+              UNIQUE(task_id,run_id,principal_id));
             CREATE TABLE IF NOT EXISTS team_member_workspaces(
               task_id TEXT NOT NULL,
               run_id TEXT NOT NULL,
               member_id TEXT NOT NULL,
               workspace_id TEXT NOT NULL,
               sandbox_id TEXT NOT NULL,
+              principal_id TEXT NOT NULL,
+              assignment_digest TEXT NOT NULL,
               workspace_mode TEXT NOT NULL,
               isolation_profile TEXT NOT NULL,
               workspace_digest TEXT NOT NULL,
@@ -4867,6 +4884,12 @@ class ExecutionController:
                     (task_id, run_id),
                 ).fetchone()
                 if template_run is not None:
+                    assignment = db.execute(
+                        "SELECT 1 FROM team_member_assignments WHERE task_id=? AND run_id=? AND member_id=?",
+                        (task_id, run_id, member_id),
+                    ).fetchone()
+                    if assignment is None:
+                        raise ValueError("host-authorized principal assignment is required before team member assignment")
                     workspace = db.execute(
                         "SELECT 1 FROM team_member_workspaces WHERE task_id=? AND run_id=? AND member_id=?",
                         (task_id, run_id, member_id),
@@ -4918,6 +4941,12 @@ class ExecutionController:
             db.row_factory = sqlite3.Row
             for row in rows:
                 item = dict(row)
+                assignment = db.execute(
+                    "SELECT principal_id,role_id,manager_role_id,action_class,scope_digest,assignment_digest "
+                    "FROM team_member_assignments WHERE task_id=? AND run_id=? AND member_id=?",
+                    (task_id, run_id, item["member_id"]),
+                ).fetchone()
+                item["assignment"] = dict(assignment) if assignment is not None else None
                 item["depends_on"] = [
                     value[0] for value in db.execute(
                         "SELECT dependency_member_id FROM team_member_dependencies "
@@ -4926,13 +4955,98 @@ class ExecutionController:
                     ).fetchall()
                 ]
                 workspace = db.execute(
-                    "SELECT workspace_id,sandbox_id,workspace_mode,isolation_profile,workspace_digest,receipt_digest "
+                    "SELECT workspace_id,sandbox_id,principal_id,assignment_digest,workspace_mode,isolation_profile,workspace_digest,receipt_digest "
                     "FROM team_member_workspaces WHERE task_id=? AND run_id=? AND member_id=?",
                     (task_id, run_id, item["member_id"]),
                 ).fetchone()
                 item["workspace"] = dict(workspace) if workspace is not None else None
                 result.append(item)
         return tuple(result)
+
+    def bind_team_member_assignment(
+        self, task_id: str, run_id: str, member_id: str, *,
+        receipt: Mapping[str, Any],
+        verify_assignment: Callable[[Mapping[str, Any]], bool] | None,
+    ) -> dict[str, Any]:
+        """Bind a persona to a host-authorized principal and canonical role assignment."""
+        required = {
+            "schema_version", "task_id", "run_id", "member_id", "profile_id",
+            "profile_revision", "principal_id", "role_id", "manager_role_id",
+            "action_class", "scope_digest", "assignment_digest", "status",
+            "issued_at", "signature",
+        }
+        if not isinstance(receipt, Mapping) or set(receipt) != required:
+            raise ValueError("team member assignment receipt fields are invalid")
+        record = dict(receipt)
+        if record["schema_version"] != "auren-team-member-assignment-v1" or record["status"] != "passed":
+            raise ValueError("team member assignment receipt is unsupported or not passed")
+        member = next((item for item in self.team_members(task_id, run_id) if item["member_id"] == member_id), None)
+        if member is None:
+            raise KeyError((task_id, run_id, member_id))
+        if (
+            record["task_id"] != task_id or record["run_id"] != run_id
+            or record["member_id"] != member_id
+            or record["profile_id"] != member["profile_id"]
+            or record["profile_revision"] != member["profile_revision"]
+        ):
+            raise ValueError("team member assignment receipt identity mismatch")
+        from .agent_profiles import resolve_agent_profile
+        profile = resolve_agent_profile(member["profile_id"], revision=member["profile_revision"])
+        if record["role_id"] != profile.role_id or record["manager_role_id"] != profile.manager_role_id:
+            raise ValueError("assignment role hierarchy does not match the versioned persona")
+        if record["action_class"] not in profile.action_classes:
+            raise ValueError("assignment action class exceeds the versioned persona")
+        for field in ("principal_id", "action_class", "signature"):
+            if not isinstance(record[field], str) or not record[field].strip():
+                raise ValueError(f"{field} must be non-empty text")
+        for field in ("scope_digest", "assignment_digest"):
+            if not isinstance(record[field], str) or re.fullmatch(r"[0-9a-f]{64}", record[field]) is None:
+                raise ValueError(f"{field} must be a lowercase SHA-256 digest")
+        payload = {key: value for key, value in record.items() if key not in {"assignment_digest", "signature"}}
+        expected_assignment = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+        ).hexdigest()
+        if record["assignment_digest"] != expected_assignment:
+            raise ValueError("team member assignment digest mismatch")
+        try:
+            issued_at = datetime.fromisoformat(str(record["issued_at"]).replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("assignment issued_at must be ISO-8601") from exc
+        if issued_at.tzinfo is None or issued_at.utcoffset() is None:
+            raise ValueError("assignment issued_at must include a timezone")
+        if not callable(verify_assignment) or verify_assignment(record) is not True:
+            raise ValueError("team member assignment is not host-authorized")
+        receipt_digest = hashlib.sha256(
+            json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+        ).hexdigest()
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            state = db.execute(
+                "SELECT state FROM team_members WHERE task_id=? AND run_id=? AND member_id=?",
+                (task_id, run_id, member_id),
+            ).fetchone()
+            if state is None:
+                raise KeyError((task_id, run_id, member_id))
+            if state[0] != "pending":
+                raise ValueError("principal assignment must be bound before team member assignment")
+            prior = db.execute(
+                "SELECT principal_id,assignment_digest,receipt_digest FROM team_member_assignments "
+                "WHERE task_id=? AND run_id=? AND member_id=?",
+                (task_id, run_id, member_id),
+            ).fetchone()
+            expected = (record["principal_id"], record["assignment_digest"], receipt_digest)
+            if prior is not None and tuple(prior) != expected:
+                raise ValueError("team member principal assignment is immutable")
+            if prior is None:
+                db.execute(
+                    "INSERT INTO team_member_assignments(task_id,run_id,member_id,principal_id,role_id,"
+                    "manager_role_id,action_class,scope_digest,assignment_digest,receipt_digest,issued_at,verified_at) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (task_id, run_id, member_id, record["principal_id"], record["role_id"],
+                     record["manager_role_id"], record["action_class"], record["scope_digest"],
+                     record["assignment_digest"], receipt_digest, record["issued_at"], _now()),
+                )
+        return next(item for item in self.team_members(task_id, run_id) if item["member_id"] == member_id)
 
     def bind_team_member_workspace(
         self, task_id: str, run_id: str, member_id: str, *,
@@ -4942,7 +5056,8 @@ class ExecutionController:
         """Bind one member to a host-authenticated OS/container isolation receipt."""
         required = {
             "schema_version", "task_id", "run_id", "member_id", "profile_id",
-            "profile_revision", "workspace_id", "sandbox_id", "workspace_mode",
+            "profile_revision", "principal_id", "assignment_digest",
+            "workspace_id", "sandbox_id", "workspace_mode",
             "isolation_profile", "network_policy", "secret_policy", "workspace_digest",
             "status", "issued_at", "evidence_digest", "signature",
         }
@@ -4961,6 +5076,17 @@ class ExecutionController:
             or record["profile_revision"] != member["profile_revision"]
         ):
             raise ValueError("team member workspace receipt identity mismatch")
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db:
+            assignment = db.execute(
+                "SELECT principal_id,assignment_digest FROM team_member_assignments "
+                "WHERE task_id=? AND run_id=? AND member_id=?",
+                (task_id, run_id, member_id),
+            ).fetchone()
+        if assignment is None or (
+            record["principal_id"] != assignment[0]
+            or record["assignment_digest"] != assignment[1]
+        ):
+            raise ValueError("workspace receipt is not bound to the authorized principal assignment")
         from .agent_profiles import resolve_agent_profile
         profile = resolve_agent_profile(member["profile_id"], revision=member["profile_revision"])
         if record["workspace_mode"] != profile.workspace_mode:
@@ -5014,11 +5140,12 @@ class ExecutionController:
             if prior is None:
                 db.execute(
                     "INSERT INTO team_member_workspaces(task_id,run_id,member_id,workspace_id,sandbox_id,"
-                    "workspace_mode,isolation_profile,workspace_digest,receipt_digest,issued_at,verified_at) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                    "principal_id,assignment_digest,workspace_mode,isolation_profile,workspace_digest,receipt_digest,issued_at,verified_at) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (task_id, run_id, member_id, record["workspace_id"], record["sandbox_id"],
-                     record["workspace_mode"], record["isolation_profile"], record["workspace_digest"],
-                     receipt_digest, record["issued_at"], now),
+                     record["principal_id"], record["assignment_digest"], record["workspace_mode"],
+                     record["isolation_profile"], record["workspace_digest"], receipt_digest,
+                     record["issued_at"], now),
                 )
         return next(item for item in self.team_members(task_id, run_id) if item["member_id"] == member_id)
 
