@@ -44,7 +44,7 @@ class AgentProfileRegistryTests(unittest.TestCase):
         expected_roles = {role["id"] for role in organization["roles"]}
         actual_roles = {profile["role_id"] for profile in registry["profiles"]}
         self.assertEqual(expected_roles, actual_roles)
-        self.assertEqual(10, len(registry["profiles"]))
+        self.assertEqual(15, len(registry["profiles"]))
         for profile in registry["profiles"]:
             resolved = resolve_agent_profile(
                 profile["profile_id"], revision=profile["revision"],
@@ -60,7 +60,7 @@ class AgentProfileRegistryTests(unittest.TestCase):
         for template_id in (
             "feature_delivery", "executive_governance",
             "reliability_assurance", "independent_evaluation",
-            "full_company_delivery",
+            "full_company_delivery", "stock_research_delivery",
         ):
             template = resolve_team_template(
                 template_id, revision=1,
