@@ -2470,7 +2470,11 @@ def test_template_team_enforces_dependencies_and_host_verified_isolated_workspac
 
     import pytest
 
-    controller = ExecutionController(tmp_path)
+    class FakeBudgetEnforcer:
+        def execute(self, *args, **kwargs):
+            raise AssertionError("host dispatcher must route its own provider/tool calls")
+
+    controller = ExecutionController(tmp_path, team_budget_enforcer=FakeBudgetEnforcer())
     controller.register_handler("durable_handler", durable_handler, execution_class="read_only")
     task = controller.submit("durable_handler", {"id": "template-team"}, goal="template team lifecycle")
     members = controller.register_team_from_template(
@@ -2590,18 +2594,38 @@ def test_template_team_enforces_dependencies_and_host_verified_isolated_workspac
         task.id, "feature-run", "architect",
         receipt=receipt(architect, assignments["architect"]), verify_receipt=lambda _receipt: True,
     )
-    controller.transition_team_member(
-        task.id, "feature-run", "architect",
-        expected_state="pending", new_state="assigned",
-    )
-    controller.transition_team_member(
-        task.id, "feature-run", "architect",
-        expected_state="assigned", new_state="running",
-    )
-    controller.transition_team_member(
-        task.id, "feature-run", "architect",
-        expected_state="running", new_state="completed",
-    )
+    def dispatch(envelope):
+        payload = {
+            "schema_version": "auren-team-member-execution-v1",
+            "task_id": envelope["task_id"],
+            "run_id": envelope["run_id"],
+            "member_id": envelope["member_id"],
+            "profile_id": envelope["profile"]["profile_id"],
+            "profile_revision": envelope["profile"]["revision"],
+            "principal_id": envelope["assignment"]["principal_id"],
+            "assignment_digest": envelope["assignment"]["assignment_digest"],
+            "workspace_id": envelope["workspace"]["workspace_id"],
+            "workspace_digest": envelope["workspace"]["workspace_digest"],
+            "provider_evidence_digest": "b" * 64,
+            "budget_evidence_digest": "c" * 64,
+            "status": "completed",
+            "output_digest": hashlib.sha256(envelope["member_id"].encode()).hexdigest(),
+            "issued_at": datetime.now(timezone.utc).isoformat(),
+        }
+        payload["evidence_digest"] = hashlib.sha256(json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+        ).encode()).hexdigest()
+        payload["signature"] = "host-signed-execution"
+        return payload
+
+    dispatch_args = {
+        "dispatch_member": dispatch,
+        "verify_assignment_current": lambda _assignment: True,
+        "verify_workspace_current": lambda _workspace: True,
+        "verify_provider_readiness": lambda _profile, _assignment: True,
+        "verify_execution_receipt": lambda _receipt: True,
+    }
+    controller.dispatch_team_member(task.id, "feature-run", "architect", **dispatch_args)
 
     with pytest.raises(ValueError, match="isolated workspace is required"):
         controller.transition_team_member(
@@ -2612,18 +2636,7 @@ def test_template_team_enforces_dependencies_and_host_verified_isolated_workspac
         task.id, "feature-run", "implementer",
         receipt=receipt(implementer, assignments["implementer"]), verify_receipt=lambda _receipt: True,
     )
-    controller.transition_team_member(
-        task.id, "feature-run", "implementer",
-        expected_state="pending", new_state="assigned",
-    )
-    controller.transition_team_member(
-        task.id, "feature-run", "implementer",
-        expected_state="assigned", new_state="running",
-    )
-    controller.transition_team_member(
-        task.id, "feature-run", "implementer",
-        expected_state="running", new_state="completed",
-    )
+    controller.dispatch_team_member(task.id, "feature-run", "implementer", **dispatch_args)
 
     for member_id in ("qa", "security_review"):
         member = next(item for item in members if item["member_id"] == member_id)
@@ -2631,18 +2644,7 @@ def test_template_team_enforces_dependencies_and_host_verified_isolated_workspac
             task.id, "feature-run", member_id,
             receipt=receipt(member, assignments[member_id]), verify_receipt=lambda _receipt: True,
         )
-        controller.transition_team_member(
-            task.id, "feature-run", member_id,
-            expected_state="pending", new_state="assigned",
-        )
-        controller.transition_team_member(
-            task.id, "feature-run", member_id,
-            expected_state="assigned", new_state="running",
-        )
-        controller.transition_team_member(
-            task.id, "feature-run", member_id,
-            expected_state="running", new_state="completed",
-        )
+    controller.dispatch_team_from_template(task.id, "feature-run", **dispatch_args)
 
     restarted = ExecutionController(tmp_path)
     resumed = restarted.team_members(task.id, "feature-run")
