@@ -50,7 +50,7 @@ The supervisor exposes `TeamBudgetAdapterEnforcer` in `portable/team_budget_adap
 
 The composition root installs that enforcer for consequential provider dispatch. Pass the same enforcer to each `MCPStdioToolAdapter(team_budget_enforcer=...)` and `ApprovedToolRegistry(..., team_budget_enforcer=...)` for MCP and approved crew-tool calls. The direct `ExecutionController(team_budget_enforcer=...)` constructor argument remains available when the host creates the controller itself. An active authenticated assignment scope with no enforcer is denied before provider/tool dispatch. An adapter explicitly configured with the enforcer also denies calls when the assignment scope is absent, preventing context-loss bypasses. Non-assigned calls retain their existing path. A successful adapter result is not returned to the assigned worker until trusted usage settlement succeeds. A verified overrun blocks the member and denies success. Exceptions, timeouts, missing receipts and verifier failures keep the reservation held; do not refund an unknown operation. Reconcile it through the existing host receipt path.
 
-`ExecutionController.team_delivery_release_readiness(task_id, run_id)` is the end-to-end acceptance check. It requires the supervisor task and every team member to complete, a completed QA/security profile, no unresolved or overrun budget operations, and a fresh host verification of the immutable approval evidence with reviewer principals distinct from the implementer. It reports readiness only; `release_authorized` remains false because a separate authorized release action is still required. A passing fixture test is not production release or host-isolation evidence.
+`ExecutionController.team_delivery_release_readiness(task_id, run_id)` is the end-to-end acceptance check. It requires the supervisor task and every team member to complete, completed QA and security profiles, no unresolved or overrun budget operations, and a fresh host verification of immutable approval evidence with at least two distinct reviewer principals, none of whom is the implementer. It reports readiness only; `release_authorized` remains false because a separate authorized release action is still required. A passing fixture test is not production release or host-isolation evidence.
 
 Rollback: stop resolving the profile registry and retain the last-known-good configuration. Existing durable tasks and role assignments remain unchanged. Do not rewrite historical task evidence when a profile revision is retired.
 
@@ -63,3 +63,6 @@ python -m unittest tests.test_agent_profiles tests.test_impact_policy
 ```
 
 The production hardening workflow also runs `tests.test_agent_profiles`. These tests validate repository contracts only; they do not prove a deployed provider, workspace sandbox, memory isolation or independent reviewer.
+
+
+The live provider/license and explicit release authorization contracts are documented in [TEAM_PROVIDER_AND_RELEASE_GATES.md](TEAM_PROVIDER_AND_RELEASE_GATES.md). The controller readiness method is still a readiness report only; it never authorizes deployment.
