@@ -4340,6 +4340,22 @@ class ExecutionController:
                 or re.fullmatch(r"[0-9a-f]{64}", template_binding["digest"]) is None
             ):
                 raise ValueError("team template binding is malformed")
+            from .agent_profiles import resolve_team_template
+            trusted_template = resolve_team_template(
+                template_binding["template_id"], revision=template_binding["revision"],
+            )
+            if trusted_template["digest"] != template_binding["digest"]:
+                raise ValueError("team template digest does not match the trusted registry")
+            expected_members = {
+                item["member_id"]: (item["profile_id"], item["profile_revision"], tuple(item["depends_on"]))
+                for item in trusted_template["members"]
+            }
+            actual_members = {
+                item["member_id"]: (item["profile_id"], item["profile_revision"], tuple(item["depends_on"]))
+                for item in normalized
+            }
+            if actual_members != expected_members:
+                raise ValueError("registered team membership does not match the trusted template")
         # Resolve every profile against the trusted registry. A syntactically valid
         # digest supplied by a caller is not evidence that the profile exists.
         from .agent_profiles import resolve_agent_profile
@@ -4757,6 +4773,22 @@ class ExecutionController:
             reasons.append("team_membership_missing")
         if any(member["state"] != "completed" for member in members):
             reasons.append("team_member_not_completed")
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db:
+            template_run = db.execute(
+                "SELECT template_id,template_revision,template_digest FROM team_template_runs "
+                "WHERE task_id=? AND run_id=?", (task_id, run_id),
+            ).fetchone()
+        if template_run is not None:
+            if any(member.get("assignment") is None for member in members):
+                reasons.append("team_member_principal_assignment_missing")
+            if any(member.get("workspace") is None for member in members):
+                reasons.append("team_member_isolated_workspace_missing")
+            assigned_principals = [
+                member["assignment"]["principal_id"]
+                for member in members if member.get("assignment") is not None
+            ]
+            if len(assigned_principals) != len(set(assigned_principals)):
+                reasons.append("team_member_principal_identity_reused")
         qa_completed = any(
             member["profile_id"] == "qa_reviewer"
             and member["state"] == "completed"
