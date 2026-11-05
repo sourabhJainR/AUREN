@@ -232,6 +232,8 @@ class AdaptiveRuntime:
         """Register a trusted versioned team template on the canonical supervisor."""
         if self.trusted_plan_dispatch_root is None:
             raise RuntimeError("trusted plan dispatch root must be configured before team formation")
+        if not callable(getattr(self.execution_controller._team_budget_enforcer, "execute", None)):
+            raise RuntimeError("shared team-budget enforcer must be installed before team formation")
         return self.execution_controller.register_team_from_template(
             task_id, run_id, template_id, revision=revision,
         )
