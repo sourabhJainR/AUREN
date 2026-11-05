@@ -2484,6 +2484,19 @@ def test_template_team_enforces_dependencies_and_host_verified_isolated_workspac
         "architect", "implementer", "qa", "security_review",
     ]
     assert next(item for item in members if item["member_id"] == "implementer")["depends_on"] == ["architect"]
+    stock_members = controller.register_team_from_template(
+        task.id, "stock-run", "stock_research_delivery", revision=1,
+    )
+    stock_profiles = {item["profile_id"] for item in stock_members}
+    assert {
+        "product_analyst", "principal_architect", "frontend_engineer",
+        "backend_implementer", "data_integration_engineer", "research_specialist",
+        "reliability_engineer", "qa_reviewer", "security_reviewer", "release_manager",
+        "finance_reporting",
+    }.issubset(stock_profiles)
+    assert next(item for item in stock_members if item["member_id"] == "qa")["depends_on"] == [
+        "backend", "data_integration", "frontend", "reliability_engineer", "research",
+    ]
 
     def assignment_receipt(member):
         profile = resolve_agent_profile(member["profile_id"], revision=member["profile_revision"])
