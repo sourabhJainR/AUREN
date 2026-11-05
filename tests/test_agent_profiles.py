@@ -40,7 +40,7 @@ class AgentProfileRegistryTests(unittest.TestCase):
         registry, _ = load_agent_profile_registry(
             PROFILE_PATH, organization_registry_path=ROLE_PATH,
         )
-        organization = load_agent_org_registry(ROLE_PATH)
+        organization, _ = load_agent_org_registry(ROLE_PATH)
         expected_roles = {role["id"] for role in organization["roles"]}
         actual_roles = {profile["role_id"] for profile in registry["profiles"]}
         self.assertEqual(expected_roles, actual_roles)
