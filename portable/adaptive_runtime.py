@@ -123,6 +123,7 @@ class AdaptiveRuntime:
             self.execution_controller._team_budget_enforcer = enforcer
         self.execution_controller._trusted_plan_dispatch_required = True
         self.trusted_plan_dispatch_root = None
+        self._team_persona_dispatch_callbacks: dict[str, Callable[..., Any]] | None = None
         self.recovery_ledger = EngineeringRecoveryLedger(
             state / "engineering-recovery.sqlite3",
             max_same_hypothesis_attempts=2,
@@ -197,6 +198,52 @@ class AdaptiveRuntime:
             goal_reconcilers=goal_reconcilers,
             operator_authorizer=operator_authorizer,
             max_goal_retries=max_goal_retries,
+        )
+
+    def configure_team_persona_dispatch(
+        self, *,
+        dispatch_member: Callable[[Mapping[str, Any]], Mapping[str, Any]],
+        verify_assignment_current: Callable[[Mapping[str, Any]], bool],
+        verify_workspace_current: Callable[[Mapping[str, Any]], bool],
+        verify_provider_readiness: Callable[[Mapping[str, Any], Mapping[str, Any]], bool],
+        verify_execution_receipt: Callable[[Mapping[str, Any]], bool],
+    ) -> None:
+        """Freeze host-owned persona dispatch and evidence verifiers in the runtime root."""
+        if self.trusted_plan_dispatch_root is None:
+            raise RuntimeError("trusted plan dispatch root must be configured before persona dispatch")
+        if self._team_persona_dispatch_callbacks is not None:
+            raise RuntimeError("team persona dispatch is already configured")
+        callbacks = {
+            "dispatch_member": dispatch_member,
+            "verify_assignment_current": verify_assignment_current,
+            "verify_workspace_current": verify_workspace_current,
+            "verify_provider_readiness": verify_provider_readiness,
+            "verify_execution_receipt": verify_execution_receipt,
+        }
+        if any(not callable(callback) for callback in callbacks.values()):
+            raise TypeError("all host-owned persona dispatch callbacks must be callable")
+        if not callable(getattr(self.execution_controller._team_budget_enforcer, "execute", None)):
+            raise RuntimeError("shared team-budget enforcer must be installed before persona dispatch")
+        self._team_persona_dispatch_callbacks = callbacks
+
+    def register_team_template(
+        self, task_id: str, run_id: str, template_id: str, *, revision: int,
+    ) -> tuple[dict[str, Any], ...]:
+        """Register a trusted versioned team template on the canonical supervisor."""
+        if self.trusted_plan_dispatch_root is None:
+            raise RuntimeError("trusted plan dispatch root must be configured before team formation")
+        return self.execution_controller.register_team_from_template(
+            task_id, run_id, template_id, revision=revision,
+        )
+
+    def dispatch_team_template(self, task_id: str, run_id: str) -> tuple[dict[str, Any], ...]:
+        """Execute the registered team through frozen host callbacks and canonical budgets."""
+        if self.trusted_plan_dispatch_root is None:
+            raise RuntimeError("trusted plan dispatch root is not configured")
+        if self._team_persona_dispatch_callbacks is None:
+            raise RuntimeError("trusted team persona dispatch callbacks are not configured")
+        return self.execution_controller.dispatch_team_from_template(
+            task_id, run_id, **self._team_persona_dispatch_callbacks,
         )
 
     def dispatch_engineering_plan_task(self, **request: Any) -> Any:
