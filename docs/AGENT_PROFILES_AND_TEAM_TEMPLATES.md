@@ -8,14 +8,18 @@ Profiles are configuration, not authority. The canonical organization registry, 
 
 ## Current contract
 
-The versioned profile registry is `config/agent_profiles.v1.json`. It now covers all 10 canonical organization roles:
+The versioned profile registry is `config/agent_profiles.v1.json`. It now covers all 15 canonical organization roles:
 
 - `chief_executive@1`, `chief_technology@1`, and `engineering_manager@1` — executive direction, technical governance, assignment and shared-budget management.
-- `principal_architect@1`, `backend_implementer@1`, `qa_reviewer@1`, `security_reviewer@1`, and `reliability_engineer@1` — design, implementation, independent QA/security and reliability/recovery work.
+- `product_analyst@1` — requirements, assumptions, conflict detection and acceptance criteria.
+- `principal_architect@1`, `frontend_engineer@1`, `backend_implementer@1`, and `data_integration_engineer@1` — architecture, UI, backend and provider/data integration.
+- `research_specialist@1` — domain research, source quality, methodology and uncertainty.
+- `reliability_engineer@1`, `qa_reviewer@1`, and `security_reviewer@1` — recovery, independent QA and security.
+- `release_manager@1` — release evidence, rollback readiness and promotion coordination without self-authorization.
 - `independent_evaluator@1` — separately controlled evaluation of pinned artifacts and holdout evidence.
 - `finance_reporting@1` — cost, budget variance and evidence-backed reporting.
 
-Versioned templates cover `feature_delivery`, `executive_governance`, `reliability_assurance`, `full_company_delivery`, and `independent_evaluation`. The full company template runs CEO → CTO → engineering manager → architect → implementer → reliability, then QA/security, followed by finance reporting. Independent evaluation remains a separate template and trust domain. The evaluator template is intentionally separate: a distinct persona ID is not proof of evaluator independence. The host must place its runner, credentials, holdouts and receipts outside the candidate trust domain.
+Versioned templates cover `feature_delivery`, `executive_governance`, `reliability_assurance`, `full_company_delivery`, `stock_research_delivery`, and `independent_evaluation`. The full company template runs CEO → CTO → engineering manager → product analyst → architect → frontend/backend/data/research → reliability → QA/security → release manager → finance. The stock-research template uses the same specialist path without executive roles. Independent evaluation remains a separate template and trust domain. The evaluator template is intentionally separate: a distinct persona ID is not proof of evaluator independence. The host must place its runner, credentials, holdouts and receipts outside the candidate trust domain.
 
 Each profile pins its canonical role and reporting manager, an action-class subset, capability requirements, provider/tool preferences, workspace mode, memory namespace, budget defaults, deadline and approval policy. The profile digest is SHA-256 over its normalized versioned content.
 
@@ -81,3 +85,8 @@ The supervisor also rejects a dependent member's assignment until every declared
 Use a separate externally controlled evaluator deployment for `independent_evaluation`; never run the evaluator inside the candidate workspace or give it candidate write access. The controller stores receipt digests and non-secret identifiers, not signatures or credentials.
 
 Rollback: disable template-based team formation at the trusted composition root. Keep the additive membership, dependency, assignment and workspace evidence rows for audit. Do not delete historical receipts or reopen terminal member states.
+
+
+### Organization registry migration
+
+Adding canonical roles changes the organization registry digest. Existing durable assignments pinned to the previous registry digest must be re-authorized against the new registry before further dispatch; do not rewrite historical receipts or silently accept stale role authority. Rollback is to restore the prior registry/profile files and re-run the assignment resolver. Keep the new role definitions and their tests in the branch until the host migration has been rehearsed.
