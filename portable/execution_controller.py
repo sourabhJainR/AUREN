@@ -5279,9 +5279,29 @@ class ExecutionController:
         )
         if any(not callable(item) for item in callbacks):
             raise PermissionError("all trusted persona dispatch and evidence verifiers are required")
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db:
+            template_binding = db.execute(
+                "SELECT template_id,template_revision,template_digest FROM team_template_runs "
+                "WHERE task_id=? AND run_id=?", (task_id, run_id),
+            ).fetchone()
+        if template_binding is None:
+            raise PermissionError("canonical template registration is required for persona dispatch")
+        from .agent_profiles import resolve_team_template
+        trusted_template = resolve_team_template(template_binding[0], revision=template_binding[1])
+        if trusted_template["digest"] != template_binding[2]:
+            raise PermissionError("persona team template changed after registration")
+        if member_id not in {item["member_id"] for item in trusted_template["members"]}:
+            raise PermissionError("persona is not a member of the registered template")
         member = next((item for item in self.team_members(task_id, run_id) if item["member_id"] == member_id), None)
         if member is None:
             raise KeyError((task_id, run_id, member_id))
+        for dependency_id in member["depends_on"]:
+            dependency = next(
+                (item for item in self.team_members(task_id, run_id) if item["member_id"] == dependency_id),
+                None,
+            )
+            if dependency is None or dependency["state"] != "completed":
+                raise PermissionError("persona dependencies are not complete")
         if member["state"] == "completed":
             return member
         if member["state"] in {"running", "failed", "blocked", "cancelled"}:
