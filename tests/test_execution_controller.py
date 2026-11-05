@@ -2595,6 +2595,7 @@ def test_template_team_enforces_dependencies_and_host_verified_isolated_workspac
         receipt=receipt(architect, assignments["architect"]), verify_receipt=lambda _receipt: True,
     )
     def dispatch(envelope):
+        assert callable(envelope["team_budget_enforcer"].execute)
         payload = {
             "schema_version": "auren-team-member-execution-v1",
             "task_id": envelope["task_id"],
