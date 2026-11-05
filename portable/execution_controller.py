@@ -284,6 +284,11 @@ class ExecutionController:
               manager_role_id TEXT NOT NULL,
               action_class TEXT NOT NULL,
               scope_digest TEXT NOT NULL,
+              provider_id TEXT NOT NULL,
+              model_id TEXT NOT NULL,
+              readiness_digest TEXT NOT NULL,
+              memory_namespace TEXT NOT NULL,
+              workspace_mode TEXT NOT NULL,
               assignment_digest TEXT NOT NULL,
               receipt_digest TEXT NOT NULL,
               issued_at TEXT NOT NULL,
@@ -4974,7 +4979,7 @@ class ExecutionController:
             for row in rows:
                 item = dict(row)
                 assignment = db.execute(
-                    "SELECT principal_id,role_id,manager_role_id,action_class,scope_digest,assignment_digest "
+                    "SELECT principal_id,role_id,manager_role_id,action_class,scope_digest,provider_id,model_id,readiness_digest,memory_namespace,workspace_mode,assignment_digest "
                     "FROM team_member_assignments WHERE task_id=? AND run_id=? AND member_id=?",
                     (task_id, run_id, item["member_id"]),
                 ).fetchone()
@@ -5113,10 +5118,13 @@ class ExecutionController:
             if prior is None:
                 db.execute(
                     "INSERT INTO team_member_assignments(task_id,run_id,member_id,principal_id,role_id,"
-                    "manager_role_id,action_class,scope_digest,assignment_digest,receipt_digest,issued_at,verified_at) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "manager_role_id,action_class,scope_digest,provider_id,model_id,readiness_digest,"
+                    "memory_namespace,workspace_mode,assignment_digest,receipt_digest,issued_at,verified_at) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (task_id, run_id, member_id, record["principal_id"], record["role_id"],
                      record["manager_role_id"], record["action_class"], record["scope_digest"],
+                     record["provider_id"], record["model_id"], record["readiness_digest"],
+                     record["memory_namespace"], record["workspace_mode"],
                      record["assignment_digest"], receipt_digest, record["issued_at"], _now()),
                 )
         return next(item for item in self.team_members(task_id, run_id) if item["member_id"] == member_id)
