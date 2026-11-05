@@ -8,13 +8,14 @@ Profiles are configuration, not authority. The canonical organization registry, 
 
 ## Current contract
 
-The initial profile registry is `config/agent_profiles.v1.json`. It defines:
+The versioned profile registry is `config/agent_profiles.v1.json`. It now covers all 10 canonical organization roles:
 
-- `backend_implementer@1` — scoped implementation and targeted tests.
-- `principal_architect@1` — architecture proposals and design review.
-- `qa_reviewer@1` — test authoring, execution and findings.
-- `security_reviewer@1` — security review and adversarial test design.
-- `feature_delivery@1` — architect → implementer → QA and security review.
+- `chief_executive@1`, `chief_technology@1`, and `engineering_manager@1` — executive direction, technical governance, assignment and shared-budget management.
+- `principal_architect@1`, `backend_implementer@1`, `qa_reviewer@1`, `security_reviewer@1`, and `reliability_engineer@1` — design, implementation, independent QA/security and reliability/recovery work.
+- `independent_evaluator@1` — separately controlled evaluation of pinned artifacts and holdout evidence.
+- `finance_reporting@1` — cost, budget variance and evidence-backed reporting.
+
+Versioned templates cover `feature_delivery`, `executive_governance`, `reliability_assurance`, and `independent_evaluation`. The evaluator template is intentionally separate: a distinct persona ID is not proof of evaluator independence. The host must place its runner, credentials, holdouts and receipts outside the candidate trust domain.
 
 Each profile pins its canonical role and reporting manager, an action-class subset, capability requirements, provider/tool preferences, workspace mode, memory namespace, budget defaults, deadline and approval policy. The profile digest is SHA-256 over its normalized versioned content.
 
@@ -31,7 +32,7 @@ The loader rejects unknown roles, reporting-hierarchy drift, action-class expans
 
 ## Execution and rollout boundary
 
-This implementation adds the typed registry, digest calculation, canonical role validation and dependency-checked team templates. Trusted plan dispatch can pin the exact profile ID, revision and digest into durable task intent. The assignment digest includes that pin, and the worker guard resolves and checks it again before handler execution, including after a fresh controller process resumes the task. A profile-role/action mismatch or stale digest fails closed. Profiles are still not enabled as an automatic team scheduler: independently enforced implementer/reviewer separation remains required before that activation. The supervisor persists profile-bound team-member identity and lifecycle state in its SQLite database. Registration is idempotent only for an exact member/profile revision/digest match; profile drift is rejected. Member transitions use compare-and-set state changes, and a fresh controller process can recover the persisted snapshot.
+Trusted plan dispatch can pin the exact profile ID, revision and digest into durable task intent. The worker guard resolves and checks that binding again before handler execution, including after restart. `ExecutionController.register_team_from_template` resolves the versioned template and profile digests, then persists immutable membership, dependency edges, template identity and one shared budget. Assignment is gated by completed dependencies. For template-registered teams, each member must first receive a host-authorized principal assignment and a host-verified isolated workspace receipt. The assignment binds the canonical role, manager, action class and scope digest. The workspace receipt binds that principal and assignment digest to the exact member, workspace, sandbox, workspace mode, network policy and no-inherited-secrets policy. Workspace and assignment bindings are immutable and unique within a run. A fresh controller process recovers these records. These are host integration contracts: fixture callbacks do not prove that a production OS/container sandbox or identity provider is configured.
 
 ### Shared team-run budget
 
@@ -39,7 +40,7 @@ Registering a team also creates one supervisor-owned budget for the task/run. It
 
 Before an operation starts, its member reserves capacity under a stable operation key. The SQLite write transaction checks the aggregate of settled usage and outstanding reservations, so parallel members cannot spend the same remaining capacity. Repeating the same key and exact reservation is idempotent; conflicting reuse is rejected. Settlement requires a trusted host-configured usage verifier; caller-supplied numbers alone cannot settle a reservation. The verified metrics and canonical receipt digest are stored, and settlement is idempotent for the same receipt. An overrun is retained as evidence and blocks the member. Reservations with unknown outcomes remain held after restart. Capacity is released only when a trusted host-configured verifier accepts a host receipt proving the operation never started; the canonical receipt digest and reconciliation reason are stored with the release record. Without that verifier, reservations remain held.
 
-This is a durable accounting and admission foundation. It does not yet wire every provider/tool adapter to reserve before external work, nor prove host-side resource metering. Automatic scheduling remains disabled until those adapters and independent implementer/reviewer enforcement are complete. Rollback: stop invoking the new team-budget APIs and retain the additive budget and operation rows for audit; do not delete or reset charges.
+This is a durable accounting and admission foundation. Provider and tool adapters must still be installed by the trusted composition root with host usage verifiers. The template lifecycle now enforces role dependencies, principal assignment and isolated workspace binding before assignment, but the host must still provide real dispatchers, OS/container isolation and independent reviewers. Rollback: stop invoking the new team-budget APIs and retain the additive budget and operation rows for audit; do not delete or reset charges.
 
 ### Provider and tool adapter enforcement
 
@@ -66,3 +67,15 @@ The production hardening workflow also runs `tests.test_agent_profiles`. These t
 
 
 The live provider/license and explicit release authorization contracts are documented in [TEAM_PROVIDER_AND_RELEASE_GATES.md](TEAM_PROVIDER_AND_RELEASE_GATES.md). The controller readiness method is still a readiness report only; it never authorizes deployment.
+
+
+### Persona assignment and isolated workspaces
+
+A template run is not dispatchable until each member has both bindings:
+
+1. `bind_team_member_assignment` accepts only a canonical-role/profile-matched assignment receipt. The host verifier authenticates the principal, action class, scope and assignment digest. Principal IDs are unique within a team run.
+2. `bind_team_member_workspace` accepts only a receipt matching that assignment and the profile's workspace mode. The host verifier must attest the OS/container boundary, network policy and absence of inherited ambient secrets. The controller rejects assignment before either receipt is persisted.
+
+The supervisor also rejects a dependent member's assignment until every declared prerequisite is completed. Use a separate externally controlled evaluator deployment for `independent_evaluation`; never run the evaluator inside the candidate workspace or give it candidate write access. The controller stores receipt digests and non-secret identifiers, not signatures or credentials.
+
+Rollback: disable template-based team formation at the trusted composition root. Keep the additive membership, dependency, assignment and workspace evidence rows for audit. Do not delete historical receipts or reopen terminal member states.
