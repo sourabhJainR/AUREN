@@ -66,7 +66,7 @@ python -m unittest tests.test_agent_profiles tests.test_impact_policy
 The production hardening workflow also runs `tests.test_agent_profiles`. These tests validate repository contracts only; they do not prove a deployed provider, workspace sandbox, memory isolation or independent reviewer.
 
 
-The live provider/license and explicit release authorization contracts are documented in [TEAM_PROVIDER_AND_RELEASE_GATES.md](TEAM_PROVIDER_AND_RELEASE_GATES.md). The controller readiness method is still a readiness report only; it never authorizes deployment.
+The live provider/license contracts are documented in [TEAM_PROVIDER_AND_RELEASE_GATES.md](TEAM_PROVIDER_AND_RELEASE_GATES.md). `AdaptiveRuntime.configure_team_release_authorization` freezes the host verifiers and canonical persistence callback. `AdaptiveRuntime.authorize_team_release` combines current supervisor readiness with exact-candidate provider/license, workspace, QA, security and release receipts. `AdaptiveRuntime.promote_authorized_team_release` calls the host promotion adapter only after that adapter independently re-verifies the persisted authorization record. The final deployment adapter must enforce the same record at the promotion boundary; the helper does not deploy software itself.
 
 
 ### Persona assignment and isolated workspaces
