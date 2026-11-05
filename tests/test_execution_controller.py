@@ -2464,6 +2464,7 @@ def test_durable_team_member_lifecycle_is_profile_bound_and_resumes_after_restar
 
 def test_template_team_enforces_dependencies_and_host_verified_isolated_workspaces(tmp_path: Path):
     import hashlib
+    from portable.agent_profiles import resolve_agent_profile
     import json
     from datetime import datetime, timezone
 
