@@ -333,7 +333,10 @@ class AdaptiveRuntime:
             record.get("authorized") is not True
             or record.get("status") != "authorized"
             or not isinstance(record.get("authorization_digest"), str)
+            or len(record["authorization_digest"]) != 64
+            or any(char not in "0123456789abcdef" for char in record["authorization_digest"])
             or not isinstance(record.get("authorization_record_id"), str)
+            or not record["authorization_record_id"].strip()
         ):
             raise PermissionError("team release is not authorized")
         if not callable(verify_persisted_authorization) or verify_persisted_authorization(record) is not True:
