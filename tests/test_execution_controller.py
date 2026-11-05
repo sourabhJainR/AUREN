@@ -2462,6 +2462,127 @@ def test_durable_team_member_lifecycle_is_profile_bound_and_resumes_after_restar
     assert completed["state"] == "completed"
 
 
+def test_template_team_enforces_dependencies_and_host_verified_isolated_workspaces(tmp_path: Path):
+    import hashlib
+    import json
+    from datetime import datetime, timezone
+
+    import pytest
+
+    controller = ExecutionController(tmp_path)
+    controller.register_handler("durable_handler", durable_handler, execution_class="read_only")
+    task = controller.submit("durable_handler", {"id": "template-team"}, goal="template team lifecycle")
+    members = controller.register_team_from_template(
+        task.id, "feature-run", "feature_delivery", revision=1,
+    )
+    assert [item["member_id"] for item in members] == [
+        "architect", "implementer", "qa", "security_review",
+    ]
+    assert next(item for item in members if item["member_id"] == "implementer")["depends_on"] == ["architect"]
+
+    def receipt(member):
+        profile = resolve_agent_profile(member["profile_id"], revision=member["profile_revision"])
+        payload = {
+            "schema_version": "auren-team-member-workspace-v1",
+            "task_id": task.id,
+            "run_id": "feature-run",
+            "member_id": member["member_id"],
+            "profile_id": member["profile_id"],
+            "profile_revision": member["profile_revision"],
+            "workspace_id": "workspace-" + member["member_id"],
+            "sandbox_id": "sandbox-" + member["member_id"],
+            "workspace_mode": profile.workspace_mode,
+            "isolation_profile": "os-container-isolated-v1",
+            "network_policy": "deny_by_default",
+            "secret_policy": "no_inherited_secrets",
+            "workspace_digest": hashlib.sha256(member["member_id"].encode()).hexdigest(),
+            "status": "passed",
+            "issued_at": datetime.now(timezone.utc).isoformat(),
+        }
+        payload["evidence_digest"] = hashlib.sha256(json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+        ).encode()).hexdigest()
+        payload["signature"] = "host-signed-test-receipt"
+        return payload
+
+    implementer = next(item for item in members if item["member_id"] == "implementer")
+    with pytest.raises(ValueError, match="dependencies must complete"):
+        controller.transition_team_member(
+            task.id, "feature-run", "implementer",
+            expected_state="pending", new_state="assigned",
+        )
+
+    architect = next(item for item in members if item["member_id"] == "architect")
+    with pytest.raises(ValueError, match="isolated workspace is required"):
+        controller.transition_team_member(
+            task.id, "feature-run", "architect",
+            expected_state="pending", new_state="assigned",
+        )
+    controller.bind_team_member_workspace(
+        task.id, "feature-run", "architect",
+        receipt=receipt(architect), verify_receipt=lambda _receipt: True,
+    )
+    controller.transition_team_member(
+        task.id, "feature-run", "architect",
+        expected_state="pending", new_state="assigned",
+    )
+    controller.transition_team_member(
+        task.id, "feature-run", "architect",
+        expected_state="assigned", new_state="running",
+    )
+    controller.transition_team_member(
+        task.id, "feature-run", "architect",
+        expected_state="running", new_state="completed",
+    )
+
+    with pytest.raises(ValueError, match="isolated workspace is required"):
+        controller.transition_team_member(
+            task.id, "feature-run", "implementer",
+            expected_state="pending", new_state="assigned",
+        )
+    controller.bind_team_member_workspace(
+        task.id, "feature-run", "implementer",
+        receipt=receipt(implementer), verify_receipt=lambda _receipt: True,
+    )
+    controller.transition_team_member(
+        task.id, "feature-run", "implementer",
+        expected_state="pending", new_state="assigned",
+    )
+    controller.transition_team_member(
+        task.id, "feature-run", "implementer",
+        expected_state="assigned", new_state="running",
+    )
+    controller.transition_team_member(
+        task.id, "feature-run", "implementer",
+        expected_state="running", new_state="completed",
+    )
+
+    for member_id in ("qa", "security_review"):
+        member = next(item for item in members if item["member_id"] == member_id)
+        controller.bind_team_member_workspace(
+            task.id, "feature-run", member_id,
+            receipt=receipt(member), verify_receipt=lambda _receipt: True,
+        )
+        controller.transition_team_member(
+            task.id, "feature-run", member_id,
+            expected_state="pending", new_state="assigned",
+        )
+        controller.transition_team_member(
+            task.id, "feature-run", member_id,
+            expected_state="assigned", new_state="running",
+        )
+        controller.transition_team_member(
+            task.id, "feature-run", member_id,
+            expected_state="running", new_state="completed",
+        )
+
+    restarted = ExecutionController(tmp_path)
+    resumed = restarted.team_members(task.id, "feature-run")
+    assert all(item["workspace"] is not None for item in resumed)
+    assert all(item["state"] == "completed" for item in resumed)
+    assert restarted.team_delivery_release_readiness(task.id, "feature-run")["blocking_reasons"]
+
+
 def test_durable_team_member_registration_rejects_profile_drift_and_stale_transition(tmp_path: Path):
     import pytest
 
