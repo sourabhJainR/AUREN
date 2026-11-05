@@ -60,6 +60,7 @@ class AgentProfileRegistryTests(unittest.TestCase):
         for template_id in (
             "feature_delivery", "executive_governance",
             "reliability_assurance", "independent_evaluation",
+            "full_company_delivery",
         ):
             template = resolve_team_template(
                 template_id, revision=1,
