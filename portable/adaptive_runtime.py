@@ -124,6 +124,7 @@ class AdaptiveRuntime:
         self.execution_controller._trusted_plan_dispatch_required = True
         self.trusted_plan_dispatch_root = None
         self._team_persona_dispatch_callbacks: dict[str, Callable[..., Any]] | None = None
+        self._team_release_authorization_callbacks: dict[str, Any] | None = None
         self.recovery_ledger = EngineeringRecoveryLedger(
             state / "engineering-recovery.sqlite3",
             max_same_hypothesis_attempts=2,
@@ -247,6 +248,99 @@ class AdaptiveRuntime:
         return self.execution_controller.dispatch_team_from_template(
             task_id, run_id, **self._team_persona_dispatch_callbacks,
         )
+
+    def configure_team_release_authorization(
+        self, *,
+        implementer_principals_resolver: Callable[[str, str], Sequence[str]],
+        provider_reports_resolver: Callable[[str, str, str, str], Sequence[Mapping[str, Any]]],
+        verify_provider_report: Callable[[Mapping[str, Any]], bool],
+        verify_approval: Callable[[Mapping[str, Any]], bool],
+        verify_workspace_receipt: Callable[[Mapping[str, Any]], bool],
+        persist_authorization: Callable[[Mapping[str, Any]], Mapping[str, Any]],
+        release_approver_role_id: str,
+    ) -> None:
+        """Freeze host verifiers and durable persistence for canonical team release."""
+        if self.trusted_plan_dispatch_root is None:
+            raise RuntimeError("trusted plan dispatch root must be configured before release authorization")
+        if self._team_release_authorization_callbacks is not None:
+            raise RuntimeError("team release authorization is already configured")
+        callbacks = {
+            "implementer_principals_resolver": implementer_principals_resolver,
+            "provider_reports_resolver": provider_reports_resolver,
+            "verify_provider_report": verify_provider_report,
+            "verify_approval": verify_approval,
+            "verify_workspace_receipt": verify_workspace_receipt,
+            "persist_authorization": persist_authorization,
+        }
+        if any(not callable(callback) for callback in callbacks.values()):
+            raise TypeError("all host-owned release authorization callbacks must be callable")
+        if not isinstance(release_approver_role_id, str) or not release_approver_role_id.strip():
+            raise ValueError("release_approver_role_id is required")
+        self._team_release_authorization_callbacks = {
+            **callbacks, "release_approver_role_id": release_approver_role_id.strip(),
+        }
+
+    def authorize_team_release(
+        self, *,
+        task_id: str,
+        run_id: str,
+        artifact_digest: str,
+        commit_sha: str,
+        plan_digest: str,
+        workspace_receipt: Mapping[str, Any] | None,
+        qa_receipt: Mapping[str, Any] | None,
+        security_receipt: Mapping[str, Any] | None,
+        release_receipt: Mapping[str, Any] | None,
+        now: datetime | None = None,
+        max_receipt_age_seconds: int = 24 * 60 * 60,
+    ) -> Any:
+        """Authorize only a completed team candidate with current host-verified evidence."""
+        if self.trusted_plan_dispatch_root is None:
+            raise RuntimeError("trusted plan dispatch root is not configured")
+        if self._team_release_authorization_callbacks is None:
+            raise RuntimeError("host-owned team release authorization is not configured")
+        from .team_release_authorization import authorize_team_release
+        return authorize_team_release(
+            readiness_resolver=lambda task, run: self.execution_controller.team_delivery_release_readiness(task, run),
+            task_id=task_id,
+            run_id=run_id,
+            artifact_digest=artifact_digest,
+            commit_sha=commit_sha,
+            plan_digest=plan_digest,
+            workspace_receipt=workspace_receipt,
+            qa_receipt=qa_receipt,
+            security_receipt=security_receipt,
+            release_receipt=release_receipt,
+            now=now,
+            max_receipt_age_seconds=max_receipt_age_seconds,
+            **self._team_release_authorization_callbacks,
+        )
+
+    @staticmethod
+    def promote_authorized_team_release(
+        authorization: Any, *,
+        verify_persisted_authorization: Callable[[Mapping[str, Any]], bool] | None,
+        promote: Callable[[Mapping[str, Any]], Any] | None,
+    ) -> Any:
+        """Invoke a host promotion adapter only after it re-verifies persisted authorization."""
+        if (
+            not isinstance(authorization, Mapping)
+            and not callable(getattr(authorization, "as_dict", None))
+        ):
+            raise TypeError("team release authorization result is invalid")
+        record = authorization.as_dict() if callable(getattr(authorization, "as_dict", None)) else dict(authorization)
+        if (
+            record.get("authorized") is not True
+            or record.get("status") != "authorized"
+            or not isinstance(record.get("authorization_digest"), str)
+            or not isinstance(record.get("authorization_record_id"), str)
+        ):
+            raise PermissionError("team release is not authorized")
+        if not callable(verify_persisted_authorization) or verify_persisted_authorization(record) is not True:
+            raise PermissionError("canonical persisted release authorization could not be re-verified")
+        if not callable(promote):
+            raise PermissionError("host promotion adapter is not configured")
+        return promote(record)
 
     def dispatch_engineering_plan_task(self, **request: Any) -> Any:
         """Dispatch only through the host-configured trusted plan composition root."""
