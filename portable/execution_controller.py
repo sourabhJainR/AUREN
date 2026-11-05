@@ -296,6 +296,18 @@ class ExecutionController:
               verified_at TEXT NOT NULL,
               PRIMARY KEY(task_id,run_id,member_id),
               UNIQUE(task_id,run_id,principal_id));
+            CREATE TABLE IF NOT EXISTS team_member_execution_receipts(
+              task_id TEXT NOT NULL,
+              run_id TEXT NOT NULL,
+              member_id TEXT NOT NULL,
+              status TEXT NOT NULL,
+              output_digest TEXT NOT NULL,
+              provider_evidence_digest TEXT NOT NULL,
+              budget_evidence_digest TEXT NOT NULL,
+              receipt_digest TEXT NOT NULL,
+              issued_at TEXT NOT NULL,
+              verified_at TEXT NOT NULL,
+              PRIMARY KEY(task_id,run_id,member_id));
             CREATE TABLE IF NOT EXISTS team_member_workspaces(
               task_id TEXT NOT NULL,
               run_id TEXT NOT NULL,
@@ -4789,6 +4801,14 @@ class ExecutionController:
                 reasons.append("team_member_principal_assignment_missing")
             if any(member.get("workspace") is None for member in members):
                 reasons.append("team_member_isolated_workspace_missing")
+            if any(member.get("execution_receipt") is None for member in members):
+                reasons.append("team_member_execution_receipt_missing")
+            if any(
+                member.get("execution_receipt") is not None
+                and member["execution_receipt"].get("status") != "completed"
+                for member in members
+            ):
+                reasons.append("team_member_execution_receipt_not_completed")
             assigned_principals = [
                 member["assignment"]["principal_id"]
                 for member in members if member.get("assignment") is not None
@@ -4985,6 +5005,12 @@ class ExecutionController:
                     (task_id, run_id, item["member_id"]),
                 ).fetchone()
                 item["assignment"] = dict(assignment) if assignment is not None else None
+                execution_receipt = db.execute(
+                    "SELECT status,output_digest,provider_evidence_digest,budget_evidence_digest,receipt_digest,issued_at "
+                    "FROM team_member_execution_receipts WHERE task_id=? AND run_id=? AND member_id=?",
+                    (task_id, run_id, item["member_id"]),
+                ).fetchone()
+                item["execution_receipt"] = dict(execution_receipt) if execution_receipt is not None else None
                 item["depends_on"] = [
                     value[0] for value in db.execute(
                         "SELECT dependency_member_id FROM team_member_dependencies "
@@ -5245,7 +5271,7 @@ class ExecutionController:
         controller-owned budget enforcer; exceptions or unknown outcomes leave the
         member running and block automatic redispatch until host reconciliation.
         """
-        if not callable(self._team_budget_enforcer):
+        if not callable(getattr(self._team_budget_enforcer, "execute", None)):
             raise PermissionError("trusted shared team-budget enforcer is not configured")
         callbacks = (
             dispatch_member, verify_assignment_current, verify_workspace_current,
@@ -5331,6 +5357,28 @@ class ExecutionController:
             raise ValueError("persona execution receipt digest mismatch")
         if verify_execution_receipt(record) is not True:
             raise PermissionError("persona execution receipt is not host-authenticated")
+        receipt_digest = hashlib.sha256(
+            json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+        ).hexdigest()
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            prior = db.execute(
+                "SELECT status,receipt_digest FROM team_member_execution_receipts "
+                "WHERE task_id=? AND run_id=? AND member_id=?",
+                (task_id, run_id, member_id),
+            ).fetchone()
+            expected = (record["status"], receipt_digest)
+            if prior is not None and tuple(prior) != expected:
+                raise ValueError("persona execution receipt is immutable")
+            if prior is None:
+                db.execute(
+                    "INSERT INTO team_member_execution_receipts(task_id,run_id,member_id,status,output_digest,"
+                    "provider_evidence_digest,budget_evidence_digest,receipt_digest,issued_at,verified_at) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?)",
+                    (task_id, run_id, member_id, record["status"], record["output_digest"],
+                     record["provider_evidence_digest"], record["budget_evidence_digest"],
+                     receipt_digest, record["issued_at"], _now()),
+                )
         if record["status"] == "completed":
             return self.transition_team_member(
                 task_id, run_id, member_id,
