@@ -34,10 +34,12 @@ portable.team_release_authorization.authorize_team_release requires:
 - A host callback that persists the authorization into the canonical durable
   approval/release ledger and returns the committed record ID and digest.
 
-The authorization helper does not deploy software. The host must call it at the
-actual promotion/deployment boundary and deny that action unless it returns
-authorized=true. Human/operator approval remains required where deployment
-policy says so.
+The trusted composition root configures these verifiers through
+`AdaptiveRuntime.configure_team_release_authorization`. The runtime evaluates
+current supervisor readiness through `authorize_team_release`. A promotion
+adapter must pass the result to `promote_authorized_team_release`, independently
+re-verify the persisted record ID and digest, and only then perform the promotion.
+Human/operator approval remains required where deployment policy says so.
 
 ## Workspace boundary
 
@@ -56,3 +58,8 @@ python -m unittest tests.test_provider_readiness tests.test_team_release_authori
 These tests exercise deterministic contract fixtures only. They do not prove that a
 provider account, current license terms, sandbox host, independent reviewers, or
 release ledger are configured in a real deployment.
+
+
+## Persona runtime readiness
+
+Each profile-bound assignment receipt binds the selected provider/model, required capabilities, provider preference match, available tools, isolated memory namespace and workspace mode to the exact profile digest. The host must revalidate live provider/license readiness before each persona dispatch. The worker spawner receives the shared team-budget enforcer and the exact host-verified workspace binding. Its signed execution receipt must bind provider evidence, budget evidence and output digest before the supervisor marks the persona complete.
