@@ -88,6 +88,13 @@ def test_runtime_release_authorization_requires_host_root_and_persisted_reverifi
         runtime.configure_team_release_authorization(**callbacks)
     runtime.trusted_plan_dispatch_root = object()
     runtime.configure_team_release_authorization(**callbacks)
+    blocked = runtime.authorize_team_release(
+        task_id="task-missing", run_id="run-missing",
+        artifact_digest="a" * 64, commit_sha="b" * 40, plan_digest="c" * 64,
+        workspace_receipt=None, qa_receipt=None,
+        security_receipt=None, release_receipt=None,
+    )
+    assert blocked.authorized is False
     with pytest.raises(RuntimeError, match="already configured"):
         runtime.configure_team_release_authorization(**callbacks)
 
