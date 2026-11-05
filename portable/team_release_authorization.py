@@ -118,10 +118,11 @@ def authorize_team_release(
 ) -> TeamReleaseAuthorization:
     """Authorize only the exact candidate reviewed by independent trusted principals.
 
-    verify_approval and verify_workspace_receipt must be host-owned signature and
-    custody verifiers. persist_authorization must append the authorization to the
-    canonical durable approval/release ledger and return its committed record ID and
-    digest. Without all three host capabilities this function cannot authorize.
+    The readiness, implementer, and provider resolvers must read canonical host
+    state. All verification callbacks must authenticate their evidence. The
+    persistence callback must append the authorization to the canonical durable
+    approval/release ledger and return its committed record ID and exact digest.
+    Without these host-owned capabilities this function cannot authorize.
     """
     task_id = _text(task_id, "task_id")
     run_id = _text(run_id, "run_id")
@@ -190,10 +191,13 @@ def authorize_team_release(
             or report.get("plan_digest") != plan_digest
             or report.get("status") != "passed"
             or report.get("ready") is not True
+            or report.get("blocking_reasons") not in ([], ())
         ):
             reasons.append("provider_or_license_readiness_not_passed_for_candidate")
         try:
             report_digest = _sha256(report.get("evidence_digest"), "provider readiness evidence_digest")
+            _sha256(report.get("live_probe_digest"), "live_probe_digest")
+            _sha256(report.get("license_evidence_digest"), "license_evidence_digest")
             report_payload = {key: value for key, value in report.items() if key not in {"ready", "evidence_digest"}}
             if report_digest != hashlib.sha256(_canonical(report_payload)).hexdigest():
                 raise TeamReleaseAuthorizationError("provider readiness report digest mismatch")
