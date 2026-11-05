@@ -4633,12 +4633,20 @@ class ExecutionController:
             reasons.append("team_membership_missing")
         if any(member["state"] != "completed" for member in members):
             reasons.append("team_member_not_completed")
-        if not any(
-            member["profile_id"] in {"qa_reviewer", "security_reviewer"}
+        qa_completed = any(
+            member["profile_id"] == "qa_reviewer"
             and member["state"] == "completed"
             for member in members
-        ):
+        )
+        security_completed = any(
+            member["profile_id"] == "security_reviewer"
+            and member["state"] == "completed"
+            for member in members
+        )
+        if not qa_completed:
             reasons.append("independent_qa_delivery_missing")
+        if not security_completed:
+            reasons.append("independent_security_delivery_missing")
         try:
             budget_snapshot = self.team_budget(task_id, run_id)
         except KeyError:
@@ -4679,7 +4687,8 @@ class ExecutionController:
                 reviewer_ids = [reviewer_id] if isinstance(reviewer_id, str) else []
             identities_separate = (
                 isinstance(implementer, str) and bool(implementer.strip())
-                and isinstance(reviewer_ids, (list, tuple)) and bool(reviewer_ids)
+                and isinstance(reviewer_ids, (list, tuple))
+                and len({item for item in reviewer_ids if isinstance(item, str) and item.strip()}) >= 2
                 and all(isinstance(item, str) and item.strip() and item != implementer for item in reviewer_ids)
             )
             try:
@@ -4693,17 +4702,13 @@ class ExecutionController:
             task is not None and task.state == "completed"
             and bool(members)
             and all(member["state"] == "completed" for member in members)
-            and any(
-                member["profile_id"] in {"qa_reviewer", "security_reviewer"}
-                and member["state"] == "completed"
-                for member in members
-            )
+            and qa_completed
             and budget_snapshot is not None
             and not unresolved
             and not states.get("overrun", 0)
             and all(state in {"settled", "released"} for state in states)
         )
-        release_ready = delivery_ready and approval_verified
+        release_ready = delivery_ready and security_completed and approval_verified
         return {
             "task_id": task_id,
             "run_id": run_id,
