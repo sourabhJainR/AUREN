@@ -2562,6 +2562,15 @@ def test_template_team_enforces_dependencies_and_host_verified_isolated_workspac
             expected_state="pending", new_state="assigned",
         )
 
+    architect = next(item for item in members if item["member_id"] == "architect")
+    incomplete_provider = assignment_receipt(architect)
+    incomplete_provider["provider_capabilities"] = incomplete_provider["provider_capabilities"][1:]
+    with pytest.raises(ValueError, match="does not satisfy persona required capabilities"):
+        controller.bind_team_member_assignment(
+            task.id, "feature-run", "architect",
+            receipt=incomplete_provider, verify_assignment=lambda _receipt: True,
+        )
+
     assignments = {}
     for member in members:
         assignments[member["member_id"]] = assignment_receipt(member)
