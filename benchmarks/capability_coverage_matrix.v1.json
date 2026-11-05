@@ -659,9 +659,18 @@
     "independent_evaluation_status": "blocked; independent evaluator/oracle identity, sealed holdout custody, production isolation and external campaign receipts are not available",
     "capability_claim": "No AGI/SI or broad-generalization claim is supported; repository CI verifies internal contracts only.",
     "stock_research_acceptance": {
-      "status": "current-main repository acceptance check and push workflow passed; no live provider, license, or independent evaluator outcome is claimed",
-      "workflow_run_id": 41930325219,
-      "candidate_sha": "9071cf3e0c5fc3e60330704aec9e72299713666d"
+      "status": "Historical artifact and prior acceptance details retained. The current-main stock-research-runtime-acceptance check and push workflow passed on 9071cf3e0c5fc3e60330704aec9e72299713666d; this is repository acceptance only and does not claim live provider, license, deployment, or independent evaluator outcomes.",
+      "workflow_run_id": 41654911914,
+      "candidate_sha": "9f697226765c89e2ec6629e0e2235b5fa63a5c99",
+      "tradingdyor_source_sha": "052a386e0f4051948cde8469fa5f5bc2816de9f8",
+      "image_id": "sha256:09c5ebfc378ed5161cfa02b16eaf4baa52b8b08be86853d7faa4edc78f9f46fb",
+      "artifact_id": 13239980492,
+      "artifact_sha256": "a3586d0933df4b4153bfc7f6c49f53b50d5660b9f6e5440ab65cbd3c7083bf8f",
+      "artifact_size_bytes": 2875,
+      "artifact_expires_at": "2027-02-01T14:33:48Z",
+      "local_download_rehash": "not run; local container runtime unavailable",
+      "latest_main_workflow_run_id": 41930325219,
+      "latest_main_candidate_sha": "9071cf3e0c5fc3e60330704aec9e72299713666d"
     },
     "open_pr_count": 1,
     "open_prs": [
