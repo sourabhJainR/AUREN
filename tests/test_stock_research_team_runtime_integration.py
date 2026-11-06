@@ -11,6 +11,7 @@ from portable.adaptive_runtime import AdaptiveRuntime
 from portable.agent_org_runtime import authorize_agent_assignment
 from portable.agent_profiles import resolve_agent_profile, resolve_team_template
 from portable.durable_approval import DurableApprovalStore
+from portable.execution_controller import ExecutionController
 from portable.engineering_context_packet import build_context_packet
 from portable.engineering_plan import EngineeringPlan, PlanTask
 from portable.engineering_plan_recovery import EngineeringPlanRecoveryBridge
@@ -239,9 +240,12 @@ class StockResearchTeamRuntimeIntegrationTests(unittest.TestCase):
             template = resolve_team_template("stock_research_delivery", revision=1)
             assert {item["member_id"] for item in members} == {item["member_id"] for item in template["members"]}
             assignments = {}
+            workspaces = {}
             for member in members:
                 assignment = _assignment(supervisor_task.id, WORK_KEY, member)
+                workspace = _workspace(supervisor_task.id, WORK_KEY, member, assignment)
                 assignments[member["member_id"]] = assignment
+                workspaces[member["member_id"]] = workspace
                 controller.bind_team_member_assignment(
                     supervisor_task.id, WORK_KEY, member["member_id"],
                     receipt=assignment,
@@ -249,13 +253,24 @@ class StockResearchTeamRuntimeIntegrationTests(unittest.TestCase):
                 )
                 controller.bind_team_member_workspace(
                     supervisor_task.id, WORK_KEY, member["member_id"],
-                    receipt=_workspace(supervisor_task.id, WORK_KEY, member, assignment),
+                    receipt=workspace,
                     verify_receipt=lambda record: (
                         record.get("signature") == "fixture-only-not-a-host-signature"
                         and record.get("network_policy") == "deny_by_default"
                         and record.get("secret_policy") == "no_inherited_secrets"
                     ),
                 )
+
+            # Signed source receipts must survive a fresh controller process.
+            # A lossy metadata projection cannot be re-verified at dispatch time.
+            reopened = ExecutionController(controller.root)
+            reopened_members = {
+                item["member_id"]: item
+                for item in reopened.team_members(supervisor_task.id, WORK_KEY)
+            }
+            for member_id in assignments:
+                self.assertEqual(reopened_members[member_id]["assignment"], assignments[member_id])
+                self.assertEqual(reopened_members[member_id]["workspace"], workspaces[member_id])
 
             dispatch_order = []
 
