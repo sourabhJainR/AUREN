@@ -119,20 +119,26 @@ class ProviderOperationLifecycle:
             raise ProviderOutcomeBlocked(
                 f"provider operation {op_id} outcome is uncertain; no automatic retry"
             ) from exc
-        if dispatch_span is not None:
-            provider_status = receipt.get("status")
-            dispatch_span.finish(
-                {
-                    "dispatch_returned": True,
-                    "provider_status": provider_status.strip()[:80] if isinstance(provider_status, str) else "missing",
-                    "receipt_mapping": True,
-                },
-                "ok",
-            )
+        provider_status = receipt.get("status")
         # A returned mapping proves only that the adapter returned. It does not
         # prove that the remote side effect completed. Never persist pending,
         # failed, malformed, or unknown provider states as a completed receipt.
         provider_status = receipt.get("status")
+
+        def finish_blocked_dispatch(reason: str) -> None:
+            if dispatch_span is not None:
+                dispatch_span.finish(
+                    {
+                        "dispatch_returned": True,
+                        "provider_status": provider_status.strip()[:80] if isinstance(provider_status, str) else "missing",
+                        "receipt_mapping": True,
+                        "receipt_binding_valid": False,
+                        "rejection_reason": reason,
+                    },
+                    "blocked",
+                    reason,
+                )
+
         nested_result = receipt.get("result")
         nested_completion = (
             isinstance(nested_result, Mapping)
@@ -154,6 +160,7 @@ class ProviderOperationLifecycle:
         if not explicit_completion:
             status_label = provider_status.strip()[:80] if isinstance(provider_status, str) else "missing"
             reason = f"dispatch returned non-completed status ({status_label})"
+            finish_blocked_dispatch("provider_status_not_completed")
             self.ledger.require_reconciliation(operation_key, reason)
             self._event(
                 operation_key, "reconcile_required", op_id, decision.payload_digest,
@@ -170,6 +177,7 @@ class ProviderOperationLifecycle:
             or not receipt.get("provider_operation_id").strip()
         ):
             reason = "provider receipt has an invalid or missing provider_operation_id"
+            finish_blocked_dispatch("provider_operation_id_invalid")
             self.ledger.require_reconciliation(operation_key, reason)
             self._event(
                 operation_key, "reconcile_required", op_id, decision.payload_digest,
@@ -200,6 +208,7 @@ class ProviderOperationLifecycle:
                 mismatched_binding = "auren_operation_id"
         if mismatched_binding is not None:
             reason = f"provider receipt binding for {mismatched_binding} is missing or belongs to a different operation"
+            finish_blocked_dispatch("provider_operation_binding_mismatch")
             self.ledger.require_reconciliation(operation_key, reason)
             self._event(
                 operation_key, "reconcile_required", op_id, decision.payload_digest,
@@ -207,6 +216,19 @@ class ProviderOperationLifecycle:
             )
             raise ProviderOutcomeBlocked(
                 f"provider operation {op_id} returned a receipt bound to a different operation"
+            )
+        # A provider adapter returning a mapping is not proof of a valid
+        # completion. Mark the span successful only after status, remote ID,
+        # and all request-binding fields have passed validation.
+        if dispatch_span is not None:
+            dispatch_span.finish(
+                {
+                    "dispatch_returned": True,
+                    "provider_status": provider_status.strip()[:80] if isinstance(provider_status, str) else "missing",
+                    "receipt_mapping": True,
+                    "receipt_binding_valid": True,
+                },
+                "ok",
             )
         completed = self.ledger.complete(operation_key, dict(receipt))
         self._event(operation_key, "completed", op_id, completed.payload_digest,
@@ -267,19 +289,27 @@ class ProviderOperationLifecycle:
             if lookup_span is not None:
                 lookup_span.finish({"lookup_returned": True, "result_mapping": False}, "blocked", "invalid_lookup_result")
             raise ProviderOutcomeBlocked("provider lookup result is invalid; explicit resolution required")
-        if lookup_span is not None:
-            lookup_span.finish(
-                {
-                    "lookup_returned": True,
-                    "provider_status": str(status.get("status", "unknown"))[:80],
-                    "result_mapping": True,
-                },
-                "ok",
-            )
+
+        provider_status = status.get("status")
+
+        def finish_blocked_lookup(reason: str) -> None:
+            if lookup_span is not None:
+                lookup_span.finish(
+                    {
+                        "lookup_returned": True,
+                        "provider_status": str(provider_status or "unknown")[:80],
+                        "result_mapping": True,
+                        "evidence_verified": False,
+                        "rejection_reason": reason,
+                    },
+                    "blocked",
+                    reason,
+                )
         if status.get("status") == "completed" and isinstance(status.get("receipt"), Mapping):
             evidence_ref = status.get("evidence_ref")
             receipt = dict(status["receipt"])
             if not isinstance(evidence_ref, str) or not evidence_ref.strip():
+                finish_blocked_lookup("missing_evidence_reference")
                 raise ProviderOutcomeBlocked("provider completion lacks a trusted evidence reference")
             # The lookup envelope and receipt are separate claims. Do not let a
             # completed lookup envelope promote a pending/malformed receipt.
@@ -323,6 +353,7 @@ class ProviderOperationLifecycle:
                 or not provider_operation_id.strip()
                 or mismatched_binding is not None
             ):
+                finish_blocked_lookup("reconciliation_receipt_incomplete")
                 self._event(
                     operation_key, "blocked", op_id, record["payload_digest"],
                     reason="reconciliation_receipt_incomplete",
@@ -332,16 +363,32 @@ class ProviderOperationLifecycle:
                 )
             existing_evidence_ref = receipt.get("evidence_ref")
             if existing_evidence_ref is not None and existing_evidence_ref != evidence_ref:
+                finish_blocked_lookup("conflicting_evidence_reference")
                 raise ProviderOutcomeBlocked("provider receipt evidence reference conflicts with lookup evidence")
             # Persist the evidence locator with the immutable receipt. Recovery must
             # not need another remote lookup after this durable commit.
             receipt["evidence_ref"] = evidence_ref
-            result = self.ledger.record_reconciled_effect(
-                operation_key, evidence_ref=evidence_ref, receipt=receipt
-            )
+            try:
+                result = self.ledger.record_reconciled_effect(
+                    operation_key, evidence_ref=evidence_ref, receipt=receipt
+                )
+            except Exception:
+                finish_blocked_lookup("trusted_evidence_verification_failed")
+                raise
+            if lookup_span is not None:
+                lookup_span.finish(
+                    {
+                        "lookup_returned": True,
+                        "provider_status": "completed",
+                        "result_mapping": True,
+                        "evidence_verified": True,
+                    },
+                    "ok",
+                )
             self._event(operation_key, "completed", op_id, result.payload_digest,
                         evidence_ref=evidence_ref, reconciled=True)
             return dict(result.receipt or {})
+        finish_blocked_lookup("provider_outcome_not_confirmed")
         self._event(operation_key, "blocked", op_id, record["payload_digest"],
                     provider_status=str(status.get("status", "unknown")))
         raise ProviderOutcomeBlocked(
