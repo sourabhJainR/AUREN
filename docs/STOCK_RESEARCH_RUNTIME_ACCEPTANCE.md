@@ -42,6 +42,22 @@ team, parallel isolated application implementation, live provider or licensing
 validation, independent QA/security release approval, or evidence-gated learning
 promotion. Those criteria remain open.
 
+## Full team runtime integration
+
+`tests/test_stock_research_team_runtime_integration.py` exercises the
+`stock_research_delivery` template through `AdaptiveRuntime`, the configured
+`TrustedPlanDispatchRoot`, and the canonical `ExecutionController`. It checks
+shared work identity, all versioned team roles, dependency-ordered dispatch,
+distinct principal/workspace bindings, provider-readiness checks, shared-budget
+enforcer injection, durable terminal state, and idempotent repeated dispatch.
+
+The test uses explicitly marked fixture callbacks and fixture receipts. It proves
+the repository composition contract only. It does not prove live provider access,
+provider licensing, a production OS/container isolation boundary, independent QA
+or security identity, independent evaluator custody, or release authorization.
+The expected result is delivery readiness with release still blocked when
+independent approval evidence is absent.
+
 ## Test coverage
 
 - `tests/test_one_page_brief.py`: one-page API/UI response, recommendation, news and provenance, including partial-evidence behavior.
