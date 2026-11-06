@@ -61,6 +61,19 @@ Rollback: stop resolving the profile registry and retain the last-known-good con
 
 ## Registry lifecycle operations
 
+Example:
+
+```python
+manager = AgentProfileRegistryManager()
+preview = manager.preview(candidate_registry)
+result = manager.import_registry(
+    candidate_registry,
+    expected_current_digest=preview["current_digest"],
+)
+```
+
+Refresh the preview if the expected digest is stale; do not retry a failed write with the old digest.
+
 Use `portable.agent_profile_registry_manager.AgentProfileRegistryManager` for profile/template changes:
 
 - `preview(candidate)` validates the full candidate registry and returns a digest-bound diff without writing.
