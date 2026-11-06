@@ -292,6 +292,7 @@ class ExecutionController:
               workspace_mode TEXT NOT NULL,
               assignment_digest TEXT NOT NULL,
               receipt_digest TEXT NOT NULL,
+              receipt_json TEXT,
               issued_at TEXT NOT NULL,
               verified_at TEXT NOT NULL,
               PRIMARY KEY(task_id,run_id,member_id),
@@ -320,6 +321,7 @@ class ExecutionController:
               isolation_profile TEXT NOT NULL,
               workspace_digest TEXT NOT NULL,
               receipt_digest TEXT NOT NULL,
+              receipt_json TEXT,
               issued_at TEXT NOT NULL,
               verified_at TEXT NOT NULL,
               PRIMARY KEY(task_id,run_id,member_id),
@@ -365,6 +367,12 @@ class ExecutionController:
               max_pending_tasks INTEGER NOT NULL,
               updated_at TEXT NOT NULL);
             """)
+            assignment_columns = {row[1] for row in db.execute("PRAGMA table_info(team_member_assignments)").fetchall()}
+            if "receipt_json" not in assignment_columns:
+                db.execute("ALTER TABLE team_member_assignments ADD COLUMN receipt_json TEXT")
+            workspace_columns = {row[1] for row in db.execute("PRAGMA table_info(team_member_workspaces)").fetchall()}
+            if "receipt_json" not in workspace_columns:
+                db.execute("ALTER TABLE team_member_workspaces ADD COLUMN receipt_json TEXT")
             handler_columns = {row[1] for row in db.execute("PRAGMA table_info(handlers)").fetchall()}
             if "ci_gate_policy_json" not in handler_columns:
                 db.execute("ALTER TABLE handlers ADD COLUMN ci_gate_policy_json TEXT NOT NULL DEFAULT '{}'")
@@ -5000,11 +5008,33 @@ class ExecutionController:
             for row in rows:
                 item = dict(row)
                 assignment = db.execute(
-                    "SELECT principal_id,role_id,manager_role_id,action_class,scope_digest,provider_id,model_id,provider_readiness_digest,readiness_digest,memory_namespace,workspace_mode,assignment_digest "
+                    "SELECT principal_id,role_id,manager_role_id,action_class,scope_digest,provider_id,model_id,provider_readiness_digest,readiness_digest,memory_namespace,workspace_mode,assignment_digest,receipt_digest,receipt_json "
                     "FROM team_member_assignments WHERE task_id=? AND run_id=? AND member_id=?",
                     (task_id, run_id, item["member_id"]),
                 ).fetchone()
-                item["assignment"] = dict(assignment) if assignment is not None else None
+                if assignment is None:
+                    item["assignment"] = None
+                else:
+                    assignment_record = dict(assignment)
+                    assignment_receipt_json = assignment_record.pop("receipt_json", None)
+                    assignment_receipt_digest = assignment_record.pop("receipt_digest", None)
+                    if assignment_receipt_json is None:
+                        # Legacy rows retain their metadata for inspection, but lack
+                        # the signed source receipt required for current authorization.
+                        item["assignment"] = assignment_record
+                    else:
+                        try:
+                            assignment_receipt = json.loads(assignment_receipt_json)
+                            if not isinstance(assignment_receipt, dict):
+                                raise ValueError("assignment receipt must be an object")
+                            calculated_digest = hashlib.sha256(
+                                json.dumps(assignment_receipt, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+                            ).hexdigest()
+                        except (TypeError, ValueError) as exc:
+                            raise RuntimeError("persisted team member assignment receipt is corrupt") from exc
+                        if calculated_digest != assignment_receipt_digest:
+                            raise RuntimeError("persisted team member assignment receipt digest mismatch")
+                        item["assignment"] = assignment_receipt
                 execution_receipt = db.execute(
                     "SELECT status,output_digest,provider_evidence_digest,budget_evidence_digest,receipt_digest,issued_at "
                     "FROM team_member_execution_receipts WHERE task_id=? AND run_id=? AND member_id=?",
@@ -5019,11 +5049,32 @@ class ExecutionController:
                     ).fetchall()
                 ]
                 workspace = db.execute(
-                    "SELECT workspace_id,sandbox_id,principal_id,assignment_digest,workspace_mode,isolation_profile,workspace_digest,receipt_digest "
+                    "SELECT workspace_id,sandbox_id,principal_id,assignment_digest,workspace_mode,isolation_profile,workspace_digest,receipt_digest,receipt_json "
                     "FROM team_member_workspaces WHERE task_id=? AND run_id=? AND member_id=?",
                     (task_id, run_id, item["member_id"]),
                 ).fetchone()
-                item["workspace"] = dict(workspace) if workspace is not None else None
+                if workspace is None:
+                    item["workspace"] = None
+                else:
+                    workspace_record = dict(workspace)
+                    workspace_receipt_json = workspace_record.pop("receipt_json", None)
+                    workspace_receipt_digest = workspace_record.pop("receipt_digest", None)
+                    if workspace_receipt_json is None:
+                        # Legacy rows cannot be re-authorized from a lossy projection.
+                        item["workspace"] = workspace_record
+                    else:
+                        try:
+                            workspace_receipt = json.loads(workspace_receipt_json)
+                            if not isinstance(workspace_receipt, dict):
+                                raise ValueError("workspace receipt must be an object")
+                            calculated_digest = hashlib.sha256(
+                                json.dumps(workspace_receipt, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+                            ).hexdigest()
+                        except (TypeError, ValueError) as exc:
+                            raise RuntimeError("persisted team member workspace receipt is corrupt") from exc
+                        if calculated_digest != workspace_receipt_digest:
+                            raise RuntimeError("persisted team member workspace receipt digest mismatch")
+                        item["workspace"] = workspace_receipt
                 result.append(item)
         return tuple(result)
 
@@ -5146,13 +5197,15 @@ class ExecutionController:
                 db.execute(
                     "INSERT INTO team_member_assignments(task_id,run_id,member_id,principal_id,role_id,"
                     "manager_role_id,action_class,scope_digest,provider_id,model_id,provider_readiness_digest,readiness_digest,"
-                    "memory_namespace,workspace_mode,assignment_digest,receipt_digest,issued_at,verified_at) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "memory_namespace,workspace_mode,assignment_digest,receipt_digest,receipt_json,issued_at,verified_at) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (task_id, run_id, member_id, record["principal_id"], record["role_id"],
                      record["manager_role_id"], record["action_class"], record["scope_digest"],
                      record["provider_id"], record["model_id"], record["provider_readiness_digest"],
                      record["readiness_digest"], record["memory_namespace"], record["workspace_mode"],
-                     record["assignment_digest"], receipt_digest, record["issued_at"], _now()),
+                     record["assignment_digest"], receipt_digest,
+                     json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False),
+                     record["issued_at"], _now()),
                 )
         return next(item for item in self.team_members(task_id, run_id) if item["member_id"] == member_id)
 
@@ -5248,11 +5301,12 @@ class ExecutionController:
             if prior is None:
                 db.execute(
                     "INSERT INTO team_member_workspaces(task_id,run_id,member_id,workspace_id,sandbox_id,"
-                    "principal_id,assignment_digest,workspace_mode,isolation_profile,workspace_digest,receipt_digest,issued_at,verified_at) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "principal_id,assignment_digest,workspace_mode,isolation_profile,workspace_digest,receipt_digest,receipt_json,issued_at,verified_at) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (task_id, run_id, member_id, record["workspace_id"], record["sandbox_id"],
                      record["principal_id"], record["assignment_digest"], record["workspace_mode"],
                      record["isolation_profile"], record["workspace_digest"], receipt_digest,
+                     json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False),
                      record["issued_at"], now),
                 )
         return next(item for item in self.team_members(task_id, run_id) if item["member_id"] == member_id)
