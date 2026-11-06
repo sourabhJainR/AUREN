@@ -163,7 +163,12 @@ class DurableRoutineRegistry:
             raise TypeError("spec must be a RoutineSpec")
         payload = asdict(spec)
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
-        initial = spec.run_at if spec.trigger == "once" else None
+        if spec.trigger == "once":
+            initial = _iso(_utc(datetime.fromisoformat(spec.run_at or "")))
+        elif spec.trigger == "interval":
+            initial = _iso(datetime.now(timezone.utc) + timedelta(seconds=spec.interval_seconds or 0))
+        else:
+            initial = None
         with self._lock, self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             current = db.execute(
@@ -228,7 +233,15 @@ class DurableRoutineRegistry:
     ) -> RoutineDispatch:
         if not isinstance(event_id, str) or not event_id.strip() or len(event_id) > 256:
             raise ValueError("event_id must be non-empty bounded text")
-        if not isinstance(authenticate, Callable) or authenticate(routine_id, event_id, payload) is not True:
+        if not callable(authenticate):
+            raise TypeError("webhook authentication verifier is required")
+        try:
+            encoded_event = json.dumps(dict(payload), sort_keys=True, allow_nan=False)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("webhook payload must be finite JSON data") from exc
+        if len(encoded_event.encode("utf-8")) > 64_000:
+            raise ValueError("webhook payload exceeds 64 KB")
+        if authenticate(routine_id, event_id, payload) is not True:
             raise PermissionError("webhook authentication failed")
         spec = self.get(routine_id)
         if spec.trigger != "webhook" or spec.event_type != event_type:
