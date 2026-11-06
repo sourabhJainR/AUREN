@@ -54,6 +54,7 @@ class AdaptiveRuntimeContextTests(unittest.TestCase):
                 "workstream_dependencies": {"work": []},
             }
             decision_verifier = lambda _conflict_id, _option: False
+            profile_receipt_verifier = lambda _receipt: True
             memory = PersistentMemory(root / "memory.db", require_approval=False)
             scheduler = AutomationScheduler(root / "automation.db")
             runtime = AdaptiveRuntime(
@@ -64,9 +65,11 @@ class AdaptiveRuntimeContextTests(unittest.TestCase):
                 state_root=root / "state",
                 requirement_conflict_resolver=resolver,
                 conflict_resolution_verifier=decision_verifier,
+                profile_registry_receipt_verifier=profile_receipt_verifier,
             )
             self.assertIs(runtime.orchestrator.requirement_conflict_resolver, resolver)
             self.assertIs(runtime.orchestrator.conflict_resolution_verifier, decision_verifier)
+            self.assertIs(runtime.orchestrator.profile_registry_receipt_verifier, profile_receipt_verifier)
             scheduler.close()
             memory.close()
 
