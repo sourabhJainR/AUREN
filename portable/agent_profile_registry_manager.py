@@ -94,11 +94,10 @@ class AgentProfileRegistryManager:
             )
 
     def _current(self) -> tuple[dict[str, Any], str, dict[str, Any]]:
-        normalized, digest = load_agent_profile_registry(
-            self.profile_path,
-            organization_registry_path=self.organization_registry_path,
-        )
+        # Read the source file once so normalized data and its digest always
+        # describe the same atomic-replacement snapshot.
         raw = _load_json(self.profile_path, label="agent profile registry")
+        normalized, digest = self._validate(raw)
         return normalized, digest, raw
 
     def preview(self, candidate: str | bytes | Mapping[str, Any]) -> dict[str, Any]:
@@ -135,10 +134,7 @@ class AgentProfileRegistryManager:
     def export(self) -> dict[str, str]:
         """Export the canonical source registry, not a derived runtime projection."""
         raw = _load_json(self.profile_path, label="agent profile registry")
-        _normalized, registry_digest = load_agent_profile_registry(
-            self.profile_path,
-            organization_registry_path=self.organization_registry_path,
-        )
+        _normalized, registry_digest = self._validate(raw)
         content = _canonical(raw).decode("utf-8")
         return {
             "content": content,
