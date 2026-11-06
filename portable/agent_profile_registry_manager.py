@@ -183,6 +183,22 @@ class AgentProfileRegistryManager:
         if expected_current_digest != current_digest:
             raise AgentProfileError("profile registry changed since preview; refresh before writing")
 
+    @staticmethod
+    def _change_receipt(
+        operation: str,
+        previous_digest: str,
+        registry_digest: str,
+        affected_revisions: list[str],
+    ) -> dict[str, Any]:
+        body = {
+            "schema_version": "auren-agent-profile-registry-change-v1",
+            "operation": operation,
+            "previous_registry_digest": previous_digest,
+            "registry_digest": registry_digest,
+            "affected_revisions": sorted(affected_revisions),
+        }
+        return {**body, "receipt_digest": hashlib.sha256(_canonical(body)).hexdigest()}
+
     def _atomic_write(self, raw: Mapping[str, Any]) -> tuple[dict[str, Any], str]:
         if self.profile_path.is_symlink():
             raise AgentProfileError("profile registry path cannot be a symlink")
@@ -291,6 +307,15 @@ class AgentProfileRegistryManager:
                 ),
                 "profile_count": len(normalized["profiles"]),
                 "template_count": len(normalized["team_templates"]),
+                "receipt": self._change_receipt(
+                    "import",
+                    current_digest,
+                    digest,
+                    [
+                        *("/".join(map(str, key)) for key in raw_profiles.keys() - current_profiles.keys()),
+                        *("/".join(map(str, key)) for key in raw_templates.keys() - current_templates.keys()),
+                    ],
+                ),
             }
 
     def rollback_profile(
@@ -347,6 +372,12 @@ class AgentProfileRegistryManager:
                 "historical_revision_count": sum(
                     item["profile_id"] == profile_id for item in normalized["profiles"]
                 ),
+                "receipt": self._change_receipt(
+                    "rollback_profile",
+                    current_digest,
+                    digest,
+                    [f"{profile_id}@{to_revision}", f"{profile_id}@{new_revision}"],
+                ),
             }
 
     def rollback_team_template(
@@ -400,6 +431,12 @@ class AgentProfileRegistryManager:
                 "registry_digest": digest,
                 "historical_revision_count": sum(
                     item["template_id"] == template_id for item in normalized["team_templates"]
+                ),
+                "receipt": self._change_receipt(
+                    "rollback_team_template",
+                    current_digest,
+                    digest,
+                    [f"{template_id}@{to_revision}", f"{template_id}@{new_revision}"],
                 ),
             }
 
