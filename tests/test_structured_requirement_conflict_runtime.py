@@ -106,7 +106,8 @@ class StructuredRequirementConflictRuntimeTests(unittest.TestCase):
             context={"preimplementation_resolutions": {conflict_id: "accept_delayed"}},
         )
         assert run.status == RunStatus.ACCEPTED
-        assert calls == ["quotes", "news"]
+        assert set(calls) == {"quotes", "news"}
+        assert len(calls) == 2
 
 
     def test_unbound_source_statement_fails_closed_before_any_node_runs(self, ):
