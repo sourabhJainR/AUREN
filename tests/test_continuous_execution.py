@@ -288,7 +288,7 @@ def test_goal_reconciler_dispatches_followup_work_without_another_prompt(tmp_pat
         invocations.append(len(invocations) + 1)
         if not task_ids:
             task = controller.submit(
-                "tests.goal_continuation", {"work_key": "goal-unit-1"},
+                "tests.goal_continuation", {"work_key": "AUREN:test:goal-unit-1"},
                 goal="complete the parent engineering goal", work_key="AUREN:test:goal-unit-1",
             )
             task_ids.append(task.id)
@@ -299,7 +299,7 @@ def test_goal_reconciler_dispatches_followup_work_without_another_prompt(tmp_pat
     )
     report = supervisor.run(poll_seconds=0.1, batch_size=10, max_cycles=2)
 
-    assert len(invocations) == 2, {"goal_health": report["goal_health"], "goal_events": [(e["event_type"], e["payload"]) for e in supervisor.status(event_limit=100)["recent_events"] if "goal_" in e["event_type"]]}
+    assert len(invocations) == 2
     assert controller.task(task_ids[0]).state == "completed"
     assert report["audit_chain_valid"] is True
     events = supervisor.status(event_limit=100)["recent_events"]
