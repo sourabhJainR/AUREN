@@ -261,6 +261,70 @@ class ExecutionController:
               failure_digest TEXT,
               updated_at TEXT NOT NULL,
               PRIMARY KEY(task_id, run_id, member_id));
+            CREATE TABLE IF NOT EXISTS team_member_dependencies(
+              task_id TEXT NOT NULL,
+              run_id TEXT NOT NULL,
+              member_id TEXT NOT NULL,
+              dependency_member_id TEXT NOT NULL,
+              PRIMARY KEY(task_id,run_id,member_id,dependency_member_id));
+            CREATE TABLE IF NOT EXISTS team_template_runs(
+              task_id TEXT NOT NULL,
+              run_id TEXT NOT NULL,
+              template_id TEXT NOT NULL,
+              template_revision INTEGER NOT NULL,
+              template_digest TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              PRIMARY KEY(task_id,run_id));
+            CREATE TABLE IF NOT EXISTS team_member_assignments(
+              task_id TEXT NOT NULL,
+              run_id TEXT NOT NULL,
+              member_id TEXT NOT NULL,
+              principal_id TEXT NOT NULL,
+              role_id TEXT NOT NULL,
+              manager_role_id TEXT NOT NULL,
+              action_class TEXT NOT NULL,
+              scope_digest TEXT NOT NULL,
+              provider_id TEXT NOT NULL,
+              model_id TEXT NOT NULL,
+              provider_readiness_digest TEXT NOT NULL,
+              readiness_digest TEXT NOT NULL,
+              memory_namespace TEXT NOT NULL,
+              workspace_mode TEXT NOT NULL,
+              assignment_digest TEXT NOT NULL,
+              receipt_digest TEXT NOT NULL,
+              issued_at TEXT NOT NULL,
+              verified_at TEXT NOT NULL,
+              PRIMARY KEY(task_id,run_id,member_id),
+              UNIQUE(task_id,run_id,principal_id));
+            CREATE TABLE IF NOT EXISTS team_member_execution_receipts(
+              task_id TEXT NOT NULL,
+              run_id TEXT NOT NULL,
+              member_id TEXT NOT NULL,
+              status TEXT NOT NULL,
+              output_digest TEXT NOT NULL,
+              provider_evidence_digest TEXT NOT NULL,
+              budget_evidence_digest TEXT NOT NULL,
+              receipt_digest TEXT NOT NULL,
+              issued_at TEXT NOT NULL,
+              verified_at TEXT NOT NULL,
+              PRIMARY KEY(task_id,run_id,member_id));
+            CREATE TABLE IF NOT EXISTS team_member_workspaces(
+              task_id TEXT NOT NULL,
+              run_id TEXT NOT NULL,
+              member_id TEXT NOT NULL,
+              workspace_id TEXT NOT NULL,
+              sandbox_id TEXT NOT NULL,
+              principal_id TEXT NOT NULL,
+              assignment_digest TEXT NOT NULL,
+              workspace_mode TEXT NOT NULL,
+              isolation_profile TEXT NOT NULL,
+              workspace_digest TEXT NOT NULL,
+              receipt_digest TEXT NOT NULL,
+              issued_at TEXT NOT NULL,
+              verified_at TEXT NOT NULL,
+              PRIMARY KEY(task_id,run_id,member_id),
+              UNIQUE(task_id,run_id,workspace_id),
+              UNIQUE(task_id,run_id,sandbox_id));
             CREATE TABLE IF NOT EXISTS team_budgets(
               task_id TEXT NOT NULL,
               run_id TEXT NOT NULL,
@@ -4245,7 +4309,8 @@ class ExecutionController:
             raise ValueError("team member profile_digest must be a lowercase SHA-256 digest")
 
     def register_team_members(
-        self, task_id: str, run_id: str, members: list[Mapping[str, Any]],
+        self, task_id: str, run_id: str, members: list[Mapping[str, Any]], *,
+        template_binding: Mapping[str, Any] | None = None,
     ) -> tuple[dict[str, Any], ...]:
         """Persist immutable profile-bound team membership before execution.
 
@@ -4267,11 +4332,48 @@ class ExecutionController:
             if member_id in seen:
                 raise ValueError("team member IDs must be unique within a run")
             seen.add(member_id)
+            dependencies = member.get("depends_on", [])
+            if (
+                not isinstance(dependencies, list)
+                or any(not isinstance(item, str) or not item.strip() for item in dependencies)
+                or len(set(dependencies)) != len(dependencies)
+                or member_id in dependencies
+            ):
+                raise ValueError("team member dependencies must be unique member IDs")
             normalized.append({
                 "task_id": task_id, "run_id": run_id, "member_id": member_id,
                 "profile_id": profile_id, "profile_revision": revision,
-                "profile_digest": digest,
+                "profile_digest": digest, "depends_on": tuple(dependencies),
             })
+        for member in normalized:
+            if set(member["depends_on"]) - seen:
+                raise ValueError("team member dependency references an unknown member")
+        if template_binding is not None:
+            if (
+                not isinstance(template_binding, Mapping)
+                or set(template_binding) != {"template_id", "revision", "digest"}
+                or not isinstance(template_binding.get("template_id"), str)
+                or type(template_binding.get("revision")) is not int
+                or not isinstance(template_binding.get("digest"), str)
+                or re.fullmatch(r"[0-9a-f]{64}", template_binding["digest"]) is None
+            ):
+                raise ValueError("team template binding is malformed")
+            from .agent_profiles import resolve_team_template
+            trusted_template = resolve_team_template(
+                template_binding["template_id"], revision=template_binding["revision"],
+            )
+            if trusted_template["digest"] != template_binding["digest"]:
+                raise ValueError("team template digest does not match the trusted registry")
+            expected_members = {
+                item["member_id"]: (item["profile_id"], item["profile_revision"], tuple(item["depends_on"]))
+                for item in trusted_template["members"]
+            }
+            actual_members = {
+                item["member_id"]: (item["profile_id"], item["profile_revision"], tuple(item["depends_on"]))
+                for item in normalized
+            }
+            if actual_members != expected_members:
+                raise ValueError("registered team membership does not match the trusted template")
         # Resolve every profile against the trusted registry. A syntactically valid
         # digest supplied by a caller is not evidence that the profile exists.
         from .agent_profiles import resolve_agent_profile
@@ -4328,6 +4430,37 @@ class ExecutionController:
                     )
                 elif tuple(prior) != identity:
                     raise ValueError("durable team member profile identity conflict")
+                prior_dependencies = tuple(row[0] for row in db.execute(
+                    "SELECT dependency_member_id FROM team_member_dependencies "
+                    "WHERE task_id=? AND run_id=? AND member_id=? ORDER BY dependency_member_id",
+                    (task_id, run_id, member["member_id"]),
+                ).fetchall())
+                expected_dependencies = tuple(sorted(member["depends_on"]))
+                if prior_dependencies and prior_dependencies != expected_dependencies:
+                    raise ValueError("durable team member dependency identity conflict")
+                if not prior_dependencies:
+                    for dependency_id in expected_dependencies:
+                        db.execute(
+                            "INSERT INTO team_member_dependencies(task_id,run_id,member_id,dependency_member_id) "
+                            "VALUES(?,?,?,?)",
+                            (task_id, run_id, member["member_id"], dependency_id),
+                        )
+            if template_binding is not None:
+                expected_template = (
+                    template_binding["template_id"], template_binding["revision"], template_binding["digest"],
+                )
+                prior_template = db.execute(
+                    "SELECT template_id,template_revision,template_digest FROM team_template_runs "
+                    "WHERE task_id=? AND run_id=?", (task_id, run_id),
+                ).fetchone()
+                if prior_template is None:
+                    db.execute(
+                        "INSERT INTO team_template_runs(task_id,run_id,template_id,template_revision,template_digest,created_at) "
+                        "VALUES(?,?,?,?,?,?)",
+                        (task_id, run_id, *expected_template, now),
+                    )
+                elif tuple(prior_template) != expected_template:
+                    raise ValueError("durable team template identity conflict")
             prior_budget = db.execute(
                 "SELECT max_tokens,max_tool_calls,max_wall_seconds,max_concurrency,budget_digest "
                 "FROM team_budgets WHERE task_id=? AND run_id=?", (task_id, run_id),
@@ -4346,6 +4479,31 @@ class ExecutionController:
             elif tuple(prior_budget) != expected_budget:
                 raise ValueError("durable team budget identity or profile-derived limits conflict")
         return self.team_members(task_id, run_id)
+
+    def register_team_from_template(
+        self, task_id: str, run_id: str, template_id: str, *, revision: int,
+    ) -> tuple[dict[str, Any], ...]:
+        """Resolve a trusted versioned template and durably register its full dependency graph."""
+        from .agent_profiles import resolve_agent_profile, resolve_team_template
+        template = resolve_team_template(template_id, revision=revision)
+        members: list[dict[str, Any]] = []
+        for item in template["members"]:
+            profile = resolve_agent_profile(item["profile_id"], revision=item["profile_revision"])
+            members.append({
+                "member_id": item["member_id"],
+                "profile_id": profile.profile_id,
+                "profile_revision": profile.revision,
+                "profile_digest": profile.digest,
+                "depends_on": list(item["depends_on"]),
+            })
+        return self.register_team_members(
+            task_id, run_id, members,
+            template_binding={
+                "template_id": template["template_id"],
+                "revision": template["revision"],
+                "digest": template["digest"],
+            },
+        )
 
 
     @staticmethod
@@ -4633,12 +4791,44 @@ class ExecutionController:
             reasons.append("team_membership_missing")
         if any(member["state"] != "completed" for member in members):
             reasons.append("team_member_not_completed")
-        if not any(
-            member["profile_id"] in {"qa_reviewer", "security_reviewer"}
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db:
+            template_run = db.execute(
+                "SELECT template_id,template_revision,template_digest FROM team_template_runs "
+                "WHERE task_id=? AND run_id=?", (task_id, run_id),
+            ).fetchone()
+        if template_run is not None:
+            if any(member.get("assignment") is None for member in members):
+                reasons.append("team_member_principal_assignment_missing")
+            if any(member.get("workspace") is None for member in members):
+                reasons.append("team_member_isolated_workspace_missing")
+            if any(member.get("execution_receipt") is None for member in members):
+                reasons.append("team_member_execution_receipt_missing")
+            if any(
+                member.get("execution_receipt") is not None
+                and member["execution_receipt"].get("status") != "completed"
+                for member in members
+            ):
+                reasons.append("team_member_execution_receipt_not_completed")
+            assigned_principals = [
+                member["assignment"]["principal_id"]
+                for member in members if member.get("assignment") is not None
+            ]
+            if len(assigned_principals) != len(set(assigned_principals)):
+                reasons.append("team_member_principal_identity_reused")
+        qa_completed = any(
+            member["profile_id"] == "qa_reviewer"
             and member["state"] == "completed"
             for member in members
-        ):
+        )
+        security_completed = any(
+            member["profile_id"] == "security_reviewer"
+            and member["state"] == "completed"
+            for member in members
+        )
+        if not qa_completed:
             reasons.append("independent_qa_delivery_missing")
+        if not security_completed:
+            reasons.append("independent_security_delivery_missing")
         try:
             budget_snapshot = self.team_budget(task_id, run_id)
         except KeyError:
@@ -4679,7 +4869,8 @@ class ExecutionController:
                 reviewer_ids = [reviewer_id] if isinstance(reviewer_id, str) else []
             identities_separate = (
                 isinstance(implementer, str) and bool(implementer.strip())
-                and isinstance(reviewer_ids, (list, tuple)) and bool(reviewer_ids)
+                and isinstance(reviewer_ids, (list, tuple))
+                and len({item for item in reviewer_ids if isinstance(item, str) and item.strip()}) >= 2
                 and all(isinstance(item, str) and item.strip() and item != implementer for item in reviewer_ids)
             )
             try:
@@ -4693,17 +4884,13 @@ class ExecutionController:
             task is not None and task.state == "completed"
             and bool(members)
             and all(member["state"] == "completed" for member in members)
-            and any(
-                member["profile_id"] in {"qa_reviewer", "security_reviewer"}
-                and member["state"] == "completed"
-                for member in members
-            )
+            and qa_completed
             and budget_snapshot is not None
             and not unresolved
             and not states.get("overrun", 0)
             and all(state in {"settled", "released"} for state in states)
         )
-        release_ready = delivery_ready and approval_verified
+        release_ready = delivery_ready and security_completed and approval_verified
         return {
             "task_id": task_id,
             "run_id": run_id,
@@ -4738,6 +4925,35 @@ class ExecutionController:
         with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             if new_state == "assigned":
+                dependencies = db.execute(
+                    "SELECT dependency_member_id FROM team_member_dependencies "
+                    "WHERE task_id=? AND run_id=? AND member_id=?",
+                    (task_id, run_id, member_id),
+                ).fetchall()
+                for (dependency_id,) in dependencies:
+                    dependency_state = db.execute(
+                        "SELECT state FROM team_members WHERE task_id=? AND run_id=? AND member_id=?",
+                        (task_id, run_id, dependency_id),
+                    ).fetchone()
+                    if dependency_state is None or dependency_state[0] != "completed":
+                        raise ValueError("team member dependencies must complete before assignment")
+                template_run = db.execute(
+                    "SELECT 1 FROM team_template_runs WHERE task_id=? AND run_id=?",
+                    (task_id, run_id),
+                ).fetchone()
+                if template_run is not None:
+                    assignment = db.execute(
+                        "SELECT 1 FROM team_member_assignments WHERE task_id=? AND run_id=? AND member_id=?",
+                        (task_id, run_id, member_id),
+                    ).fetchone()
+                    if assignment is None:
+                        raise ValueError("host-authorized principal assignment is required before team member assignment")
+                    workspace = db.execute(
+                        "SELECT 1 FROM team_member_workspaces WHERE task_id=? AND run_id=? AND member_id=?",
+                        (task_id, run_id, member_id),
+                    ).fetchone()
+                    if workspace is None:
+                        raise ValueError("host-verified isolated workspace is required before team member assignment")
                 concurrency = db.execute(
                     "SELECT max_concurrency FROM team_budgets WHERE task_id=? AND run_id=?",
                     (task_id, run_id),
@@ -4778,7 +4994,471 @@ class ExecutionController:
                 "WHERE task_id=? AND run_id=? ORDER BY member_id",
                 (task_id, run_id),
             ).fetchall()
-        return tuple(dict(row) for row in rows)
+        result = []
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db:
+            db.row_factory = sqlite3.Row
+            for row in rows:
+                item = dict(row)
+                assignment = db.execute(
+                    "SELECT principal_id,role_id,manager_role_id,action_class,scope_digest,provider_id,model_id,provider_readiness_digest,readiness_digest,memory_namespace,workspace_mode,assignment_digest "
+                    "FROM team_member_assignments WHERE task_id=? AND run_id=? AND member_id=?",
+                    (task_id, run_id, item["member_id"]),
+                ).fetchone()
+                item["assignment"] = dict(assignment) if assignment is not None else None
+                execution_receipt = db.execute(
+                    "SELECT status,output_digest,provider_evidence_digest,budget_evidence_digest,receipt_digest,issued_at "
+                    "FROM team_member_execution_receipts WHERE task_id=? AND run_id=? AND member_id=?",
+                    (task_id, run_id, item["member_id"]),
+                ).fetchone()
+                item["execution_receipt"] = dict(execution_receipt) if execution_receipt is not None else None
+                item["depends_on"] = [
+                    value[0] for value in db.execute(
+                        "SELECT dependency_member_id FROM team_member_dependencies "
+                        "WHERE task_id=? AND run_id=? AND member_id=? ORDER BY dependency_member_id",
+                        (task_id, run_id, item["member_id"]),
+                    ).fetchall()
+                ]
+                workspace = db.execute(
+                    "SELECT workspace_id,sandbox_id,principal_id,assignment_digest,workspace_mode,isolation_profile,workspace_digest,receipt_digest "
+                    "FROM team_member_workspaces WHERE task_id=? AND run_id=? AND member_id=?",
+                    (task_id, run_id, item["member_id"]),
+                ).fetchone()
+                item["workspace"] = dict(workspace) if workspace is not None else None
+                result.append(item)
+        return tuple(result)
+
+    def bind_team_member_assignment(
+        self, task_id: str, run_id: str, member_id: str, *,
+        receipt: Mapping[str, Any],
+        verify_assignment: Callable[[Mapping[str, Any]], bool] | None,
+    ) -> dict[str, Any]:
+        """Bind a persona to a host-authorized principal and canonical role assignment."""
+        required = {
+            "schema_version", "task_id", "run_id", "member_id", "profile_id",
+            "profile_revision", "principal_id", "role_id", "manager_role_id",
+            "action_class", "scope_digest", "provider_id", "model_id",
+            "provider_capabilities", "provider_preferences", "available_tools",
+            "provider_readiness_digest", "memory_namespace", "memory_isolated",
+            "workspace_mode", "readiness_digest", "assignment_digest", "status",
+            "issued_at", "signature",
+        }
+        if not isinstance(receipt, Mapping) or set(receipt) != required:
+            raise ValueError("team member assignment receipt fields are invalid")
+        record = dict(receipt)
+        if record["schema_version"] != "auren-team-member-assignment-v1" or record["status"] != "passed":
+            raise ValueError("team member assignment receipt is unsupported or not passed")
+        member = next((item for item in self.team_members(task_id, run_id) if item["member_id"] == member_id), None)
+        if member is None:
+            raise KeyError((task_id, run_id, member_id))
+        if (
+            record["task_id"] != task_id or record["run_id"] != run_id
+            or record["member_id"] != member_id
+            or record["profile_id"] != member["profile_id"]
+            or record["profile_revision"] != member["profile_revision"]
+        ):
+            raise ValueError("team member assignment receipt identity mismatch")
+        from .agent_profiles import resolve_agent_profile
+        profile = resolve_agent_profile(member["profile_id"], revision=member["profile_revision"])
+        if record["role_id"] != profile.role_id or record["manager_role_id"] != profile.manager_role_id:
+            raise ValueError("assignment role hierarchy does not match the versioned persona")
+        if record["action_class"] not in profile.action_classes:
+            raise ValueError("assignment action class exceeds the versioned persona")
+        if record["workspace_mode"] != profile.workspace_mode:
+            raise ValueError("persona readiness workspace mode does not match the versioned profile")
+        if record["memory_namespace"] != profile.memory_namespace or record["memory_isolated"] is not True:
+            raise ValueError("persona memory namespace is not isolated or does not match the profile")
+        for field in ("provider_id", "model_id", "principal_id", "action_class", "signature"):
+            if not isinstance(record[field], str) or not record[field].strip():
+                raise ValueError(f"{field} must be non-empty text")
+        for field in ("provider_capabilities", "provider_preferences", "available_tools"):
+            value = record[field]
+            if (
+                not isinstance(value, list) or not value
+                or any(not isinstance(item, str) or not item.strip() for item in value)
+                or len(set(value)) != len(value)
+            ):
+                raise ValueError(f"{field} must be a non-empty unique string list")
+        if not set(profile.required_capabilities).issubset(record["provider_capabilities"]):
+            raise ValueError("selected provider does not satisfy persona required capabilities")
+        if not set(profile.provider_preferences).intersection(record["provider_preferences"]):
+            raise ValueError("selected provider does not match persona provider preferences")
+        if not set(profile.tool_preferences).issubset(record["available_tools"]):
+            raise ValueError("available tools do not satisfy persona tool preferences")
+        for field in ("provider_readiness_digest", "readiness_digest"):
+            if not isinstance(record[field], str) or re.fullmatch(r"[0-9a-f]{64}", record[field]) is None:
+                raise ValueError(f"{field} must be a lowercase SHA-256 digest")
+        readiness_payload = {
+            "profile_digest": member["profile_digest"],
+            "provider_id": record["provider_id"],
+            "model_id": record["model_id"],
+            "provider_capabilities": sorted(record["provider_capabilities"]),
+            "provider_preferences": sorted(record["provider_preferences"]),
+            "available_tools": sorted(record["available_tools"]),
+            "provider_readiness_digest": record["provider_readiness_digest"],
+            "memory_namespace": record["memory_namespace"],
+            "memory_isolated": record["memory_isolated"],
+            "workspace_mode": record["workspace_mode"],
+        }
+        expected_readiness = hashlib.sha256(
+            json.dumps(readiness_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+        ).hexdigest()
+        if record["readiness_digest"] != expected_readiness:
+            raise ValueError("persona readiness digest mismatch")
+        for field in ("scope_digest", "assignment_digest"):
+            if not isinstance(record[field], str) or re.fullmatch(r"[0-9a-f]{64}", record[field]) is None:
+                raise ValueError(f"{field} must be a lowercase SHA-256 digest")
+        payload = {key: value for key, value in record.items() if key not in {"assignment_digest", "signature"}}
+        expected_assignment = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+        ).hexdigest()
+        if record["assignment_digest"] != expected_assignment:
+            raise ValueError("team member assignment digest mismatch")
+        try:
+            issued_at = datetime.fromisoformat(str(record["issued_at"]).replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("assignment issued_at must be ISO-8601") from exc
+        if issued_at.tzinfo is None or issued_at.utcoffset() is None:
+            raise ValueError("assignment issued_at must include a timezone")
+        if not callable(verify_assignment) or verify_assignment(record) is not True:
+            raise ValueError("team member assignment is not host-authorized")
+        receipt_digest = hashlib.sha256(
+            json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+        ).hexdigest()
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            state = db.execute(
+                "SELECT state FROM team_members WHERE task_id=? AND run_id=? AND member_id=?",
+                (task_id, run_id, member_id),
+            ).fetchone()
+            if state is None:
+                raise KeyError((task_id, run_id, member_id))
+            if state[0] != "pending":
+                raise ValueError("principal assignment must be bound before team member assignment")
+            prior = db.execute(
+                "SELECT principal_id,assignment_digest,receipt_digest FROM team_member_assignments "
+                "WHERE task_id=? AND run_id=? AND member_id=?",
+                (task_id, run_id, member_id),
+            ).fetchone()
+            expected = (record["principal_id"], record["assignment_digest"], receipt_digest)
+            if prior is not None and tuple(prior) != expected:
+                raise ValueError("team member principal assignment is immutable")
+            if prior is None:
+                db.execute(
+                    "INSERT INTO team_member_assignments(task_id,run_id,member_id,principal_id,role_id,"
+                    "manager_role_id,action_class,scope_digest,provider_id,model_id,provider_readiness_digest,readiness_digest,"
+                    "memory_namespace,workspace_mode,assignment_digest,receipt_digest,issued_at,verified_at) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (task_id, run_id, member_id, record["principal_id"], record["role_id"],
+                     record["manager_role_id"], record["action_class"], record["scope_digest"],
+                     record["provider_id"], record["model_id"], record["provider_readiness_digest"],
+                     record["readiness_digest"], record["memory_namespace"], record["workspace_mode"],
+                     record["assignment_digest"], receipt_digest, record["issued_at"], _now()),
+                )
+        return next(item for item in self.team_members(task_id, run_id) if item["member_id"] == member_id)
+
+    def bind_team_member_workspace(
+        self, task_id: str, run_id: str, member_id: str, *,
+        receipt: Mapping[str, Any],
+        verify_receipt: Callable[[Mapping[str, Any]], bool] | None,
+    ) -> dict[str, Any]:
+        """Bind one member to a host-authenticated OS/container isolation receipt."""
+        required = {
+            "schema_version", "task_id", "run_id", "member_id", "profile_id",
+            "profile_revision", "principal_id", "assignment_digest",
+            "workspace_id", "sandbox_id", "workspace_mode",
+            "isolation_profile", "network_policy", "secret_policy", "workspace_digest",
+            "status", "issued_at", "evidence_digest", "signature",
+        }
+        if not isinstance(receipt, Mapping) or set(receipt) != required:
+            raise ValueError("team member workspace receipt fields are invalid")
+        record = dict(receipt)
+        if record["schema_version"] != "auren-team-member-workspace-v1" or record["status"] != "passed":
+            raise ValueError("team member workspace receipt is unsupported or not passed")
+        member = next((item for item in self.team_members(task_id, run_id) if item["member_id"] == member_id), None)
+        if member is None:
+            raise KeyError((task_id, run_id, member_id))
+        if (
+            record["task_id"] != task_id or record["run_id"] != run_id
+            or record["member_id"] != member_id
+            or record["profile_id"] != member["profile_id"]
+            or record["profile_revision"] != member["profile_revision"]
+        ):
+            raise ValueError("team member workspace receipt identity mismatch")
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db:
+            assignment = db.execute(
+                "SELECT principal_id,assignment_digest FROM team_member_assignments "
+                "WHERE task_id=? AND run_id=? AND member_id=?",
+                (task_id, run_id, member_id),
+            ).fetchone()
+        if assignment is None or (
+            record["principal_id"] != assignment[0]
+            or record["assignment_digest"] != assignment[1]
+        ):
+            raise ValueError("workspace receipt is not bound to the authorized principal assignment")
+        from .agent_profiles import resolve_agent_profile
+        profile = resolve_agent_profile(member["profile_id"], revision=member["profile_revision"])
+        if record["workspace_mode"] != profile.workspace_mode:
+            raise ValueError("workspace mode does not match the versioned persona profile")
+        for field in ("workspace_id", "sandbox_id", "isolation_profile", "network_policy", "secret_policy", "signature"):
+            if not isinstance(record[field], str) or not record[field].strip():
+                raise ValueError(f"{field} must be non-empty text")
+        if record["secret_policy"] != "no_inherited_secrets":
+            raise ValueError("team workspaces must not inherit ambient secrets")
+        if record["network_policy"] not in {"deny_by_default", "allowlisted_egress"}:
+            raise ValueError("team workspace network policy is not an approved isolation mode")
+        for field in ("workspace_digest", "evidence_digest"):
+            if not isinstance(record[field], str) or re.fullmatch(r"[0-9a-f]{64}", record[field]) is None:
+                raise ValueError(f"{field} must be a lowercase SHA-256 digest")
+        payload = {key: value for key, value in record.items() if key not in {"evidence_digest", "signature"}}
+        expected_evidence = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+        ).hexdigest()
+        if record["evidence_digest"] != expected_evidence:
+            raise ValueError("team member workspace evidence digest mismatch")
+        try:
+            issued_at = datetime.fromisoformat(str(record["issued_at"]).replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("workspace issued_at must be ISO-8601") from exc
+        if issued_at.tzinfo is None or issued_at.utcoffset() is None:
+            raise ValueError("workspace issued_at must include a timezone")
+        if not callable(verify_receipt) or verify_receipt(record) is not True:
+            raise ValueError("team member workspace receipt is not host-authenticated")
+        now = _now()
+        receipt_digest = hashlib.sha256(
+            json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+        ).hexdigest()
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            state = db.execute(
+                "SELECT state FROM team_members WHERE task_id=? AND run_id=? AND member_id=?",
+                (task_id, run_id, member_id),
+            ).fetchone()
+            if state is None:
+                raise KeyError((task_id, run_id, member_id))
+            if state[0] != "pending":
+                raise ValueError("workspace must be bound before team member assignment")
+            prior = db.execute(
+                "SELECT workspace_id,sandbox_id,workspace_digest,receipt_digest FROM team_member_workspaces "
+                "WHERE task_id=? AND run_id=? AND member_id=?",
+                (task_id, run_id, member_id),
+            ).fetchone()
+            expected = (record["workspace_id"], record["sandbox_id"], record["workspace_digest"], receipt_digest)
+            if prior is not None and tuple(prior) != expected:
+                raise ValueError("team member workspace binding is immutable")
+            if prior is None:
+                db.execute(
+                    "INSERT INTO team_member_workspaces(task_id,run_id,member_id,workspace_id,sandbox_id,"
+                    "principal_id,assignment_digest,workspace_mode,isolation_profile,workspace_digest,receipt_digest,issued_at,verified_at) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (task_id, run_id, member_id, record["workspace_id"], record["sandbox_id"],
+                     record["principal_id"], record["assignment_digest"], record["workspace_mode"],
+                     record["isolation_profile"], record["workspace_digest"], receipt_digest,
+                     record["issued_at"], now),
+                )
+        return next(item for item in self.team_members(task_id, run_id) if item["member_id"] == member_id)
+
+    def dispatch_team_member(
+        self, task_id: str, run_id: str, member_id: str, *,
+        dispatch_member: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None,
+        verify_assignment_current: Callable[[Mapping[str, Any]], bool] | None,
+        verify_workspace_current: Callable[[Mapping[str, Any]], bool] | None,
+        verify_provider_readiness: Callable[[Mapping[str, Any], Mapping[str, Any]], bool] | None,
+        verify_execution_receipt: Callable[[Mapping[str, Any]], bool] | None,
+    ) -> dict[str, Any]:
+        """Execute one ready persona inside its assigned workspace through host adapters.
+
+        All callbacks are trusted-host integrations. The dispatcher receives the
+        controller-owned budget enforcer; exceptions or unknown outcomes leave the
+        member running and block automatic redispatch until host reconciliation.
+        """
+        if not callable(getattr(self._team_budget_enforcer, "execute", None)):
+            raise PermissionError("trusted shared team-budget enforcer is not configured")
+        callbacks = (
+            dispatch_member, verify_assignment_current, verify_workspace_current,
+            verify_provider_readiness, verify_execution_receipt,
+        )
+        if any(not callable(item) for item in callbacks):
+            raise PermissionError("all trusted persona dispatch and evidence verifiers are required")
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db:
+            template_binding = db.execute(
+                "SELECT template_id,template_revision,template_digest FROM team_template_runs "
+                "WHERE task_id=? AND run_id=?", (task_id, run_id),
+            ).fetchone()
+        if template_binding is None:
+            raise PermissionError("canonical template registration is required for persona dispatch")
+        from .agent_profiles import resolve_team_template
+        trusted_template = resolve_team_template(template_binding[0], revision=template_binding[1])
+        if trusted_template["digest"] != template_binding[2]:
+            raise PermissionError("persona team template changed after registration")
+        if member_id not in {item["member_id"] for item in trusted_template["members"]}:
+            raise PermissionError("persona is not a member of the registered template")
+        member = next((item for item in self.team_members(task_id, run_id) if item["member_id"] == member_id), None)
+        if member is None:
+            raise KeyError((task_id, run_id, member_id))
+        for dependency_id in member["depends_on"]:
+            dependency = next(
+                (item for item in self.team_members(task_id, run_id) if item["member_id"] == dependency_id),
+                None,
+            )
+            if dependency is None or dependency["state"] != "completed":
+                raise PermissionError("persona dependencies are not complete")
+        if member["state"] == "completed":
+            return member
+        if member["state"] in {"running", "failed", "blocked", "cancelled"}:
+            raise RuntimeError("persona execution is unresolved or terminal; reconcile before redispatch")
+        assignment = member.get("assignment")
+        workspace = member.get("workspace")
+        if not isinstance(assignment, Mapping) or not isinstance(workspace, Mapping):
+            raise PermissionError("host-authorized assignment and isolated workspace are required")
+        if verify_assignment_current(assignment) is not True:
+            raise PermissionError("persona assignment is revoked, stale or unverified")
+        if verify_workspace_current(workspace) is not True:
+            raise PermissionError("persona workspace is revoked, stale or unverified")
+        from .agent_profiles import resolve_agent_profile
+        profile = resolve_agent_profile(member["profile_id"], revision=member["profile_revision"])
+        if profile.digest != member["profile_digest"]:
+            raise PermissionError("persona profile changed after team registration")
+        if verify_provider_readiness(profile.as_dict(), assignment) is not True:
+            raise PermissionError("persona provider/license readiness is not current")
+        if member["state"] == "pending":
+            self.transition_team_member(
+                task_id, run_id, member_id,
+                expected_state="pending", new_state="assigned",
+            )
+        self.transition_team_member(
+            task_id, run_id, member_id,
+            expected_state="assigned", new_state="running",
+        )
+        envelope = {
+            "task_id": task_id,
+            "run_id": run_id,
+            "member_id": member_id,
+            "profile": profile.as_dict(),
+            "assignment": dict(assignment),
+            "workspace": dict(workspace),
+            "budget": self.team_budget(task_id, run_id),
+            "team_budget_enforcer": self._team_budget_enforcer,
+        }
+        # Do not retry this callback on exceptions: a provider or tool may have
+        # accepted a side effect before the transport failed.
+        receipt = dispatch_member(envelope)
+        required = {
+            "schema_version", "task_id", "run_id", "member_id", "profile_id",
+            "profile_revision", "principal_id", "assignment_digest", "workspace_id",
+            "workspace_digest", "provider_evidence_digest", "budget_evidence_digest",
+            "status", "output_digest", "issued_at", "evidence_digest", "signature",
+        }
+        if not isinstance(receipt, Mapping) or set(receipt) != required:
+            raise ValueError("persona execution receipt fields are invalid; member remains running")
+        record = dict(receipt)
+        expected_identity = {
+            "schema_version": "auren-team-member-execution-v1",
+            "task_id": task_id, "run_id": run_id, "member_id": member_id,
+            "profile_id": profile.profile_id, "profile_revision": profile.revision,
+            "principal_id": assignment["principal_id"],
+            "assignment_digest": assignment["assignment_digest"],
+            "workspace_id": workspace["workspace_id"],
+            "workspace_digest": workspace["workspace_digest"],
+        }
+        if any(record.get(key) != value for key, value in expected_identity.items()):
+            raise ValueError("persona execution receipt identity mismatch; member remains running")
+        if record["status"] not in {"completed", "failed"}:
+            raise ValueError("persona execution receipt has a non-terminal status; member remains running")
+        for field in ("provider_evidence_digest", "budget_evidence_digest", "output_digest", "evidence_digest"):
+            if not isinstance(record[field], str) or re.fullmatch(r"[0-9a-f]{64}", record[field]) is None:
+                raise ValueError(f"{field} must be a lowercase SHA-256 digest")
+        if not isinstance(record["signature"], str) or not record["signature"].strip():
+            raise ValueError("persona execution receipt signature is missing")
+        payload = {key: value for key, value in record.items() if key not in {"evidence_digest", "signature"}}
+        expected_evidence = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+        ).hexdigest()
+        if record["evidence_digest"] != expected_evidence:
+            raise ValueError("persona execution receipt digest mismatch")
+        try:
+            issued_at = datetime.fromisoformat(str(record["issued_at"]).replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("persona execution receipt issued_at must be ISO-8601") from exc
+        if issued_at.tzinfo is None or issued_at.utcoffset() is None:
+            raise ValueError("persona execution receipt issued_at must include a timezone")
+        current_time = datetime.now(timezone.utc)
+        if issued_at > current_time + timedelta(seconds=30) or (current_time - issued_at).total_seconds() > 600:
+            raise ValueError("persona execution receipt is stale or future-dated")
+        if verify_execution_receipt(record) is not True:
+            raise PermissionError("persona execution receipt is not host-authenticated")
+        receipt_digest = hashlib.sha256(
+            json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+        ).hexdigest()
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            prior = db.execute(
+                "SELECT status,receipt_digest FROM team_member_execution_receipts "
+                "WHERE task_id=? AND run_id=? AND member_id=?",
+                (task_id, run_id, member_id),
+            ).fetchone()
+            expected = (record["status"], receipt_digest)
+            if prior is not None and tuple(prior) != expected:
+                raise ValueError("persona execution receipt is immutable")
+            if prior is None:
+                db.execute(
+                    "INSERT INTO team_member_execution_receipts(task_id,run_id,member_id,status,output_digest,"
+                    "provider_evidence_digest,budget_evidence_digest,receipt_digest,issued_at,verified_at) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?)",
+                    (task_id, run_id, member_id, record["status"], record["output_digest"],
+                     record["provider_evidence_digest"], record["budget_evidence_digest"],
+                     receipt_digest, record["issued_at"], _now()),
+                )
+        if record["status"] == "completed":
+            return self.transition_team_member(
+                task_id, run_id, member_id,
+                expected_state="running", new_state="completed",
+            )
+        failure_digest = hashlib.sha256(
+            json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+        ).hexdigest()
+        return self.transition_team_member(
+            task_id, run_id, member_id,
+            expected_state="running", new_state="failed",
+            failure_digest=failure_digest,
+        )
+
+    def dispatch_team_from_template(
+        self, task_id: str, run_id: str, *,
+        dispatch_member: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None,
+        verify_assignment_current: Callable[[Mapping[str, Any]], bool] | None,
+        verify_workspace_current: Callable[[Mapping[str, Any]], bool] | None,
+        verify_provider_readiness: Callable[[Mapping[str, Any], Mapping[str, Any]], bool] | None,
+        verify_execution_receipt: Callable[[Mapping[str, Any]], bool] | None,
+    ) -> tuple[dict[str, Any], ...]:
+        """Dispatch a template in dependency order; never redispatch unknown outcomes."""
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db:
+            binding = db.execute(
+                "SELECT template_id,template_revision,template_digest FROM team_template_runs "
+                "WHERE task_id=? AND run_id=?", (task_id, run_id),
+            ).fetchone()
+        if binding is None:
+            raise PermissionError("canonical team template registration is required")
+        from .agent_profiles import resolve_team_template
+        template = resolve_team_template(binding[0], revision=binding[1])
+        if template["digest"] != binding[2]:
+            raise PermissionError("canonical team template changed after registration")
+        for item in template["members"]:
+            current = next(member for member in self.team_members(task_id, run_id) if member["member_id"] == item["member_id"])
+            if current["state"] == "completed":
+                continue
+            if current["state"] in {"running", "failed", "blocked", "cancelled"}:
+                raise RuntimeError(f"team member {item['member_id']} is unresolved or terminal; reconcile before continuing")
+            result = self.dispatch_team_member(
+                task_id, run_id, item["member_id"],
+                dispatch_member=dispatch_member,
+                verify_assignment_current=verify_assignment_current,
+                verify_workspace_current=verify_workspace_current,
+                verify_provider_readiness=verify_provider_readiness,
+                verify_execution_receipt=verify_execution_receipt,
+            )
+            if result["state"] != "completed":
+                break
+        return self.team_members(task_id, run_id)
 
     def queue_admission_snapshot(self) -> dict[str, Any]:
         """Return the persisted pending-queue policy and current durable occupancy."""

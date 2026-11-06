@@ -6,13 +6,33 @@
       "revision": 1,
       "role_id": "BE-01",
       "manager_role_id": "EM-ENG-01",
-      "action_classes": ["edit_assigned_paths", "run_scoped_tests", "propose_changes"],
-      "required_capabilities": ["code_implementation", "targeted_testing"],
-      "provider_preferences": ["strong_code_reasoning"],
-      "tool_preferences": ["repository_read", "scoped_file_edit", "scoped_test_runner"],
-      "workspace_policy": {"mode": "task_scoped", "scope_source": "canonical_assignment"},
+      "action_classes": [
+        "edit_assigned_paths",
+        "run_scoped_tests",
+        "propose_changes"
+      ],
+      "required_capabilities": [
+        "code_implementation",
+        "targeted_testing"
+      ],
+      "provider_preferences": [
+        "strong_code_reasoning"
+      ],
+      "tool_preferences": [
+        "repository_read",
+        "scoped_file_edit",
+        "scoped_test_runner"
+      ],
+      "workspace_policy": {
+        "mode": "task_scoped",
+        "scope_source": "canonical_assignment"
+      },
       "memory_namespace": "agent-profile:backend_implementer:r1",
-      "budget_defaults": {"max_tokens": 24000, "max_tool_calls": 80, "max_wall_seconds": 3600},
+      "budget_defaults": {
+        "max_tokens": 24000,
+        "max_tool_calls": 80,
+        "max_wall_seconds": 3600
+      },
       "deadline_seconds": 3600,
       "approval_policy": "manager_before_external_effect"
     },
@@ -21,13 +41,33 @@
       "revision": 1,
       "role_id": "ARCH-01",
       "manager_role_id": "EM-ENG-01",
-      "action_classes": ["propose_architecture", "review_design", "define_contract_tests"],
-      "required_capabilities": ["architecture_design", "interface_analysis"],
-      "provider_preferences": ["strong_reasoning"],
-      "tool_preferences": ["repository_read", "dependency_graph", "design_review"],
-      "workspace_policy": {"mode": "read_only", "scope_source": "canonical_assignment"},
+      "action_classes": [
+        "propose_architecture",
+        "review_design",
+        "define_contract_tests"
+      ],
+      "required_capabilities": [
+        "architecture_design",
+        "interface_analysis"
+      ],
+      "provider_preferences": [
+        "strong_reasoning"
+      ],
+      "tool_preferences": [
+        "repository_read",
+        "dependency_graph",
+        "design_review"
+      ],
+      "workspace_policy": {
+        "mode": "read_only",
+        "scope_source": "canonical_assignment"
+      },
       "memory_namespace": "agent-profile:principal_architect:r1",
-      "budget_defaults": {"max_tokens": 18000, "max_tool_calls": 60, "max_wall_seconds": 2400},
+      "budget_defaults": {
+        "max_tokens": 18000,
+        "max_tool_calls": 60,
+        "max_wall_seconds": 2400
+      },
       "deadline_seconds": 2400,
       "approval_policy": "inherit_role"
     },
@@ -36,13 +76,34 @@
       "revision": 1,
       "role_id": "QA-01",
       "manager_role_id": "EM-ENG-01",
-      "action_classes": ["run_tests", "author_tests", "report_findings", "request_rework"],
-      "required_capabilities": ["test_design", "regression_analysis"],
-      "provider_preferences": ["strong_reasoning"],
-      "tool_preferences": ["test_runner", "coverage_report", "artifact_inspection"],
-      "workspace_policy": {"mode": "task_scoped", "scope_source": "canonical_assignment"},
+      "action_classes": [
+        "run_tests",
+        "author_tests",
+        "report_findings",
+        "request_rework"
+      ],
+      "required_capabilities": [
+        "test_design",
+        "regression_analysis"
+      ],
+      "provider_preferences": [
+        "strong_reasoning"
+      ],
+      "tool_preferences": [
+        "test_runner",
+        "coverage_report",
+        "artifact_inspection"
+      ],
+      "workspace_policy": {
+        "mode": "task_scoped",
+        "scope_source": "canonical_assignment"
+      },
       "memory_namespace": "agent-profile:qa_reviewer:r1",
-      "budget_defaults": {"max_tokens": 20000, "max_tool_calls": 90, "max_wall_seconds": 3600},
+      "budget_defaults": {
+        "max_tokens": 20000,
+        "max_tool_calls": 90,
+        "max_wall_seconds": 3600
+      },
       "deadline_seconds": 3600,
       "approval_policy": "independent_review_before_release"
     },
@@ -51,14 +112,442 @@
       "revision": 1,
       "role_id": "SEC-01",
       "manager_role_id": "CTO-01",
-      "action_classes": ["review_security_controls", "author_adversarial_tests", "recommend_block", "escalate_incidents"],
-      "required_capabilities": ["threat_modeling", "security_testing"],
-      "provider_preferences": ["strong_reasoning"],
-      "tool_preferences": ["static_analysis", "dependency_audit", "secret_scan", "test_runner"],
-      "workspace_policy": {"mode": "read_only", "scope_source": "canonical_assignment"},
+      "action_classes": [
+        "review_security_controls",
+        "author_adversarial_tests",
+        "recommend_block",
+        "escalate_incidents"
+      ],
+      "required_capabilities": [
+        "threat_modeling",
+        "security_testing"
+      ],
+      "provider_preferences": [
+        "strong_reasoning"
+      ],
+      "tool_preferences": [
+        "static_analysis",
+        "dependency_audit",
+        "secret_scan",
+        "test_runner"
+      ],
+      "workspace_policy": {
+        "mode": "read_only",
+        "scope_source": "canonical_assignment"
+      },
       "memory_namespace": "agent-profile:security_reviewer:r1",
-      "budget_defaults": {"max_tokens": 20000, "max_tool_calls": 80, "max_wall_seconds": 3600},
+      "budget_defaults": {
+        "max_tokens": 20000,
+        "max_tool_calls": 80,
+        "max_wall_seconds": 3600
+      },
       "deadline_seconds": 3600,
+      "approval_policy": "independent_review_before_release"
+    },
+    {
+      "profile_id": "chief_executive",
+      "revision": 1,
+      "role_id": "CEO-01",
+      "manager_role_id": "stakeholders_and_investors",
+      "action_classes": [
+        "prioritize_work",
+        "request_plan",
+        "review_verified_metrics",
+        "escalate_decisions"
+      ],
+      "required_capabilities": [
+        "portfolio_strategy",
+        "business_outcome_analysis"
+      ],
+      "provider_preferences": [
+        "strong_reasoning"
+      ],
+      "tool_preferences": [
+        "verified_metrics_read",
+        "portfolio_status"
+      ],
+      "workspace_policy": {
+        "mode": "read_only",
+        "scope_source": "canonical_assignment"
+      },
+      "memory_namespace": "agent-profile:chief_executive:r1",
+      "budget_defaults": {
+        "max_tokens": 12000,
+        "max_tool_calls": 40,
+        "max_wall_seconds": 1800
+      },
+      "deadline_seconds": 1800,
+      "approval_policy": "inherit_role"
+    },
+    {
+      "profile_id": "chief_technology",
+      "revision": 1,
+      "role_id": "CTO-01",
+      "manager_role_id": "CEO-01",
+      "action_classes": [
+        "approve_architecture_within_policy",
+        "request_verification",
+        "prioritize_technical_work",
+        "escalate_risk",
+        "assign_scoped_tasks"
+      ],
+      "required_capabilities": [
+        "technical_strategy",
+        "architecture_governance",
+        "security_posture"
+      ],
+      "provider_preferences": [
+        "strong_reasoning"
+      ],
+      "tool_preferences": [
+        "architecture_registry",
+        "verification_status",
+        "scoped_assignment"
+      ],
+      "workspace_policy": {
+        "mode": "read_only",
+        "scope_source": "canonical_assignment"
+      },
+      "memory_namespace": "agent-profile:chief_technology:r1",
+      "budget_defaults": {
+        "max_tokens": 18000,
+        "max_tool_calls": 60,
+        "max_wall_seconds": 2400
+      },
+      "deadline_seconds": 2400,
+      "approval_policy": "inherit_role"
+    },
+    {
+      "profile_id": "engineering_manager",
+      "revision": 1,
+      "role_id": "EM-ENG-01",
+      "manager_role_id": "CTO-01",
+      "action_classes": [
+        "assign_scoped_tasks",
+        "manage_shared_budgets",
+        "request_reviews",
+        "escalate_blockers"
+      ],
+      "required_capabilities": [
+        "task_decomposition",
+        "dependency_management",
+        "budget_control"
+      ],
+      "provider_preferences": [
+        "strong_reasoning"
+      ],
+      "tool_preferences": [
+        "task_planner",
+        "team_registry",
+        "shared_budget_ledger"
+      ],
+      "workspace_policy": {
+        "mode": "read_only",
+        "scope_source": "canonical_assignment"
+      },
+      "memory_namespace": "agent-profile:engineering_manager:r1",
+      "budget_defaults": {
+        "max_tokens": 16000,
+        "max_tool_calls": 70,
+        "max_wall_seconds": 2400
+      },
+      "deadline_seconds": 2400,
+      "approval_policy": "inherit_role"
+    },
+    {
+      "profile_id": "reliability_engineer",
+      "revision": 1,
+      "role_id": "SRE-01",
+      "manager_role_id": "EM-ENG-01",
+      "action_classes": [
+        "inspect_recovery_state",
+        "run_fault_tests",
+        "propose_rollback",
+        "escalate_unknown_outcomes"
+      ],
+      "required_capabilities": [
+        "reliability_engineering",
+        "fault_injection",
+        "recovery_analysis"
+      ],
+      "provider_preferences": [
+        "strong_reasoning"
+      ],
+      "tool_preferences": [
+        "observability_read",
+        "fault_test_runner",
+        "recovery_inspector"
+      ],
+      "workspace_policy": {
+        "mode": "task_scoped",
+        "scope_source": "canonical_assignment"
+      },
+      "memory_namespace": "agent-profile:reliability_engineer:r1",
+      "budget_defaults": {
+        "max_tokens": 18000,
+        "max_tool_calls": 80,
+        "max_wall_seconds": 3000
+      },
+      "deadline_seconds": 3000,
+      "approval_policy": "manager_before_external_effect"
+    },
+    {
+      "profile_id": "independent_evaluator",
+      "revision": 1,
+      "role_id": "EVAL-01",
+      "manager_role_id": "independent_governance_council",
+      "action_classes": [
+        "evaluate_pinned_artifacts",
+        "verify_signed_receipts",
+        "report_acceptance_or_block"
+      ],
+      "required_capabilities": [
+        "independent_evaluation",
+        "holdout_governance",
+        "evidence_integrity"
+      ],
+      "provider_preferences": [
+        "independent_reasoning"
+      ],
+      "tool_preferences": [
+        "sealed_evaluator_runner",
+        "signed_receipt_verifier",
+        "holdout_custody"
+      ],
+      "workspace_policy": {
+        "mode": "isolated_task",
+        "scope_source": "canonical_assignment"
+      },
+      "memory_namespace": "agent-profile:independent_evaluator:r1",
+      "budget_defaults": {
+        "max_tokens": 22000,
+        "max_tool_calls": 80,
+        "max_wall_seconds": 3600
+      },
+      "deadline_seconds": 3600,
+      "approval_policy": "independent_review_before_release"
+    },
+    {
+      "profile_id": "finance_reporting",
+      "revision": 1,
+      "role_id": "FIN-01",
+      "manager_role_id": "CEO-01",
+      "action_classes": [
+        "calculate_from_verified_records",
+        "report_uncertainty",
+        "flag_budget_variance"
+      ],
+      "required_capabilities": [
+        "cost_accounting",
+        "roi_analysis",
+        "budget_variance"
+      ],
+      "provider_preferences": [
+        "strong_reasoning"
+      ],
+      "tool_preferences": [
+        "verified_cost_ledger",
+        "outcome_metrics_read"
+      ],
+      "workspace_policy": {
+        "mode": "read_only",
+        "scope_source": "canonical_assignment"
+      },
+      "memory_namespace": "agent-profile:finance_reporting:r1",
+      "budget_defaults": {
+        "max_tokens": 10000,
+        "max_tool_calls": 40,
+        "max_wall_seconds": 1800
+      },
+      "deadline_seconds": 1800,
+      "approval_policy": "inherit_role"
+    },
+    {
+      "profile_id": "product_analyst",
+      "revision": 1,
+      "role_id": "PM-01",
+      "manager_role_id": "EM-ENG-01",
+      "action_classes": [
+        "qualify_requirements",
+        "record_assumptions",
+        "identify_conflicts",
+        "define_acceptance_criteria",
+        "request_user_decisions"
+      ],
+      "required_capabilities": [
+        "requirements_analysis",
+        "conflict_detection",
+        "acceptance_criteria"
+      ],
+      "provider_preferences": [
+        "strong_reasoning"
+      ],
+      "tool_preferences": [
+        "requirement_parser",
+        "decision_ledger",
+        "acceptance_criteria"
+      ],
+      "workspace_policy": {
+        "mode": "read_only",
+        "scope_source": "canonical_assignment"
+      },
+      "memory_namespace": "agent-profile:product_analyst:r1",
+      "budget_defaults": {
+        "max_tokens": 16000,
+        "max_tool_calls": 60,
+        "max_wall_seconds": 2400
+      },
+      "deadline_seconds": 2400,
+      "approval_policy": "inherit_role"
+    },
+    {
+      "profile_id": "frontend_engineer",
+      "revision": 1,
+      "role_id": "FE-01",
+      "manager_role_id": "EM-ENG-01",
+      "action_classes": [
+        "edit_assigned_paths",
+        "run_scoped_tests",
+        "propose_changes",
+        "validate_accessibility"
+      ],
+      "required_capabilities": [
+        "frontend_implementation",
+        "accessible_ui",
+        "client_state_management"
+      ],
+      "provider_preferences": [
+        "strong_code_reasoning"
+      ],
+      "tool_preferences": [
+        "repository_read",
+        "scoped_file_edit",
+        "ui_test_runner"
+      ],
+      "workspace_policy": {
+        "mode": "task_scoped",
+        "scope_source": "canonical_assignment"
+      },
+      "memory_namespace": "agent-profile:frontend_engineer:r1",
+      "budget_defaults": {
+        "max_tokens": 24000,
+        "max_tool_calls": 80,
+        "max_wall_seconds": 3600
+      },
+      "deadline_seconds": 3600,
+      "approval_policy": "manager_before_external_effect"
+    },
+    {
+      "profile_id": "data_integration_engineer",
+      "revision": 1,
+      "role_id": "DATA-01",
+      "manager_role_id": "EM-ENG-01",
+      "action_classes": [
+        "edit_assigned_paths",
+        "run_scoped_tests",
+        "propose_changes",
+        "validate_provider_contracts",
+        "verify_data_provenance"
+      ],
+      "required_capabilities": [
+        "provider_integration",
+        "data_quality_validation",
+        "source_provenance"
+      ],
+      "provider_preferences": [
+        "strong_code_reasoning"
+      ],
+      "tool_preferences": [
+        "provider_adapter_registry",
+        "schema_validator",
+        "provenance_inspector"
+      ],
+      "workspace_policy": {
+        "mode": "task_scoped",
+        "scope_source": "canonical_assignment"
+      },
+      "memory_namespace": "agent-profile:data_integration_engineer:r1",
+      "budget_defaults": {
+        "max_tokens": 24000,
+        "max_tool_calls": 90,
+        "max_wall_seconds": 3600
+      },
+      "deadline_seconds": 3600,
+      "approval_policy": "manager_before_external_effect"
+    },
+    {
+      "profile_id": "research_specialist",
+      "revision": 1,
+      "role_id": "RESEARCH-01",
+      "manager_role_id": "EM-ENG-01",
+      "action_classes": [
+        "analyze_domain_sources",
+        "define_recommendation_methodology",
+        "report_uncertainty",
+        "request_data_review"
+      ],
+      "required_capabilities": [
+        "market_research",
+        "source_assessment",
+        "recommendation_methodology"
+      ],
+      "provider_preferences": [
+        "strong_reasoning"
+      ],
+      "tool_preferences": [
+        "market_data_read",
+        "news_research",
+        "sentiment_analysis",
+        "company_fundamentals"
+      ],
+      "workspace_policy": {
+        "mode": "read_only",
+        "scope_source": "canonical_assignment"
+      },
+      "memory_namespace": "agent-profile:research_specialist:r1",
+      "budget_defaults": {
+        "max_tokens": 20000,
+        "max_tool_calls": 80,
+        "max_wall_seconds": 3600
+      },
+      "deadline_seconds": 3600,
+      "approval_policy": "inherit_role"
+    },
+    {
+      "profile_id": "release_manager",
+      "revision": 1,
+      "role_id": "REL-01",
+      "manager_role_id": "CTO-01",
+      "action_classes": [
+        "prepare_release",
+        "verify_release_evidence",
+        "coordinate_promotion",
+        "request_rollback"
+      ],
+      "required_capabilities": [
+        "release_coordination",
+        "evidence_review",
+        "rollback_planning"
+      ],
+      "provider_preferences": [
+        "strong_reasoning"
+      ],
+      "tool_preferences": [
+        "release_manifest",
+        "evidence_report",
+        "rollback_plan"
+      ],
+      "workspace_policy": {
+        "mode": "read_only",
+        "scope_source": "canonical_assignment"
+      },
+      "memory_namespace": "agent-profile:release_manager:r1",
+      "budget_defaults": {
+        "max_tokens": 14000,
+        "max_tool_calls": 50,
+        "max_wall_seconds": 2400
+      },
+      "deadline_seconds": 2400,
       "approval_policy": "independent_review_before_release"
     }
   ],
@@ -68,10 +557,362 @@
       "revision": 1,
       "description": "Architect, implementer, QA and security review with explicit dependency order.",
       "members": [
-        {"member_id": "architect", "profile_id": "principal_architect", "profile_revision": 1, "depends_on": []},
-        {"member_id": "implementer", "profile_id": "backend_implementer", "profile_revision": 1, "depends_on": ["architect"]},
-        {"member_id": "qa", "profile_id": "qa_reviewer", "profile_revision": 1, "depends_on": ["implementer"]},
-        {"member_id": "security_review", "profile_id": "security_reviewer", "profile_revision": 1, "depends_on": ["implementer"]}
+        {
+          "member_id": "architect",
+          "profile_id": "principal_architect",
+          "profile_revision": 1,
+          "depends_on": []
+        },
+        {
+          "member_id": "implementer",
+          "profile_id": "backend_implementer",
+          "profile_revision": 1,
+          "depends_on": [
+            "architect"
+          ]
+        },
+        {
+          "member_id": "qa",
+          "profile_id": "qa_reviewer",
+          "profile_revision": 1,
+          "depends_on": [
+            "implementer"
+          ]
+        },
+        {
+          "member_id": "security_review",
+          "profile_id": "security_reviewer",
+          "profile_revision": 1,
+          "depends_on": [
+            "implementer"
+          ]
+        }
+      ]
+    },
+    {
+      "template_id": "executive_governance",
+      "revision": 1,
+      "description": "CEO, CTO, and engineering manager governance chain with finance reporting from verified records.",
+      "members": [
+        {
+          "member_id": "ceo",
+          "profile_id": "chief_executive",
+          "profile_revision": 1,
+          "depends_on": []
+        },
+        {
+          "member_id": "cto",
+          "profile_id": "chief_technology",
+          "profile_revision": 1,
+          "depends_on": [
+            "ceo"
+          ]
+        },
+        {
+          "member_id": "engineering_manager",
+          "profile_id": "engineering_manager",
+          "profile_revision": 1,
+          "depends_on": [
+            "cto"
+          ]
+        },
+        {
+          "member_id": "finance",
+          "profile_id": "finance_reporting",
+          "profile_revision": 1,
+          "depends_on": [
+            "ceo"
+          ]
+        }
+      ]
+    },
+    {
+      "template_id": "reliability_assurance",
+      "revision": 1,
+      "description": "Reliability engineering, recovery and rollback validation for an assigned change.",
+      "members": [
+        {
+          "member_id": "engineering_manager",
+          "profile_id": "engineering_manager",
+          "profile_revision": 1,
+          "depends_on": []
+        },
+        {
+          "member_id": "reliability_engineer",
+          "profile_id": "reliability_engineer",
+          "profile_revision": 1,
+          "depends_on": [
+            "engineering_manager"
+          ]
+        },
+        {
+          "member_id": "security_review",
+          "profile_id": "security_reviewer",
+          "profile_revision": 1,
+          "depends_on": [
+            "engineering_manager"
+          ]
+        },
+        {
+          "member_id": "qa",
+          "profile_id": "qa_reviewer",
+          "profile_revision": 1,
+          "depends_on": [
+            "reliability_engineer",
+            "security_review"
+          ]
+        }
+      ]
+    },
+    {
+      "template_id": "independent_evaluation",
+      "revision": 1,
+      "description": "Separately controlled evaluator for pinned candidate artifacts; must run outside the candidate trust domain.",
+      "members": [
+        {
+          "member_id": "independent_evaluator",
+          "profile_id": "independent_evaluator",
+          "profile_revision": 1,
+          "depends_on": []
+        }
+      ]
+    },
+    {
+      "template_id": "full_company_delivery",
+      "revision": 1,
+      "description": "Full executive-to-product and engineering delivery team; independent evaluation remains external.",
+      "members": [
+        {
+          "member_id": "ceo",
+          "profile_id": "chief_executive",
+          "profile_revision": 1,
+          "depends_on": []
+        },
+        {
+          "member_id": "cto",
+          "profile_id": "chief_technology",
+          "profile_revision": 1,
+          "depends_on": [
+            "ceo"
+          ]
+        },
+        {
+          "member_id": "engineering_manager",
+          "profile_id": "engineering_manager",
+          "profile_revision": 1,
+          "depends_on": [
+            "cto"
+          ]
+        },
+        {
+          "member_id": "product_analyst",
+          "profile_id": "product_analyst",
+          "profile_revision": 1,
+          "depends_on": [
+            "engineering_manager"
+          ]
+        },
+        {
+          "member_id": "architect",
+          "profile_id": "principal_architect",
+          "profile_revision": 1,
+          "depends_on": [
+            "product_analyst"
+          ]
+        },
+        {
+          "member_id": "frontend",
+          "profile_id": "frontend_engineer",
+          "profile_revision": 1,
+          "depends_on": [
+            "architect"
+          ]
+        },
+        {
+          "member_id": "backend",
+          "profile_id": "backend_implementer",
+          "profile_revision": 1,
+          "depends_on": [
+            "architect"
+          ]
+        },
+        {
+          "member_id": "data_integration",
+          "profile_id": "data_integration_engineer",
+          "profile_revision": 1,
+          "depends_on": [
+            "architect"
+          ]
+        },
+        {
+          "member_id": "research",
+          "profile_id": "research_specialist",
+          "profile_revision": 1,
+          "depends_on": [
+            "product_analyst",
+            "architect"
+          ]
+        },
+        {
+          "member_id": "reliability_engineer",
+          "profile_id": "reliability_engineer",
+          "profile_revision": 1,
+          "depends_on": [
+            "backend",
+            "data_integration"
+          ]
+        },
+        {
+          "member_id": "qa",
+          "profile_id": "qa_reviewer",
+          "profile_revision": 1,
+          "depends_on": [
+            "frontend",
+            "backend",
+            "data_integration",
+            "research",
+            "reliability_engineer"
+          ]
+        },
+        {
+          "member_id": "security_review",
+          "profile_id": "security_reviewer",
+          "profile_revision": 1,
+          "depends_on": [
+            "frontend",
+            "backend",
+            "data_integration",
+            "reliability_engineer"
+          ]
+        },
+        {
+          "member_id": "release_manager",
+          "profile_id": "release_manager",
+          "profile_revision": 1,
+          "depends_on": [
+            "qa",
+            "security_review"
+          ]
+        },
+        {
+          "member_id": "finance",
+          "profile_id": "finance_reporting",
+          "profile_revision": 1,
+          "depends_on": [
+            "release_manager"
+          ]
+        }
+      ]
+    },
+    {
+      "template_id": "stock_research_delivery",
+      "revision": 1,
+      "description": "Stock research application team with requirements, architecture, frontend, backend, provider/data, research, reliability, QA, security and release coordination; evaluator remains external.",
+      "members": [
+        {
+          "member_id": "engineering_manager",
+          "profile_id": "engineering_manager",
+          "profile_revision": 1,
+          "depends_on": []
+        },
+        {
+          "member_id": "product_analyst",
+          "profile_id": "product_analyst",
+          "profile_revision": 1,
+          "depends_on": [
+            "engineering_manager"
+          ]
+        },
+        {
+          "member_id": "architect",
+          "profile_id": "principal_architect",
+          "profile_revision": 1,
+          "depends_on": [
+            "product_analyst"
+          ]
+        },
+        {
+          "member_id": "frontend",
+          "profile_id": "frontend_engineer",
+          "profile_revision": 1,
+          "depends_on": [
+            "architect"
+          ]
+        },
+        {
+          "member_id": "backend",
+          "profile_id": "backend_implementer",
+          "profile_revision": 1,
+          "depends_on": [
+            "architect"
+          ]
+        },
+        {
+          "member_id": "data_integration",
+          "profile_id": "data_integration_engineer",
+          "profile_revision": 1,
+          "depends_on": [
+            "architect"
+          ]
+        },
+        {
+          "member_id": "research",
+          "profile_id": "research_specialist",
+          "profile_revision": 1,
+          "depends_on": [
+            "product_analyst",
+            "architect"
+          ]
+        },
+        {
+          "member_id": "reliability_engineer",
+          "profile_id": "reliability_engineer",
+          "profile_revision": 1,
+          "depends_on": [
+            "backend",
+            "data_integration"
+          ]
+        },
+        {
+          "member_id": "qa",
+          "profile_id": "qa_reviewer",
+          "profile_revision": 1,
+          "depends_on": [
+            "frontend",
+            "backend",
+            "data_integration",
+            "research",
+            "reliability_engineer"
+          ]
+        },
+        {
+          "member_id": "security_review",
+          "profile_id": "security_reviewer",
+          "profile_revision": 1,
+          "depends_on": [
+            "frontend",
+            "backend",
+            "data_integration",
+            "reliability_engineer"
+          ]
+        },
+        {
+          "member_id": "release_manager",
+          "profile_id": "release_manager",
+          "profile_revision": 1,
+          "depends_on": [
+            "qa",
+            "security_review"
+          ]
+        },
+        {
+          "member_id": "finance",
+          "profile_id": "finance_reporting",
+          "profile_revision": 1,
+          "depends_on": [
+            "release_manager"
+          ]
+        }
       ]
     }
   ]

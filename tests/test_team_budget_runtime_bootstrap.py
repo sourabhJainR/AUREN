@@ -45,6 +45,78 @@ def test_adaptive_runtime_installs_enforcer_inside_composition_root(tmp_path):
     assert not hasattr(runtime.execution_controller, "configure_team_budget_enforcer")
 
 
+def test_adaptive_runtime_freezes_persona_dispatch_after_trusted_root(tmp_path):
+    class Enforcer:
+        def execute(self, *_args, **_kwargs):
+            return None
+
+    runtime = AdaptiveRuntime(
+        _graph(),
+        state_root=tmp_path,
+        team_budget_enforcer_factory=lambda _controller: Enforcer(),
+    )
+    callbacks = {
+        "dispatch_member": lambda _envelope: {},
+        "verify_assignment_current": lambda _receipt: True,
+        "verify_workspace_current": lambda _receipt: True,
+        "verify_provider_readiness": lambda _profile, _assignment: True,
+        "verify_execution_receipt": lambda _receipt: True,
+    }
+    with pytest.raises(RuntimeError, match="trusted plan dispatch root"):
+        runtime.configure_team_persona_dispatch(**callbacks)
+    with pytest.raises(RuntimeError, match="trusted plan dispatch root"):
+        runtime.register_team_template("task-1", "run-1", "feature_delivery", revision=1)
+
+    runtime.trusted_plan_dispatch_root = object()
+    runtime.configure_team_persona_dispatch(**callbacks)
+    with pytest.raises(RuntimeError, match="already configured"):
+        runtime.configure_team_persona_dispatch(**callbacks)
+
+
+def test_runtime_release_authorization_requires_host_root_and_persisted_reverification(tmp_path):
+    runtime = AdaptiveRuntime(_graph(), state_root=tmp_path)
+    callbacks = {
+        "implementer_principals_resolver": lambda _task, _run: ["implementer"],
+        "provider_reports_resolver": lambda _task, _run, _artifact, _plan: [],
+        "verify_provider_report": lambda _receipt: True,
+        "verify_approval": lambda _receipt: True,
+        "verify_workspace_receipt": lambda _receipt: True,
+        "persist_authorization": lambda _record: {},
+        "release_approver_role_id": "CTO-01",
+    }
+    with pytest.raises(RuntimeError, match="trusted plan dispatch root"):
+        runtime.configure_team_release_authorization(**callbacks)
+    runtime.trusted_plan_dispatch_root = object()
+    runtime.configure_team_release_authorization(**callbacks)
+    blocked = runtime.authorize_team_release(
+        task_id="task-missing", run_id="run-missing",
+        artifact_digest="a" * 64, commit_sha="b" * 40, plan_digest="c" * 64,
+        workspace_receipt=None, qa_receipt=None,
+        security_receipt=None, release_receipt=None,
+    )
+    assert blocked.authorized is False
+    with pytest.raises(RuntimeError, match="already configured"):
+        runtime.configure_team_release_authorization(**callbacks)
+
+    authorization = {
+        "status": "authorized",
+        "authorized": True,
+        "authorization_digest": "a" * 64,
+        "authorization_record_id": "release-record-1",
+    }
+    with pytest.raises(PermissionError, match="could not be re-verified"):
+        runtime.promote_authorized_team_release(
+            authorization,
+            verify_persisted_authorization=lambda _record: False,
+            promote=lambda _record: "released",
+        )
+    assert runtime.promote_authorized_team_release(
+        authorization,
+        verify_persisted_authorization=lambda _record: True,
+        promote=lambda _record: "released",
+    ) == "released"
+
+
 def test_adaptive_runtime_rejects_invalid_enforcer_factory_result(tmp_path):
     with pytest.raises(TypeError, match="must return an adapter enforcer"):
         AdaptiveRuntime(

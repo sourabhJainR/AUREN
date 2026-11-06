@@ -39,6 +39,7 @@ def _team(controller: ExecutionController, root: Path):
     for member_id, profile_id in (
         ("implementer", "backend_implementer"),
         ("qa", "qa_reviewer"),
+        ("security", "security_reviewer"),
     ):
         profile = resolve_agent_profile(profile_id, revision=1)
         members.append({
@@ -48,7 +49,7 @@ def _team(controller: ExecutionController, root: Path):
             "profile_digest": profile.digest,
         })
     controller.register_team_members(task.id, "run-acceptance", members)
-    for member_id in ("implementer", "qa"):
+    for member_id in ("implementer", "qa", "security"):
         controller.transition_team_member(
             task.id, "run-acceptance", member_id,
             expected_state="pending", new_state="assigned",
@@ -309,6 +310,14 @@ def test_delivery_readiness_requires_completed_team_and_verified_independent_app
         task_id, "run-acceptance", "qa",
         expected_state="running", new_state="completed",
     )
+    controller.transition_team_member(
+        task_id, "run-acceptance", "security",
+        expected_state="assigned", new_state="running",
+    )
+    controller.transition_team_member(
+        task_id, "run-acceptance", "security",
+        expected_state="running", new_state="completed",
+    )
     controller.run_once(task_id)
     blocked = controller.team_delivery_release_readiness(task_id, "run-acceptance")
     assert blocked["delivery_ready"] is True
@@ -319,7 +328,7 @@ def test_delivery_readiness_requires_completed_team_and_verified_independent_app
     task = controller.task(task_id)
     payload = dict(task.payload)
     payload["auren_dispatch"] = {
-        "approval_evidence": {"reviewer_principal_ids": ["independent-reviewer"]},
+        "approval_evidence": {"reviewer_principal_ids": ["qa-reviewer", "security-reviewer"]},
         "assignment_evidence": {"principal_id": "implementer"},
     }
     with sqlite3.connect(controller.db_path) as db:
