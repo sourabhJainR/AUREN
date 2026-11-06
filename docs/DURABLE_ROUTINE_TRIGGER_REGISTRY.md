@@ -35,6 +35,12 @@ does not implement an HTTP server or secret store.
         deadline_seconds=900,
     ))
 
+    # A manual run uses a caller-generated stable invocation ID for idempotency.
+    registry.dispatch_manual(
+        "repository-health", invocation_id="operator-request-2026-11-07-001",
+        submit=lambda handler, payload, **kwargs: controller.submit(handler, payload, **kwargs),
+    )
+
     # The adapter is the canonical ExecutionController instance.
     def submit(handler, payload, **kwargs):
         return controller.submit(handler, payload, **kwargs)
@@ -50,7 +56,8 @@ does not implement an HTTP server or secret store.
 ## Safety and recovery contract
 
 - Routine versions are immutable: a changed definition requires a higher version.
-- Trigger occurrence identity is deterministic and unique in SQLite.
+- Trigger occurrence identity is deterministic and unique in SQLite. Manual runs require
+  a stable invocation ID; reusing an event or invocation ID with a different payload is rejected.
 - Webhook event IDs are authenticated before a receipt is created.
 - Approval-required routines fail closed when no trusted approval adapter approves.
 - A durable dispatching receipt is written before calling the controller.
