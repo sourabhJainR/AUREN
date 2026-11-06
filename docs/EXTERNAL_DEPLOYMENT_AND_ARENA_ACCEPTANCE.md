@@ -184,10 +184,10 @@ administration boundary:
 7. Publish only measured results, baseline comparison, uncertainty, failures,
    resource cost, and limitations. Do not present one campaign as AGI proof.
 
-Validate the existing campaign/migration evidence manifest contract with:
+Create a manifest using schema `auren-independent-campaign-v2`. It requires distinct identities for the operator, evaluator, oracle, sandbox auditor, holdout custodian, external signer, result archivist, and independent reviewer. It also requires two fresh-nonce receipts signed by that external signer, all negative controls rejected, a sealed corpus, no holdout disclosure, and an independently administered immutable archive with a retention lock. The archive administrator must differ from the result archivist. Validate the manifest with:
 
 ```bash
-python scripts/production_gate_evidence.py /secure/path/campaign-evidence.json
+python scripts/postgres_deployment_evidence.py /secure/path/campaign-evidence.json
 ```
 
 The independent reviewer must separately verify that the evaluator, oracle,
