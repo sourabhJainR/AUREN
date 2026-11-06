@@ -677,3 +677,23 @@ def test_post_merge_verifier_requires_successful_checks_on_exact_main_merge_sha(
     assert result["main_head_sha"] == merge_sha
     assert request.call_count == 2
     assert merge_sha in request.call_args_list[1].args[0]
+
+
+def test_supervisor_keeps_main_head_mismatch_as_a_waiting_poll_state(tmp_path):
+    controller = ExecutionController(tmp_path)
+    supervisor = ContinuousExecutionSupervisor(
+        controller,
+        pollers={
+            "post-merge": lambda: {
+                "status": "waiting_for_main_head",
+                "merge_sha": "a" * 40,
+                "main_head_sha": "b" * 40,
+                "verification": "post_merge",
+            }
+        },
+    )
+    report = supervisor.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    health = supervisor.status()["poller_health"]
+    assert report["audit_chain_valid"] is True
+    assert health[0]["poller"] == "post-merge"
+    assert health[0]["last_status"] == "waiting_for_main_head"
