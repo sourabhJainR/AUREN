@@ -158,6 +158,23 @@ class DurableRoutineRegistryTests(unittest.TestCase):
         self.assertEqual(1, len(due))
         self.assertEqual("submitted", due[0].status)
 
+    def test_approval_block_does_not_consume_scheduled_occurrence(self):
+        spec = self.spec(
+            trigger="interval", event_type=None, interval_seconds=60,
+            approval_required=True,
+        )
+        self.registry.register(spec)
+        now = datetime.now(timezone.utc) + timedelta(seconds=61)
+        blocked = self.registry.dispatch_due(
+            now=now, submit=self.submit, approval=lambda _: False,
+        )
+        retried = self.registry.dispatch_due(
+            now=now, submit=self.submit, approval=lambda _: True,
+        )
+        self.assertEqual("blocked", blocked[0].status)
+        self.assertEqual("submitted", retried[0].status)
+        self.assertEqual(1, len(self.submissions))
+
     def test_disabled_routine_does_not_dispatch(self):
         spec = self.spec()
         self.registry.register(spec)
