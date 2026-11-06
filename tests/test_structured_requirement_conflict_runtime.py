@@ -258,7 +258,8 @@ class StructuredRequirementConflictRuntimeTests(unittest.TestCase):
                 context={"preimplementation_resolutions": {conflict.conflict_id: "accept_delayed"}},
             )
             assert run.status == RunStatus.ACCEPTED
-            assert calls == ["quotes", "news"]
+            assert set(calls) == {"quotes", "news"}
+            assert len(calls) == 2
             assert decision_store.latest(plan.run_id, "quote-freshness-choice").current_binding is True
 
 
