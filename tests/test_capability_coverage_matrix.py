@@ -114,8 +114,6 @@ class CapabilityCoverageMatrixTests(unittest.TestCase):
         self.assertNotIn("superintelligence_score", matrix)
         self.assertTrue(any("No aggregate superintelligence score" in rule for rule in matrix["global_rules"]))
 
-
-
     def test_2026_11_06_radar_refresh_tracks_new_gaps_without_promotion(self):
         matrix = json.loads(MATRIX_PATH.read_text(encoding="utf-8"))
         radar = matrix["radar_refresh"]
@@ -139,7 +137,10 @@ class CapabilityCoverageMatrixTests(unittest.TestCase):
                 self.assertTrue(signals[signal_id]["benchmark"].strip())
                 self.assertTrue(signals[signal_id]["acceptance_threshold"].strip())
                 self.assertTrue(signals[signal_id]["rollback"].strip())
-        self.assertEqual(radar["repository_observation"]["main_sha"], "c67356be753d310b1babe340d84caa0ff7a987a8")
+        self.assertEqual(
+            radar["repository_observation"]["main_sha"],
+            "c67356be753d310b1babe340d84caa0ff7a987a8",
+        )
         self.assertEqual(radar["repository_observation"]["current_main_check_runs"],
                          {"status": "terminal", "total": 30, "success": 30,
                           "skipped": 0, "failed": 0, "pending": 0})
