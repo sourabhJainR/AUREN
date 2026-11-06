@@ -14,6 +14,7 @@ from portable.agent_profiles import (
     validate_profile_binding,
 )
 from portable.agent_profile_registry_manager import AgentProfileRegistryManager
+from portable.orchestration import Graph, Node, NodeKind, Orchestrator, RunStatus
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -198,6 +199,74 @@ class AgentProfileRegistryManagerTests(unittest.TestCase):
         raw["profiles"][0]["action_classes"].append("deploy_production")
         with self.assertRaisesRegex(AgentProfileError, "exceeds canonical role authority"):
             self.manager.preview(raw)
+
+    def test_verified_registry_change_receipt_is_persisted_in_run_evidence(self):
+        raw = self._add_profile_revision(self._raw())
+        digest = load_agent_profile_registry(
+            self.path, organization_registry_path=ROLE_PATH,
+        )[1]
+        result = self.manager.import_registry(raw, expected_current_digest=digest)
+        receipt = result["receipt"]
+        calls = []
+
+        def verify(current_receipt):
+            return (
+                current_receipt["registry_digest"]
+                == load_agent_profile_registry(
+                    self.path, organization_registry_path=ROLE_PATH,
+                )[1]
+            )
+
+        graph = Graph([
+            Node("work", NodeKind.DETERMINISTIC, lambda _state: calls.append("ran") or {"ok": True}),
+        ])
+        run = Orchestrator(
+            graph, profile_registry_receipt_verifier=verify,
+        ).run(
+            "profile-change-evidence",
+            "Run the approved profile update.",
+            context={"agent_profile_registry_change_receipts": [receipt]},
+        )
+        self.assertEqual(RunStatus.ACCEPTED, run.status)
+        self.assertEqual(["ran"], calls)
+        evidence = next(
+            item for item in run.evidence
+            if item.kind == "agent-profile-registry-change"
+        )
+        self.assertIn(receipt["receipt_digest"], evidence.summary)
+
+    def test_unverified_or_forged_registry_change_receipt_blocks_before_execution(self):
+        raw = self._add_profile_revision(self._raw())
+        digest = load_agent_profile_registry(
+            self.path, organization_registry_path=ROLE_PATH,
+        )[1]
+        receipt = self.manager.import_registry(
+            raw, expected_current_digest=digest,
+        )["receipt"]
+        forged = dict(receipt)
+        forged["affected_revisions"] = ["backend_implementer/999"]
+        calls = []
+        graph = Graph([
+            Node("work", NodeKind.DETERMINISTIC, lambda _state: calls.append("ran") or {"ok": True}),
+        ])
+        run = Orchestrator(
+            graph, profile_registry_receipt_verifier=lambda _receipt: True,
+        ).run(
+            "profile-change-forged-evidence",
+            "Run the approved profile update.",
+            context={"agent_profile_registry_change_receipts": [forged]},
+        )
+        self.assertEqual(RunStatus.BLOCKED, run.status)
+        self.assertEqual([], calls)
+        self.assertIn("receipt verification failed", run.stop_reason)
+
+        missing_verifier = Orchestrator(graph).run(
+            "profile-change-no-verifier",
+            "Run the approved profile update.",
+            context={"agent_profile_registry_change_receipts": [receipt]},
+        )
+        self.assertEqual(RunStatus.BLOCKED, missing_verifier.status)
+        self.assertEqual([], calls)
 
     def test_two_managers_cannot_overwrite_each_other_from_the_same_digest(self):
         raw_one = self._add_profile_revision(self._raw(), revision=2)
