@@ -277,7 +277,7 @@ class DurableRoutineRegistry:
                 approval=approval, reconcile=reconcile, scheduled_at=scheduled,
             )
             results.append(dispatched)
-            if dispatched.status not in {"submitted", "duplicate", "unknown"}:
+            if dispatched.status not in {"submitted", "duplicate"}:
                 continue
             if spec.trigger == "interval":
                 next_run = scheduled + timedelta(seconds=spec.interval_seconds or 0)
