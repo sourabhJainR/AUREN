@@ -625,8 +625,10 @@ class Orchestrator:
                         if conflict.key in keys
                     )
                     selected = resolutions.get(conflict.conflict_id)
+                    allowed_options = {item.option_id for item in conflict.options}
                     resolved = (
                         isinstance(selected, str)
+                        and selected in allowed_options
                         and callable(self.conflict_resolution_verifier)
                         and self.conflict_resolution_verifier(conflict.conflict_id, selected) is True
                     )
