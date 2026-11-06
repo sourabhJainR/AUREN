@@ -16,23 +16,22 @@ class TestPublicDocumentationConsistency(unittest.TestCase):
                     (ROOT / "docs" / name).read_text(encoding="utf-8"),
                 )
 
-    def test_pages_mirror_contract_runs_on_pull_requests(self):
+    def test_cleanup_contract_is_the_single_pull_request_pages_mirror_gate(self):
         workflow = (
-            ROOT / ".github" / "workflows" / "pages-mirror-contract.yml"
+            ROOT / ".github" / "workflows" / "cleanup-contract.yml"
         ).read_text(encoding="utf-8")
         self.assertIn("pull_request:", workflow)
         self.assertIn("cmp -s site/index.html docs/index.html", workflow)
         self.assertIn("cmp -s site/404.html docs/404.html", workflow)
+        self.assertFalse((ROOT / ".github" / "workflows" / "pages-mirror-contract.yml").exists())
 
     def test_only_canonical_pages_workflow_can_deploy(self):
         canonical = (ROOT / ".github" / "workflows" / "deploy-pages.yml").read_text(encoding="utf-8")
-        legacy = (ROOT / ".github" / "workflows" / "jekyll-gh-pages.yml").read_text(encoding="utf-8")
-        self.assertIn("'.github/workflows/jekyll-gh-pages.yml'", canonical)
         self.assertIn("site/", canonical)
-        self.assertIn("workflow_dispatch:", legacy)
-        self.assertNotIn("  push:", legacy)
-        self.assertNotIn("actions/deploy-pages@", legacy)
-        self.assertNotIn("actions/upload-pages-artifact@", legacy)
+        self.assertIn("actions/deploy-pages@", canonical)
+        self.assertIn("actions/upload-pages-artifact@", canonical)
+        self.assertNotIn("jekyll-gh-pages.yml", canonical)
+        self.assertFalse((ROOT / ".github" / "workflows" / "jekyll-gh-pages.yml").exists())
 
     def test_every_canonical_principle_is_in_public_docs(self):
         paths = [
