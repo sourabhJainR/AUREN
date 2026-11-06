@@ -1225,4 +1225,4 @@ class ContinuousExecutionSupervisor:
             raise
 
 
-__all__ = ["ContinuousExecutionSupervisor", "GitHubActionsCheckPoller"]
+__all__ = ["ContinuousExecutionSupervisor", "GitHubActionsCheckPoller", "GitHubPostMergeVerifier"]
