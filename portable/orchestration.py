@@ -492,9 +492,14 @@ class Orchestrator:
                     ).hexdigest()
                     if receipt["receipt_digest"] != expected_receipt_digest:
                         raise ValueError("profile registry change receipt digest is invalid")
-                    if self.profile_registry_receipt_verifier(dict(receipt)) is not True:
+                    verified_receipt = json.loads(json.dumps(
+                        dict(receipt), sort_keys=True, separators=(",", ":"),
+                        ensure_ascii=False, allow_nan=False,
+                    ))
+                    verifier_input = json.loads(json.dumps(verified_receipt))
+                    if self.profile_registry_receipt_verifier(verifier_input) is not True:
                         raise ValueError("host did not verify the profile registry change receipt")
-                    normalized_receipts.append(dict(receipt))
+                    normalized_receipts.append(verified_receipt)
                 run.record(Evidence(
                     "agent-profile-registry-change",
                     json.dumps(normalized_receipts, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
