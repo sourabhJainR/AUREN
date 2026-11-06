@@ -67,6 +67,13 @@ class AgentProfileRegistryManagerTests(unittest.TestCase):
             json.loads(exported["content"]),
             self._raw(),
         )
+        preview = self.manager.preview(exported["content"])
+        self.assertEqual("valid", preview["status"])
+        self.assertEqual(exported["digest"], preview["current_digest"])
+        unchanged = self.manager.import_registry(
+            exported["content"], expected_current_digest=exported["digest"],
+        )
+        self.assertEqual("unchanged", unchanged["status"])
         self.assertEqual(64, len(exported["source_digest"]))
 
     def test_import_is_additive_and_identical_reimport_is_idempotent(self):
