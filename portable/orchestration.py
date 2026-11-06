@@ -579,6 +579,8 @@ class Orchestrator:
                         "requirement", "constraint", "acceptance_criterion", "assumption", "non_goal",
                     }
                 }
+                if any(item.get("redacted") for item in source_statements.values()):
+                    raise ValueError("redacted requirement statements cannot be classified for structured conflict analysis")
                 fact_ids = set()
                 for fact in facts:
                     source = source_statements.get(fact.statement_id)
