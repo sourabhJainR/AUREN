@@ -119,16 +119,7 @@ class ProviderOperationLifecycle:
             raise ProviderOutcomeBlocked(
                 f"provider operation {op_id} outcome is uncertain; no automatic retry"
             ) from exc
-        if dispatch_span is not None:
-            provider_status = receipt.get("status")
-            dispatch_span.finish(
-                {
-                    "dispatch_returned": True,
-                    "provider_status": provider_status.strip()[:80] if isinstance(provider_status, str) else "missing",
-                    "receipt_mapping": True,
-                },
-                "ok",
-            )
+        provider_status = receipt.get("status")
         # A returned mapping proves only that the adapter returned. It does not
         # prove that the remote side effect completed. Never persist pending,
         # failed, malformed, or unknown provider states as a completed receipt.
@@ -207,6 +198,19 @@ class ProviderOperationLifecycle:
             )
             raise ProviderOutcomeBlocked(
                 f"provider operation {op_id} returned a receipt bound to a different operation"
+            )
+        # A provider adapter returning a mapping is not proof of a valid
+        # completion. Mark the span successful only after status, remote ID,
+        # and all request-binding fields have passed validation.
+        if dispatch_span is not None:
+            dispatch_span.finish(
+                {
+                    "dispatch_returned": True,
+                    "provider_status": provider_status.strip()[:80] if isinstance(provider_status, str) else "missing",
+                    "receipt_mapping": True,
+                    "receipt_binding_valid": True,
+                },
+                "ok",
             )
         completed = self.ledger.complete(operation_key, dict(receipt))
         self._event(operation_key, "completed", op_id, completed.payload_digest,
