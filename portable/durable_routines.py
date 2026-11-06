@@ -210,11 +210,13 @@ class DurableRoutineRegistry:
     def get(self, routine_id: str) -> RoutineSpec:
         with closing(self._connect()) as db:
             row = db.execute(
-                "SELECT spec_json FROM routines WHERE routine_id=?", (routine_id,)
+                "SELECT spec_json,enabled FROM routines WHERE routine_id=?", (routine_id,)
             ).fetchone()
         if row is None:
             raise KeyError(routine_id)
-        return RoutineSpec(**json.loads(row["spec_json"]))
+        payload = json.loads(row["spec_json"])
+        payload["enabled"] = bool(row["enabled"])
+        return RoutineSpec(**payload)
 
     def dispatch_manual(
         self, routine_id: str, *, submit: Callable[..., Any],
