@@ -106,7 +106,10 @@ class ConsequentialOuterReceiptCrashTests(unittest.TestCase):
                 args=(str(tmp_path), task.id),
             )
             process.start()
-            process.join(20)
+            # Windows spawn + SQLite initialization can exceed twenty seconds on
+            # loaded hosted runners. Keep the fault injection bounded, but allow
+            # enough startup time to reach the deterministic crash boundary.
+            process.join(60)
             if process.is_alive():
                 process.terminate()
                 process.join(3)
