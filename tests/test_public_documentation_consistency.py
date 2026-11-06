@@ -8,14 +8,6 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class TestPublicDocumentationConsistency(unittest.TestCase):
-    def test_pages_entrypoints_are_identical(self):
-        for name in ("index.html", "404.html"):
-            with self.subTest(entrypoint=name):
-                self.assertEqual(
-                    (ROOT / "site" / name).read_text(encoding="utf-8"),
-                    (ROOT / "docs" / name).read_text(encoding="utf-8"),
-                )
-
     def test_cleanup_contract_is_the_single_pull_request_pages_mirror_gate(self):
         workflow = (
             ROOT / ".github" / "workflows" / "cleanup-contract.yml"
