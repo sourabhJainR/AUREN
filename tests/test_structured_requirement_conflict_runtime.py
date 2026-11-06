@@ -289,3 +289,22 @@ class StructuredRequirementConflictRuntimeTests(unittest.TestCase):
         conflict = run.results["quote_adapter"]
         assert conflict.status.value == "blocked"
 
+
+
+    def test_redacted_requirement_statement_cannot_be_marked_not_applicable(self, ):
+        calls = []
+
+        def redacted_resolver(intake, graph_digest):
+            result = _resolver(intake, graph_digest)
+            result["not_applicable_statement_ids"] = ["statement:2"]
+            return result
+
+        run = Orchestrator(
+            _graph(calls), requirement_conflict_resolver=redacted_resolver,
+        ).run(
+            "structured-conflict-redacted-source",
+            "Build quotes. Use delayed quotes. Do not expose API key=secretvalue.",
+        )
+        assert run.status == RunStatus.BLOCKED
+        assert calls == []
+        assert "structured requirement conflict analysis failed closed" in run.stop_reason
