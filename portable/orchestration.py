@@ -356,6 +356,7 @@ class Orchestrator:
         allow_self_improvement: bool = True,
         conflict_scope_verifier: Callable[[Mapping[str, Any], Mapping[str, tuple[str, ...]], str], bool] | None = None,
         conflict_resolution_verifier: Callable[[str, str], bool] | None = None,
+        requirement_conflict_resolver: Callable[[Mapping[str, Any], str], Mapping[str, Any]] | None = None,
     ) -> None:
         if max_total_attempts < 1:
             raise ValueError("max_total_attempts must be positive")
@@ -368,6 +369,11 @@ class Orchestrator:
         if conflict_resolution_verifier is not None and not callable(conflict_resolution_verifier):
             raise TypeError("conflict-resolution verifier must be callable when configured")
         self.conflict_resolution_verifier = conflict_resolution_verifier
+        if requirement_conflict_resolver is not None and not callable(requirement_conflict_resolver):
+            raise TypeError("requirement-conflict resolver must be callable when configured")
+        # The resolver is supplied by the trusted host/planner composition root.
+        # Caller/model payloads cannot install or replace this semantic parser.
+        self.requirement_conflict_resolver = requirement_conflict_resolver
         self._configuration_lock = threading.RLock()
         self._execution_started = False
 
@@ -398,6 +404,20 @@ class Orchestrator:
             if self.conflict_scope_verifier is not None and self.conflict_scope_verifier is not verifier:
                 raise RuntimeError("conflict-scope verifier is already configured")
             self.conflict_scope_verifier = verifier
+
+    def configure_requirement_conflict_resolver(
+        self,
+        resolver: Callable[[Mapping[str, Any], str], Mapping[str, Any]],
+    ) -> None:
+        """Install the host-owned structured requirements parser before execution."""
+        if not callable(resolver):
+            raise TypeError("requirement-conflict resolver must be callable")
+        with self._configuration_lock:
+            if self._execution_started:
+                raise RuntimeError("requirement-conflict resolver must be configured before graph execution")
+            if self.requirement_conflict_resolver is not None and self.requirement_conflict_resolver is not resolver:
+                raise RuntimeError("requirement-conflict resolver is already configured")
+            self.requirement_conflict_resolver = resolver
 
     @staticmethod
     def intent_digest(intent: str) -> str:
@@ -526,49 +546,237 @@ class Orchestrator:
                 sort_keys=True, separators=(",", ":"), ensure_ascii=False,
             ).encode("utf-8")
         ).hexdigest()
+        structured_conflict_mapping: dict[str, tuple[str, ...]] = {}
+        structured_unresolved_ids: set[str] = set()
+        if self.requirement_conflict_resolver is not None:
+            try:
+                from .requirement_conflicts import RequirementConflictAnalyzer, RequirementFact
+
+                parsed = self.requirement_conflict_resolver(
+                    json.loads(json.dumps(intake)), self.graph.digest(),
+                )
+                if not isinstance(parsed, Mapping) or set(parsed) != {
+                    "facts", "not_applicable_statement_ids", "workstream_dependencies",
+                }:
+                    raise ValueError("structured conflict resolver returned an invalid contract")
+                facts = parsed["facts"]
+                not_applicable = parsed["not_applicable_statement_ids"]
+                dependencies = parsed["workstream_dependencies"]
+                if not isinstance(facts, (list, tuple)) or any(
+                    not isinstance(item, RequirementFact) for item in facts
+                ):
+                    raise ValueError("structured conflict facts must be RequirementFact values")
+                if not isinstance(not_applicable, (list, tuple)) or any(
+                    not isinstance(item, str) or not item.strip() for item in not_applicable
+                ):
+                    raise ValueError("not-applicable statement IDs must be a sequence of non-empty IDs")
+                if len(set(not_applicable)) != len(not_applicable):
+                    raise ValueError("not-applicable statement IDs must be unique")
+                source_statements = {
+                    f"statement:{item['index']}": item
+                    for item in intake["statements"]
+                    if set(item["kinds"]) & {
+                        "requirement", "constraint", "acceptance_criterion", "assumption", "non_goal",
+                    }
+                }
+                if any(item.get("redacted") for item in source_statements.values()):
+                    raise ValueError("redacted requirement statements cannot be classified for structured conflict analysis")
+                fact_ids = set()
+                for fact in facts:
+                    source = source_statements.get(fact.statement_id)
+                    if (
+                        source is None
+                        or source.get("redacted")
+                        or fact.statement != source.get("text")
+                    ):
+                        raise ValueError("structured fact is not bound to an exact, non-redacted intake statement")
+                    fact_ids.add(fact.statement_id)
+                if fact_ids & set(not_applicable) or fact_ids | set(not_applicable) != set(source_statements):
+                    raise ValueError("structured conflict coverage must classify every requirement statement exactly once")
+                if not isinstance(dependencies, Mapping) or set(dependencies) != set(self.graph.nodes):
+                    raise ValueError("structured workstream dependencies must cover every graph node")
+                normalized_dependencies: dict[str, tuple[str, ...]] = {}
+                fact_keys = {fact.key for fact in facts}
+                for node_name, keys in dependencies.items():
+                    if (
+                        not isinstance(node_name, str)
+                        or node_name not in self.graph.nodes
+                        or not isinstance(keys, (list, tuple))
+                        or any(not isinstance(key, str) or not key.strip() for key in keys)
+                        or len(set(keys)) != len(keys)
+                        or not set(keys).issubset(fact_keys)
+                    ):
+                        raise ValueError("structured workstream dependency mapping is invalid")
+                    normalized_dependencies[node_name] = tuple(keys)
+                report = RequirementConflictAnalyzer.analyze(
+                    facts, workstream_dependencies=normalized_dependencies,
+                )
+                if report.status == "partial":
+                    raise ValueError(
+                        "structured conflict analysis is partial: " + ", ".join(report.unrecognized_keys)
+                    )
+                if report.status == "unscored" and facts:
+                    raise ValueError("structured conflict analysis returned an unscored result")
+                resolutions = state.get("preimplementation_resolutions", {})
+                if not isinstance(resolutions, Mapping):
+                    raise ValueError("preimplementation resolutions must be a mapping")
+                structured_items = []
+                for conflict in report.conflicts:
+                    targets = tuple(
+                        node for node, keys in normalized_dependencies.items()
+                        if conflict.key in keys
+                    )
+                    selected = resolutions.get(conflict.conflict_id)
+                    allowed_options = {item.option_id for item in conflict.options}
+                    resolved = (
+                        isinstance(selected, str)
+                        and selected in allowed_options
+                        and callable(self.conflict_resolution_verifier)
+                        and self.conflict_resolution_verifier(conflict.conflict_id, selected) is True
+                    )
+                    status = "resolved" if resolved else "unresolved" if targets else "no_dependent_work"
+                    structured_items.append({
+                        "id": conflict.conflict_id,
+                        "key": conflict.key,
+                        "scope": conflict.scope,
+                        "title": conflict.title,
+                        "statements": [
+                            {
+                                "statement_id": item.statement_id,
+                                "value": item.value,
+                                "statement": item.statement,
+                            }
+                            for item in conflict.statements
+                        ],
+                        "impact": conflict.impact,
+                        "options": [
+                            {
+                                "option_id": item.option_id,
+                                "label": item.label,
+                                "trade_off": item.trade_off,
+                            }
+                            for item in conflict.options
+                        ],
+                        "recommended_option": conflict.recommended_option,
+                        "selected_option": selected if resolved else None,
+                        "status": status,
+                        "affected_nodes": list(targets),
+                    })
+                    if not resolved and targets:
+                        structured_conflict_mapping[conflict.conflict_id] = targets
+                        structured_unresolved_ids.add(conflict.conflict_id)
+                structured_payload = {
+                    "status": "analyzed" if facts else "no_applicable_conflict_dimensions",
+                    "fact_count": report.fact_count,
+                    "unrecognized_keys": list(report.unrecognized_keys),
+                    "blocked_workstreams": list(report.blocked_workstreams),
+                    "independent_workstreams": list(report.independent_workstreams),
+                    "conflicts": structured_items,
+                    "not_applicable_statement_ids": sorted(not_applicable),
+                    "coverage_statement_ids": sorted(source_statements),
+                }
+                preflight["structured_requirement_conflicts"] = structured_payload
+                state["structured_requirement_conflicts"] = structured_payload
+                run.record(Evidence(
+                    "structured-requirement-conflict-analysis",
+                    json.dumps(structured_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
+                    "portable.requirement_conflicts",
+                ))
+                run.trajectory.append({
+                    "event": "structured_requirement_conflict_analysis",
+                    "status": structured_payload["status"],
+                    "fact_count": report.fact_count,
+                    "conflict_count": len(report.conflicts),
+                    "unresolved_conflict_count": len(structured_unresolved_ids),
+                })
+            except Exception as exc:
+                failure = {
+                    "status": "blocked",
+                    "reason": "structured requirement conflict analysis could not be verified",
+                    "error_type": type(exc).__name__,
+                    "intent_digest": run.intent_digest,
+                }
+                run.record(Evidence(
+                    "structured-requirement-conflict-analysis",
+                    json.dumps(failure, sort_keys=True, separators=(",", ":")),
+                    "portable.requirement_conflicts",
+                ))
+                run.status = RunStatus.BLOCKED
+                run.stop_reason = "structured requirement conflict analysis failed closed before graph execution"
+                run.trajectory.append({
+                    "event": "structured_requirement_conflict_analysis",
+                    "status": "blocked",
+                    "error_type": type(exc).__name__,
+                })
+                return run
+        else:
+            preflight["structured_requirement_conflicts"] = {
+                "status": "not_configured",
+                "reason": "no host-owned structured requirements parser was supplied",
+            }
+
+        preflight["digest"] = hashlib.sha256(
+            json.dumps(
+                {key: value for key, value in preflight.items() if key != "digest"},
+                sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+            ).encode("utf-8")
+        ).hexdigest()
         state["preimplementation_review"] = preflight
         run.record(Evidence(
             "preimplementation-review",
             json.dumps(preflight, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
             "portable.engineering_design_guard",
         ))
+        structured_conflict_count = len(
+            preflight.get("structured_requirement_conflicts", {}).get("conflicts", ())
+        )
         run.trajectory.append({
             "event": "preimplementation_review",
-            "status": "blocked" if preflight["unresolved_contradictions"] else "passed_with_findings" if preflight["blind_spots"] else "clear",
+            "status": (
+                "blocked"
+                if preflight["unresolved_contradictions"] or structured_unresolved_ids
+                else "passed_with_findings"
+                if preflight["blind_spots"] or structured_conflict_count
+                else "clear"
+            ),
             "contradiction_count": len(preflight["contradictions"]),
             "unresolved_contradiction_count": len(preflight["unresolved_contradictions"]),
+            "structured_conflict_count": structured_conflict_count,
+            "unresolved_structured_conflict_count": len(structured_unresolved_ids),
             "blind_spot_count": len(preflight["blind_spots"]),
             "receipt_digest": preflight["digest"],
             "intent_digest": preflight["intent_digest"],
         })
         preblocked_nodes: set[str] = set()
         conflict_mapping_digest = ""
-        if preflight["unresolved_contradictions"]:
+        guard_unresolved_ids = {
+            str(item.get("id", "")).strip()
+            for item in preflight["unresolved_contradictions"]
+            if isinstance(item, Mapping)
+        }
+        unresolved_ids = guard_unresolved_ids | structured_unresolved_ids
+        if unresolved_ids:
             raw_mapping = state.get("preimplementation_conflict_nodes")
-            unresolved_ids = {
-                str(item.get("id", "")).strip()
-                for item in preflight["unresolved_contradictions"]
-                if isinstance(item, Mapping)
-            }
-            valid_mapping = (
-                isinstance(raw_mapping, Mapping)
-                and bool(unresolved_ids)
-                and callable(self.conflict_scope_verifier)
-            )
-            normalized_mapping: dict[str, tuple[str, ...]] = {}
-            if valid_mapping:
-                valid_mapping = set(raw_mapping.keys()) == unresolved_ids
-                for conflict_id in sorted(unresolved_ids):
-                    targets = raw_mapping.get(conflict_id)
-                    if (
-                        not isinstance(targets, (list, tuple))
-                        or not targets
-                        or any(not isinstance(name, str) or name not in self.graph.nodes for name in targets)
-                        or len(set(targets)) != len(targets)
-                    ):
-                        valid_mapping = False
-                        break
-                    normalized_mapping[conflict_id] = tuple(targets)
+            normalized_mapping: dict[str, tuple[str, ...]] = dict(structured_conflict_mapping)
+            valid_mapping = bool(unresolved_ids) and callable(self.conflict_scope_verifier)
+            if guard_unresolved_ids:
+                valid_mapping = valid_mapping and isinstance(raw_mapping, Mapping) and set(raw_mapping.keys()) == guard_unresolved_ids
+                if valid_mapping:
+                    for conflict_id in sorted(guard_unresolved_ids):
+                        targets = raw_mapping.get(conflict_id)
+                        if (
+                            not isinstance(targets, (list, tuple))
+                            or not targets
+                            or any(not isinstance(name, str) or name not in self.graph.nodes for name in targets)
+                            or len(set(targets)) != len(targets)
+                        ):
+                            valid_mapping = False
+                            break
+                        normalized_mapping[conflict_id] = tuple(targets)
+            elif raw_mapping not in (None, {}):
+                valid_mapping = False
+            if set(normalized_mapping) != unresolved_ids:
+                valid_mapping = False
             if valid_mapping:
                 try:
                     valid_mapping = self.conflict_scope_verifier(
