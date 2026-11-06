@@ -725,7 +725,7 @@ class Orchestrator:
         ))
         run.trajectory.append({
             "event": "preimplementation_review",
-            "status": "blocked" if preflight["unresolved_contradictions"] else "passed_with_findings" if preflight["blind_spots"] else "clear",
+            "status": "blocked" if preflight["unresolved_contradictions"] or structured_unresolved_ids else "passed_with_findings" if preflight["blind_spots"] else "clear",
             "contradiction_count": len(preflight["contradictions"]),
             "unresolved_contradiction_count": len(preflight["unresolved_contradictions"]),
             "blind_spot_count": len(preflight["blind_spots"]),
