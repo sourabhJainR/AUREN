@@ -121,11 +121,29 @@ class AgentProfileRegistryManager:
             "candidate_template_count": len(candidate_normalized["team_templates"]),
         }
 
+    def diff(self, candidate: str | bytes | Mapping[str, Any]) -> dict[str, Any]:
+        """Return the validated profile/template diff without changing the registry."""
+        preview = self.preview(candidate)
+        return {
+            "current_digest": preview["current_digest"],
+            "candidate_digest": preview["candidate_digest"],
+            "profiles": preview["profiles"],
+            "team_templates": preview["team_templates"],
+        }
+
     def export(self) -> dict[str, str]:
         """Export the canonical source registry, not a derived runtime projection."""
         raw = _load_json(self.profile_path, label="agent profile registry")
+        _normalized, registry_digest = load_agent_profile_registry(
+            self.profile_path,
+            organization_registry_path=self.organization_registry_path,
+        )
         content = _canonical(raw).decode("utf-8")
-        return {"content": content, "digest": hashlib.sha256(content.encode("utf-8")).hexdigest()}
+        return {
+            "content": content,
+            "digest": registry_digest,
+            "source_digest": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        }
 
     @contextmanager
     def _exclusive_lock(self) -> Iterator[None]:
