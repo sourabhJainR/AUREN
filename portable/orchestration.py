@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 import py_compile
+import re
 import tempfile
 import threading
 import time
