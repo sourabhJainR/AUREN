@@ -309,7 +309,7 @@ class DurableRoutineRegistry:
         })
         work_key = f"routine:{routine_id}:v{spec.version}:{occurrence_key[:32]}"
         now = _iso(datetime.now(timezone.utc))
-        with self._lock, self._connect() as db:
+        with self._lock, closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
             previous = db.execute(
                 "SELECT status,task_id,receipt_json FROM routine_occurrences WHERE occurrence_key=?",
