@@ -77,6 +77,10 @@ Run with the real deployment service in an approved staging window:
 Create an operator-owned JSON manifest using schema
 `auren-postgres-admission-staging-v1`. It must contain:
 
+The top-level `schema_version` identifies this evidence-manifest contract. The
+separate `database_schema_version` field records the deployed PostgreSQL schema;
+these values must not be combined or substituted for one another.
+
 - exact main SHA, deployment ID, PostgreSQL service/cluster/primary identity,
   PostgreSQL version, deployed schema and migration ID;
 - policy version, shared capacity values, configuration digest, and TLS result;
