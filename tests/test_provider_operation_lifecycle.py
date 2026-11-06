@@ -331,6 +331,52 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
         self.assertEqual("error", failed[-1]["span"]["status"])
         self.assertEqual("TimeoutError", failed[-1]["span"]["output"]["error_type"])
 
+    def test_invalid_completed_receipt_is_blocked_in_trace_and_never_redispatched(self):
+        path = self.path.parent / "provider-invalid-receipt-traces.jsonl"
+        tracer = Tracer(LocalExporter(path, enabled=True))
+        trace = tracer.start("provider-invalid-receipt")
+        root = trace.span("supervisor", "agent", phase="supervisor")
+        lifecycle = ProviderOperationLifecycle(self.ledger(), record_event=self.events.append)
+        key = "deploy-invalid-receipt"
+        intent = {"target": "production"}
+        dispatch_calls = []
+
+        def dispatch(payload, operation_id, idempotency_key):
+            dispatch_calls.append(operation_id)
+            receipt = _bound_completed_receipt(
+                payload, operation_id, idempotency_key, "provider-a", "remote-1",
+            )
+            receipt.pop("idempotency_key")
+            return receipt
+
+        with self.assertRaises(ProviderOutcomeBlocked):
+            lifecycle.execute(
+                key, "provider-a", intent, dispatch,
+                trace=trace, parent_span_id=root.span_id,
+            )
+
+        self.assertEqual("reconcile_required", self.ledger().get(key)["state"])
+        with self.assertRaises(ProviderOutcomeBlocked):
+            lifecycle.execute(
+                key, "provider-a", intent,
+                lambda *_: self.fail("invalid receipt must not trigger automatic redispatch"),
+                trace=trace, parent_span_id=root.span_id,
+            )
+        self.assertEqual(1, len(dispatch_calls))
+
+        records = [
+            json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
+        ]
+        dispatch_spans = [
+            record["span"] for record in records
+            if record.get("event_type") == "span_updated"
+            and (record.get("span") or {}).get("name") == "provider_dispatch:provider-a"
+            and (record.get("span") or {}).get("end") is not None
+        ]
+        self.assertEqual(1, len(dispatch_spans))
+        self.assertEqual("blocked", dispatch_spans[0]["status"])
+        self.assertFalse(dispatch_spans[0]["output"]["receipt_binding_valid"])
+
     def test_provider_lookup_emits_child_span_during_reconciliation(self):
         path = self.path.parent / "provider-lookup-traces.jsonl"
         tracer = Tracer(LocalExporter(path, enabled=True))
