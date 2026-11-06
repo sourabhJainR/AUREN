@@ -725,11 +725,22 @@ class Orchestrator:
             json.dumps(preflight, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
             "portable.engineering_design_guard",
         ))
+        structured_conflict_count = len(
+            preflight.get("structured_requirement_conflicts", {}).get("conflicts", ())
+        )
         run.trajectory.append({
             "event": "preimplementation_review",
-            "status": "blocked" if preflight["unresolved_contradictions"] or structured_unresolved_ids else "passed_with_findings" if preflight["blind_spots"] else "clear",
-            "contradiction_count": len(preflight["contradictions"]),
-            "unresolved_contradiction_count": len(preflight["unresolved_contradictions"]),
+            "status": (
+                "blocked"
+                if preflight["unresolved_contradictions"] or structured_unresolved_ids
+                else "passed_with_findings"
+                if preflight["blind_spots"] or structured_conflict_count
+                else "clear"
+            ),
+            "contradiction_count": len(preflight["contradictions"]) + structured_conflict_count,
+            "unresolved_contradiction_count": len(preflight["unresolved_contradictions"]) + len(structured_unresolved_ids),
+            "structured_conflict_count": structured_conflict_count,
+            "unresolved_structured_conflict_count": len(structured_unresolved_ids),
             "blind_spot_count": len(preflight["blind_spots"]),
             "receipt_digest": preflight["digest"],
             "intent_digest": preflight["intent_digest"],
