@@ -1,7 +1,12 @@
 """Host-bound structured requirement conflicts gate graph admission."""
+import tempfile
+from pathlib import Path
 from portable.orchestration import Graph, Node, NodeKind, Orchestrator, RunStatus
 from portable.state_graph import StateGraph
-from portable.requirement_conflicts import RequirementFact
+from portable.requirement_conflicts import RequirementFact, RequirementConflictAnalyzer
+from portable.engineering_decision_store import EngineeringDecisionStore
+from portable.engineering_plan import EngineeringPlan, PlanTask
+from portable.engineering_plan_store import EngineeringPlanStore
 
 
 def _resolver(intake, _graph_digest, *, malformed=False):
@@ -186,3 +191,62 @@ def test_state_graph_forwards_host_conflict_resolver_and_scope_verifier():
     run = state_graph.run("state-graph-conflict", "Build quotes. Use delayed quotes.")
     assert run.status == RunStatus.BLOCKED
     assert calls == ["news"]
+
+
+
+def test_existing_decision_store_is_the_only_authority_that_unblocks_conflict():
+    calls = []
+    intake_text = "Build quotes. Use delayed quotes."
+    from portable.engineering_requirement_intake import parse_engineering_request
+
+    intake = parse_engineering_request(intake_text)
+    parsed = _resolver(intake, "")
+    conflict = RequirementConflictAnalyzer.analyze(parsed["facts"]).conflicts[0]
+
+    with tempfile.TemporaryDirectory() as directory:
+        plan_store = EngineeringPlanStore(Path(directory) / "plans.sqlite3")
+        plan = EngineeringPlan(
+            run_id="structured-conflict-run",
+            goal="Deliver source-backed quote and news adapters",
+            requirements=("Resolve quote freshness conflict",),
+            source_revision="a" * 40,
+            tasks=(
+                PlanTask("quote_adapter", "Implement quote adapter", ("freshness is explicit",), "revert quote adapter"),
+                PlanTask("news_adapter", "Implement news adapter", ("news provenance is present",), "revert news adapter"),
+            ),
+        )
+        plan_run = plan_store.create(plan)
+        decision_store = EngineeringDecisionStore(
+            plan_store, actor_authorizer=lambda _decision: "user:owner",
+        )
+        decision_store.record(
+            run_id=plan.run_id,
+            decision_id="quote-freshness-choice",
+            expected_revision=0,
+            plan_digest=plan.digest,
+            run_revision=plan_run.revision,
+            decision_type="conflict_resolution",
+            question=conflict.title,
+            options=("accept_delayed", "use_realtime_provider"),
+            selected_option="accept_delayed",
+            rationale="The MVP uses delayed quotes and displays their source timestamp.",
+            rejected_alternatives=(("use_realtime_provider", "Paid real-time licensing is not approved for this MVP."),),
+            affected_task_ids=("quote_adapter",),
+            actor_id="user:owner",
+        )
+        verifier = decision_store.conflict_resolution_verifier(
+            run_id=plan.run_id,
+            decision_ids={conflict.conflict_id: "quote-freshness-choice"},
+        )
+        run = Orchestrator(
+            _graph(calls),
+            requirement_conflict_resolver=_resolver,
+            conflict_resolution_verifier=verifier,
+        ).run(
+            "structured-conflict-durable-decision",
+            intake_text,
+            context={"preimplementation_resolutions": {conflict.conflict_id: "accept_delayed"}},
+        )
+        assert run.status == RunStatus.ACCEPTED
+        assert calls == ["quotes", "news"]
+        assert decision_store.latest(plan.run_id, "quote-freshness-choice").current_binding is True
