@@ -1,5 +1,6 @@
 """Host-bound structured requirement conflicts gate graph admission."""
 from portable.orchestration import Graph, Node, NodeKind, Orchestrator, RunStatus
+from portable.state_graph import StateGraph
 from portable.requirement_conflicts import RequirementFact
 
 
@@ -161,5 +162,27 @@ def test_structured_conflict_is_reflected_in_preimplementation_review_trajectory
     ]
     assert len(review_events) == 1
     assert review_events[0]["status"] == "blocked"
+    assert run.status == RunStatus.BLOCKED
+    assert calls == ["news"]
+
+
+
+def test_state_graph_forwards_host_conflict_resolver_and_scope_verifier():
+    calls = []
+    graph = _graph(calls)
+
+    def verify_scope(review, mapping, graph_digest):
+        return (
+            bool(review.get("structured_requirement_conflicts"))
+            and len(graph_digest) == 64
+            and tuple(mapping.values()) == (("quote_adapter",),)
+        )
+
+    state_graph = StateGraph(
+        graph,
+        conflict_scope_verifier=verify_scope,
+        requirement_conflict_resolver=_resolver,
+    )
+    run = state_graph.run("state-graph-conflict", "Build quotes. Use delayed quotes.")
     assert run.status == RunStatus.BLOCKED
     assert calls == ["news"]
