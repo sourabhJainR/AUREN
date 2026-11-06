@@ -41,7 +41,7 @@ jobs:
                   required, changed = True, []
               else:
                   changed = subprocess.check_output(['git', 'diff', '--name-only', base, head], text=True).splitlines()
-                  patterns = [".github/workflows/**",".github/actions/**","architecture/**",".ai-harness/**","portable/**","scripts/impact_policy.py","tests/test_impact_policy.py","tests/test_provider_operation_lifecycle.py","state/**","scripts/validate_architecture.py","scripts/validate_auren_identity.py","scripts/arena*","tests/test_architecture_contract.py","tests/test_decision_gate.py","tests/test_capability_promotion_gate.py","tests/test_execution_controller_promotion_gate.py","tests/test_canonical_evidence_ledger.py","tests/test_independent_arena.py","tests/test_arena_acceptance.py","tests/test_contract_alignment.py","tests/test_principle_traceability.py","docs/engineering-principle-traceability.json","docs/ENGINEERING_PRINCIPLE_TRACEABILITY.md","docs/architecture*","docs/DEFAULT_EXECUTION_CONTROLLER.md"]
+                  patterns = [".github/workflows/**",".github/actions/**","architecture/**",".ai-harness/**","portable/**","scripts/impact_policy.py","tests/test_impact_policy.py","tests/test_provider_operation_lifecycle.py","state/**","scripts/validate_architecture.py","scripts/validate_auren_identity.py","scripts/arena*","tests/test_architecture_contract.py","tests/test_decision_gate.py","tests/test_capability_promotion_gate.py","tests/test_execution_controller_promotion_gate.py","tests/test_canonical_evidence_ledger.py","tests/test_independent_arena.py","tests/test_arena_acceptance.py","tests/test_contract_alignment.py","tests/test_principle_traceability.py","docs/engineering-principle-traceability.json","docs/ENGINEERING_PRINCIPLE_TRACEABILITY.md","docs/architecture*","docs/DEFAULT_EXECUTION_CONTROLLER.md","scripts/postgres_deployment_evidence.py","tests/test_postgres_deployment_evidence.py","docs/EXTERNAL_DEPLOYMENT_AND_ARENA_ACCEPTANCE.md"]
                   required = any(fnmatch.fnmatchcase(path, pattern) for path in changed for pattern in patterns)
           import sys
           sys.path.insert(0, '.')
@@ -148,6 +148,10 @@ jobs:
         run: python -m unittest tests.test_independent_evaluation_attestation tests.test_attestation_key_separation tests.test_attested_cross_project_transfer tests.test_attestation_freshness tests.test_postgres_attestation_replay_registry -v
       - name: Run external campaign attestation regressions
         run: python -m unittest tests.test_external_evaluation_campaign tests.test_external_generalization_runner -v
+      - name: Validate physical-host PostgreSQL staging and production attestation manifests
+        run: |
+          python -m pip install pytest
+          python -m pytest -q tests/test_postgres_deployment_evidence.py
       - name: Run causal promotion and evidence-chain regressions
         run: python -m unittest tests.test_causal_capability_promotion tests.test_promotion_evidence_chain tests.test_arena_run_receipt tests.test_external_decision_evidence_ingestion tests.test_evidence_freshness -v
       - name: Validate empirical capability coverage matrix
