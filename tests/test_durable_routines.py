@@ -40,6 +40,13 @@ class DurableRoutineRegistryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "same routine version"):
             self.registry.register(self.spec(payload={"repository": "other/repo"}))
 
+    def test_one_time_schedule_rejects_naive_timestamp(self):
+        with self.assertRaisesRegex(ValueError, "timezone-aware"):
+            self.spec(
+                trigger="once", event_type=None,
+                run_at="2026-11-07T10:00:00",
+            )
+
     def test_version_cannot_move_backwards(self):
         self.registry.register(self.spec(version=2))
         with self.assertRaisesRegex(ValueError, "cannot move backwards"):
