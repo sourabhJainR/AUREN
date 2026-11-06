@@ -552,7 +552,9 @@ class Orchestrator:
             try:
                 from .requirement_conflicts import RequirementConflictAnalyzer, RequirementFact
 
-                parsed = self.requirement_conflict_resolver(intake, self.graph.digest())
+                parsed = self.requirement_conflict_resolver(
+                    json.loads(json.dumps(intake)), self.graph.digest(),
+                )
                 if not isinstance(parsed, Mapping) or set(parsed) != {
                     "facts", "not_applicable_statement_ids", "workstream_dependencies",
                 }:
