@@ -250,3 +250,35 @@ def test_existing_decision_store_is_the_only_authority_that_unblocks_conflict():
         assert run.status == RunStatus.ACCEPTED
         assert calls == ["quotes", "news"]
         assert decision_store.latest(plan.run_id, "quote-freshness-choice").current_binding is True
+
+
+
+def test_host_verifier_cannot_approve_an_undeclared_conflict_option():
+    calls = []
+
+    def verify_scope(review, mapping, graph_digest):
+        return (
+            len(graph_digest) == 64
+            and set(mapping) == {
+                item["id"] for item in review["structured_requirement_conflicts"]["conflicts"]
+            }
+        )
+
+    from portable.requirement_conflicts import RequirementConflictAnalyzer
+    from portable.engineering_requirement_intake import parse_engineering_request
+    intake = parse_engineering_request("Build quotes. Use delayed quotes.")
+    conflict_id = RequirementConflictAnalyzer.analyze(_resolver(intake, "")["facts"]).conflicts[0].conflict_id
+    run = Orchestrator(
+        _graph(calls),
+        requirement_conflict_resolver=_resolver,
+        conflict_scope_verifier=verify_scope,
+        conflict_resolution_verifier=lambda _key, _option: True,
+    ).run(
+        "structured-conflict-invalid-choice",
+        "Build quotes. Use delayed quotes.",
+        context={"preimplementation_resolutions": {conflict_id: "invented_override"}},
+    )
+    assert run.status == RunStatus.BLOCKED
+    assert calls == ["news"]
+    conflict = run.results["quote_adapter"]
+    assert conflict.status.value == "blocked"
