@@ -124,6 +124,21 @@ class ProviderOperationLifecycle:
         # prove that the remote side effect completed. Never persist pending,
         # failed, malformed, or unknown provider states as a completed receipt.
         provider_status = receipt.get("status")
+
+        def finish_blocked_dispatch(reason: str) -> None:
+            if dispatch_span is not None:
+                dispatch_span.finish(
+                    {
+                        "dispatch_returned": True,
+                        "provider_status": provider_status.strip()[:80] if isinstance(provider_status, str) else "missing",
+                        "receipt_mapping": True,
+                        "receipt_binding_valid": False,
+                        "rejection_reason": reason,
+                    },
+                    "blocked",
+                    reason,
+                )
+
         nested_result = receipt.get("result")
         nested_completion = (
             isinstance(nested_result, Mapping)
@@ -145,6 +160,7 @@ class ProviderOperationLifecycle:
         if not explicit_completion:
             status_label = provider_status.strip()[:80] if isinstance(provider_status, str) else "missing"
             reason = f"dispatch returned non-completed status ({status_label})"
+            finish_blocked_dispatch("provider_status_not_completed")
             self.ledger.require_reconciliation(operation_key, reason)
             self._event(
                 operation_key, "reconcile_required", op_id, decision.payload_digest,
@@ -161,6 +177,7 @@ class ProviderOperationLifecycle:
             or not receipt.get("provider_operation_id").strip()
         ):
             reason = "provider receipt has an invalid or missing provider_operation_id"
+            finish_blocked_dispatch("provider_operation_id_invalid")
             self.ledger.require_reconciliation(operation_key, reason)
             self._event(
                 operation_key, "reconcile_required", op_id, decision.payload_digest,
@@ -191,6 +208,7 @@ class ProviderOperationLifecycle:
                 mismatched_binding = "auren_operation_id"
         if mismatched_binding is not None:
             reason = f"provider receipt binding for {mismatched_binding} is missing or belongs to a different operation"
+            finish_blocked_dispatch("provider_operation_binding_mismatch")
             self.ledger.require_reconciliation(operation_key, reason)
             self._event(
                 operation_key, "reconcile_required", op_id, decision.payload_digest,
