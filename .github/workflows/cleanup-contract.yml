@@ -64,6 +64,21 @@ jobs:
           grep -q "Rollback strategy" docs/REPOSITORY_CLEANUP_AND_ROLLBACK.md
           echo "AUREN cleanup contract and protected presence artifacts are intact."
 
+      - name: Validate canonical Pages source and compatibility mirrors
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in site/index.html site/404.html docs/index.html docs/404.html; do
+            test -s "$path" || {
+              echo "::error::Pages entrypoint is missing or empty: $path"
+              exit 1
+            }
+          done
+          grep -q '<title>AUREN' site/index.html
+          grep -q '<title>AUREN' site/404.html
+          cmp -s site/index.html docs/index.html
+          cmp -s site/404.html docs/404.html
+
       - name: Build installable regression artifact
         uses: actions/setup-python@v7
         with:
