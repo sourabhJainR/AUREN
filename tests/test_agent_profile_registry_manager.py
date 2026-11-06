@@ -15,6 +15,7 @@ from portable.agent_profiles import (
 )
 from portable.agent_profile_registry_manager import AgentProfileRegistryManager
 from portable.orchestration import Graph, Node, NodeKind, Orchestrator, RunStatus
+from portable.state_graph import StateGraph
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -234,6 +235,34 @@ class AgentProfileRegistryManagerTests(unittest.TestCase):
             if item.kind == "agent-profile-registry-change"
         )
         self.assertIn(receipt["receipt_digest"], evidence.summary)
+
+    def test_state_graph_persists_host_verified_profile_change_receipt(self):
+        raw = self._add_profile_revision(self._raw())
+        digest = load_agent_profile_registry(
+            self.path, organization_registry_path=ROLE_PATH,
+        )[1]
+        receipt = self.manager.import_registry(
+            raw, expected_current_digest=digest,
+        )["receipt"]
+        graph = Graph([
+            Node("work", NodeKind.DETERMINISTIC, lambda _state: {"ok": True}),
+        ])
+        state_graph = StateGraph(
+            graph,
+            profile_registry_receipt_verifier=lambda item: item["registry_digest"] == load_agent_profile_registry(
+                self.path, organization_registry_path=ROLE_PATH,
+            )[1],
+        )
+        run = state_graph.run(
+            "state-graph-profile-receipt",
+            "Run the approved profile update.",
+            {"agent_profile_registry_change_receipts": [receipt]},
+        )
+        self.assertEqual(RunStatus.ACCEPTED, run.status)
+        self.assertTrue(any(
+            item.kind == "agent-profile-registry-change"
+            for item in run.evidence
+        ))
 
     def test_unverified_or_forged_registry_change_receipt_blocks_before_execution(self):
         raw = self._add_profile_revision(self._raw())
