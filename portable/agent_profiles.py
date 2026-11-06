@@ -369,6 +369,8 @@ def validate_profile_binding(
     role_id: str,
     manager_role_id: str,
     action_class: str,
+    profile_path: str | Path = DEFAULT_PROFILE_PATH,
+    organization_registry_path: str | Path = DEFAULT_ORGANIZATION_PATH,
 ) -> AgentProfile:
     """Resolve the exact current profile revision and prove it cannot expand role authority."""
     if not isinstance(binding, Mapping) or set(binding) != {"profile_id", "revision", "digest"}:
@@ -378,7 +380,10 @@ def validate_profile_binding(
     digest = binding.get("digest")
     if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
         raise AgentProfileError("agent profile digest is malformed")
-    profile = resolve_agent_profile(profile_id, revision=revision)
+    profile = resolve_agent_profile(
+        profile_id, revision=revision, profile_path=profile_path,
+        organization_registry_path=organization_registry_path,
+    )
     if profile.digest != digest:
         raise AgentProfileError("agent profile revision digest is stale or changed")
     if profile.role_id != role_id or profile.manager_role_id != manager_role_id:
