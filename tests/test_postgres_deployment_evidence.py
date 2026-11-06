@@ -19,7 +19,7 @@ def base(schema):
         "postgres_cluster_id": "pg-cluster-01",
         "postgres_primary_identity": "pg-primary-epoch-2",
         "postgres_version": "16.4",
-        "schema_version": "schema-2026-11",
+        "database_schema_version": "schema-2026-11",
         "migration_id": "migration-42",
         "policy_version": "admission-v3",
         "config_digest": "b" * 64,
@@ -78,6 +78,13 @@ def base(schema):
 def test_admission_staging_manifest_accepts_complete_distinct_host_evidence():
     payload = base("auren-postgres-admission-staging-v1")
     assert module.validate(payload) == []
+
+
+def test_database_schema_version_is_required_separately_from_evidence_schema():
+    payload = base("auren-postgres-admission-staging-v1")
+    del payload["database_schema_version"]
+    assert payload["schema_version"] == "auren-postgres-admission-staging-v1"
+    assert "database_schema_version must be a non-empty deployment-bound value" in module.validate(payload)
 
 
 def test_admission_rejects_same_physical_host_and_non_operator_rollback():
