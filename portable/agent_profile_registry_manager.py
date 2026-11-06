@@ -209,6 +209,16 @@ class AgentProfileRegistryManager:
                 organization_registry_path=self.organization_registry_path,
             )
             os.replace(temp_path, self.profile_path)
+            if os.name != "nt":
+                directory_fd = os.open(self.profile_path.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                except OSError as exc:
+                    raise AgentProfileError(
+                        "profile registry was replaced but directory durability could not be confirmed; reload before retrying"
+                    ) from exc
+                finally:
+                    os.close(directory_fd)
             return normalized, digest
         except Exception:
             temp_path.unlink(missing_ok=True)
