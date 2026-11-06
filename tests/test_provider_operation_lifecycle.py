@@ -377,6 +377,48 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
         self.assertEqual("blocked", dispatch_spans[0]["status"])
         self.assertFalse(dispatch_spans[0]["output"]["receipt_binding_valid"])
 
+    def test_unverified_provider_lookup_is_not_reported_as_success(self):
+        path = self.path.parent / "provider-unverified-lookup-traces.jsonl"
+        tracer = Tracer(LocalExporter(path, enabled=True))
+        trace = tracer.start("provider-unverified-lookup")
+        root = trace.span("supervisor", "agent", phase="supervisor")
+        lifecycle = ProviderOperationLifecycle(
+            self.ledger(verify=lambda *_: True), record_event=self.events.append,
+        )
+        key = "deploy-unverified-lookup"
+        intent = {"target": "production"}
+        with self.assertRaises(ProviderOutcomeBlocked):
+            lifecycle.execute(
+                key, "provider-a", intent,
+                lambda *_: (_ for _ in ()).throw(TimeoutError("lost")),
+                trace=trace, parent_span_id=root.span_id,
+            )
+
+        operation_id = stable_provider_operation_id(key, "provider-a", intent)
+        receipt = _bound_completed_receipt(
+            intent, operation_id, key, "provider-a", "remote-lookup-1",
+        )
+        with self.assertRaises(ProviderOutcomeBlocked):
+            lifecycle.reconcile(
+                key, "provider-a", intent,
+                lambda *_: {"status": "completed", "receipt": receipt},
+                trace=trace, parent_span_id=root.span_id,
+            )
+
+        records = [
+            json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
+        ]
+        lookup_spans = [
+            record["span"] for record in records
+            if record.get("event_type") == "span_updated"
+            and (record.get("span") or {}).get("name") == "provider_lookup:provider-a"
+            and (record.get("span") or {}).get("end") is not None
+        ]
+        self.assertEqual(1, len(lookup_spans))
+        self.assertEqual("blocked", lookup_spans[0]["status"])
+        self.assertFalse(lookup_spans[0]["output"]["evidence_verified"])
+        self.assertEqual("reconcile_required", self.ledger().get(key)["state"])
+
     def test_provider_lookup_emits_child_span_during_reconciliation(self):
         path = self.path.parent / "provider-lookup-traces.jsonl"
         tracer = Tracer(LocalExporter(path, enabled=True))
