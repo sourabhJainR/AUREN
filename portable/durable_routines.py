@@ -170,7 +170,7 @@ class DurableRoutineRegistry:
             initial = _iso(datetime.now(timezone.utc) + timedelta(seconds=spec.interval_seconds or 0))
         else:
             initial = None
-        with self._lock, self._connect() as db:
+        with self._lock, closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
             current = db.execute(
                 "SELECT version,spec_digest FROM routines WHERE routine_id=?",
