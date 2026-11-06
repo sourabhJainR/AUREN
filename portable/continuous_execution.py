@@ -25,6 +25,8 @@ from .guarded_network import guarded_https_get
 
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 _MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+_MAX_CHECK_RUN_PAGES = 10
+_MAX_CHECK_RUN_TOTAL_BYTES = 8 * 1024 * 1024
 _TERMINAL_CI = {"success", "failure"}
 
 
@@ -117,32 +119,50 @@ class GitHubActionsCheckPoller:
         self.token = token if token is not None else (os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"))
 
     def __call__(self) -> Mapping[str, Any]:
-        url = f"https://api.github.com/repos/{self.repository}/commits/{self.head_sha}/check-runs?per_page=100"
         headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "AUREN-continuous-execution"}
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
-        try:
-            status_code, raw = guarded_https_get(
-                url,
-                allowed_hosts=("api.github.com",),
-                headers=headers,
-                timeout=self.timeout_seconds,
-                max_bytes=_MAX_RESPONSE_BYTES,
+        # GitHub paginates check-runs at 100 items. Read every page within a
+        # strict bound; never infer success from a truncated check listing.
+        runs: list[dict[str, Any]] = []
+        total_bytes = 0
+        page_complete = False
+        for page in range(1, _MAX_CHECK_RUN_PAGES + 1):
+            url = (
+                f"https://api.github.com/repos/{self.repository}/commits/{self.head_sha}"
+                f"/check-runs?per_page=100&page={page}"
             )
-        except (TimeoutError, OSError) as exc:
-            # Do not copy exception text: network errors can contain operational details.
-            return {"status": "poll_error", "repository": self.repository, "head_sha": self.head_sha, "error_type": type(exc).__name__}
-        if status_code >= 400:
-            return {"status": "poll_error", "repository": self.repository, "head_sha": self.head_sha, "error_type": "HTTPError"}
-        if len(raw) > _MAX_RESPONSE_BYTES:
-            return {"status": "poll_error", "repository": self.repository, "head_sha": self.head_sha, "error_type": "response_too_large"}
-        try:
-            payload = json.loads(raw.decode("utf-8"))
-            runs = payload["check_runs"]
-            if not isinstance(runs, list):
-                raise ValueError("check_runs is not a list")
-        except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError):
-            return {"status": "poll_error", "repository": self.repository, "head_sha": self.head_sha, "error_type": "invalid_response"}
+            try:
+                status_code, raw = guarded_https_get(
+                    url,
+                    allowed_hosts=("api.github.com",),
+                    headers=headers,
+                    timeout=self.timeout_seconds,
+                    max_bytes=_MAX_RESPONSE_BYTES,
+                )
+            except (TimeoutError, OSError) as exc:
+                # Do not copy exception text: network errors can contain operational details.
+                return {"status": "poll_error", "repository": self.repository, "head_sha": self.head_sha, "error_type": type(exc).__name__}
+            if status_code >= 400:
+                return {"status": "poll_error", "repository": self.repository, "head_sha": self.head_sha, "error_type": "HTTPError"}
+            if len(raw) > _MAX_RESPONSE_BYTES:
+                return {"status": "poll_error", "repository": self.repository, "head_sha": self.head_sha, "error_type": "response_too_large"}
+            total_bytes += len(raw)
+            if total_bytes > _MAX_CHECK_RUN_TOTAL_BYTES:
+                return {"status": "poll_error", "repository": self.repository, "head_sha": self.head_sha, "error_type": "response_too_large"}
+            try:
+                payload = json.loads(raw.decode("utf-8"))
+                page_runs = payload["check_runs"]
+                if not isinstance(page_runs, list) or any(not isinstance(item, dict) for item in page_runs):
+                    raise ValueError("check_runs must be a list of objects")
+            except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+                return {"status": "poll_error", "repository": self.repository, "head_sha": self.head_sha, "error_type": "invalid_response"}
+            runs.extend(page_runs)
+            if len(page_runs) < 100:
+                page_complete = True
+                break
+        if not page_complete:
+            return {"status": "poll_error", "repository": self.repository, "head_sha": self.head_sha, "error_type": "pagination_limit"}
 
         by_name: dict[str, list[dict[str, Any]]] = {}
         for run in runs:
@@ -198,6 +218,89 @@ class GitHubActionsCheckPoller:
             "required_checks": list(self.required_checks), "missing_checks": missing,
             "pending_checks": pending, "failed_checks": failed, "checks": details,
         }
+
+
+class GitHubPostMergeVerifier:
+    """Verify that main points at the expected merge SHA before checking its CI."""
+
+    def __init__(
+        self,
+        repository: str,
+        merge_sha: str,
+        required_checks: Sequence[str],
+        *,
+        branch: str = "main",
+        timeout_seconds: float = 10.0,
+        token: str | None = None,
+    ) -> None:
+        if not isinstance(repository, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+            raise ValueError("repository must be owner/name")
+        if not isinstance(merge_sha, str) or not _SHA.fullmatch(merge_sha):
+            raise ValueError("merge_sha must be a full lowercase commit SHA")
+        if not isinstance(branch, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+", branch):
+            raise ValueError("branch must be a simple branch name")
+        if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, (int, float)) or not 0.1 <= timeout_seconds <= 60:
+            raise ValueError("timeout_seconds must be between 0.1 and 60")
+        self.repository = repository
+        self.merge_sha = merge_sha
+        self.branch = branch
+        self.timeout_seconds = float(timeout_seconds)
+        self.token = token if token is not None else (os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"))
+        self.checks = GitHubActionsCheckPoller(
+            repository, merge_sha, required_checks,
+            timeout_seconds=self.timeout_seconds, token=self.token,
+        )
+
+    def __call__(self) -> Mapping[str, Any]:
+        url = f"https://api.github.com/repos/{self.repository}/git/ref/heads/{self.branch}"
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "AUREN-post-merge-verifier",
+        }
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        try:
+            status_code, raw = guarded_https_get(
+                url, allowed_hosts=("api.github.com",), headers=headers,
+                timeout=self.timeout_seconds, max_bytes=_MAX_RESPONSE_BYTES,
+            )
+        except (TimeoutError, OSError) as exc:
+            return {
+                "status": "poll_error", "repository": self.repository,
+                "head_sha": self.merge_sha, "error_type": type(exc).__name__,
+                "verification": "post_merge",
+            }
+        if status_code >= 400:
+            return {
+                "status": "poll_error", "repository": self.repository,
+                "head_sha": self.merge_sha, "error_type": "HTTPError",
+                "verification": "post_merge",
+            }
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+            main_sha = payload["object"]["sha"]
+            if not isinstance(main_sha, str) or not _SHA.fullmatch(main_sha):
+                raise ValueError("branch ref does not contain a full commit SHA")
+        except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+            return {
+                "status": "poll_error", "repository": self.repository,
+                "head_sha": self.merge_sha, "error_type": "invalid_response",
+                "verification": "post_merge",
+            }
+        if main_sha != self.merge_sha:
+            return {
+                "status": "waiting_for_main_head", "repository": self.repository,
+                "head_sha": self.merge_sha, "merge_sha": self.merge_sha,
+                "main_head_sha": main_sha, "branch": self.branch,
+                "verification": "post_merge",
+            }
+        result = dict(self.checks())
+        result.update({
+            "merge_sha": self.merge_sha, "main_head_sha": main_sha,
+            "branch": self.branch, "verification": "post_merge",
+        })
+        return result
 
 
 class ContinuousExecutionSupervisor:
@@ -981,7 +1084,7 @@ class ContinuousExecutionSupervisor:
                         if not isinstance(result, Mapping):
                             raise TypeError("poller must return a mapping")
                         clean = dict(result)
-                        if clean.get("status") not in {"success", "failure", "running", "waiting_for_required_checks", "poll_error", "pending", "observed_complete_unverified"}:
+                        if clean.get("status") not in {"success", "failure", "running", "waiting_for_required_checks", "waiting_for_main_head", "poll_error", "pending", "observed_complete_unverified"}:
                             raise ValueError("poller returned an unsupported status")
                         poll_results[name] = clean
                         self._event(run_id, "poll_result", {"cycle": cycles, "poller": name, "result": clean})
@@ -1122,4 +1225,4 @@ class ContinuousExecutionSupervisor:
             raise
 
 
-__all__ = ["ContinuousExecutionSupervisor", "GitHubActionsCheckPoller"]
+__all__ = ["ContinuousExecutionSupervisor", "GitHubActionsCheckPoller", "GitHubPostMergeVerifier"]

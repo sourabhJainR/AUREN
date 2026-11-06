@@ -92,3 +92,8 @@ The continuous loop, exact-head check polling, stop command, task inventory and 
 Goal reconciliation uses a bounded retry budget (`max_goal_retries`, default five) with persisted exponential backoff. Exhaustion creates a durable `retry_budget_exhausted` hold; the supervisor does not keep retrying without new evidence. Holds caused by approval, external dependency or retry exhaustion remain across process restarts.
 
 A held goal can be woken only when the host configured `operator_authorizer`, the callback returns a verified operator identity, and the caller supplies a bounded evidence reference and reason. Waking clears the retry counter, but does not grant execution authority: the reconciler runs again and must re-check the canonical approval, policy and evidence stores before dispatch. Without host authentication, the hold remains active.
+
+
+## Post-merge verification
+
+Register `GitHubPostMergeVerifier(repository, merge_sha, required_checks)` as a normal supervisor poller after the merge acknowledgement has been reconciled. It first reads the configured branch ref and waits unless its current SHA is exactly the recorded merge SHA. Only then does it inspect the required post-merge check-runs for that same immutable SHA. Missing, skipped, failed, truncated, or unavailable evidence never becomes a pass. If main advances before verification completes, the poller returns to `waiting_for_main_head`; reconcile the newer main revision and its ancestry through the trusted release workflow rather than reusing stale evidence.

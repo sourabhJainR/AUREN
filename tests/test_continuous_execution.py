@@ -7,7 +7,7 @@ import time
 from urllib.error import HTTPError
 from unittest.mock import patch, Mock
 
-from portable.continuous_execution import ContinuousExecutionSupervisor, GitHubActionsCheckPoller, discover_git_target
+from portable.continuous_execution import ContinuousExecutionSupervisor, GitHubActionsCheckPoller, GitHubPostMergeVerifier, discover_git_target
 from portable.execution_controller import ExecutionController
 
 
@@ -288,7 +288,7 @@ def test_goal_reconciler_dispatches_followup_work_without_another_prompt(tmp_pat
         invocations.append(len(invocations) + 1)
         if not task_ids:
             task = controller.submit(
-                "tests.goal_continuation", {"work_key": "goal-unit-1"},
+                "tests.goal_continuation", {"work_key": "AUREN:test:goal-unit-1"},
                 goal="complete the parent engineering goal", work_key="AUREN:test:goal-unit-1",
             )
             task_ids.append(task.id)
@@ -435,8 +435,8 @@ def test_supervisor_reuses_run_identity_after_expired_process_lease(tmp_path):
     assert report["cycle_count"] == 8
     events = resumed.status(event_limit=100)["recent_events"]
     started = [event for event in events if event["event_type"] == "supervisor_started"]
-    assert started[-1]["payload"]["resumed_after_lease_expiry"] is True
-    assert started[-1]["payload"]["starting_cycle"] == 7
+    assert started[0]["payload"]["resumed_after_lease_expiry"] is True
+    assert started[0]["payload"]["starting_cycle"] == 7
     assert resumed.verify_audit_chain()
 
 
@@ -609,3 +609,91 @@ def test_discover_git_target_uses_current_head_and_github_origin(tmp_path):
         assert discover_git_target(tmp_path) == ("sourabhJainR/AUREN", "d" * 40)
     assert run.call_count == 2
     assert all(call.kwargs["timeout"] == 3 for call in run.call_args_list)
+
+
+
+def test_github_poller_finds_required_check_after_first_page():
+    poller = GitHubActionsCheckPoller("owner/repo", "d" * 40, ["required-check"])
+    first_page = {"check_runs": [
+        {"id": index + 1, "name": f"unrelated-{index}", "status": "completed", "conclusion": "success"}
+        for index in range(100)
+    ]}
+    second_page = {"check_runs": [
+        {"id": 101, "name": "required-check", "status": "completed", "conclusion": "success"}
+    ]}
+    responses = [
+        (200, json.dumps(first_page).encode("utf-8")),
+        (200, json.dumps(second_page).encode("utf-8")),
+    ]
+    with patch("portable.continuous_execution.guarded_https_get", side_effect=responses) as request:
+        result = poller()
+    assert result["status"] == "success"
+    assert request.call_count == 2
+    assert "page=1" in request.call_args_list[0].args[0]
+    assert "page=2" in request.call_args_list[1].args[0]
+
+
+def test_github_poller_fails_closed_when_check_run_pagination_is_truncated():
+    poller = GitHubActionsCheckPoller("owner/repo", "e" * 40, ["required-check"])
+    full_page = {"check_runs": [
+        {"id": index + 1, "name": f"check-{index}", "status": "completed", "conclusion": "success"}
+        for index in range(100)
+    ]}
+    response = (200, json.dumps(full_page).encode("utf-8"))
+    with patch("portable.continuous_execution.guarded_https_get", return_value=response) as request:
+        result = poller()
+    assert result["status"] == "poll_error"
+    assert result["error_type"] == "pagination_limit"
+    assert request.call_count == 10
+
+
+def test_post_merge_verifier_waits_until_main_points_to_expected_merge_sha():
+    verifier = GitHubPostMergeVerifier("owner/repo", "a" * 40, ["post-merge-check"])
+    ref = {"object": {"sha": "b" * 40}}
+    with patch("portable.continuous_execution.guarded_https_get", return_value=(200, json.dumps(ref).encode("utf-8"))) as request:
+        result = verifier()
+    assert result["status"] == "waiting_for_main_head"
+    assert result["merge_sha"] == "a" * 40
+    assert result["main_head_sha"] == "b" * 40
+    assert request.call_count == 1
+
+
+def test_post_merge_verifier_requires_successful_checks_on_exact_main_merge_sha():
+    merge_sha = "c" * 40
+    verifier = GitHubPostMergeVerifier("owner/repo", merge_sha, ["post-merge-check"])
+    ref = {"object": {"sha": merge_sha}}
+    checks = {"check_runs": [
+        {"id": 7, "name": "post-merge-check", "status": "completed", "conclusion": "success"}
+    ]}
+    responses = [
+        (200, json.dumps(ref).encode("utf-8")),
+        (200, json.dumps(checks).encode("utf-8")),
+    ]
+    with patch("portable.continuous_execution.guarded_https_get", side_effect=responses) as request:
+        result = verifier()
+    assert result["status"] == "success"
+    assert result["verification"] == "post_merge"
+    assert result["merge_sha"] == merge_sha
+    assert result["main_head_sha"] == merge_sha
+    assert request.call_count == 2
+    assert merge_sha in request.call_args_list[1].args[0]
+
+
+def test_supervisor_keeps_main_head_mismatch_as_a_waiting_poll_state(tmp_path):
+    controller = ExecutionController(tmp_path)
+    supervisor = ContinuousExecutionSupervisor(
+        controller,
+        pollers={
+            "post-merge": lambda: {
+                "status": "waiting_for_main_head",
+                "merge_sha": "a" * 40,
+                "main_head_sha": "b" * 40,
+                "verification": "post_merge",
+            }
+        },
+    )
+    report = supervisor.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    health = supervisor.status()["poller_health"]
+    assert report["audit_chain_valid"] is True
+    assert health[0]["poller"] == "post-merge"
+    assert health[0]["last_status"] == "waiting_for_main_head"
