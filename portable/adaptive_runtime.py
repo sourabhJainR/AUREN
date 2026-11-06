@@ -64,6 +64,8 @@ class AdaptiveRuntime:
         state_root: Path | str | None = None,
         legacy_state_root: Path | str | None = None,
         conflict_scope_verifier: Callable[[Mapping[str, Any], Mapping[str, tuple[str, ...]], str], bool] | None = None,
+        conflict_resolution_verifier: Callable[[str, str], bool] | None = None,
+        requirement_conflict_resolver: Callable[[Mapping[str, Any], str], Mapping[str, Any]] | None = None,
         team_budget_settlement_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
         team_budget_release_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
         team_budget_enforcer_factory: Callable[[Any], Any] | None = None,
@@ -76,6 +78,8 @@ class AdaptiveRuntime:
             graph,
             max_total_attempts=max_total_attempts,
             conflict_scope_verifier=conflict_scope_verifier,
+            conflict_resolution_verifier=conflict_resolution_verifier,
+            requirement_conflict_resolver=requirement_conflict_resolver,
         )
         if state_root is None:
             self.state_paths = AurenStatePaths.prepare(
@@ -149,16 +153,23 @@ class AdaptiveRuntime:
         approval_resolver: Any,
         assignment_resolver: Any,
         conflict_scope_verifier: Callable[[Mapping[str, Any], Mapping[str, tuple[str, ...]], str], bool] | None = None,
+        conflict_resolution_verifier: Callable[[str, str], bool] | None = None,
+        requirement_conflict_resolver: Callable[[Mapping[str, Any], str], Mapping[str, Any]] | None = None,
     ) -> Any:
-        """Install host authority and conflict verification before engineering work starts.
+        """Install host authority, conflict analysis and decision verification before work starts.
 
-        When supplied, the conflict verifier is frozen on the canonical orchestrator.
-        When omitted, unresolved conflicts cannot use selective continuation.
+        Resolver and verifier callbacks are trusted composition-root dependencies.
+        Request payloads cannot install or replace them. When omitted, unresolved
+        conflicts remain fail-closed and structured dimensions are marked not configured.
         """
         if self.trusted_plan_dispatch_root is not None:
             raise RuntimeError("trusted plan dispatch is already configured")
         if conflict_scope_verifier is not None:
             self.orchestrator.configure_conflict_scope_verifier(conflict_scope_verifier)
+        if conflict_resolution_verifier is not None:
+            self.orchestrator.configure_conflict_resolution_verifier(conflict_resolution_verifier)
+        if requirement_conflict_resolver is not None:
+            self.orchestrator.configure_requirement_conflict_resolver(requirement_conflict_resolver)
         from .trusted_plan_dispatch import TrustedPlanDispatchRoot
         self.trusted_plan_dispatch_root = TrustedPlanDispatchRoot(
             controller=self.execution_controller,
