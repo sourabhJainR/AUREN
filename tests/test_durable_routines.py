@@ -175,6 +175,26 @@ class DurableRoutineRegistryTests(unittest.TestCase):
         self.assertEqual("submitted", retried[0].status)
         self.assertEqual(1, len(self.submissions))
 
+    def test_scheduled_unknown_outcome_stays_due_until_reconciled(self):
+        spec = self.spec(
+            trigger="interval", event_type=None, interval_seconds=60,
+        )
+        self.registry.register(spec)
+
+        def uncertain(*args, **kwargs):
+            raise TimeoutError("ack lost after submit")
+
+        now = datetime.now(timezone.utc) + timedelta(seconds=61)
+        first = self.registry.dispatch_due(now=now, submit=uncertain)
+        second = self.registry.dispatch_due(
+            now=now, submit=self.submit,
+            reconcile=lambda work_key: {"id": "already-created-task"},
+        )
+        self.assertEqual("unknown", first[0].status)
+        self.assertEqual("submitted", second[0].status)
+        self.assertEqual("already-created-task", second[0].task_id)
+        self.assertEqual([], self.submissions)
+
     def test_disabled_routine_does_not_dispatch(self):
         spec = self.spec()
         self.registry.register(spec)
