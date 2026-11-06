@@ -46,7 +46,7 @@ SCHEMAS = {
 }
 COMMON = {
     "deployment_id", "exact_main_sha", "postgres_service_id", "postgres_cluster_id",
-    "postgres_primary_identity", "postgres_version", "schema_version",
+    "postgres_primary_identity", "postgres_version", "database_schema_version",
     "migration_id", "policy_version", "config_digest", "host_observations",
     "role_identities", "external_execution", "independent_review_passed",
 }
@@ -171,7 +171,7 @@ def validate(payload: Any) -> list[str]:
         errors.append("independent_review_passed must be true")
     for field in ("deployment_id", "exact_main_sha", "postgres_service_id",
                   "postgres_cluster_id", "postgres_primary_identity", "postgres_version",
-                  "schema_version", "migration_id", "policy_version"):
+                  "database_schema_version", "migration_id", "policy_version"):
         if not _nonempty(payload.get(field)):
             errors.append(f"{field} must be a non-empty deployment-bound value")
     if not _nonempty(payload.get("exact_main_sha")) or len(str(payload.get("exact_main_sha", ""))) < 40:
