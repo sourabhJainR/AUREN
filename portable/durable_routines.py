@@ -219,12 +219,14 @@ class DurableRoutineRegistry:
         return RoutineSpec(**payload)
 
     def dispatch_manual(
-        self, routine_id: str, *, submit: Callable[..., Any],
+        self, routine_id: str, *, invocation_id: str, submit: Callable[..., Any],
         approval: Callable[[RoutineSpec], bool] | None = None,
         reconcile: Callable[[str], Any | None] | None = None,
     ) -> RoutineDispatch:
+        if not isinstance(invocation_id, str) or not invocation_id.strip() or len(invocation_id) > 256:
+            raise ValueError("invocation_id must be non-empty bounded text")
         return self._dispatch(
-            routine_id, "manual", "manual", submit=submit,
+            routine_id, "manual", invocation_id, submit=submit,
             approval=approval, reconcile=reconcile,
         )
 
@@ -313,6 +315,10 @@ class DurableRoutineRegistry:
             "trigger_kind": trigger_kind, "trigger_key": trigger_key,
         })
         work_key = f"routine:{routine_id}:v{spec.version}:{occurrence_key[:32]}"
+        trigger_digest = _digest({
+            "event_payload": dict(event_payload) if event_payload is not None else None,
+            "scheduled_at": _iso(scheduled_at) if scheduled_at is not None else None,
+        })
         now = _iso(datetime.now(timezone.utc))
         with self._lock, closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
@@ -321,6 +327,10 @@ class DurableRoutineRegistry:
                 (occurrence_key,),
             ).fetchone()
             if previous:
+                previous_receipt = json.loads(previous["receipt_json"])
+                if previous_receipt.get("trigger_digest") != trigger_digest:
+                    db.execute("COMMIT")
+                    raise ValueError("trigger identity was reused with different payload")
                 if previous["status"] == "submitted":
                     db.execute("COMMIT")
                     return RoutineDispatch(occurrence_key, work_key, "duplicate", previous["task_id"])
@@ -347,7 +357,8 @@ class DurableRoutineRegistry:
                     return RoutineDispatch(occurrence_key, work_key, "submitted", task_id)
                 db.execute("COMMIT")
                 return RoutineDispatch(occurrence_key, work_key, previous["status"])
-            receipt = {"state": "dispatching", "routine_digest": spec.digest}
+            receipt = {"state": "dispatching", "routine_digest": spec.digest,
+                       "trigger_digest": trigger_digest}
             db.execute(
                 """INSERT INTO routine_occurrences
                    (occurrence_key,routine_id,routine_version,trigger_kind,status,work_key,
