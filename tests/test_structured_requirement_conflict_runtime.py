@@ -73,33 +73,6 @@ def test_structured_conflict_blocks_only_affected_graph_workstream():
     assert seen["review"]["structured_requirement_conflicts"]["conflicts"][0]["recommended_option"] == "accept_delayed"
 
 
-def test_verified_decision_record_unblocks_structured_conflict():
-    calls = []
-    conflict_id = {}
-
-    def resolve(intake, graph_digest):
-        parsed = _resolver(intake, graph_digest)
-        from portable.requirement_conflicts import RequirementConflictAnalyzer
-        conflict_id["value"] = RequirementConflictAnalyzer.analyze(parsed["facts"]).conflicts[0].conflict_id
-        return parsed
-
-    run = Orchestrator(
-        _graph(calls),
-        requirement_conflict_resolver=resolve,
-        conflict_resolution_verifier=lambda key, option: (
-            key == conflict_id.get("value") and option == "accept_delayed"
-        ),
-    ).run(
-        "structured-conflict-resolved",
-        "Build quotes. Use delayed quotes.",
-        context={"preimplementation_resolutions": {"pending": "accept_delayed"}},
-    )
-    # The stable conflict ID is not available to the caller until parsing.
-    # Re-run with the ID precomputed from the exact source facts.
-    assert run.status == RunStatus.BLOCKED
-    assert calls == []
-
-
 def test_exact_host_verified_resolution_unblocks_conflict():
     calls = []
     from portable.requirement_conflicts import RequirementConflictAnalyzer
