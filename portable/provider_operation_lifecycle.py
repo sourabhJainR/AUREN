@@ -289,19 +289,27 @@ class ProviderOperationLifecycle:
             if lookup_span is not None:
                 lookup_span.finish({"lookup_returned": True, "result_mapping": False}, "blocked", "invalid_lookup_result")
             raise ProviderOutcomeBlocked("provider lookup result is invalid; explicit resolution required")
-        if lookup_span is not None:
-            lookup_span.finish(
-                {
-                    "lookup_returned": True,
-                    "provider_status": str(status.get("status", "unknown"))[:80],
-                    "result_mapping": True,
-                },
-                "ok",
-            )
+
+        provider_status = status.get("status")
+
+        def finish_blocked_lookup(reason: str) -> None:
+            if lookup_span is not None:
+                lookup_span.finish(
+                    {
+                        "lookup_returned": True,
+                        "provider_status": str(provider_status or "unknown")[:80],
+                        "result_mapping": True,
+                        "evidence_verified": False,
+                        "rejection_reason": reason,
+                    },
+                    "blocked",
+                    reason,
+                )
         if status.get("status") == "completed" and isinstance(status.get("receipt"), Mapping):
             evidence_ref = status.get("evidence_ref")
             receipt = dict(status["receipt"])
             if not isinstance(evidence_ref, str) or not evidence_ref.strip():
+                finish_blocked_lookup("missing_evidence_reference")
                 raise ProviderOutcomeBlocked("provider completion lacks a trusted evidence reference")
             # The lookup envelope and receipt are separate claims. Do not let a
             # completed lookup envelope promote a pending/malformed receipt.
@@ -345,6 +353,7 @@ class ProviderOperationLifecycle:
                 or not provider_operation_id.strip()
                 or mismatched_binding is not None
             ):
+                finish_blocked_lookup("reconciliation_receipt_incomplete")
                 self._event(
                     operation_key, "blocked", op_id, record["payload_digest"],
                     reason="reconciliation_receipt_incomplete",
@@ -354,16 +363,32 @@ class ProviderOperationLifecycle:
                 )
             existing_evidence_ref = receipt.get("evidence_ref")
             if existing_evidence_ref is not None and existing_evidence_ref != evidence_ref:
+                finish_blocked_lookup("conflicting_evidence_reference")
                 raise ProviderOutcomeBlocked("provider receipt evidence reference conflicts with lookup evidence")
             # Persist the evidence locator with the immutable receipt. Recovery must
             # not need another remote lookup after this durable commit.
             receipt["evidence_ref"] = evidence_ref
-            result = self.ledger.record_reconciled_effect(
-                operation_key, evidence_ref=evidence_ref, receipt=receipt
-            )
+            try:
+                result = self.ledger.record_reconciled_effect(
+                    operation_key, evidence_ref=evidence_ref, receipt=receipt
+                )
+            except Exception:
+                finish_blocked_lookup("trusted_evidence_verification_failed")
+                raise
+            if lookup_span is not None:
+                lookup_span.finish(
+                    {
+                        "lookup_returned": True,
+                        "provider_status": "completed",
+                        "result_mapping": True,
+                        "evidence_verified": True,
+                    },
+                    "ok",
+                )
             self._event(operation_key, "completed", op_id, result.payload_digest,
                         evidence_ref=evidence_ref, reconciled=True)
             return dict(result.receipt or {})
+        finish_blocked_lookup("provider_outcome_not_confirmed")
         self._event(operation_key, "blocked", op_id, record["payload_digest"],
                     provider_status=str(status.get("status", "unknown")))
         raise ProviderOutcomeBlocked(
