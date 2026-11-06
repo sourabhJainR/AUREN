@@ -113,3 +113,77 @@ def test_local_simulation_cannot_be_submitted_as_external_execution():
     payload = base("auren-postgres-admission-staging-v1")
     payload["external_execution"] = False
     assert "external_execution must be true; CI and local simulations are not operator evidence" in module.validate(payload)
+
+
+def campaign_base():
+    roles = {
+        "operator": "campaign-operator",
+        "evaluator": "external-evaluator",
+        "oracle": "oracle-team",
+        "sandbox_auditor": "sandbox-auditor",
+        "holdout_custodian": "holdout-custodian",
+        "external_signer": "external-signing-authority",
+        "result_archivist": "results-archivist",
+        "independent_reviewer": "independent-reviewer",
+    }
+    refs = {
+        "custody_attestation_ref", "corpus_seal_receipt_ref",
+        "external_signing_authority_ref", "trust_root_publication_ref",
+        "signature_verification_receipt_ref", "isolation_attestation_ref",
+        "repeated_run_receipts_ref", "negative_control_report_ref",
+        "independent_result_archive_ref", "archive_retention_lock_ref",
+        "independent_review_ref",
+    }
+    return {
+        "schema_version": "auren-independent-campaign-v2",
+        "campaign_id": "campaign-2026-11",
+        "exact_main_sha": "a" * 40,
+        "evaluator_version": "evaluator-v3",
+        "runtime_image_digest": "sha256:" + "b" * 64,
+        "config_digest": "c" * 64,
+        "corpus_manifest_sha256": "d" * 64,
+        "trust_root_version": "signer-root-v2",
+        "role_identities": roles,
+        "archive_admin_identity": "immutable-archive-admin",
+        "run_receipts": [
+            {"nonce": "run-1", "signer_id": roles["external_signer"], "signature_verified": True},
+            {"nonce": "run-2", "signer_id": roles["external_signer"], "signature_verified": True},
+        ],
+        "negative_controls": {
+            "nonce_replay": True, "corpus_mismatch": True,
+            "invalid_signature": True, "expired_signature": True,
+            "role_overlap": True, "missing_isolation": True,
+            "partial_receipt_coverage": True,
+        },
+        "external_execution": True,
+        "independent_review_passed": True,
+        "corpus_sealed": True,
+        "holdout_material_disclosed": False,
+        "trust_verifier_mode": "production",
+        "independent_results_retained": True,
+        "archive_retention_locked": True,
+        **{field: "evidence://" + field for field in refs},
+    }
+
+
+def test_independent_campaign_requires_separate_external_signer_and_locked_archive():
+    payload = campaign_base()
+    assert module.validate(payload) == []
+
+
+def test_independent_campaign_rejects_signer_overlap_and_unretained_results():
+    payload = campaign_base()
+    payload["role_identities"]["external_signer"] = payload["role_identities"]["evaluator"]
+    payload["independent_results_retained"] = False
+    errors = module.validate(payload)
+    assert any("must be distinct" in error for error in errors)
+    assert "independent results must be retained under an immutable retention lock" in errors
+
+
+def test_independent_campaign_rejects_reused_nonce_and_wrong_signer():
+    payload = campaign_base()
+    payload["run_receipts"][1]["nonce"] = payload["run_receipts"][0]["nonce"]
+    payload["run_receipts"][1]["signer_id"] = "auren-owned-key"
+    errors = module.validate(payload)
+    assert "run receipt nonces must be distinct" in errors
+    assert "each run receipt must bind to the independent external_signer identity" in errors
