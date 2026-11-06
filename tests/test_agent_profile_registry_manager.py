@@ -75,6 +75,10 @@ class AgentProfileRegistryManagerTests(unittest.TestCase):
         first = self.manager.import_registry(raw, expected_current_digest=before)
         self.assertEqual("imported", first["status"])
         self.assertEqual(["backend_implementer/2"], first["added_profiles"])
+        self.assertEqual("import", first["receipt"]["operation"])
+        self.assertEqual(before, first["receipt"]["previous_registry_digest"])
+        self.assertEqual(first["registry_digest"], first["receipt"]["registry_digest"])
+        self.assertEqual(64, len(first["receipt"]["receipt_digest"]))
         _normalized, after = load_agent_profile_registry(
             self.path, organization_registry_path=ROLE_PATH,
         )
@@ -141,6 +145,8 @@ class AgentProfileRegistryManagerTests(unittest.TestCase):
         self.assertNotEqual(old.memory_namespace, restored.memory_namespace)
         self.assertNotEqual(old.digest, revised.digest)
         self.assertEqual(3, result["historical_revision_count"])
+        self.assertEqual("rollback_profile", result["receipt"]["operation"])
+        self.assertEqual(64, len(result["receipt"]["receipt_digest"]))
 
     def test_template_rollback_creates_new_revision_without_rewriting_old_templates(self):
         raw = self._raw()
@@ -166,6 +172,8 @@ class AgentProfileRegistryManagerTests(unittest.TestCase):
         self.assertEqual(old["members"], restored["members"])
         self.assertNotEqual(old["description"], revised["description"])
         self.assertEqual(3, result["historical_revision_count"])
+        self.assertEqual("rollback_team_template", result["receipt"]["operation"])
+        self.assertEqual(64, len(result["receipt"]["receipt_digest"]))
 
     def test_preview_rejects_action_scope_widening(self):
         raw = self._raw()
