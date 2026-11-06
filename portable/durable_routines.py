@@ -272,10 +272,13 @@ class DurableRoutineRegistry:
             spec = RoutineSpec(**json.loads(row["spec_json"]))
             scheduled = _utc(datetime.fromisoformat(row["next_run_at"]))
             occurrence = f"{spec.routine_id}:v{spec.version}:{_iso(scheduled)}"
-            results.append(self._dispatch(
+            dispatched = self._dispatch(
                 spec.routine_id, spec.trigger, occurrence, submit=submit,
                 approval=approval, reconcile=reconcile, scheduled_at=scheduled,
-            ))
+            )
+            results.append(dispatched)
+            if dispatched.status not in {"submitted", "duplicate", "unknown"}:
+                continue
             if spec.trigger == "interval":
                 next_run = scheduled + timedelta(seconds=spec.interval_seconds or 0)
                 with closing(self._connect()) as db:
