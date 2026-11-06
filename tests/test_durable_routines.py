@@ -68,6 +68,39 @@ class DurableRoutineRegistryTests(unittest.TestCase):
         self.assertEqual(1, len(self.submissions))
         self.assertEqual(first.task_id, second.task_id)
 
+    def test_webhook_event_id_cannot_be_reused_with_different_payload(self):
+        spec = self.spec()
+        self.registry.register(spec)
+        self.registry.dispatch_webhook(
+            spec.routine_id, event_id="evt-collision", event_type="push",
+            payload={"ref": "refs/heads/main"},
+            authenticate=lambda *_: True, submit=self.submit,
+        )
+        with self.assertRaisesRegex(ValueError, "reused with different payload"):
+            self.registry.dispatch_webhook(
+                spec.routine_id, event_id="evt-collision", event_type="push",
+                payload={"ref": "refs/heads/release"},
+                authenticate=lambda *_: True, submit=self.submit,
+            )
+        self.assertEqual(1, len(self.submissions))
+
+    def test_manual_invocations_are_distinct_but_idempotent_by_invocation_id(self):
+        spec = self.spec(trigger="manual", event_type=None)
+        self.registry.register(spec)
+        first = self.registry.dispatch_manual(
+            spec.routine_id, invocation_id="operator-run-1", submit=self.submit,
+        )
+        duplicate = self.registry.dispatch_manual(
+            spec.routine_id, invocation_id="operator-run-1", submit=self.submit,
+        )
+        second = self.registry.dispatch_manual(
+            spec.routine_id, invocation_id="operator-run-2", submit=self.submit,
+        )
+        self.assertEqual("submitted", first.status)
+        self.assertEqual("duplicate", duplicate.status)
+        self.assertEqual("submitted", second.status)
+        self.assertEqual(2, len(self.submissions))
+
     def test_webhook_payload_must_be_bounded_json(self):
         spec = self.spec()
         self.registry.register(spec)
