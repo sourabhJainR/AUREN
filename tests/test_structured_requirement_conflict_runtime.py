@@ -28,7 +28,7 @@ def _resolver(intake, _graph_digest, *, malformed=False):
         "not_applicable_statement_ids": [],
         "workstream_dependencies": {
             "quote_adapter": ["market_data_latency"],
-            "news_adapter": ["news"],
+            "news_adapter": [],
         },
     }
 
@@ -76,12 +76,6 @@ def test_structured_conflict_blocks_only_affected_graph_workstream():
 def test_exact_host_verified_resolution_unblocks_conflict():
     calls = []
     from portable.requirement_conflicts import RequirementConflictAnalyzer
-
-    def resolve(intake, graph_digest):
-        parsed = _resolver(intake, graph_digest)
-        conflict_id = RequirementConflictAnalyzer.analyze(parsed["facts"]).conflicts[0].conflict_id
-        parsed["conflict_id"] = conflict_id
-        return parsed
 
     # The resolver contract is exact: extra keys are rejected. This test uses
     # a precomputed deterministic ID from the same source-bound facts.
