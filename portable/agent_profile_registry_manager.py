@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import stat
 import tempfile
+import time
 from typing import Any, Iterator, Mapping
 
 from .agent_profiles import (
@@ -155,13 +156,24 @@ class AgentProfileRegistryManager:
             if os.fstat(handle.fileno()).st_size == 0:
                 handle.write(b"0")
                 handle.flush()
-            handle.seek(0)
-            if os.name == "nt":
-                import msvcrt
-                msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            deadline = time.monotonic() + 10.0
+            acquired = False
+            while not acquired:
+                handle.seek(0)
+                try:
+                    if os.name == "nt":
+                        import msvcrt
+                        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                    else:
+                        import fcntl
+                        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    acquired = True
+                except OSError as exc:
+                    if time.monotonic() >= deadline:
+                        raise AgentProfileError(
+                            "profile registry is locked by another writer; retry with a fresh preview"
+                        ) from exc
+                    time.sleep(0.05)
             try:
                 yield
             finally:
