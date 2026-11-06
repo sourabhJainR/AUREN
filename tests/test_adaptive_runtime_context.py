@@ -44,6 +44,32 @@ class AdaptiveRuntimeContextTests(unittest.TestCase):
             scheduler.close()
             memory.close()
 
+    def test_adaptive_runtime_injects_structured_conflict_and_decision_verifiers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            graph = Graph([Node("work", NodeKind.DETERMINISTIC, lambda _state: "ok")])
+            resolver = lambda _intake, _digest: {
+                "facts": [],
+                "not_applicable_statement_ids": [],
+                "workstream_dependencies": {"work": []},
+            }
+            decision_verifier = lambda _conflict_id, _option: False
+            memory = PersistentMemory(root / "memory.db", require_approval=False)
+            scheduler = AutomationScheduler(root / "automation.db")
+            runtime = AdaptiveRuntime(
+                graph,
+                persistent_memory=memory,
+                automation_scheduler=scheduler,
+                session_store=SessionStore(root / "sessions.db"),
+                state_root=root / "state",
+                requirement_conflict_resolver=resolver,
+                conflict_resolution_verifier=decision_verifier,
+            )
+            self.assertIs(runtime.orchestrator.requirement_conflict_resolver, resolver)
+            self.assertIs(runtime.orchestrator.conflict_resolution_verifier, decision_verifier)
+            scheduler.close()
+            memory.close()
+
     def test_runtime_resolves_context_without_bypassing_orchestrator(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
