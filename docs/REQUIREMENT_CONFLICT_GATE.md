@@ -10,7 +10,7 @@ A decision record binds the selected option, decision maker, rationale, prior pl
 
 ## Runtime integration
 
-The Orchestrator accepts a host-owned requirement_conflict_resolver callback. It receives the bounded, sanitized intake receipt and exact graph digest. It must return exactly:
+The canonical AdaptiveRuntime composition root accepts the host-owned requirement_conflict_resolver and conflict_resolution_verifier callbacks at construction or while configuring trusted plan dispatch. StateGraph forwards the same callbacks to Orchestrator in both traced and untraced execution. The resolver receives a detached copy of the bounded, sanitized intake receipt and the exact graph digest. It must return exactly:
 
 - facts: RequirementFact values whose IDs use statement:<index> and whose statement text exactly matches a non-redacted intake statement;
 - not_applicable_statement_ids: every remaining requirement, constraint, acceptance, assumption, or non-goal statement that does not map to one of the structured conflict dimensions;
