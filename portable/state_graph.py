@@ -504,12 +504,14 @@ class StateGraph:
         conflict_scope_verifier: Callable[[Mapping[str, Any], Mapping[str, tuple[str, ...]], str], bool] | None = None,
         conflict_resolution_verifier: Callable[[str, str], bool] | None = None,
         requirement_conflict_resolver: Callable[[Mapping[str, Any], str], Mapping[str, Any]] | None = None,
+        profile_registry_receipt_verifier: Callable[[Mapping[str, Any]], bool] | None = None,
     ) -> None:
         self.graph = graph
         self.transitions = transitions
         self.conflict_scope_verifier = conflict_scope_verifier
         self.conflict_resolution_verifier = conflict_resolution_verifier
         self.requirement_conflict_resolver = requirement_conflict_resolver
+        self.profile_registry_receipt_verifier = profile_registry_receipt_verifier
         self.states = tuple(node.name for node in graph.order())
         self._validate_transitions()
 
@@ -522,12 +524,14 @@ class StateGraph:
         conflict_scope_verifier: Callable[[Mapping[str, Any], Mapping[str, tuple[str, ...]], str], bool] | None = None,
         conflict_resolution_verifier: Callable[[str, str], bool] | None = None,
         requirement_conflict_resolver: Callable[[Mapping[str, Any], str], Mapping[str, Any]] | None = None,
+        profile_registry_receipt_verifier: Callable[[Mapping[str, Any]], bool] | None = None,
     ) -> "StateGraph":
         return cls(
             Graph(nodes), transitions,
             conflict_scope_verifier=conflict_scope_verifier,
             conflict_resolution_verifier=conflict_resolution_verifier,
             requirement_conflict_resolver=requirement_conflict_resolver,
+            profile_registry_receipt_verifier=profile_registry_receipt_verifier,
         )
 
     def _validate_transitions(self) -> None:
@@ -550,6 +554,7 @@ class StateGraph:
                 conflict_scope_verifier=self.conflict_scope_verifier,
                 conflict_resolution_verifier=self.conflict_resolution_verifier,
                 requirement_conflict_resolver=self.requirement_conflict_resolver,
+                profile_registry_receipt_verifier=self.profile_registry_receipt_verifier,
             ).run(task_id, intent, context)
 
         state = dict(context or {})
@@ -702,6 +707,7 @@ class StateGraph:
                 conflict_scope_verifier=self.conflict_scope_verifier,
                 conflict_resolution_verifier=self.conflict_resolution_verifier,
                 requirement_conflict_resolver=self.requirement_conflict_resolver,
+                profile_registry_receipt_verifier=self.profile_registry_receipt_verifier,
             ).run(task_id, intent, state)
             for node in self.graph.order():
                 node_result = result.results.get(node.name)

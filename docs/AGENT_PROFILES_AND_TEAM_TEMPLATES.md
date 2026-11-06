@@ -59,12 +59,40 @@ The composition root installs that enforcer for consequential provider dispatch.
 
 Rollback: stop resolving the profile registry and retain the last-known-good configuration. Existing durable tasks and role assignments remain unchanged. Do not rewrite historical task evidence when a profile revision is retired.
 
+## Registry lifecycle operations
+
+Example:
+
+```python
+manager = AgentProfileRegistryManager()
+preview = manager.preview(candidate_registry)
+result = manager.import_registry(
+    candidate_registry,
+    expected_current_digest=preview["current_digest"],
+)
+```
+
+Refresh the preview if the expected digest is stale; do not retry a failed write with the old digest.
+
+Use `portable.agent_profile_registry_manager.AgentProfileRegistryManager` for profile/template changes:
+
+- `preview(candidate)` validates the full candidate registry and returns a digest-bound diff without writing.
+- `diff(candidate)` returns the profile and template additions, removals and changed revisions.
+- `export()` returns canonical source JSON, the normalized registry digest and a separate source-byte digest.
+- `import_registry(candidate, expected_current_digest=...)` performs an additive import. Exact duplicate revisions are idempotent; an existing revision with different content, removal of historical revisions, invalid authority, or a stale expected digest is rejected.
+- `rollback_profile(profile_id, to_revision=..., expected_current_digest=...)` creates a new profile revision copied from the selected historical revision. It never edits or deletes the revision pinned by an in-flight task.
+- `rollback_team_template(template_id, to_revision=..., expected_current_digest=...)` creates a new template revision with the historical membership and dependency order.
+
+Every write uses an exclusive cross-process lock with a bounded 10-second acquisition wait, checks the expected current registry digest after acquiring the lock, validates the merged registry, writes a same-directory temporary file, fsyncs it and atomically replaces the canonical registry. A stale writer must refresh its preview. The lock file is operational metadata; it does not contain profile authority or task state. Each successful import or rollback also returns a canonical digest-bound change receipt (previous digest, resulting digest, operation and affected revisions). Pass it to the next run in `agent_profile_registry_change_receipts`; `Orchestrator`, `AdaptiveRuntime` and `StateGraph` verify the receipt digest and call the host-owned `profile_registry_receipt_verifier` before recording it as run evidence. Supplying a receipt without a verifier blocks before graph execution. The host verifier must check the resulting registry digest and its trusted change authority; the registry manager does not invent an evidence authority.
+
+Rollback is forward-only: existing task/profile bindings and historical evidence are not rewritten. If a profile is rolled back, create a new team-template revision as well when new teams should select that profile revision. Existing templates and in-flight tasks keep their original pinned revisions.
+
 ## Validation
 
 Run:
 
 ```bash
-python -m unittest tests.test_agent_profiles tests.test_impact_policy
+python -m unittest tests.test_agent_profiles tests.test_agent_profile_registry_manager tests.test_impact_policy
 ```
 
 The production hardening workflow also runs `tests.test_agent_profiles`. These tests validate repository contracts only; they do not prove a deployed provider, workspace sandbox, memory isolation or independent reviewer.

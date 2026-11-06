@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 import py_compile
+import re
 import tempfile
 import threading
 import time
@@ -357,6 +358,7 @@ class Orchestrator:
         conflict_scope_verifier: Callable[[Mapping[str, Any], Mapping[str, tuple[str, ...]], str], bool] | None = None,
         conflict_resolution_verifier: Callable[[str, str], bool] | None = None,
         requirement_conflict_resolver: Callable[[Mapping[str, Any], str], Mapping[str, Any]] | None = None,
+        profile_registry_receipt_verifier: Callable[[Mapping[str, Any]], bool] | None = None,
     ) -> None:
         if max_total_attempts < 1:
             raise ValueError("max_total_attempts must be positive")
@@ -374,6 +376,9 @@ class Orchestrator:
         # The resolver is supplied by the trusted host/planner composition root.
         # Caller/model payloads cannot install or replace this semantic parser.
         self.requirement_conflict_resolver = requirement_conflict_resolver
+        if profile_registry_receipt_verifier is not None and not callable(profile_registry_receipt_verifier):
+            raise TypeError("profile registry receipt verifier must be callable when configured")
+        self.profile_registry_receipt_verifier = profile_registry_receipt_verifier
         self._configuration_lock = threading.RLock()
         self._execution_started = False
 
@@ -419,6 +424,20 @@ class Orchestrator:
                 raise RuntimeError("requirement-conflict resolver is already configured")
             self.requirement_conflict_resolver = resolver
 
+    def configure_profile_registry_receipt_verifier(
+        self,
+        verifier: Callable[[Mapping[str, Any]], bool],
+    ) -> None:
+        """Install the host-owned verifier for profile registry change receipts."""
+        if not callable(verifier):
+            raise TypeError("profile registry receipt verifier must be callable")
+        with self._configuration_lock:
+            if self._execution_started:
+                raise RuntimeError("profile registry receipt verifier must be configured before graph execution")
+            if self.profile_registry_receipt_verifier is not None and self.profile_registry_receipt_verifier is not verifier:
+                raise RuntimeError("profile registry receipt verifier is already configured")
+            self.profile_registry_receipt_verifier = verifier
+
     @staticmethod
     def intent_digest(intent: str) -> str:
         return hashlib.sha256(intent.strip().encode()).hexdigest()
@@ -433,6 +452,83 @@ class Orchestrator:
             self._execution_started = True
         run = OrchestrationRun(task_id=task_id, intent_digest=self.intent_digest(intent), environment_fingerprint=self.environment_fingerprint(context))
         state: dict[str, Any] = dict(context or {})
+        raw_profile_receipts = state.get("agent_profile_registry_change_receipts", ())
+        if raw_profile_receipts:
+            try:
+                if (
+                    not isinstance(raw_profile_receipts, (list, tuple))
+                    or len(raw_profile_receipts) > 32
+                    or not callable(self.profile_registry_receipt_verifier)
+                ):
+                    raise ValueError("profile registry receipts require a bounded list and host verifier")
+                normalized_receipts = []
+                for receipt in raw_profile_receipts:
+                    if not isinstance(receipt, Mapping) or set(receipt) != {
+                        "schema_version", "operation", "previous_registry_digest",
+                        "registry_digest", "affected_revisions", "receipt_digest",
+                    }:
+                        raise ValueError("profile registry change receipt shape is invalid")
+                    body = {key: value for key, value in receipt.items() if key != "receipt_digest"}
+                    if (
+                        receipt.get("schema_version") != "auren-agent-profile-registry-change-v1"
+                        or receipt.get("operation") not in {"import", "rollback_profile", "rollback_team_template"}
+                        or any(
+                            not isinstance(receipt.get(field), str)
+                            or re.fullmatch(r"[0-9a-f]{64}", receipt[field]) is None
+                            for field in ("previous_registry_digest", "registry_digest", "receipt_digest")
+                        )
+                        or not isinstance(receipt.get("affected_revisions"), (list, tuple))
+                        or not receipt["affected_revisions"]
+                        or len(receipt["affected_revisions"]) > 256
+                        or any(not isinstance(item, str) or not item.strip() or len(item) > 160 for item in receipt["affected_revisions"])
+                        or len(set(receipt["affected_revisions"])) != len(receipt["affected_revisions"])
+                    ):
+                        raise ValueError("profile registry change receipt fields are invalid")
+                    expected_receipt_digest = hashlib.sha256(
+                        json.dumps(
+                            body, sort_keys=True, separators=(",", ":"),
+                            ensure_ascii=False, allow_nan=False,
+                        ).encode("utf-8")
+                    ).hexdigest()
+                    if receipt["receipt_digest"] != expected_receipt_digest:
+                        raise ValueError("profile registry change receipt digest is invalid")
+                    verified_receipt = json.loads(json.dumps(
+                        dict(receipt), sort_keys=True, separators=(",", ":"),
+                        ensure_ascii=False, allow_nan=False,
+                    ))
+                    verifier_input = json.loads(json.dumps(verified_receipt))
+                    if self.profile_registry_receipt_verifier(verifier_input) is not True:
+                        raise ValueError("host did not verify the profile registry change receipt")
+                    normalized_receipts.append(verified_receipt)
+                run.record(Evidence(
+                    "agent-profile-registry-change",
+                    json.dumps(normalized_receipts, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
+                    "portable.agent_profile_registry_manager",
+                ))
+                run.trajectory.append({
+                    "event": "agent_profile_registry_change_receipts_verified",
+                    "status": "verified",
+                    "receipt_count": len(normalized_receipts),
+                    "receipt_digests": [item["receipt_digest"] for item in normalized_receipts],
+                })
+            except Exception as exc:
+                run.record(Evidence(
+                    "agent-profile-registry-change",
+                    json.dumps({
+                        "status": "blocked",
+                        "error_type": type(exc).__name__,
+                        "reason": "profile registry change receipt could not be verified",
+                    }, sort_keys=True, separators=(",", ":")),
+                    "portable.agent_profile_registry_manager",
+                ))
+                run.status = RunStatus.BLOCKED
+                run.stop_reason = "profile registry change receipt verification failed before graph execution"
+                run.trajectory.append({
+                    "event": "agent_profile_registry_change_receipts_verified",
+                    "status": "blocked",
+                    "error_type": type(exc).__name__,
+                })
+                return run
         raw_guard = state.get("_auren_runtime_execution_guard")
         if isinstance(raw_guard, RuntimeExecutionGuard):
             guard = raw_guard
