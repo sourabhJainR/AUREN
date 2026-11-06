@@ -299,7 +299,7 @@ def test_goal_reconciler_dispatches_followup_work_without_another_prompt(tmp_pat
     )
     report = supervisor.run(poll_seconds=0.1, batch_size=10, max_cycles=2)
 
-    assert len(invocations) == 2, {"report": report, "events": supervisor.status(event_limit=100)["recent_events"]}
+    assert len(invocations) == 2, {"goal_health": report["goal_health"], "goal_events": [(e["event_type"], e["payload"]) for e in supervisor.status(event_limit=100)["recent_events"] if "goal_" in e["event_type"]]}
     assert controller.task(task_ids[0]).state == "completed"
     assert report["audit_chain_valid"] is True
     events = supervisor.status(event_limit=100)["recent_events"]
@@ -436,7 +436,7 @@ def test_supervisor_reuses_run_identity_after_expired_process_lease(tmp_path):
     events = resumed.status(event_limit=100)["recent_events"]
     started = [event for event in events if event["event_type"] == "supervisor_started"]
     assert started[0]["payload"]["resumed_after_lease_expiry"] is True
-    assert started[-1]["payload"]["starting_cycle"] == 7
+    assert started[0]["payload"]["starting_cycle"] == 7
     assert resumed.verify_audit_chain()
 
 
