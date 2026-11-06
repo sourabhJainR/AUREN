@@ -115,6 +115,10 @@ def _validate_campaign(payload: Mapping[str, Any]) -> list[str]:
                 errors.append("operator, evaluator, oracle, auditor, custodian, signer, archivist, and reviewer must be distinct")
             if _nonempty(payload.get("archive_admin_identity")) and roles.get("result_archivist") == payload.get("archive_admin_identity"):
                 errors.append("independent result archive administrator must be separate from the result archivist")
+    runtime_digest = payload.get("runtime_image_digest")
+    if not isinstance(runtime_digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", runtime_digest):
+        errors.append("runtime_image_digest must be a sha256 digest")
+    signer_identity = roles.get("external_signer") if isinstance(roles, Mapping) else None
     receipts = payload.get("run_receipts")
     if not isinstance(receipts, list) or len(receipts) < 2:
         errors.append("run_receipts must contain at least two independently signed runs")
@@ -126,7 +130,7 @@ def _validate_campaign(payload: Mapping[str, Any]) -> list[str]:
             errors.append("run receipt nonces must be distinct")
         if any(not isinstance(r, Mapping) or r.get("signature_verified") is not True for r in receipts):
             errors.append("each run receipt needs a successful external signature verification")
-        if any(not isinstance(r, Mapping) or r.get("signer_id") != (roles or {}).get("external_signer") for r in receipts):
+        if any(not isinstance(r, Mapping) or r.get("signer_id") != signer_identity for r in receipts):
             errors.append("each run receipt must bind to the independent external_signer identity")
     expected = {"nonce_replay", "corpus_mismatch", "invalid_signature",
                 "expired_signature", "role_overlap", "missing_isolation",
