@@ -8,9 +8,21 @@ A conflict includes the exact source statements, impact, explicit options, trade
 
 A decision record binds the selected option, decision maker, rationale, prior plan digest and new plan revision. It is deterministic and tamper-evident. The host must persist it through the existing canonical plan/evidence store and create the new plan revision before affected work resumes. This module does not create a second store, grant approval authority or persist decisions by itself.
 
-## Integration boundary
+## Runtime integration
 
-The planner/requirements parser must emit RequirementFact values with stable source statement IDs. The host calls RequirementConflictAnalyzer.analyze before scheduling dependent work and routes every decision_required result to the existing decision/approval path. It must not silently pick recommended_option.
+The Orchestrator accepts a host-owned requirement_conflict_resolver callback. It receives the bounded, sanitized intake receipt and exact graph digest. It must return exactly:
+
+- facts: RequirementFact values whose IDs use statement:<index> and whose statement text exactly matches a non-redacted intake statement;
+- not_applicable_statement_ids: every remaining requirement, constraint, acceptance, assumption, or non-goal statement that does not map to one of the structured conflict dimensions;
+- workstream_dependencies: a mapping for every graph node to the structured requirement keys it depends on (an empty list means independent of those dimensions).
+
+The runtime verifies exact source binding and complete statement coverage. Missing, invented, redacted, partial, unknown-dimension, or malformed facts block execution before graph nodes run. The callback is installed by the trusted host before the first run; request payloads cannot install or replace it.
+
+Detected conflicts are joined to graph nodes through the host-resolved dependency map. A conflict blocks only its dependent nodes and their descendants; independent nodes may continue after the host conflict_scope_verifier validates the complete mapping. A decision only unblocks affected work when the existing conflict_resolution_verifier confirms the exact conflict ID and selected option against the current durable decision record. The recommended option is never selected automatically.
+
+The structured report is added to the existing pre-implementation review evidence and digest. This does not create a second scheduler, decision store, or authorization authority. The host remains responsible for writing a decision through EngineeringDecisionStore and advancing the canonical plan revision before resuming work.
+
+When no host resolver is configured, the structured report explicitly says not_configured; the runtime does not describe the structured dimensions as fully analyzed. The existing natural-language design guard continues to run independently.
 
 ## Verification and limitations
 
