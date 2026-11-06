@@ -227,7 +227,7 @@ class StockResearchTeamRuntimeIntegrationTests(unittest.TestCase):
                 dispatch_key=WORK_KEY,
                 handler="stock-team-supervisor",
                 packet=packet,
-                payload={"application": "TradingDYOR"},
+                payload={"application": "TradingDYOR", "resource": "stock-research-team"},
                 deadline_seconds=300,
             )
             controller.run_once(supervisor_task.id)
