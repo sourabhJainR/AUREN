@@ -145,3 +145,21 @@ def test_resolver_must_be_installed_before_first_run():
         assert "before graph execution" in str(exc)
     else:
         raise AssertionError("late resolver configuration must be rejected")
+
+
+def test_structured_conflict_is_reflected_in_preimplementation_review_trajectory():
+    calls = []
+    run = Orchestrator(
+        _graph(calls),
+        requirement_conflict_resolver=_resolver,
+        conflict_scope_verifier=lambda _review, _mapping, _digest: True,
+    ).run("structured-conflict-audit-status", "Build quotes. Use delayed quotes.")
+
+    review_events = [
+        item for item in run.trajectory
+        if item.get("event") == "preimplementation_review"
+    ]
+    assert len(review_events) == 1
+    assert review_events[0]["status"] == "blocked"
+    assert run.status == RunStatus.BLOCKED
+    assert calls == ["news"]
