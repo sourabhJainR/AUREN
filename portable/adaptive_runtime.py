@@ -66,6 +66,7 @@ class AdaptiveRuntime:
         conflict_scope_verifier: Callable[[Mapping[str, Any], Mapping[str, tuple[str, ...]], str], bool] | None = None,
         conflict_resolution_verifier: Callable[[str, str], bool] | None = None,
         requirement_conflict_resolver: Callable[[Mapping[str, Any], str], Mapping[str, Any]] | None = None,
+        profile_registry_receipt_verifier: Callable[[Mapping[str, Any]], bool] | None = None,
         team_budget_settlement_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
         team_budget_release_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
         team_budget_enforcer_factory: Callable[[Any], Any] | None = None,
@@ -80,6 +81,7 @@ class AdaptiveRuntime:
             conflict_scope_verifier=conflict_scope_verifier,
             conflict_resolution_verifier=conflict_resolution_verifier,
             requirement_conflict_resolver=requirement_conflict_resolver,
+            profile_registry_receipt_verifier=profile_registry_receipt_verifier,
         )
         if state_root is None:
             self.state_paths = AurenStatePaths.prepare(
@@ -155,6 +157,7 @@ class AdaptiveRuntime:
         conflict_scope_verifier: Callable[[Mapping[str, Any], Mapping[str, tuple[str, ...]], str], bool] | None = None,
         conflict_resolution_verifier: Callable[[str, str], bool] | None = None,
         requirement_conflict_resolver: Callable[[Mapping[str, Any], str], Mapping[str, Any]] | None = None,
+        profile_registry_receipt_verifier: Callable[[Mapping[str, Any]], bool] | None = None,
     ) -> Any:
         """Install host authority, conflict analysis and decision verification before work starts.
 
@@ -170,6 +173,8 @@ class AdaptiveRuntime:
             self.orchestrator.configure_conflict_resolution_verifier(conflict_resolution_verifier)
         if requirement_conflict_resolver is not None:
             self.orchestrator.configure_requirement_conflict_resolver(requirement_conflict_resolver)
+        if profile_registry_receipt_verifier is not None:
+            self.orchestrator.configure_profile_registry_receipt_verifier(profile_registry_receipt_verifier)
         from .trusted_plan_dispatch import TrustedPlanDispatchRoot
         self.trusted_plan_dispatch_root = TrustedPlanDispatchRoot(
             controller=self.execution_controller,
