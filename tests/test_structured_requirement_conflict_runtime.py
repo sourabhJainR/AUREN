@@ -233,10 +233,13 @@ class StructuredRequirementConflictRuntimeTests(unittest.TestCase):
                 run_revision=plan_run.revision,
                 decision_type="conflict_resolution",
                 question=conflict.title,
-                options=("accept_delayed", "use_realtime_provider"),
+                options=tuple(item.option_id for item in conflict.options),
                 selected_option="accept_delayed",
                 rationale="The MVP uses delayed quotes and displays their source timestamp.",
-                rejected_alternatives=(("use_realtime_provider", "Paid real-time licensing is not approved for this MVP."),),
+                rejected_alternatives=(
+                ("use_realtime_provider", "Paid real-time licensing is not approved for this MVP."),
+                ("remove_live_quote_scope", "Quotes remain in the MVP with explicit delay labels."),
+            ),
                 affected_task_ids=("quote_adapter",),
                 actor_id="user:owner",
             )
