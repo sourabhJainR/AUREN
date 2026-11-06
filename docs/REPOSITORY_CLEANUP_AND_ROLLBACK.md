@@ -87,3 +87,6 @@ When uncertain, keep the artifact and investigate. A small amount of intentional
 
 - 2026-10-05: established this contract after the GitHub Pages cleanup regression.
 - The Pages entrypoint contract remains protected until the active publishing source and compatibility dependency are explicitly verified and retired.
+
+ 
+- 2026-11-07: consolidated GitHub Pages mirror validation into the existing cleanup contract. Retired the duplicate Pages mirror workflow and the manual-only, non-deploying Jekyll workflow. `deploy-pages.yml` remains the sole deployment workflow; `site/` remains canonical and `docs/` mirrors remain protected until separately retired with evidence.
