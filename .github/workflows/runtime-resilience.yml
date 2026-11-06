@@ -71,6 +71,10 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Compile portable runtime and state paths
         run: python -m compileall -q portable state
+      - name: Verify durable continuous execution, CI polling, and post-merge recovery
+        run: |
+          python -m pip install pytest
+          python -m pytest -q tests/test_continuous_execution.py
       - name: Verify durable graph workspace ownership and restart recovery
         run: python -m unittest tests.test_graph_workspace_registry -v
       - name: Verify delivery-mode enforcement and PR integration guard
