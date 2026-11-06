@@ -10,6 +10,8 @@ from portable.agent_profiles import (
     load_agent_profile_registry,
     resolve_agent_profile,
     resolve_team_template,
+    profile_binding,
+    validate_profile_binding,
 )
 from portable.agent_profile_registry_manager import AgentProfileRegistryManager
 
@@ -142,6 +144,15 @@ class AgentProfileRegistryManagerTests(unittest.TestCase):
         revised = resolve_agent_profile("backend_implementer", revision=2, profile_path=self.path, organization_registry_path=ROLE_PATH)
         restored = resolve_agent_profile("backend_implementer", revision=3, profile_path=self.path, organization_registry_path=ROLE_PATH)
         self.assertEqual(old.action_classes, restored.action_classes)
+        pinned = validate_profile_binding(
+            profile_binding(old),
+            role_id=old.role_id,
+            manager_role_id=old.manager_role_id,
+            action_class=old.action_classes[0],
+            profile_path=self.path,
+            organization_registry_path=ROLE_PATH,
+        )
+        self.assertEqual(old.digest, pinned.digest)
         self.assertNotEqual(old.memory_namespace, restored.memory_namespace)
         self.assertNotEqual(old.digest, revised.digest)
         self.assertEqual(3, result["historical_revision_count"])
