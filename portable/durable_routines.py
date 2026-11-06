@@ -6,6 +6,7 @@ Every occurrence is submitted through the canonical ExecutionController adapter.
 """
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -148,7 +149,7 @@ class DurableRoutineRegistry:
         self.path = Path(path).expanduser().resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             db.executescript(_SCHEMA)
 
     def _connect(self) -> sqlite3.Connection:
@@ -198,7 +199,7 @@ class DurableRoutineRegistry:
     def set_enabled(self, routine_id: str, enabled: bool) -> None:
         if type(enabled) is not bool:
             raise ValueError("enabled must be a boolean")
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             cursor = db.execute(
                 "UPDATE routines SET enabled=? WHERE routine_id=?",
                 (int(enabled), routine_id),
@@ -207,7 +208,7 @@ class DurableRoutineRegistry:
                 raise KeyError(routine_id)
 
     def get(self, routine_id: str) -> RoutineSpec:
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             row = db.execute(
                 "SELECT spec_json FROM routines WHERE routine_id=?", (routine_id,)
             ).fetchone()
@@ -260,7 +261,7 @@ class DurableRoutineRegistry:
         instant = _utc(now)
         if type(limit) is not int or not 1 <= limit <= 256:
             raise ValueError("limit must be between 1 and 256")
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             rows = db.execute(
                 "SELECT routine_id,spec_json,next_run_at FROM routines WHERE enabled=1 "
                 "AND next_run_at IS NOT NULL AND next_run_at<=? ORDER BY next_run_at,routine_id LIMIT ?",
@@ -277,13 +278,13 @@ class DurableRoutineRegistry:
             ))
             if spec.trigger == "interval":
                 next_run = scheduled + timedelta(seconds=spec.interval_seconds or 0)
-                with self._connect() as db:
+                with closing(self._connect()) as db:
                     db.execute(
                         "UPDATE routines SET next_run_at=? WHERE routine_id=? AND version=? AND next_run_at=?",
                         (_iso(next_run), spec.routine_id, spec.version, row["next_run_at"]),
                     )
             elif spec.trigger == "once":
-                with self._connect() as db:
+                with closing(self._connect()) as db:
                     db.execute(
                         "UPDATE routines SET next_run_at=NULL WHERE routine_id=? AND version=?",
                         (spec.routine_id, spec.version),
@@ -377,7 +378,7 @@ class DurableRoutineRegistry:
 
     def _mark_submitted(self, occurrence_key: str, task_id: str, receipt: Mapping[str, Any]) -> None:
         now = _iso(datetime.now(timezone.utc))
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             db.execute(
                 "UPDATE routine_occurrences SET status='submitted',task_id=?,receipt_json=?,updated_at=? "
                 "WHERE occurrence_key=?",
@@ -386,7 +387,7 @@ class DurableRoutineRegistry:
 
     def _mark_unknown(self, occurrence_key: str, error_type: str) -> None:
         now = _iso(datetime.now(timezone.utc))
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             db.execute(
                 "UPDATE routine_occurrences SET status='unknown',receipt_json=?,updated_at=? "
                 "WHERE occurrence_key=?",
@@ -395,7 +396,7 @@ class DurableRoutineRegistry:
             )
 
     def occurrence(self, occurrence_key: str) -> Mapping[str, Any] | None:
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             row = db.execute(
                 "SELECT * FROM routine_occurrences WHERE occurrence_key=?", (occurrence_key,)
             ).fetchone()
