@@ -737,8 +737,8 @@ class Orchestrator:
                 if preflight["blind_spots"] or structured_conflict_count
                 else "clear"
             ),
-            "contradiction_count": len(preflight["contradictions"]) + structured_conflict_count,
-            "unresolved_contradiction_count": len(preflight["unresolved_contradictions"]) + len(structured_unresolved_ids),
+            "contradiction_count": len(preflight["contradictions"]),
+            "unresolved_contradiction_count": len(preflight["unresolved_contradictions"]),
             "structured_conflict_count": structured_conflict_count,
             "unresolved_structured_conflict_count": len(structured_unresolved_ids),
             "blind_spot_count": len(preflight["blind_spots"]),
