@@ -78,6 +78,10 @@ class StructuredRequirementConflictRuntimeTests(unittest.TestCase):
             if item.kind == "structured-requirement-conflict-analysis"
         )
         assert '"status":"analyzed"' in report.summary
+        preflight = next(item for item in run.trajectory if item.get("event") == "preimplementation_review")
+        assert preflight["status"] == "blocked"
+        assert preflight["structured_conflict_count"] == 1
+        assert preflight["unresolved_structured_conflict_count"] == 1
         assert seen["review"]["structured_requirement_conflicts"]["conflicts"][0]["recommended_option"] == "accept_delayed"
 
 
