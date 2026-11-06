@@ -234,7 +234,9 @@ def test_goal_retry_budget_exhaustion_holds_until_authenticated_evidence_wake(tm
         goal_reconcilers={"AUREN:test:bounded-goal": fail_goal},
         max_goal_retries=2,
     )
-    first.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    # Keep the persisted backoff comfortably in the future across slow Windows
+    # process startup; the test verifies restart persistence, not timer precision.
+    first.run(poll_seconds=30, batch_size=1, max_cycles=1)
     with __import__("sqlite3").connect(first.path) as db:
         db.execute(
             "UPDATE goal_backoff SET next_retry_at=0 WHERE goal=?",
@@ -273,7 +275,7 @@ def test_goal_retry_budget_exhaustion_holds_until_authenticated_evidence_wake(tm
         "new plan-store recovery evidence is available",
         evidence_ref="evidence:plan-store-recovery-456",
     )
-    resumed.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    resumed.run(poll_seconds=30, batch_size=1, max_cycles=1)
     assert recovered_calls == ["recovered"]
     assert resumed.status()["goal_health"][0]["status"] == "ready"
 
@@ -390,7 +392,7 @@ def test_poller_error_backoff_persists_across_restart_and_resets_on_success(tmp_
     resumed = ContinuousExecutionSupervisor(
         ExecutionController(tmp_path), pollers={"ci:owner/repo": poller},
     )
-    report = resumed.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    report = resumed.run(poll_seconds=30, batch_size=1, max_cycles=1)
     assert calls == [1]
     assert any(
         event["event_type"] == "poller_backoff_wait"
