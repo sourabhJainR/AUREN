@@ -298,9 +298,9 @@ No second orchestrator, external runtime dependency, default route change, harne
 
 ## Living capability radar delta — 2026-11-07
 
-**Reviewed main:** `22e086d18e6becb814e54d7b653267332a0ce0f5`. All 30 current-main check-runs are terminal-successful; zero were skipped, failed or remain pending. All eight post-merge push workflows succeeded.
+**Reviewed main:** `5b3d506c2dadf14f54608423b7eaeffc1e09e071`. All 28 current-main check-runs are terminal-successful; zero were skipped, failed or remain pending. All six post-merge push workflows succeeded.
 
-The v1.0.6 portable bundle and checksum from [run 42383803431](https://github.com/sourabhJainR/AUREN/actions/runs/42383803431) were downloaded and rehashed. Outer bundle artifact SHA-256: `fa9c6926b912a48d8c964e7460605609c6dbd737923b06419a2cd0c130b53625`; outer checksum artifact SHA-256: `80ffbdd2a57f87e85389f4e9f1a3a44e5d4c0bb0a38478e99709d54c75fc48fd`; embedded ZIP SHA-256: `e9279f48a0e8425398eb1dc788794b04b13ae81040533690781018a2a21e56a5`, matching the checksum file. All 537 manifest entries match their declared size and SHA-256. The only expected generated entry outside the manifest is `payload/PORTABLE_BUNDLE.txt`. The manifest pins this main SHA, version `1.0.6`, and `target_repository_mutation=false`.
+The v1.0.6 portable bundle and checksum from [run 42399630477](https://github.com/sourabhJainR/AUREN/actions/runs/42399630477) were downloaded and rehashed. Outer bundle artifact SHA-256: `5941da7f476c3bdd1bd6bcdeaceddb5423f85a980983ed6be2814b2b4a3916e9`; outer checksum artifact SHA-256: `48862c14d060608167746370bf7757c0387b4d579f6e4150c4937c2120540f31`; embedded ZIP SHA-256: `3e9b4b24b0d08acada646758f8675c4089ccca1a396406ed404111fd718b74e8`, matching the checksum file. All 538 manifest entries match their declared size and SHA-256; no entries are missing or mismatched. The only expected generated entry outside the manifest is `payload/PORTABLE_BUNDLE.txt`. The manifest pins this main SHA, version `1.0.6`, and `target_repository_mutation=false`.
 
 ### New research signals and AUREN mapping
 
