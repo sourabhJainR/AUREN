@@ -569,92 +569,80 @@
   ],
   "review_snapshot": {
     "reviewed_at": "2026-11-07",
-    "baseline_main_sha": "22e086d18e6becb814e54d7b653267332a0ce0f5",
+    "baseline_main_sha": "5b3d506c2dadf14f54608423b7eaeffc1e09e071",
     "current_main_check_runs": {
-      "total": 30,
-      "success": 30,
+      "total": 28,
+      "success": 28,
       "skipped": 0,
       "failed": 0,
       "pending": 0
     },
     "skipped_checks": [],
     "post_merge_push_workflows": {
-      "total": 8,
-      "success": 8,
+      "total": 6,
+      "success": 6,
       "failed": 0,
       "pending": 0,
       "runs": [
         {
-          "name": "Repository Construct Traceability Check",
-          "run_id": 42383803450,
-          "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803450"
-        },
-        {
-          "name": "AUREN cleanup contract",
-          "run_id": 42383803408,
-          "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803408"
-        },
-        {
           "name": "Agent Capability Runtime",
-          "run_id": 42383803375,
+          "run_id": 42399630446,
           "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803375"
-        },
-        {
-          "name": "Production AI Harness Hardening",
-          "run_id": 42383803414,
-          "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803414"
-        },
-        {
-          "name": "Architecture Integrity",
-          "run_id": 42383803461,
-          "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803461"
-        },
-        {
-          "name": "AI Harness Check",
-          "run_id": 42383803460,
-          "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803460"
-        },
-        {
-          "name": "Runtime Resilience Matrix",
-          "run_id": 42383803463,
-          "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803463"
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42399630446"
         },
         {
           "name": "AUREN Portable Bundle",
-          "run_id": 42383803431,
+          "run_id": 42399630477,
           "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803431"
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42399630477"
+        },
+        {
+          "name": "Runtime Resilience Matrix",
+          "run_id": 42399630442,
+          "conclusion": "success",
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42399630442"
+        },
+        {
+          "name": "Architecture Integrity",
+          "run_id": 42399630652,
+          "conclusion": "success",
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42399630652"
+        },
+        {
+          "name": "Production AI Harness Hardening",
+          "run_id": 42399630513,
+          "conclusion": "success",
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42399630513"
+        },
+        {
+          "name": "AI Harness Check",
+          "run_id": 42399630479,
+          "conclusion": "success",
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42399630479"
         }
       ]
     },
     "portable_bundle": {
       "status": "downloaded_and_rehashed",
-      "workflow_run_id": 42383803431,
-      "bundle_artifact_id": 13578577907,
-      "checksum_artifact_id": 13578852228,
-      "outer_bundle_artifact_sha256": "fa9c6926b912a48d8c964e7460605609c6dbd737923b06419a2cd0c130b53625",
-      "outer_checksum_artifact_sha256": "80ffbdd2a57f87e85389f4e9f1a3a44e5d4c0bb0a38478e99709d54c75fc48fd",
-      "inner_bundle_sha256": "e9279f48a0e8425398eb1dc788794b04b13ae81040533690781018a2a21e56a5",
-      "inner_checksum_status": "verified locally; auren-portable.sha256 matches the embedded ZIP SHA-256",
-      "manifest_file_count": 537,
+      "workflow_run_id": 42399630477,
+      "bundle_artifact_id": 13585410493,
+      "checksum_artifact_id": 13585330955,
+      "outer_bundle_artifact_sha256": "5941da7f476c3bdd1bd6bcdeaceddb5423f85a980983ed6be2814b2b4a3916e9",
+      "outer_checksum_artifact_sha256": "48862c14d060608167746370bf7757c0387b4d579f6e4150c4937c2120540f31",
+      "inner_bundle_sha256": "3e9b4b24b0d08acada646758f8675c4089ccca1a396406ed404111fd718b74e8",
+      "inner_checksum_status": "verified: checksum file matches the embedded ZIP SHA-256",
+      "manifest_file_count": 538,
       "manifest_hash_or_size_mismatches": 0,
       "missing_manifest_entries": 0,
       "unexpected_generated_entries": [
         "payload/PORTABLE_BUNDLE.txt"
       ],
-      "source_commit": "22e086d18e6becb814e54d7b653267332a0ce0f5",
+      "source_commit": "5b3d506c2dadf14f54608423b7eaeffc1e09e071",
       "version": "1.0.6",
       "target_repository_mutation": false,
-      "bundle_expires_at": "2026-12-07T14:55:29Z",
-      "checksum_expires_at": "2026-12-07T14:55:30Z",
-      "local_download_rehash": "Downloaded and rehashed in the container: outer artifact digests match GitHub metadata, the embedded ZIP matches the checksum file, and all 537 manifest entries match size and SHA-256."
+      "bundle_expires_at": "2026-12-07T18:07:40Z",
+      "checksum_expires_at": "2026-12-07T18:07:42Z",
+      "local_download_rehash": "Downloaded and rehashed in the container: both outer artifact digests match GitHub artifact metadata; the embedded ZIP matches the checksum file; all 538 manifest entries match size and SHA-256 with no missing or mismatched entries. One expected generated entry, payload/PORTABLE_BUNDLE.txt, is outside the manifest."
     },
     "required_check_enforcement": {
       "status": "not_fully_confirmed",
@@ -667,7 +655,7 @@
     "stock_research_acceptance": {
       "status": "No Stock Research Canonical Runtime Acceptance push workflow ran on this main revision; prior fixture-backed acceptance remains historical. Live provider validation, licensing, deployment and independent evaluation are not verified.",
       "workflow_run_id": null,
-      "candidate_sha": "22e086d18e6becb814e54d7b653267332a0ce0f5",
+      "candidate_sha": "5b3d506c2dadf14f54608423b7eaeffc1e09e071",
       "acceptance_type": "not run on this revision",
       "live_provider_validation": "not verified",
       "provider_licensing": "not verified",
@@ -677,8 +665,8 @@
   },
   "radar_refresh": {
     "reviewed_at": "2026-11-07",
-    "baseline_main_sha": "22e086d18e6becb814e54d7b653267332a0ce0f5",
-    "status": "candidate signals only. Research refreshed through 2026-11-07. Main 22e086d18e6becb814e54d7b653267332a0ce0f5 has 30 terminal check-runs: 30 successful, zero skipped, failed or pending. All eight post-merge push workflows succeeded. The v1.0.6 portable bundle and checksum were downloaded and rehashed; outer and embedded digests match and all 537 manifest entries match. Three PRs remain open: #1297 and #1299 have Windows durable-runtime checks pending; #1300 has 22 successful checks and four impact-filtered skips, with no pending or failed checks. Production isolation, independent evaluator/corpus custody, sealed holdout, operator migration/rollback and scientific replication remain blocked. No AGI/SI claim or default capability promotion is supported.",
+    "baseline_main_sha": "5b3d506c2dadf14f54608423b7eaeffc1e09e071",
+    "status": "candidate signals only. Research refreshed through 2026-11-07. Main 5b3d506c2dadf14f54608423b7eaeffc1e09e071 has 28 terminal check-runs: 28 successful, zero skipped, failed or pending. All six post-merge push workflows succeeded. The v1.0.6 portable bundle and checksum were downloaded and rehashed; both outer artifact digests match GitHub metadata, the embedded ZIP matches its checksum, and all 538 manifest entries match size and SHA-256. Production isolation, independent evaluator/corpus custody, sealed holdout, operator migration/rollback and scientific replication remain blocked. No AGI/SI claim or default capability promotion is supported.",
     "policy": "External announcements and benchmark reports are comparison inputs, not evidence of equivalent AUREN capability. Reuse the canonical supervisor, TaskPlan, StateGraph, ExecutionController, Guard, RuntimeExecutionGuard, ProgressJournal, LearningSteward and Arena. No duplicate orchestrator or external runtime dependency. Keep adapters opt-in; no default model, harness or extension-pack promotion without paired measured value, independent evaluation and rollback. Discovery never grants authority.",
     "status_vocabulary": {
       "implementation": "Code path exists; does not imply tests or deployment.",
@@ -1289,56 +1277,21 @@
     ],
     "repository_observation": {
       "reviewed_at": "2026-11-07",
-      "main_sha": "22e086d18e6becb814e54d7b653267332a0ce0f5",
-      "open_pr_count": 3,
+      "main_sha": "5b3d506c2dadf14f54608423b7eaeffc1e09e071",
+      "open_pr_count": 1,
       "open_prs": [
         {
-          "number": 1297,
-          "title": "Harden the local dashboard security and readiness boundary",
-          "head_sha": "9919df56da5c23068237020a07e4fd1adacd2f79",
-          "base_sha": "22e086d18e6becb814e54d7b653267332a0ce0f5",
+          "number": 1302,
+          "title": "Refresh AI/SI capability radar with 2026-11-07 evidence (rebased)",
+          "base_sha": "5b3d506c2dadf14f54608423b7eaeffc1e09e071",
           "state": "open",
-          "checks": {
-            "total": 29,
-            "success": 27,
-            "pending": 2,
-            "failed": 0,
-            "skipped": 0
-          }
-        },
-        {
-          "number": 1299,
-          "title": "Add durable, idempotent routine trigger registry",
-          "head_sha": "76829c4cf342d45c7566bd514e6c8b549f9c2898",
-          "base_sha": "22e086d18e6becb814e54d7b653267332a0ce0f5",
-          "state": "open",
-          "checks": {
-            "total": 27,
-            "success": 24,
-            "pending": 3,
-            "failed": 0,
-            "skipped": 0
-          }
-        },
-        {
-          "number": 1300,
-          "title": "Refresh AI/SI capability radar with 2026-11-07 evidence",
-          "head_sha": "aaf99cf1148f152b43d0754c33b189617ce42f36",
-          "base_sha": "22e086d18e6becb814e54d7b653267332a0ce0f5",
-          "state": "open",
-          "checks": {
-            "total": 26,
-            "success": 22,
-            "pending": 0,
-            "failed": 0,
-            "skipped": 4
-          }
+          "note": "This PR carries the current radar snapshot; its own head checks are tracked separately."
         }
       ],
       "current_main_check_runs": {
         "status": "terminal",
-        "total": 30,
-        "success": 30,
+        "total": 28,
+        "success": 28,
         "skipped": 0,
         "failed": 0,
         "pending": 0
@@ -1346,58 +1299,46 @@
       "skipped_checks": [],
       "post_merge_push_workflows": {
         "status": "terminal",
-        "total": 8,
-        "success": 8,
+        "total": 6,
+        "success": 6,
         "failed": 0,
         "pending": 0,
         "runs": [
           {
-            "name": "Repository Construct Traceability Check",
-            "run_id": 42383803450,
-            "conclusion": "success",
-            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803450"
-          },
-          {
-            "name": "AUREN cleanup contract",
-            "run_id": 42383803408,
-            "conclusion": "success",
-            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803408"
-          },
-          {
             "name": "Agent Capability Runtime",
-            "run_id": 42383803375,
+            "run_id": 42399630446,
             "conclusion": "success",
-            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803375"
-          },
-          {
-            "name": "Production AI Harness Hardening",
-            "run_id": 42383803414,
-            "conclusion": "success",
-            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803414"
-          },
-          {
-            "name": "Architecture Integrity",
-            "run_id": 42383803461,
-            "conclusion": "success",
-            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803461"
-          },
-          {
-            "name": "AI Harness Check",
-            "run_id": 42383803460,
-            "conclusion": "success",
-            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803460"
-          },
-          {
-            "name": "Runtime Resilience Matrix",
-            "run_id": 42383803463,
-            "conclusion": "success",
-            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803463"
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42399630446"
           },
           {
             "name": "AUREN Portable Bundle",
-            "run_id": 42383803431,
+            "run_id": 42399630477,
             "conclusion": "success",
-            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803431"
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42399630477"
+          },
+          {
+            "name": "Runtime Resilience Matrix",
+            "run_id": 42399630442,
+            "conclusion": "success",
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42399630442"
+          },
+          {
+            "name": "Architecture Integrity",
+            "run_id": 42399630652,
+            "conclusion": "success",
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42399630652"
+          },
+          {
+            "name": "Production AI Harness Hardening",
+            "run_id": 42399630513,
+            "conclusion": "success",
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42399630513"
+          },
+          {
+            "name": "AI Harness Check",
+            "run_id": 42399630479,
+            "conclusion": "success",
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42399630479"
           }
         ]
       },
@@ -1406,26 +1347,26 @@
     },
     "artifact_integrity": {
       "status": "downloaded_and_rehashed",
-      "workflow_run_id": 42383803431,
-      "bundle_artifact_id": 13578577907,
-      "checksum_artifact_id": 13578852228,
-      "outer_bundle_artifact_sha256": "fa9c6926b912a48d8c964e7460605609c6dbd737923b06419a2cd0c130b53625",
-      "outer_checksum_artifact_sha256": "80ffbdd2a57f87e85389f4e9f1a3a44e5d4c0bb0a38478e99709d54c75fc48fd",
-      "inner_bundle_sha256": "e9279f48a0e8425398eb1dc788794b04b13ae81040533690781018a2a21e56a5",
-      "inner_checksum_status": "verified locally; auren-portable.sha256 matches the embedded ZIP SHA-256",
-      "manifest_file_count": 537,
+      "workflow_run_id": 42399630477,
+      "bundle_artifact_id": 13585410493,
+      "checksum_artifact_id": 13585330955,
+      "outer_bundle_artifact_sha256": "5941da7f476c3bdd1bd6bcdeaceddb5423f85a980983ed6be2814b2b4a3916e9",
+      "outer_checksum_artifact_sha256": "48862c14d060608167746370bf7757c0387b4d579f6e4150c4937c2120540f31",
+      "inner_bundle_sha256": "3e9b4b24b0d08acada646758f8675c4089ccca1a396406ed404111fd718b74e8",
+      "inner_checksum_status": "verified: checksum file matches the embedded ZIP SHA-256",
+      "manifest_file_count": 538,
       "manifest_hash_or_size_mismatches": 0,
       "missing_manifest_entries": 0,
       "unexpected_generated_entries": [
         "payload/PORTABLE_BUNDLE.txt"
       ],
-      "source_commit": "22e086d18e6becb814e54d7b653267332a0ce0f5",
+      "source_commit": "5b3d506c2dadf14f54608423b7eaeffc1e09e071",
       "version": "1.0.6",
       "target_repository_mutation": false,
-      "bundle_expires_at": "2026-12-07T14:55:29Z",
-      "checksum_expires_at": "2026-12-07T14:55:30Z",
-      "local_download_rehash": "Downloaded and rehashed in the container: outer artifact digests match GitHub metadata, the embedded ZIP matches the checksum file, and all 537 manifest entries match size and SHA-256."
+      "bundle_expires_at": "2026-12-07T18:07:40Z",
+      "checksum_expires_at": "2026-12-07T18:07:42Z",
+      "local_download_rehash": "Downloaded and rehashed in the container: both outer artifact digests match GitHub artifact metadata; the embedded ZIP matches the checksum file; all 538 manifest entries match size and SHA-256 with no missing or mismatched entries. One expected generated entry, payload/PORTABLE_BUNDLE.txt, is outside the manifest."
     }
   },
-  "status": "Candidate signals only. Research refreshed through 2026-11-07; reviewed main 22e086d18e6becb814e54d7b653267332a0ce0f5 has 30/30 terminal-successful current-main checks and eight successful post-merge push workflows. The v1.0.6 portable bundle and checksum were downloaded and rehashed; all 537 manifest entries match. Three open PRs are tracked by exact head. Implementation, repository CI, deployment and independent evaluation remain separate statuses. Production isolation, evaluator/corpus custody, sealed holdout, operator migration/rollback and scientific replication remain blocked. No AGI/SI claim or default capability promotion is supported."
+  "status": "candidate signals only. Research refreshed through 2026-11-07. Main 5b3d506c2dadf14f54608423b7eaeffc1e09e071 has 28 terminal check-runs: 28 successful, zero skipped, failed or pending. All six post-merge push workflows succeeded. The v1.0.6 portable bundle and checksum were downloaded and rehashed; both outer artifact digests match GitHub metadata, the embedded ZIP matches its checksum, and all 538 manifest entries match size and SHA-256. Production isolation, independent evaluator/corpus custody, sealed holdout, operator migration/rollback and scientific replication remain blocked. No AGI/SI claim or default capability promotion is supported."
 }
