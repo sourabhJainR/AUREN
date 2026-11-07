@@ -130,6 +130,11 @@ class ControlCenterApiTests(unittest.TestCase):
         self.assertIn("document.visibilityState", script)
         self.assertIn("last sample retained", script)
         self.assertIn("does not certify CI, review, merge or production readiness", script)
+        self.assertIn("renderRows", script)
+        self.assertIn("auren-ops-task-list", script)
+        self.assertIn("auren-ops-plan-list", script)
+        self.assertIn("unknown_outcomes_block_replay", script)
+        self.assertIn("replaceChildren", script)
         html = (Path(__file__).resolve().parents[1] / "site" / "control-center.html").read_text(encoding="utf-8")
         self.assertIn("/assets/control-center-live.js", html)
 
