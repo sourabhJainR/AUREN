@@ -99,6 +99,8 @@ jobs:
               result = subprocess.run([sys.executable, "-m", "unittest", "tests.test_durable_routines", "-v"])
               raise SystemExit(result.returncode)
           PY
+      - name: Verify dashboard session and workspace inventory privacy projection
+        run: python -m unittest tests.test_dashboard_sessions -v
       - name: Verify loopback dashboard request and readiness boundary
         shell: bash
         env:
