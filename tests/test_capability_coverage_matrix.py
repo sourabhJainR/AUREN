@@ -114,11 +114,11 @@ class CapabilityCoverageMatrixTests(unittest.TestCase):
         self.assertNotIn("superintelligence_score", matrix)
         self.assertTrue(any("No aggregate superintelligence score" in rule for rule in matrix["global_rules"]))
 
-    def test_2026_11_06_radar_refresh_tracks_new_gaps_without_promotion(self):
+    def test_2026_11_07_radar_refresh_tracks_current_gaps_without_promotion(self):
         matrix = json.loads(MATRIX_PATH.read_text(encoding="utf-8"))
         radar = matrix["radar_refresh"]
-        self.assertEqual(radar["reviewed_at"], "2026-11-06")
-        self.assertEqual(radar["baseline_main_sha"], "c67356be753d310b1babe340d84caa0ff7a987a8")
+        self.assertEqual(radar["reviewed_at"], "2026-11-07")
+        self.assertEqual(radar["baseline_main_sha"], "5b3d506c2dadf14f54608423b7eaeffc1e09e071")
         signals = {item["id"]: item for item in radar["signals"]}
         required_sources = {
             "long_running_host_sandbox": "https://www.tomshardware.com/tech-industry/artificial-intelligence/openais-isolated-redteam-ai-agents-built-a-hidden-cpu-cache-channel-to-talk-with-no-network-or-shared-files-exploited-cpu-cache-timing-to-bypass-microvm-sandboxes",
@@ -128,25 +128,43 @@ class CapabilityCoverageMatrixTests(unittest.TestCase):
             "agent_coordination_action_oversight": "https://arxiv.org/abs/2611.07483",
             "agent_identity_delegation_and_action_oversight": "https://www.reuters.com/business/finance/us-bank-regulator-issues-first-ever-ai-guidance-for-examiners-2026-11-04/",
             "scientific_hypothesis_and_mechanism_validation": "https://doi.org/10.1109/TPAMI.2026.3712056",
+            "event_driven_monitoring_agents": "https://www.microsoft.com/en-us/research/articles/sentinelbench-a-benchmark-for-long-running-monitoring-agents/",
+            "agentic_security_fabric": "https://www.gartner.com/en/documents/8595537",
+            "federated_agent_governance": "https://arxiv.org/abs/2608.26626",
+            "wet_lab_scientific_agents": "https://www.nature.com/articles/d41586-026-03270-1",
         }
         for signal_id, source in required_sources.items():
             with self.subTest(signal=signal_id):
                 self.assertIn(signal_id, signals)
-                self.assertIn(source, signals[signal_id]["sources"])
+                signal = signals[signal_id]
+                self.assertIn(source, signal["sources"])
                 self.assertTrue(signals[signal_id]["measured_gap"].strip())
                 self.assertTrue(signals[signal_id]["benchmark"].strip())
                 self.assertTrue(signals[signal_id]["acceptance_threshold"].strip())
                 self.assertTrue(signals[signal_id]["rollback"].strip())
-        self.assertEqual(
-            radar["repository_observation"]["main_sha"],
-            "c67356be753d310b1babe340d84caa0ff7a987a8",
-        )
-        self.assertEqual(radar["repository_observation"]["current_main_check_runs"],
-                         {"status": "terminal", "total": 30, "success": 30,
+        observation = radar["repository_observation"]
+        self.assertEqual(observation["main_sha"], "5b3d506c2dadf14f54608423b7eaeffc1e09e071")
+        self.assertEqual(observation["current_main_check_runs"],
+                         {"status": "terminal", "total": 28, "success": 28,
                           "skipped": 0, "failed": 0, "pending": 0})
-        self.assertEqual(radar["artifact_integrity"]["manifest_file_count"], 534)
+        self.assertEqual(observation["skipped_checks"], [])
+        self.assertEqual(observation["post_merge_push_workflows"]["total"], 6)
+        self.assertEqual(observation["post_merge_push_workflows"]["success"], 6)
+        self.assertEqual(observation["open_pr_count"], 1)
+        self.assertEqual([item["number"] for item in observation["open_prs"]], [1302])
+        self.assertTrue(all(item["base_sha"] == radar["baseline_main_sha"] for item in observation["open_prs"]))
+        self.assertEqual(radar["artifact_integrity"]["manifest_file_count"], 538)
         self.assertEqual(radar["artifact_integrity"]["manifest_hash_or_size_mismatches"], 0)
         self.assertEqual(radar["artifact_integrity"]["missing_manifest_entries"], 0)
+        self.assertEqual(radar["artifact_integrity"]["workflow_run_id"], 42399630477)
+        self.assertEqual(radar["artifact_integrity"]["outer_bundle_artifact_sha256"],
+                         "5941da7f476c3bdd1bd6bcdeaceddb5423f85a980983ed6be2814b2b4a3916e9")
+        self.assertEqual(radar["artifact_integrity"]["outer_checksum_artifact_sha256"],
+                         "48862c14d060608167746370bf7757c0387b4d579f6e4150c4937c2120540f31")
+        self.assertEqual(radar["artifact_integrity"]["inner_bundle_sha256"],
+                         "3e9b4b24b0d08acada646758f8675c4089ccca1a396406ed404111fd718b74e8")
+        self.assertEqual(radar["artifact_integrity"]["source_commit"],
+                         "5b3d506c2dadf14f54608423b7eaeffc1e09e071")
         self.assertEqual(signals["long_running_host_sandbox"]["deployment_status"], "not verified")
         self.assertEqual(signals["realistic_agent_evaluation"]["independent_evaluation_status"], "blocked")
         self.assertIn("No AGI/SI claim", radar["status"])

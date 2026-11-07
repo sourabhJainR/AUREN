@@ -208,3 +208,40 @@ This refresh adopts interoperability contracts and operational patterns, not a c
 - P2: benchmark manager-owned specialist calls versus handoffs, and fixed versus bounded model routing on pinned workloads.
 
 These are architecture alignment decisions and evaluation priorities, not claims that the latest protocols or external SDKs are fully implemented or independently validated in AUREN.
+
+
+## Living capability radar update — 2026-11-07
+
+### Long-horizon work and computer use
+
+[SentinelBench](https://www.microsoft.com/en-us/research/articles/sentinelbench-a-benchmark-for-long-running-monitoring-agents/) evaluates 100 monitoring tasks across 10 time-evolving web environments. Its central distinction is important for long-running engineering: an agent should not keep issuing actions when progress depends on an external event. It should wait within a bounded budget, detect a trusted state change and act once. Map this to AutonomousCompany, ExecutionController, ProgressJournal, RuntimeExecutionGuard, TriggerRuntime and the existing routine registry. Benchmark event detection, missed/false wakeups, reaction time, polling churn, resource cost, cancellation and duplicate effects. Keep the existing supervisor and durable occurrence identity; disable event triggers and return to bounded polling/manual operation on regression.
+
+### Dynamic workflows
+
+No new independently verified result changes the current decision: generated workflow graphs remain proposals. Compare static TaskPlan/StateGraph with bounded dynamic composition on identical pinned tasks, including plan-delta review, user changes, intermediate state checks, cost and rollback. The canonical supervisor still owns admission, cancellation, budgets, approvals and acceptance.
+
+### Host-enforced sandboxing and independent supervision
+
+[Gartner's agentic security fabric framework](https://www.gartner.com/en/documents/8595537), dated 2026-11-03, separates resource access, agent runtime execution and independent supervision. Use it as a threat-model checklist, not as proof of product efficacy. AUREN's Guard, RuntimeExecutionGuard and ExecutionBoundary remain the code owners; an independent host auditor remains the evidence owner. Required tests include denial-before-launch, restart/policy drift, secret and egress denial, monitor tampering, process-tree termination and host escape. Production isolation remains blocked until separately administered host receipts exist.
+
+### Model lifecycle and routing
+
+[METR's 2026-11-05 assessment](https://metr.org/blog/2026-11-05-anthropic-ai-rd-acceleration-assessment/) estimates about 1.9x acceleration in one benchmark trend, with substantial uncertainty and limited generalization beyond well-specified tasks. It is a reason to tighten model-version requalification, not to claim recursive self-improvement or change AUREN's default route. Keep model/provider versions pinned; compare task-family quality, calibration, safety, recovery, cost and latency; roll back to the last approved route on regression.
+
+### Agent-agent coordination and action oversight
+
+The [cross-organisational multi-agent risk framework](https://arxiv.org/abs/2608.26626) distinguishes single-governance, federated and open agent environments. AUREN's internal role chain does not automatically extend across a partner's agents or open internet services. Remote agents remain untrusted principals. Test identity, issuer/recipient, scope attenuation, replay, expiry, revocation, cross-domain audit and unknown outcomes. If the parties cannot establish a shared policy and accountable receipt chain, block consequential remote actions.
+
+### Scientific discovery
+
+[Nature's AutoDNA coverage](https://www.nature.com/articles/d41586-026-03270-1) (2026-11-04) reports agents planning and conducting DNA/molecular-biology experiments with limited human intervention. The [Nature Reviews primer](https://www.nature.com/articles/s43586-026-00534-y) (2026-10-22) emphasizes reproducible workflows, evaluation and human-in-the-loop choices. Map to LearningSteward, causal attribution, experiment manifests, evidence graph and Arena. Benchmark preregistered hypotheses, controls, withheld conditions, instrument logs, expert review and independent laboratory replication. Physical actions remain operator-approved; no scientific lesson is promoted from a demonstration or simulated result.
+
+### Evidence status
+
+- **Implemented:** canonical owners and selected runtime/evidence contracts exist.
+- **CI-verified:** exact-revision repository checks only; main `5b3d506c2dadf14f54608423b7eaeffc1e09e071` has 28/28 terminal-successful check-runs, zero skipped, failed or pending; all six post-merge push workflows succeeded.
+- **Portable bundle:** v1.0.6 from run [42399630477](https://github.com/sourabhJainR/AUREN/actions/runs/42399630477) was downloaded and rehashed. The outer bundle/checksum digests match GitHub metadata, the embedded ZIP matches its checksum, and all 538 manifest entries match size and SHA-256; `payload/PORTABLE_BUNDLE.txt` is the expected generated entry outside the manifest.
+- **Deployment-verified:** not verified for production host isolation, computer-use continuity, cross-organisation actions, live event monitoring or physical laboratory execution.
+- **Independently verified:** blocked for evaluator/corpus custody, sealed holdout, host audit and scientific replication.
+
+No AGI/SI claim, default route change, external runtime dependency or harness/extension-pack promotion is supported. Every candidate requires paired measurements, independent evaluation, regression gates and rollback.
