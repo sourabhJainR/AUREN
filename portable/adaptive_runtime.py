@@ -41,6 +41,8 @@ from .recovery_decision_journal import RecoveryDecisionJournal, RecoveryJournalC
 from .state_paths import AurenStatePaths
 from .identity_compat import canonical_auren_home, legacy_state_home
 from .runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
+from .engineering_plan import EngineeringPlan
+from .delivery_acceleration import DeliveryAcceleration, analyze_delivery_parallelism
 
 
 class AdaptiveRuntime:
@@ -1319,6 +1321,31 @@ class AdaptiveRuntime:
             )
 
         return route
+
+
+    def analyze_delivery_plan(
+        self,
+        plan: EngineeringPlan,
+        *,
+        durations_seconds: Mapping[str, float],
+        worker_limit: int,
+        resource_locks: Mapping[str, Sequence[str]] | None = None,
+        coordination_overhead_seconds: float = 0.0,
+        serial_task_ids: Sequence[str] | None = None,
+    ) -> DeliveryAcceleration:
+        """Expose critical-path and Amdahl estimates without granting dispatch authority.
+
+        The result is advisory. The canonical supervisor and ExecutionController
+        remain responsible for work selection, admission, budgets and execution.
+        """
+        return analyze_delivery_parallelism(
+            plan,
+            durations_seconds=durations_seconds,
+            worker_limit=worker_limit,
+            resource_locks=resource_locks,
+            coordination_overhead_seconds=coordination_overhead_seconds,
+            serial_task_ids=serial_task_ids,
+        )
 
 
 __all__ = ["AdaptiveRuntime"]
