@@ -19,7 +19,7 @@ The control center loads a read-only operational tracking panel from `/assets/co
 
 The panel reports source-backed active, blocked/stale/unverified, task and trace counts; bounded task, session and plan-run summaries; delivery worker/queue/unknown-outcome/acknowledgement metrics; trace corruption/sequence-gap/drift indicators; and the delivery integrity policy flags exposed by the supervisor. Missing values remain unavailable rather than being rendered as zero. Refresh failures retain the last sample and show a degraded/unavailable state. Dynamic task/session/plan text is inserted with DOM text nodes, not interpreted as HTML.
 
-The static asset handler resolves files beneath the dedicated dashboard assets directory and rejects resolved paths outside that directory. API requests retain the loopback-origin guard and bounded response contract. The health endpoint confirms that the HTTP process responds; it is not a substitute for database, provider, CI, host, or deployment health evidence. The dashboard remains loopback-only. Do not expose it through a reverse proxy or public network until a separately reviewed authentication, authorization, CSRF, TLS, audit and deployment boundary exists.
+The static asset handler resolves files beneath the dedicated dashboard assets directory and rejects resolved paths outside that directory. The server validates the Host header against the loopback address and bound port, rejects cross-site Fetch Metadata and untrusted browser origins, and emits restrictive browser security headers (CSP, frame denial, no-referrer, nosniff and same-origin resource policy). The health endpoint separates HTTP liveness from local runtime readiness and reports durable journal, delivery-supervisor and observability checks. Provider health, PostgreSQL health and physical-host identity are explicitly reported as not checked/not attested; this endpoint is not production deployment evidence. The dashboard remains loopback-only. Do not expose it through a reverse proxy or public network until a separately reviewed authentication, authorization, CSRF, TLS, audit and deployment boundary exists.
 
 These aggregate views do not certify CI, independent review, merge readiness or production deployment; those remain evidence gates owned by their respective systems.
 
@@ -178,20 +178,9 @@ python ~/.auren/current/auren_cli.py dashboard \
 
 Then open http://127.0.0.1:8876.
 
-## Custom host
+## Host binding
 
-Keep 127.0.0.1 for normal use.
-
-A different host can be supplied when a controlled environment requires it:
-
-~~~bash
-python ~/.auren/current/auren_cli.py dashboard \
-  --project-root /path/to/repository \
-  --host 0.0.0.0 \
-  --port 8765
-~~~
-
-This changes the exposure boundary. Do not bind to a non-loopback address on an untrusted network without an appropriate authenticated or restricted network boundary.
+The server refuses non-loopback bind addresses. Keep the console on 127.0.0.1; for remote operator access, use an authenticated SSH tunnel. Do not place it behind a reverse proxy or expose it on a network interface. Host-header validation is defense in depth, not a replacement for authentication.
 
 ## Health check
 
@@ -201,11 +190,7 @@ While the server is running:
 curl http://127.0.0.1:8765/api/health
 ~~~
 
-Expected response:
-
-~~~json
-{"status":"ok"}
-~~~
+The response separates process liveness from runtime readiness. A healthy HTTP response only means the dashboard process is reachable. The checks report the progress journal and observability state; provider health, PostgreSQL health and physical-host identity remain explicitly unverified until independently wired evidence sources exist. A degraded readiness result is not a process failure.
 
 The dashboard data endpoint is http://127.0.0.1:8765/api/dashboard.
 

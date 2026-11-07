@@ -44,6 +44,44 @@ class ControlCenterApiTests(unittest.TestCase):
         self.assertIn("resources", payload)
         self.assertEqual([], payload["learnings"])
 
+    def test_security_headers_are_present_on_dashboard_responses(self):
+        base = "http://127.0.0.1:%d" % self.server.server_port
+        with urlopen(base + "/api/health", timeout=2) as response:
+            self.assertEqual("DENY", response.headers.get("X-Frame-Options"))
+            self.assertEqual("no-referrer", response.headers.get("Referrer-Policy"))
+            self.assertEqual("same-origin", response.headers.get("Cross-Origin-Resource-Policy"))
+            self.assertIn("frame-ancestors 'none'", response.headers.get("Content-Security-Policy", ""))
+            self.assertEqual("nosniff", response.headers.get("X-Content-Type-Options"))
+
+    def test_health_separates_process_liveness_from_runtime_readiness(self):
+        base = "http://127.0.0.1:%d" % self.server.server_port
+        with urlopen(base + "/api/health", timeout=2) as response:
+            payload = json.load(response)
+        self.assertEqual("ok", payload["status"])
+        self.assertEqual("degraded", payload["readiness"])
+        self.assertEqual("ok", payload["checks"]["http"])
+        self.assertEqual("not_configured", payload["checks"]["progress_journal"])
+        self.assertEqual("not_checked", payload["provider_health"])
+        self.assertEqual("not_checked", payload["postgres_health"])
+        self.assertEqual("not_attested", payload["host_identity"])
+
+    def test_host_header_dns_rebinding_is_rejected(self):
+        base = "http://127.0.0.1:%d" % self.server.server_port
+        request = Request(base + "/api/health", headers={"Host": "attacker.example"})
+        with self.assertRaises(Exception) as caught:
+            urlopen(request, timeout=2)
+        self.assertEqual(403, caught.exception.code)
+
+    def test_fetch_metadata_rejects_cross_site_api_requests(self):
+        base = "http://127.0.0.1:%d" % self.server.server_port
+        request = Request(
+            base + "/api/health",
+            headers={"Sec-Fetch-Site": "cross-site"},
+        )
+        with self.assertRaises(Exception) as caught:
+            urlopen(request, timeout=2)
+        self.assertEqual(403, caught.exception.code)
+
     def test_route_api_rejects_invalid_payload_without_running_a_model(self):
         base = "http://127.0.0.1:%d" % self.server.server_port
         request = Request(base + "/api/route", data=b'{"task":""}',
@@ -130,6 +168,11 @@ class ControlCenterApiTests(unittest.TestCase):
         self.assertIn("document.visibilityState", script)
         self.assertIn("last sample retained", script)
         self.assertIn("does not certify CI, review, merge or production readiness", script)
+        self.assertIn("health.readiness", script)
+        self.assertIn("Runtime reachable · readiness degraded", script)
+        self.assertIn("health.postgres_health", script)
+        self.assertIn("health.host_identity", script)
+        self.assertIn("Runtime checks unavailable", script)
         self.assertIn("renderRows", script)
         self.assertIn("auren-ops-task-list", script)
         self.assertIn("auren-ops-plan-list", script)

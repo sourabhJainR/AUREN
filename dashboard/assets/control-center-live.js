@@ -149,22 +149,32 @@
     const integrityOk = integrity.unknown_outcomes_block_replay === true &&
       integrity.completion_requires_receiver_ack === true &&
       integrity.atomic_protocols_are_not_chunked === true;
+    const runtimeChecks = health.checks && typeof health.checks === "object"
+      ? Object.entries(health.checks).map(([name, value]) => name + ": " + String(value)).join(" · ")
+      : "Runtime checks unavailable";
     const traceIntegrity = [
       "Trace status " + (traces.status || "unknown"),
       "corrupt lines " + number(traces.corrupt_line_count),
       "sequence gaps " + number(traces.event_sequence_gap_count),
       "drift alerts " + number(Array.isArray(traces.live_drift_alerts) ? traces.live_drift_alerts.length : null),
-      "delivery integrity " + (integrityOk ? "verified policy flags" : "unknown")
+      "delivery integrity " + (integrityOk ? "verified policy flags" : "unknown"),
+      "runtime checks " + runtimeChecks,
+      "provider " + (health.provider_health || "not checked"),
+      "PostgreSQL " + (health.postgres_health || "not checked"),
+      "host identity " + (health.host_identity || "not attested")
     ];
     el("auren-ops-integrity").textContent = traceIntegrity.join(" · ");
     const generated = sessions.generated_at || traces.generated_at;
     el("auren-ops-updated").textContent = generated ? "Source timestamp: " + safe(generated) : "Source timestamp unavailable";
     const ok = health.status === "ok";
-    const degraded = counts.attention > 0 || traces.status === "partial" || traces.status === "corrupt" ||
+    const readinessDegraded = health.readiness !== "ready";
+    const degraded = readinessDegraded || counts.attention > 0 || traces.status === "partial" || traces.status === "corrupt" ||
       delivery.unknown_outcomes > 0 || !integrityOk;
     const state = el("auren-ops-state");
     state.dataset.state = !ok ? "failed" : degraded ? "degraded" : "healthy";
-    state.textContent = !ok ? "Health check failed" : degraded ? "Runtime reachable · attention required" : "Runtime reachable";
+    state.textContent = !ok ? "Health check failed" :
+      readinessDegraded ? "Runtime reachable · readiness degraded" :
+      degraded ? "Runtime reachable · attention required" : "Runtime ready";
     el("auren-ops-errors").textContent = "Trace outcomes: " + (traceOutcomes || "unavailable") +
       ". Counts are source-reported; this panel does not certify CI, review, merge or production readiness.";
     lastSuccess = Date.now();
