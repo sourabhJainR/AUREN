@@ -202,3 +202,101 @@ def test_session_search_and_status_filter_cover_full_inventory(tmp_path):
     assert all(row["status"] == "complete" for row in completed["sessions"])
     batch = adapter.session_snapshot(query="release-validation")
     assert [row["session_id"] for row in batch["sessions"]] == ["session-121"]
+
+
+def test_workspace_inventory_is_allowlisted_and_never_exposes_host_paths(tmp_path):
+    adapter = MuxinSessionAdapter(
+        tmp_path,
+        session_store=SessionStore(tmp_path / "sessions"),
+        dashboard=_Dashboard(),
+        workspace_reader=lambda: [{
+            "workspace_id": "workspace-1",
+            "worker_id": "worker-1",
+            "task_id": "task-1",
+            "sandbox_id": "sandbox-1",
+            "status": "proposal_ready",
+            "base_revision": "a" * 40,
+            "branch": "agent/worker-1",
+            "updated_at": "2026-11-07T18:00:00+00:00",
+            "owned_paths": ["src"],
+            "changed_paths": ["src/app.py"],
+            "evidence_refs": ["sha256:" + "b" * 64],
+            "workspace_path": "/private/worker-workspaces/worker-1",
+            "raw_output": "Bearer must-not-appear",
+            "provider_token": "must-not-appear",
+        }],
+    )
+    inventory = adapter.session_snapshot()["workspaces"]
+    assert inventory["status"] == "available"
+    assert inventory["total_count"] == 1
+    assert inventory["truncated"] is False
+    record = inventory["records"][0]
+    assert record == {
+        "workspace_id": "workspace-1",
+        "worker_id": "worker-1",
+        "task_id": "task-1",
+        "sandbox_id": "sandbox-1",
+        "status": "proposal_ready",
+        "base_revision": "a" * 40,
+        "branch": "agent/worker-1",
+        "updated_at": "2026-11-07T18:00:00+00:00",
+        "owned_paths": ["src"],
+        "changed_paths": ["src/app.py"],
+        "evidence_refs": ["sha256:" + "b" * 64],
+        "lists_truncated": False,
+    }
+    serialized = json.dumps(inventory)
+    assert "/private/worker-workspaces" not in serialized
+    assert "raw_output" not in serialized
+    assert "provider_token" not in serialized
+    assert "must-not-appear" not in serialized
+
+
+def test_workspace_inventory_missing_or_failed_reader_is_not_reported_as_empty(tmp_path):
+    unconfigured = MuxinSessionAdapter(
+        tmp_path, session_store=SessionStore(tmp_path / "sessions"), dashboard=_Dashboard(),
+    ).session_snapshot()["workspaces"]
+    assert unconfigured["status"] == "not_configured"
+    assert unconfigured["total_count"] is None
+    assert unconfigured["records"] == []
+
+    def unavailable():
+        raise TimeoutError("private host details must not escape")
+
+    failed = MuxinSessionAdapter(
+        tmp_path, session_store=SessionStore(tmp_path / "sessions"), dashboard=_Dashboard(),
+        workspace_reader=unavailable,
+    ).session_snapshot()["workspaces"]
+    assert failed["status"] == "unavailable"
+    assert failed["total_count"] is None
+    assert failed["records"] == []
+    assert failed["reason"] == "TimeoutError"
+    assert "private host details" not in json.dumps(failed)
+
+
+def test_workspace_inventory_is_bounded_and_rejects_unsafe_paths(tmp_path):
+    rows = [
+        {"workspace_id": f"workspace-{index}", "status": "running",
+         "changed_paths": [f"src/module_{index}.py"]}
+        for index in range(51)
+    ]
+    adapter = MuxinSessionAdapter(
+        tmp_path, session_store=SessionStore(tmp_path / "sessions"), dashboard=_Dashboard(),
+        workspace_reader=lambda: rows,
+    )
+    inventory = adapter.session_snapshot()["workspaces"]
+    assert inventory["status"] == "available"
+    assert inventory["total_count"] == 51
+    assert len(inventory["records"]) == 50
+    assert inventory["truncated"] is True
+
+    unsafe = MuxinSessionAdapter(
+        tmp_path, session_store=SessionStore(tmp_path / "sessions"), dashboard=_Dashboard(),
+        workspace_reader=lambda: [{
+            "workspace_id": "workspace-unsafe", "status": "running",
+            "changed_paths": ["../outside.py"],
+        }],
+    ).session_snapshot()["workspaces"]
+    assert unsafe["status"] == "unavailable"
+    assert unsafe["records"] == []
+    assert unsafe["reason"] == "ValueError"
