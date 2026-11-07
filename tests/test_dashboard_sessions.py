@@ -345,8 +345,9 @@ class WorkspaceInventoryTests(unittest.TestCase):
         self.assertNotIn("/private", json.dumps(rows))
 
     def test_workspace_registry_reader_requires_absolute_existing_non_symlink_path(self):
+        relative_reader = workspace_registry_reader("relative/workspace-registry.sqlite3")
         with self.assertRaisesRegex(ValueError, "must be absolute"):
-            workspace_registry_reader("relative/workspace-registry.sqlite3")
+            relative_reader()
 
         missing = self.root / "missing.sqlite3"
         with self.assertRaises(FileNotFoundError):
