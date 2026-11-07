@@ -69,7 +69,7 @@ def analyze_delivery_parallelism(
     worker_limit: int,
     resource_locks: Mapping[str, Sequence[str]] | None = None,
     coordination_overhead_seconds: float = 0.0,
-    serial_task_ids: Sequence[str] = (),
+    serial_task_ids: Sequence[str] | None = None,
 ) -> DeliveryAcceleration:
     """Build a deterministic, resource-aware schedule and Amdahl bound."""
     if type(worker_limit) is not int or worker_limit < 1 or worker_limit > 256:
@@ -86,6 +86,8 @@ def analyze_delivery_parallelism(
         raise ValueError("durations_seconds must be a task-to-duration mapping")
     if resource_locks is not None and not isinstance(resource_locks, Mapping):
         raise ValueError("resource_locks must be a task-to-resource mapping")
+    if serial_task_ids is None:
+        raise ValueError("serial_task_ids must be explicitly supplied for the Amdahl estimate")
     if isinstance(serial_task_ids, (str, bytes)) or not isinstance(serial_task_ids, Sequence):
         raise ValueError("serial_task_ids must be a sequence of task IDs")
 
