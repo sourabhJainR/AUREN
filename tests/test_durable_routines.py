@@ -235,6 +235,24 @@ class DurableRoutineRegistryTests(unittest.TestCase):
         self.assertEqual("already-created-task", second[0].task_id)
         self.assertEqual([], self.submissions)
 
+    def test_receipt_keeps_trigger_digest_after_submission_and_unknown_transition(self):
+        spec = self.spec()
+        self.registry.register(spec)
+        submitted = self.registry.dispatch_webhook(
+            spec.routine_id, event_id="evt-receipt", event_type="push",
+            payload={"ref": "refs/heads/main"},
+            authenticate=lambda *_: True, submit=self.submit,
+        )
+        receipt = self.registry.occurrence(submitted.occurrence_key)
+        self.assertEqual("submitted", receipt["status"])
+        self.assertTrue(json.loads(receipt["receipt_json"])["trigger_digest"])
+        duplicate = self.registry.dispatch_webhook(
+            spec.routine_id, event_id="evt-receipt", event_type="push",
+            payload={"ref": "refs/heads/main"},
+            authenticate=lambda *_: True, submit=self.submit,
+        )
+        self.assertEqual("duplicate", duplicate.status)
+
     def test_disabled_routine_does_not_dispatch(self):
         spec = self.spec()
         self.registry.register(spec)
