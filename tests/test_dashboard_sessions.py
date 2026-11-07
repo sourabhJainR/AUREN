@@ -344,6 +344,27 @@ class WorkspaceInventoryTests(unittest.TestCase):
         })
         self.assertNotIn("/private", json.dumps(rows))
 
+    def test_workspace_registry_reader_requires_absolute_existing_non_symlink_path(self):
+        with self.assertRaisesRegex(ValueError, "must be absolute"):
+            workspace_registry_reader("relative/workspace-registry.sqlite3")
+
+        missing = self.root / "missing.sqlite3"
+        with self.assertRaises(FileNotFoundError):
+            workspace_registry_reader(missing)()
+
+        target = self.root / "real.sqlite3"
+        connection = sqlite3.connect(target)
+        connection.execute("CREATE TABLE unrelated (value TEXT)")
+        connection.commit()
+        connection.close()
+        link = self.root / "registry-link.sqlite3"
+        try:
+            link.symlink_to(target)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlink creation is unavailable on this host")
+        with self.assertRaisesRegex(PermissionError, "must not be a symlink"):
+            workspace_registry_reader(link)()
+
     def test_workspace_panel_is_rendered_as_read_only_inventory(self):
         root = Path(__file__).resolve().parents[1]
         html = (root / "dashboard" / "index.html").read_text(encoding="utf-8")
