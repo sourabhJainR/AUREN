@@ -50,7 +50,7 @@ def workspace_registry_reader(registry_path: str | Path) -> Callable[[], list[di
         try:
             connection.execute("PRAGMA query_only=ON")
             rows = connection.execute(
-                """SELECT worker_id, base_revision, owned_paths, state,
+                """SELECT worker_id, task_id, base_revision, owned_paths, state,
                           artifact_digest, proposal_paths
                    FROM graph_workspace_registry
                    ORDER BY worker_id LIMIT 1001"""
@@ -63,6 +63,7 @@ def workspace_registry_reader(registry_path: str | Path) -> Callable[[], list[di
                 records.append({
                     "workspace_id": row["worker_id"],
                     "worker_id": row["worker_id"],
+                    "task_id": row["task_id"],
                     "status": row["state"],
                     "base_revision": row["base_revision"],
                     "owned_paths": owned_paths,
