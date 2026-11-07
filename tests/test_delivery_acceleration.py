@@ -24,16 +24,18 @@ class DeliveryAccelerationTests(unittest.TestCase):
         result = analyze_delivery_parallelism(
             value, durations_seconds={"api": 4, "ui": 6, "qa": 2},
             worker_limit=2, coordination_overhead_seconds=0.5,
+            serial_task_ids=("qa",),
         )
         by_id = {task.task_id: task for task in result.tasks}
         self.assertEqual(0, by_id["api"].start_seconds)
         self.assertEqual(0, by_id["ui"].start_seconds)
-        self.assertEqual(7, by_id["qa"].start_seconds)
-        self.assertEqual(10, result.scheduled_seconds)
+        self.assertEqual(6, by_id["qa"].start_seconds)
+        self.assertEqual(8.5, result.scheduled_seconds)
         self.assertEqual(12, result.sequential_seconds)
         self.assertEqual(0.5, result.coordination_seconds)
-        self.assertAlmostEqual(1.2, result.scheduled_speedup)
+        self.assertAlmostEqual(12 / 8.5, result.scheduled_speedup)
         self.assertLessEqual(result.scheduled_speedup, result.amdahl_upper_bound)
+        self.assertLessEqual(result.scheduled_speedup, result.critical_path_speedup_bound)
 
     def test_dependency_chain_remains_serial_under_more_workers(self):
         value = plan(
@@ -43,10 +45,12 @@ class DeliveryAccelerationTests(unittest.TestCase):
         )
         result = analyze_delivery_parallelism(
             value, durations_seconds={"a": 2, "b": 3, "c": 5}, worker_limit=8,
+            serial_task_ids=("a", "b", "c"),
         )
         self.assertEqual(10, result.scheduled_seconds)
         self.assertEqual(1.0, result.serial_fraction)
         self.assertEqual(1.0, result.amdahl_upper_bound)
+        self.assertEqual(1.0, result.critical_path_speedup_bound)
         self.assertEqual(1.0, result.scheduled_speedup)
 
     def test_shared_resource_lock_serializes_independent_tasks(self):
