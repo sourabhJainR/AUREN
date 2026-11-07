@@ -86,6 +86,10 @@ class ImpactPolicyTests(unittest.TestCase):
             "tests/test_agency_observability.py": {"tests.test_agency_observability"},
             "portable/engineering_dashboard.py": {"tests.test_engineering_dashboard"},
             "tests/test_engineering_dashboard.py": {"tests.test_engineering_dashboard"},
+            "portable/dashboard_server.py": {"tests.test_control_center_api"},
+            "tests/test_control_center_api.py": {"tests.test_control_center_api"},
+            "portable/durable_routines.py": {"tests.test_durable_routines", "tests.test_continuous_execution"},
+            "tests/test_durable_routines.py": {"tests.test_durable_routines"},
             "tests/test_engineering_evidence_capture.py": {"tests.test_engineering_evidence_capture"},
             "tests/test_execution_controller_evidence_capture.py": {"tests.test_execution_controller_evidence_capture"},
             "auren_cli.py": {"tests.test_continuous_execution_cli", "tests.test_continuous_execution"},
@@ -158,6 +162,10 @@ class ImpactPolicyTests(unittest.TestCase):
             "tests/test_canonical_evidence_ledger.py",
             "portable/agency_evolution_gates.py",
             "tests/test_agency_evolution_gates.py",
+            "portable/dashboard_server.py",
+            "tests/test_control_center_api.py",
+            "portable/durable_routines.py",
+            "tests/test_durable_routines.py",
         )
         for path in required_paths:
             with self.subTest(path=path):
