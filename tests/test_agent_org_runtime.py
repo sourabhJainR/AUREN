@@ -138,6 +138,32 @@ class AgentOrgRuntimeTests(unittest.TestCase):
             "unauthorized managers must be rejected before host authorization",
         )
 
+    def test_ceo_and_cto_cannot_assign_gate_bypass_actions(self):
+        calls = []
+        attempts = (
+            {
+                "role_id": "CEO-01",
+                "manager_id": "stakeholders_and_investors",
+                "action_class": "bypass_security_or_release_gates",
+            },
+            {
+                "role_id": "CTO-01",
+                "manager_id": "CEO-01",
+                "action_class": "waive_required_checks",
+            },
+        )
+        for attempt in attempts:
+            with self.subTest(role=attempt["role_id"], action=attempt["action_class"]):
+                with self.assertRaises(AgentAssignmentDenied):
+                    authorize_agent_assignment(
+                        **attempt,
+                        scope=["portable/example.py"],
+                        work_key="AUREN:test:mandatory-gate-denial:" + attempt["role_id"],
+                        authorizer=lambda request: calls.append(dict(request)) or True,
+                        registry_path=REGISTRY,
+                    )
+        self.assertEqual(calls, [], "forbidden executive actions must be denied before host authorization")
+
     def test_external_reporting_entity_cannot_act_as_assigning_manager(self):
         with self.assertRaisesRegex(AgentAssignmentDenied, "must be an organization role"):
             authorize_agent_assignment(
