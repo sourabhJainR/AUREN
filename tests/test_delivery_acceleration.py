@@ -87,6 +87,22 @@ class DeliveryAccelerationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "worker_limit"):
             analyze_delivery_parallelism(value, durations_seconds={"one": 1}, worker_limit=0)
 
+    def test_declared_serial_work_is_serialized_in_the_schedule(self):
+        value = plan(
+            PlanTask("one", "One", ("done",), "revert"),
+            PlanTask("two", "Two", ("done",), "revert"),
+        )
+        result = analyze_delivery_parallelism(
+            value, durations_seconds={"one": 3, "two": 4}, worker_limit=4,
+            serial_task_ids=("one", "two"),
+        )
+        by_id = {task.task_id: task for task in result.tasks}
+        self.assertEqual(0, by_id["one"].start_seconds)
+        self.assertEqual(3, by_id["two"].start_seconds)
+        self.assertEqual(7, result.scheduled_seconds)
+        self.assertEqual(1.0, result.serial_fraction)
+        self.assertEqual(1.0, result.amdahl_upper_bound)
+
     def test_unknown_resource_lock_owner_is_rejected(self):
         value = plan(PlanTask("one", "One", ("done",), "revert"))
         with self.assertRaisesRegex(ValueError, "unknown tasks"):
