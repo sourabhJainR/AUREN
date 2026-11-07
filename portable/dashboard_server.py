@@ -649,8 +649,11 @@ class _Handler(BaseHTTPRequestHandler):
             self._serve(self.ui_root / "index.html", "text/html; charset=utf-8")
             return
         if path.startswith("/assets/"):
-            target = self.ui_root / path.removeprefix("/assets/")
-            if target.is_file() and target.resolve().is_relative_to(self.ui_root.resolve()):
+            # Public dashboard assets live under dashboard/assets. Resolve the
+            # complete path before serving and reject traversal outside that root.
+            asset_root = (self.ui_root / "assets").resolve()
+            target = (asset_root / path.removeprefix("/assets/")).resolve()
+            if target.is_file() and target.is_relative_to(asset_root):
                 self._serve(target, self._content_type(target))
                 return
         self._send(404, b'{"error":"not found"}', "application/json")
