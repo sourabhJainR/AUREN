@@ -25,7 +25,7 @@ _STAGE_ORDER = (
 _STAGE_PROGRESS = {name: round(index * 100 / (len(_STAGE_ORDER) - 1)) for index, name in enumerate(_STAGE_ORDER)}
 _TERMINAL_FAILURES = {"failed", "blocked", "cancelled", "canceled"}
 _MAX_SESSIONS = 100
-_MAX_WORKSPACES = 50
+_MAX_WORKSPACES = 25
 _MAX_WORKSPACE_LIST_ITEMS = 20
 _MAX_RESPONSE_BYTES = 1024 * 1024
 
@@ -239,14 +239,19 @@ class MuxinSessionAdapter:
             if not isinstance(rows, (list, tuple)) or len(rows) > 1000:
                 raise ValueError("workspace reader returned an invalid or oversized inventory")
             records = []
+            seen_workspace_ids: set[str] = set()
             for raw in rows[:_MAX_WORKSPACES]:
                 if not isinstance(raw, dict):
                     raise ValueError("workspace record must be an object")
+                workspace_id = self._workspace_text(raw.get("workspace_id"), "workspace_id", required=True)
+                if workspace_id in seen_workspace_ids:
+                    raise ValueError("workspace inventory contains duplicate workspace IDs")
+                seen_workspace_ids.add(workspace_id)
                 owned, owned_truncated = self._workspace_list(raw.get("owned_paths"), "owned_paths", path_list=True)
                 changed, changed_truncated = self._workspace_list(raw.get("changed_paths"), "changed_paths", path_list=True)
                 evidence, evidence_truncated = self._workspace_list(raw.get("evidence_refs"), "evidence_refs")
                 record = {
-                    "workspace_id": self._workspace_text(raw.get("workspace_id"), "workspace_id", required=True),
+                    "workspace_id": workspace_id,
                     "worker_id": self._workspace_text(raw.get("worker_id"), "worker_id"),
                     "task_id": self._workspace_text(raw.get("task_id"), "task_id"),
                     "sandbox_id": self._workspace_text(raw.get("sandbox_id"), "sandbox_id"),
