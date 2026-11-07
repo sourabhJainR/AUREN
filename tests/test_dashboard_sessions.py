@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import sqlite3
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 import hashlib
@@ -11,7 +12,7 @@ import unittest
 from threading import Thread
 
 from portable.dashboard_server import _Handler
-from portable.muxin_session_adapter import MuxinSessionAdapter
+from portable.muxin_session_adapter import MuxinSessionAdapter, workspace_registry_reader
 from portable.session_state import SessionCheckpoint, SessionStore
 
 
@@ -305,6 +306,42 @@ class WorkspaceInventoryTests(unittest.TestCase):
         self.assertEqual(duplicate["status"], "unavailable")
         self.assertEqual(duplicate["records"], [])
         self.assertEqual(duplicate["reason"], "ValueError")
+
+    def test_workspace_registry_reader_projects_canonical_rows_without_host_paths(self):
+        registry = self.root / "workspace-registry.sqlite3"
+        connection = sqlite3.connect(registry)
+        connection.execute(
+            """CREATE TABLE graph_workspace_registry (
+                worker_id TEXT PRIMARY KEY, base_revision TEXT NOT NULL,
+                owned_paths TEXT NOT NULL, workspace_path TEXT NOT NULL,
+                state TEXT NOT NULL, artifact_path TEXT, artifact_digest TEXT,
+                proposal_paths TEXT, cancellation_reason TEXT, termination_evidence TEXT
+            )"""
+        )
+        connection.execute(
+            """INSERT INTO graph_workspace_registry
+               (worker_id,base_revision,owned_paths,workspace_path,state,artifact_path,
+                artifact_digest,proposal_paths)
+               VALUES(?,?,?,?,?,?,?,?)""",
+            ("worker-7", "a" * 40, json.dumps(["src"]), "/private/worktree/worker-7",
+             "proposal_ready", "/private/artifacts/proposal.patch", "sha256:" + "c" * 64,
+             json.dumps(["src/app.py"])),
+        )
+        connection.commit()
+        connection.close()
+
+        rows = workspace_registry_reader(registry)()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0], {
+            "workspace_id": "worker-7",
+            "worker_id": "worker-7",
+            "status": "proposal_ready",
+            "base_revision": "a" * 40,
+            "owned_paths": ["src"],
+            "changed_paths": ["src/app.py"],
+            "evidence_refs": ["sha256:" + "c" * 64],
+        })
+        self.assertNotIn("/private", json.dumps(rows))
 
     def test_workspace_panel_is_rendered_as_read_only_inventory(self):
         root = Path(__file__).resolve().parents[1]
