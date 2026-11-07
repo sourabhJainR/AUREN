@@ -25,6 +25,8 @@ _STAGE_ORDER = (
 _STAGE_PROGRESS = {name: round(index * 100 / (len(_STAGE_ORDER) - 1)) for index, name in enumerate(_STAGE_ORDER)}
 _TERMINAL_FAILURES = {"failed", "blocked", "cancelled", "canceled"}
 _MAX_SESSIONS = 100
+_MAX_WORKSPACES = 50
+_MAX_WORKSPACE_LIST_ITEMS = 20
 _MAX_RESPONSE_BYTES = 1024 * 1024
 
 
@@ -209,15 +211,15 @@ class MuxinSessionAdapter:
         if not isinstance(value, (list, tuple)):
             raise ValueError(f"workspace {field} must be a list")
         result = []
-        for item in value[:100]:
-            text = cls._workspace_text(item, field, required=True, limit=500)
+        for item in value[:_MAX_WORKSPACE_LIST_ITEMS]:
+            text = cls._workspace_text(item, field, required=True, limit=256)
             if path_list and (
-                text.startswith("/") or "\\" in text
+                text.startswith("/") or "\\" in text or (len(text) > 1 and text[1] == ":")
                 or any(part in {"", ".", ".."} for part in text.split("/"))
             ):
                 raise ValueError(f"workspace {field} must contain normalized repository-relative paths")
             result.append(text)
-        return result, len(value) > 100
+        return result, len(value) > _MAX_WORKSPACE_LIST_ITEMS
 
     def _workspace_snapshot(self) -> dict[str, Any]:
         """Return a bounded, allowlisted view of host-owned workspace receipts.
@@ -237,7 +239,7 @@ class MuxinSessionAdapter:
             if not isinstance(rows, (list, tuple)) or len(rows) > 1000:
                 raise ValueError("workspace reader returned an invalid or oversized inventory")
             records = []
-            for raw in rows[:100]:
+            for raw in rows[:_MAX_WORKSPACES]:
                 if not isinstance(raw, dict):
                     raise ValueError("workspace record must be an object")
                 owned, owned_truncated = self._workspace_list(raw.get("owned_paths"), "owned_paths", path_list=True)
@@ -255,7 +257,7 @@ class MuxinSessionAdapter:
                     "owned_paths": owned,
                     "changed_paths": changed,
                     "evidence_refs": evidence,
-                    "paths_truncated": owned_truncated or changed_truncated or evidence_truncated,
+                    "lists_truncated": owned_truncated or changed_truncated or evidence_truncated,
                 }
                 records.append(record)
             return {
