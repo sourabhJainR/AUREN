@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -10,7 +11,7 @@ from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 from .agency_release_lifecycle import ArtifactStore
 from .engineering_dashboard import EngineeringDashboard
-from .muxin_session_adapter import LocalModelDiscovery, MuxinSessionAdapter
+from .muxin_session_adapter import LocalModelDiscovery, MuxinSessionAdapter, workspace_registry_reader
 from .hybrid_model_router import HybridModelRouter, TaskRouteRequest
 from .agency_observability_ops import observability_snapshot
 from .identity_compat import canonical_runtime_home
@@ -770,7 +771,11 @@ def serve(
     if delivery_budget_id is not None:
         delivery_budget_id = delivery_budget_id.strip()
     dashboard = EngineeringDashboard(project_root)
-    control_center = MuxinSessionAdapter(project_root, dashboard=dashboard)
+    workspace_registry = os.environ.get("AUREN_WORKSPACE_REGISTRY")
+    workspace_reader = workspace_registry_reader(workspace_registry) if workspace_registry else None
+    control_center = MuxinSessionAdapter(
+        project_root, dashboard=dashboard, workspace_reader=workspace_reader,
+    )
     runtime_root = Path(project_root).expanduser().resolve() / ".auren"
     artifact_store = ArtifactStore(runtime_root / "releases")
     response_repository = ResponseArtifactRepository(artifact_store)
