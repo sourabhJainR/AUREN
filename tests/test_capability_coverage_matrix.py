@@ -152,7 +152,7 @@ class CapabilityCoverageMatrixTests(unittest.TestCase):
         self.assertEqual(observation["post_merge_push_workflows"]["success"], 8)
         self.assertEqual(observation["open_pr_count"], 3)
         self.assertEqual([item["number"] for item in observation["open_prs"]], [1297, 1299, 1300])
-        self.assertTrue(all(item["base_sha"] == main for item in observation["open_prs"]))
+        self.assertTrue(all(item["base_sha"] == radar["baseline_main_sha"] for item in observation["open_prs"]))
         self.assertEqual(radar["artifact_integrity"]["manifest_file_count"], 537)
         self.assertEqual(radar["artifact_integrity"]["manifest_hash_or_size_mismatches"], 0)
         self.assertEqual(radar["artifact_integrity"]["missing_manifest_entries"], 0)
