@@ -338,7 +338,7 @@ class DurableRoutineRegistry:
                     db.execute("COMMIT")
                     if reconcile is None:
                         return RoutineDispatch(occurrence_key, work_key, "unknown",
-                                               reason="submission outcome requires authoritative reconciliation")
+                                               reason="submission outcome requires authoritative reconciliation; reconcile before retry")
                     try:
                         recovered = reconcile(work_key)
                     except Exception as exc:
