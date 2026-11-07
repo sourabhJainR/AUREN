@@ -73,7 +73,7 @@
     const source = counts && typeof counts === "object" ? counts : {};
     const pick = (...keys) => keys.reduce((sum, key) => sum + (Number.isFinite(Number(source[key])) ? Number(source[key]) : 0), 0);
     return {
-      active: pick("running", "active", "waiting", "queued", "recovering"),
+      active: source.active !== undefined ? Number(source.active) : pick("running", "waiting", "queued", "recovering"),
       attention: pick("blocked", "stale", "unknown", "unverified", "failed"),
       completed: pick("complete", "completed", "verified")
     };
@@ -82,9 +82,10 @@
   function render(sessions, traces, health) {
     const counts = statusCounts(sessions.counts);
     const taskRows = Array.isArray(sessions.tasks) ? sessions.tasks : [];
-    const traceTotal = Number(traces.total_traces ?? traces.trace_count ?? traces.total ?? NaN);
-    const traceOutcomes = traces.outcomes && typeof traces.outcomes === "object"
-      ? Object.entries(traces.outcomes).map(([k,v]) => k + ": " + number(v)).join(" · ")
+    const traceTotal = traces.status === "unavailable" ? null : (traces.trace_count ?? traces.total_traces ?? traces.total ?? null);
+    const outcomeCounts = traces.status_counts || traces.outcomes;
+    const traceOutcomes = outcomeCounts && typeof outcomeCounts === "object"
+      ? Object.entries(outcomeCounts).map(([k,v]) => k + ": " + number(v)).join(" · ")
       : "Outcome breakdown unavailable";
     el("auren-ops-active").textContent = number(counts.active);
     el("auren-ops-attention").textContent = number(counts.attention);
