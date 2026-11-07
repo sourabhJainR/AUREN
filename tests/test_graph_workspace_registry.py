@@ -43,6 +43,23 @@ class DurableGraphWorkspaceRegistryTests(unittest.TestCase):
             coordinator.close()
         self.temp.cleanup()
 
+    def test_task_identity_is_persisted_and_restored_with_workspace(self):
+        first = self.make_coordinator()
+        first.create_worker("worker-task-bound", ["src/task.py"], task_id="task-123")
+        first.close()
+
+        second = self.make_coordinator()
+        self.assertEqual(second._task_ids["worker-task-bound"], "task-123")
+        db = sqlite3.connect(self.registry)
+        try:
+            task_id = db.execute(
+                "SELECT task_id FROM graph_workspace_registry WHERE worker_id=?",
+                ("worker-task-bound",),
+            ).fetchone()[0]
+        finally:
+            db.close()
+        self.assertEqual(task_id, "task-123")
+
     def test_fresh_coordinator_restores_worker_ownership_and_blocks_duplicate_id(self):
         first = self.make_coordinator()
         workspace = first.create_worker("worker-a", ["src/a.py"])
