@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import time
 import urllib.error
 import urllib.request
@@ -28,6 +29,51 @@ _MAX_SESSIONS = 100
 _MAX_WORKSPACES = 25
 _MAX_WORKSPACE_LIST_ITEMS = 20
 _MAX_RESPONSE_BYTES = 1024 * 1024
+
+
+def workspace_registry_reader(registry_path: str | Path) -> Callable[[], list[dict[str, Any]]]:
+    """Create a read-only adapter for the canonical GraphWorkspaceCoordinator registry.
+
+    The registry location is host-configured. This adapter never reads workspace
+    directories, executes Git commands, or exposes persisted host filesystem paths.
+    """
+    path = Path(registry_path).expanduser()
+
+    def read() -> list[dict[str, Any]]:
+        if path.is_symlink():
+            raise PermissionError("workspace registry must not be a symlink")
+        resolved = path.resolve(strict=True)
+        if not resolved.is_file():
+            raise FileNotFoundError("workspace registry is not a file")
+        connection = sqlite3.connect(f"{resolved.as_uri()}?mode=ro", uri=True, timeout=2)
+        connection.row_factory = sqlite3.Row
+        try:
+            connection.execute("PRAGMA query_only=ON")
+            rows = connection.execute(
+                """SELECT worker_id, base_revision, owned_paths, state,
+                          artifact_digest, proposal_paths
+                   FROM graph_workspace_registry
+                   ORDER BY worker_id LIMIT 1001"""
+            ).fetchall()
+            records = []
+            for row in rows:
+                owned_paths = json.loads(row["owned_paths"] or "[]")
+                proposal_paths = json.loads(row["proposal_paths"] or "[]")
+                digest = row["artifact_digest"]
+                records.append({
+                    "workspace_id": row["worker_id"],
+                    "worker_id": row["worker_id"],
+                    "status": row["state"],
+                    "base_revision": row["base_revision"],
+                    "owned_paths": owned_paths,
+                    "changed_paths": proposal_paths,
+                    "evidence_refs": [digest] if digest else [],
+                })
+            return records
+        finally:
+            connection.close()
+
+    return read
 
 
 def stage_progress(stage: str) -> int:
