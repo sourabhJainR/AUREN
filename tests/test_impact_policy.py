@@ -175,6 +175,8 @@ class ImpactPolicyTests(unittest.TestCase):
             "tests/test_agency_evolution_gates.py",
             "portable/dashboard_server.py",
             "tests/test_control_center_api.py",
+            "portable/muxin_session_adapter.py",
+            "tests/test_dashboard_sessions.py",
             "portable/durable_routines.py",
             "tests/test_durable_routines.py",
         )
