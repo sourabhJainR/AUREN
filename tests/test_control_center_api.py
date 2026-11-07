@@ -115,5 +115,45 @@ class ControlCenterApiTests(unittest.TestCase):
         css = (root / "assets" / "styles.css").read_text(encoding="utf-8")
         self.assertIn(".pill.warning", css)
 
+    def test_live_operations_asset_is_served_and_uses_bounded_read_only_polling(self):
+        base = "http://127.0.0.1:%d" % self.server.server_port
+        with urlopen(base + "/assets/control-center-live.js", timeout=2) as response:
+            self.assertEqual(200, response.status)
+            self.assertIn("javascript", response.headers.get("Content-Type", ""))
+            script = response.read().decode("utf-8")
+        with urlopen(base + "/assets/styles.css", timeout=2) as response:
+            self.assertEqual(200, response.status)
+        self.assertIn("/api/sessions?offset=0&limit=50", script)
+        self.assertIn("/api/observability", script)
+        self.assertIn("/api/health", script)
+        self.assertIn("REQUEST_TIMEOUT_MS", script)
+        self.assertIn("document.visibilityState", script)
+        self.assertIn("last sample retained", script)
+        self.assertIn("does not certify CI, review, merge or production readiness", script)
+        self.assertIn("renderRows", script)
+        self.assertIn("auren-ops-task-list", script)
+        self.assertIn("auren-ops-plan-list", script)
+        self.assertIn("unknown_outcomes_block_replay", script)
+        self.assertIn("replaceChildren", script)
+        html = (Path(__file__).resolve().parents[1] / "site" / "control-center.html").read_text(encoding="utf-8")
+        self.assertIn("/assets/control-center-live.js", html)
+
+    def test_live_tracking_endpoints_keep_missing_evidence_explicit(self):
+        base = "http://127.0.0.1:%d" % self.server.server_port
+        with urlopen(base + "/api/sessions?offset=0&limit=10", timeout=5) as response:
+            sessions = json.load(response)
+        self.assertEqual(1, sessions["schema_version"])
+        self.assertIn("active", sessions["counts"])
+        self.assertIn("blocked", sessions["counts"])
+        self.assertIn("stale", sessions["counts"])
+        self.assertIn("unverified", sessions["counts"])
+        self.assertIn("tasks", sessions["counts"])
+        self.assertIn("plan_runs", sessions["counts"])
+        self.assertIsInstance(sessions["tasks"], list)
+        with urlopen(base + "/api/observability", timeout=5) as response:
+            traces = json.load(response)
+        self.assertIn(traces["status"], {"ok", "partial", "empty", "unavailable", "corrupt"})
+        self.assertFalse(traces["raw_payloads_exposed"])
+
 if __name__ == "__main__":
     unittest.main()
