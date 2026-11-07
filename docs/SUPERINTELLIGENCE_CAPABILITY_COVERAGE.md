@@ -289,7 +289,7 @@ No AGI/SI or broad-generalization claim is supported. No new runtime, orchestrat
 ### Status boundary
 
 - **Implemented:** canonical AUREN owners and selected runtime/learning/evidence contracts exist; this is not a broad capability claim.
-- **CI-verified:** the named repository checks on exact main only; 30/30 checks and eight push workflows succeeded on the reviewed SHA.
+- **CI-verified:** the named repository checks on exact main only; 28/28 current-main check-runs and all six post-merge push workflows succeeded on the reviewed SHA.
 - **Deployment-verified:** not verified for production host isolation, physical multi-host operation, live providers, long-duration computer use or external staging migration.
 - **Independently verified:** blocked; evaluator/corpus custody, sealed holdout, host audit and scientific replication receipts are not available.
 
@@ -319,6 +319,6 @@ The v1.0.6 portable bundle and checksum from [run 42399630477](https://github.co
 - **Deployment-verified:** not verified for production host isolation, live monitoring/event triggers, cross-organisation agent action, physical laboratory control or multi-host recovery.
 - **Independently verified:** blocked. Independent evaluator identity, sealed-holdout custody, host audit and scientific replication receipts are not available.
 
-Three PRs are open on this baseline: #1297 dashboard host/origin hardening at `9919df56da5c23068237020a07e4fd1adacd2f79`, #1299 durable routine trigger receipts at `76829c4cf342d45c7566bd514e6c8b549f9c2898`, and #1300 the 2026-11-07 capability radar at `aaf99cf1148f152b43d0754c33b189617ce42f36`. PR #1297 and #1299 still have Windows/runtime checks pending; PR #1300 has 22 successful checks and four impact-filtered skips. Skips remain skips, not passes. The visible main ruleset protects against deletion and non-fast-forward updates but exposes no required-status-check rule; the branch-protection API remains inaccessible to this integration, so owner/admin confirmation is still needed. No local checkout or AutonomousCompany/ExecutionController runtime invocation is available here; no local tests or process-level fault injection are claimed.
+PR #1302 carries this radar refresh on the reviewed main baseline. Its exact-head CI is tracked separately from the 28/28 current-main checks above. The visible main ruleset protects against deletion and non-fast-forward updates but exposes no required-status-check rule; the branch-protection API remains inaccessible to this integration, so owner/admin confirmation is still needed. No local checkout or AutonomousCompany/ExecutionController runtime invocation is available here; no local tests or process-level fault injection are claimed.
 
 No second orchestrator, external runtime dependency, default model route, harness/extension-pack promotion or AGI/SI claim is supported. Candidate work remains opt-in until paired AUREN measurements, independent evaluation, regression checks and rollback evidence exist.
