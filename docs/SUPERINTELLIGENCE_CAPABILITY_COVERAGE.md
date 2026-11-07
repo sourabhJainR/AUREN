@@ -298,9 +298,9 @@ No second orchestrator, external runtime dependency, default route change, harne
 
 ## Living capability radar delta — 2026-11-07
 
-**Reviewed main:** `5c5f86bd2469c1943276d84ac78034ddb3b3d3bc`. Its 30 current-main check-runs are terminal: 29 succeeded, one `hardening` job was skipped, zero failed and zero remain pending. The skipped job is not a pass. All eight post-merge push workflows succeeded.
+**Reviewed main:** `22e086d18e6becb814e54d7b653267332a0ce0f5`. All 30 current-main check-runs are terminal-successful; zero were skipped, failed or remain pending. All eight post-merge push workflows succeeded.
 
-The v1.0.6 portable bundle and checksum from [run 42363861080](https://github.com/sourabhJainR/AUREN/actions/runs/42363861080) were downloaded and rehashed. Outer bundle artifact SHA-256: `102774777e3f8f87a45de84bc9be951a98c47702b5b7d640cf5bfa72829f47f7`; outer checksum artifact SHA-256: `35caf0da42982f2621981e1f49b4602dc79f61515764cc8535509f7f52d70af8`; embedded ZIP SHA-256: `edb4ffbd2610b5201b5a2b6279028f18d46c2dda5b647dc549625fa5a0cee5fc`, matching the checksum file. All 536 manifest entries match their declared size and SHA-256. The only expected generated entry outside the manifest is `payload/PORTABLE_BUNDLE.txt`. The manifest pins this main SHA, version `1.0.6`, and `target_repository_mutation=false`.
+The v1.0.6 portable bundle and checksum from [run 42383803431](https://github.com/sourabhJainR/AUREN/actions/runs/42383803431) were downloaded and rehashed. Outer bundle artifact SHA-256: `fa9c6926b912a48d8c964e7460605609c6dbd737923b06419a2cd0c130b53625`; outer checksum artifact SHA-256: `80ffbdd2a57f87e85389f4e9f1a3a44e5d4c0bb0a38478e99709d54c75fc48fd`; embedded ZIP SHA-256: `e9279f48a0e8425398eb1dc788794b04b13ae81040533690781018a2a21e56a5`, matching the checksum file. All 537 manifest entries match their declared size and SHA-256. The only expected generated entry outside the manifest is `payload/PORTABLE_BUNDLE.txt`. The manifest pins this main SHA, version `1.0.6`, and `target_repository_mutation=false`.
 
 ### New research signals and AUREN mapping
 
@@ -315,10 +315,10 @@ The v1.0.6 portable bundle and checksum from [run 42363861080](https://github.co
 ### Status boundary
 
 - **Implemented:** canonical AUREN owners and selected runtime/learning/evidence contracts exist. The new external workflows and benchmarks are not implemented by this research update.
-- **CI-verified:** only the named repository checks on the exact main SHA. The one skipped `hardening` check remains skipped.
+- **CI-verified:** only the named repository checks on the exact main SHA. No current-main check is skipped.
 - **Deployment-verified:** not verified for production host isolation, live monitoring/event triggers, cross-organisation agent action, physical laboratory control or multi-host recovery.
 - **Independently verified:** blocked. Independent evaluator identity, sealed-holdout custody, host audit and scientific replication receipts are not available.
 
-Three PRs are open on this baseline: #1297 dashboard origin/host hardening, #1298 advisory Amdahl-aware delivery planning, and #1299 durable routine trigger receipts. Their exact-head checks are tracked separately; no skipped check is counted as a pass. The visible main ruleset protects against deletion and non-fast-forward updates but exposes no required-status-check rule; the branch-protection API remains inaccessible to this integration, so owner/admin confirmation is still needed. No local checkout or AutonomousCompany/ExecutionController runtime invocation is available here; no local tests or process-level fault injection are claimed.
+Three PRs are open on this baseline: #1297 dashboard host/origin hardening at `9919df56da5c23068237020a07e4fd1adacd2f79`, #1299 durable routine trigger receipts at `76829c4cf342d45c7566bd514e6c8b549f9c2898`, and #1300 the 2026-11-07 capability radar at `aaf99cf1148f152b43d0754c33b189617ce42f36`. PR #1297 and #1299 still have Windows/runtime checks pending; PR #1300 has 22 successful checks and four impact-filtered skips. Skips remain skips, not passes. The visible main ruleset protects against deletion and non-fast-forward updates but exposes no required-status-check rule; the branch-protection API remains inaccessible to this integration, so owner/admin confirmation is still needed. No local checkout or AutonomousCompany/ExecutionController runtime invocation is available here; no local tests or process-level fault injection are claimed.
 
 No second orchestrator, external runtime dependency, default model route, harness/extension-pack promotion or AGI/SI claim is supported. Candidate work remains opt-in until paired AUREN measurements, independent evaluation, regression checks and rollback evidence exist.
