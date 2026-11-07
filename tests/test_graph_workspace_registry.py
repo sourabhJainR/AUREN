@@ -43,6 +43,29 @@ class DurableGraphWorkspaceRegistryTests(unittest.TestCase):
             coordinator.close()
         self.temp.cleanup()
 
+    def test_legacy_registry_migrates_task_id_column_without_losing_rows(self):
+        self.registry.parent.mkdir(parents=True, exist_ok=True)
+        db = sqlite3.connect(self.registry)
+        db.execute(
+            """CREATE TABLE graph_workspace_registry (
+                worker_id TEXT PRIMARY KEY, base_revision TEXT NOT NULL,
+                owned_paths TEXT NOT NULL, workspace_path TEXT NOT NULL,
+                state TEXT NOT NULL, artifact_path TEXT, artifact_digest TEXT,
+                proposal_paths TEXT, cancellation_reason TEXT, termination_evidence TEXT
+            )"""
+        )
+        db.commit()
+        db.close()
+
+        coordinator = self.make_coordinator()
+        columns = {
+            row[1] for row in coordinator._registry.execute(
+                "PRAGMA table_info(graph_workspace_registry)"
+            )
+        }
+        self.assertIn("task_id", columns)
+        self.assertEqual(coordinator.worker_states(), {})
+
     def test_task_identity_is_persisted_and_restored_with_workspace(self):
         first = self.make_coordinator()
         first.create_worker("worker-task-bound", ["src/task.py"], task_id="task-123")
