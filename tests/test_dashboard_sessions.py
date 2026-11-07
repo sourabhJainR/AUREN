@@ -6,6 +6,8 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 import hashlib
 import time
+import tempfile
+import unittest
 from threading import Thread
 
 from portable.dashboard_server import _Handler
@@ -204,12 +206,22 @@ def test_session_search_and_status_filter_cover_full_inventory(tmp_path):
     assert [row["session_id"] for row in batch["sessions"]] == ["session-121"]
 
 
-def test_workspace_inventory_is_allowlisted_and_never_exposes_host_paths(tmp_path):
-    adapter = MuxinSessionAdapter(
-        tmp_path,
-        session_store=SessionStore(tmp_path / "sessions"),
-        dashboard=_Dashboard(),
-        workspace_reader=lambda: [{
+class WorkspaceInventoryTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+
+    def adapter(self, reader=None):
+        return MuxinSessionAdapter(
+            self.root,
+            session_store=SessionStore(self.root / "sessions"),
+            dashboard=_Dashboard(),
+            workspace_reader=reader,
+        )
+
+    def test_workspace_inventory_is_allowlisted_and_never_exposes_host_paths(self):
+        adapter = self.adapter(lambda: [{
             "workspace_id": "workspace-1",
             "worker_id": "worker-1",
             "task_id": "task-1",
@@ -224,79 +236,81 @@ def test_workspace_inventory_is_allowlisted_and_never_exposes_host_paths(tmp_pat
             "workspace_path": "/private/worker-workspaces/worker-1",
             "raw_output": "Bearer must-not-appear",
             "provider_token": "must-not-appear",
-        }],
-    )
-    inventory = adapter.session_snapshot()["workspaces"]
-    assert inventory["status"] == "available"
-    assert inventory["total_count"] == 1
-    assert inventory["truncated"] is False
-    record = inventory["records"][0]
-    assert record == {
-        "workspace_id": "workspace-1",
-        "worker_id": "worker-1",
-        "task_id": "task-1",
-        "sandbox_id": "sandbox-1",
-        "status": "proposal_ready",
-        "base_revision": "a" * 40,
-        "branch": "agent/worker-1",
-        "updated_at": "2026-11-07T18:00:00+00:00",
-        "owned_paths": ["src"],
-        "changed_paths": ["src/app.py"],
-        "evidence_refs": ["sha256:" + "b" * 64],
-        "lists_truncated": False,
-    }
-    serialized = json.dumps(inventory)
-    assert "/private/worker-workspaces" not in serialized
-    assert "raw_output" not in serialized
-    assert "provider_token" not in serialized
-    assert "must-not-appear" not in serialized
+        }])
+        inventory = adapter.session_snapshot()["workspaces"]
+        self.assertEqual(inventory["status"], "available")
+        self.assertEqual(inventory["total_count"], 1)
+        self.assertFalse(inventory["truncated"])
+        record = inventory["records"][0]
+        self.assertEqual(record, {
+            "workspace_id": "workspace-1",
+            "worker_id": "worker-1",
+            "task_id": "task-1",
+            "sandbox_id": "sandbox-1",
+            "status": "proposal_ready",
+            "base_revision": "a" * 40,
+            "branch": "agent/worker-1",
+            "updated_at": "2026-11-07T18:00:00+00:00",
+            "owned_paths": ["src"],
+            "changed_paths": ["src/app.py"],
+            "evidence_refs": ["sha256:" + "b" * 64],
+            "lists_truncated": False,
+        })
+        serialized = json.dumps(inventory)
+        self.assertNotIn("/private/worker-workspaces", serialized)
+        self.assertNotIn("raw_output", serialized)
+        self.assertNotIn("provider_token", serialized)
+        self.assertNotIn("must-not-appear", serialized)
 
+    def test_workspace_inventory_missing_or_failed_reader_is_not_reported_as_empty(self):
+        unconfigured = self.adapter().session_snapshot()["workspaces"]
+        self.assertEqual(unconfigured["status"], "not_configured")
+        self.assertIsNone(unconfigured["total_count"])
+        self.assertEqual(unconfigured["records"], [])
 
-def test_workspace_inventory_missing_or_failed_reader_is_not_reported_as_empty(tmp_path):
-    unconfigured = MuxinSessionAdapter(
-        tmp_path, session_store=SessionStore(tmp_path / "sessions"), dashboard=_Dashboard(),
-    ).session_snapshot()["workspaces"]
-    assert unconfigured["status"] == "not_configured"
-    assert unconfigured["total_count"] is None
-    assert unconfigured["records"] == []
+        def unavailable():
+            raise TimeoutError("private host details must not escape")
 
-    def unavailable():
-        raise TimeoutError("private host details must not escape")
+        failed = self.adapter(unavailable).session_snapshot()["workspaces"]
+        self.assertEqual(failed["status"], "unavailable")
+        self.assertIsNone(failed["total_count"])
+        self.assertEqual(failed["records"], [])
+        self.assertEqual(failed["reason"], "TimeoutError")
+        self.assertNotIn("private host details", json.dumps(failed))
 
-    failed = MuxinSessionAdapter(
-        tmp_path, session_store=SessionStore(tmp_path / "sessions"), dashboard=_Dashboard(),
-        workspace_reader=unavailable,
-    ).session_snapshot()["workspaces"]
-    assert failed["status"] == "unavailable"
-    assert failed["total_count"] is None
-    assert failed["records"] == []
-    assert failed["reason"] == "TimeoutError"
-    assert "private host details" not in json.dumps(failed)
+    def test_workspace_inventory_is_bounded_and_rejects_unsafe_or_duplicate_identity(self):
+        rows = [
+            {"workspace_id": f"workspace-{index}", "status": "running",
+             "changed_paths": [f"src/module_{index}.py"]}
+            for index in range(26)
+        ]
+        inventory = self.adapter(lambda: rows).session_snapshot()["workspaces"]
+        self.assertEqual(inventory["status"], "available")
+        self.assertEqual(inventory["total_count"], 26)
+        self.assertEqual(len(inventory["records"]), 25)
+        self.assertTrue(inventory["truncated"])
 
-
-def test_workspace_inventory_is_bounded_and_rejects_unsafe_paths(tmp_path):
-    rows = [
-        {"workspace_id": f"workspace-{index}", "status": "running",
-         "changed_paths": [f"src/module_{index}.py"]}
-        for index in range(26)
-    ]
-    adapter = MuxinSessionAdapter(
-        tmp_path, session_store=SessionStore(tmp_path / "sessions"), dashboard=_Dashboard(),
-        workspace_reader=lambda: rows,
-    )
-    inventory = adapter.session_snapshot()["workspaces"]
-    assert inventory["status"] == "available"
-    assert inventory["total_count"] == 26
-    assert len(inventory["records"]) == 25
-    assert inventory["truncated"] is True
-
-    unsafe = MuxinSessionAdapter(
-        tmp_path, session_store=SessionStore(tmp_path / "sessions"), dashboard=_Dashboard(),
-        workspace_reader=lambda: [{
+        unsafe = self.adapter(lambda: [{
             "workspace_id": "workspace-unsafe", "status": "running",
             "changed_paths": ["../outside.py"],
-        }],
-    ).session_snapshot()["workspaces"]
-    assert unsafe["status"] == "unavailable"
-    assert unsafe["records"] == []
-    assert unsafe["reason"] == "ValueError"
+        }]).session_snapshot()["workspaces"]
+        self.assertEqual(unsafe["status"], "unavailable")
+        self.assertEqual(unsafe["records"], [])
+        self.assertEqual(unsafe["reason"], "ValueError")
+
+        duplicate = self.adapter(lambda: [
+            {"workspace_id": "same", "status": "running"},
+            {"workspace_id": "same", "status": "stopped"},
+        ]).session_snapshot()["workspaces"]
+        self.assertEqual(duplicate["status"], "unavailable")
+        self.assertEqual(duplicate["records"], [])
+        self.assertEqual(duplicate["reason"], "ValueError")
+
+    def test_workspace_panel_is_rendered_as_read_only_inventory(self):
+        root = Path(__file__).resolve().parents[1]
+        html = (root / "dashboard" / "index.html").read_text(encoding="utf-8")
+        script = (root / "dashboard" / "assets" / "sessions.js").read_text(encoding="utf-8")
+        self.assertIn('id="workspace-list"', html)
+        self.assertIn('id="workspace-count"', html)
+        self.assertIn("renderWorkspaces(data)", script)
+        self.assertIn("No workspace state is inferred", script)
