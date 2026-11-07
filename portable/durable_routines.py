@@ -392,24 +392,41 @@ class DurableRoutineRegistry:
                 reason=f"submission outcome is uncertain ({type(exc).__name__}); reconcile before retry",
             )
 
-    def _mark_submitted(self, occurrence_key: str, task_id: str, receipt: Mapping[str, Any]) -> None:
+    def _update_receipt(
+        self, occurrence_key: str, *, status: str, updates: Mapping[str, Any],
+        task_id: str | None = None,
+    ) -> None:
+        """Update receipt state without discarding immutable trigger identity metadata."""
         now = _iso(datetime.now(timezone.utc))
-        with closing(self._connect()) as db:
+        with self._lock, closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT receipt_json FROM routine_occurrences WHERE occurrence_key=?",
+                (occurrence_key,),
+            ).fetchone()
+            if row is None:
+                db.execute("ROLLBACK")
+                raise KeyError(occurrence_key)
+            receipt = json.loads(row["receipt_json"])
+            receipt.update(dict(updates))
             db.execute(
-                "UPDATE routine_occurrences SET status='submitted',task_id=?,receipt_json=?,updated_at=? "
-                "WHERE occurrence_key=?",
-                (task_id, json.dumps(dict(receipt), sort_keys=True), now, occurrence_key),
+                "UPDATE routine_occurrences SET status=?,task_id=COALESCE(?,task_id),"
+                "receipt_json=?,updated_at=? WHERE occurrence_key=?",
+                (status, task_id, json.dumps(receipt, sort_keys=True), now, occurrence_key),
             )
+            db.execute("COMMIT")
+
+    def _mark_submitted(self, occurrence_key: str, task_id: str, receipt: Mapping[str, Any]) -> None:
+        self._update_receipt(
+            occurrence_key, status="submitted", task_id=task_id,
+            updates={"state": "submitted", **dict(receipt)},
+        )
 
     def _mark_unknown(self, occurrence_key: str, error_type: str) -> None:
-        now = _iso(datetime.now(timezone.utc))
-        with closing(self._connect()) as db:
-            db.execute(
-                "UPDATE routine_occurrences SET status='unknown',receipt_json=?,updated_at=? "
-                "WHERE occurrence_key=?",
-                (json.dumps({"state": "unknown", "error_type": error_type}, sort_keys=True),
-                 now, occurrence_key),
-            )
+        self._update_receipt(
+            occurrence_key, status="unknown",
+            updates={"state": "unknown", "error_type": error_type},
+        )
 
     def occurrence(self, occurrence_key: str) -> Mapping[str, Any] | None:
         with closing(self._connect()) as db:
