@@ -239,7 +239,8 @@ The [cross-organisational multi-agent risk framework](https://arxiv.org/abs/2608
 ### Evidence status
 
 - **Implemented:** canonical owners and selected runtime/evidence contracts exist.
-- **CI-verified:** exact-revision repository checks only; main `5c5f86bd2469c1943276d84ac78034ddb3b3d3bc` has 29 successful checks and one skipped hardening job. The skip is not a pass.
+- **CI-verified:** exact-revision repository checks only; main `5b3d506c2dadf14f54608423b7eaeffc1e09e071` has 28/28 terminal-successful check-runs, zero skipped, failed or pending; all six post-merge push workflows succeeded.
+- **Portable bundle:** v1.0.6 from run [42399630477](https://github.com/sourabhJainR/AUREN/actions/runs/42399630477) was downloaded and rehashed. The outer bundle/checksum digests match GitHub metadata, the embedded ZIP matches its checksum, and all 538 manifest entries match size and SHA-256; `payload/PORTABLE_BUNDLE.txt` is the expected generated entry outside the manifest.
 - **Deployment-verified:** not verified for production host isolation, computer-use continuity, cross-organisation actions, live event monitoring or physical laboratory execution.
 - **Independently verified:** blocked for evaluator/corpus custody, sealed holdout, host audit and scientific replication.
 
