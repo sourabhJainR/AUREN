@@ -34,7 +34,7 @@ class DeliveryAcceleration:
     serial_fraction: float
     amdahl_upper_bound: float
     scheduled_speedup: float
-    coordination_adjusted_speedup: float
+    critical_path_speedup_bound: float
     tasks: tuple[ScheduledTask, ...]
 
     def to_dict(self) -> dict[str, object]:
@@ -47,7 +47,7 @@ class DeliveryAcceleration:
             "serial_fraction": self.serial_fraction,
             "amdahl_upper_bound": self.amdahl_upper_bound,
             "scheduled_speedup": self.scheduled_speedup,
-            "coordination_adjusted_speedup": self.coordination_adjusted_speedup,
+            "critical_path_speedup_bound": self.critical_path_speedup_bound,
             "tasks": [
                 {
                     "task_id": task.task_id,
@@ -69,6 +69,7 @@ def analyze_delivery_parallelism(
     worker_limit: int,
     resource_locks: Mapping[str, Sequence[str]] | None = None,
     coordination_overhead_seconds: float = 0.0,
+    serial_task_ids: Sequence[str] = (),
 ) -> DeliveryAcceleration:
     """Build a deterministic, resource-aware schedule and Amdahl bound."""
     if type(worker_limit) is not int or worker_limit < 1 or worker_limit > 256:
@@ -102,9 +103,9 @@ def analyze_delivery_parallelism(
         raw = resource_locks.get(task_id, ())
         if isinstance(raw, (str, bytes)):
             raise ValueError(f"resource locks for {task_id} must be a sequence of keys")
-        keys = tuple(sorted(set(raw)))
-        if any(not isinstance(key, str) or not key.strip() for key in keys):
+        if any(not isinstance(key, str) or not key.strip() for key in raw):
             raise ValueError(f"resource lock keys for {task_id} must be non-empty strings")
+        keys = tuple(sorted(set(raw)))
         locks_by_task[task_id] = keys
 
     definitions = {task.task_id: task for task in plan.tasks}
@@ -154,22 +155,28 @@ def analyze_delivery_parallelism(
             finish_seconds=end, duration_seconds=durations[task_id], resource_keys=locks,
         ))
 
+    if isinstance(serial_task_ids, (str, bytes)):
+        raise ValueError("serial_task_ids must be a sequence of task IDs")
+    serial_ids = set(serial_task_ids)
+    if not serial_ids <= set(task_ids):
+        raise ValueError(f"serial_task_ids contain unknown tasks: {sorted(serial_ids - set(task_ids))}")
+
     sequential = sum(durations.values())
     coordination_total = float(coordination_overhead_seconds) * sum(
         1 for task in plan.tasks if task.depends_on
     )
     scheduled_total = max(finish.values(), default=0.0)
-    serial_fraction = min(1.0, critical_path / sequential) if sequential else 1.0
+    serial_fraction = sum(durations[task_id] for task_id in serial_ids) / sequential if sequential else 1.0
     amdahl_bound = 1.0 / (serial_fraction + (1.0 - serial_fraction) / worker_limit)
     scheduled_speedup = sequential / scheduled_total if scheduled_total else 1.0
-    adjusted_speedup = sequential / (scheduled_total + coordination_total) if scheduled_total else 1.0
+    critical_path_bound = min(float(worker_limit), sequential / critical_path) if critical_path else 1.0
 
     return DeliveryAcceleration(
         sequential_seconds=sequential, critical_path_seconds=critical_path,
         scheduled_seconds=scheduled_total, coordination_seconds=coordination_total,
         worker_limit=worker_limit, serial_fraction=serial_fraction,
         amdahl_upper_bound=amdahl_bound, scheduled_speedup=scheduled_speedup,
-        coordination_adjusted_speedup=adjusted_speedup,
+        critical_path_speedup_bound=critical_path_bound,
         tasks=tuple(sorted(scheduled, key=lambda item: (item.start_seconds, item.worker_slot, item.task_id))),
     )
 
