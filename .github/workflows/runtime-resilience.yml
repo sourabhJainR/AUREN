@@ -80,45 +80,11 @@ jobs:
       - name: Verify durable routine trigger identity and replay safety
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          python - <<'PY'
-          import os
-          import subprocess
-          import sys
-          from pathlib import Path
-          path = Path("tests/test_durable_routines.py")
-          if not path.is_file():
-              base = os.environ.get("BASE_SHA", "")
-              if base and set(base) != {"0"}:
-                  previous = subprocess.run(["git", "cat-file", "-e", f"{base}:{path.as_posix()}"], capture_output=True)
-                  if previous.returncode == 0:
-                      raise SystemExit(f"Previously tracked test is missing: {path}")
-              print("Deferred durable-routine suite: source PR has not added its test module to this candidate yet.")
-          else:
-              result = subprocess.run([sys.executable, "-m", "unittest", "tests.test_durable_routines", "-v"])
-              raise SystemExit(result.returncode)
-          PY
+        run: python -c "import os,subprocess,sys; from pathlib import Path; p=Path('tests/test_durable_routines.py'); base=os.environ.get('BASE_SHA',''); previous=bool(base and set(base)!={'0'} and subprocess.run(['git','cat-file','-e',f'{base}:{p.as_posix()}'],capture_output=True).returncode==0); exists=p.is_file(); print('Deferred durable-routine suite: source PR has not added its test module to this candidate yet.' if not exists and not previous else ('Previously tracked durable-routine test is missing.' if previous and not exists else 'Running durable-routine suite.')); sys.exit(1 if previous and not exists else (0 if not exists else subprocess.run([sys.executable,'-m','unittest','tests.test_durable_routines','-v']).returncode))
       - name: Verify loopback dashboard request and readiness boundary
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          python - <<'PY'
-          import os
-          import subprocess
-          import sys
-          from pathlib import Path
-          path = Path("tests/test_control_center_api.py")
-          if not path.is_file():
-              base = os.environ.get("BASE_SHA", "")
-              if base and set(base) != {"0"}:
-                  previous = subprocess.run(["git", "cat-file", "-e", f"{base}:{path.as_posix()}"], capture_output=True)
-                  if previous.returncode == 0:
-                      raise SystemExit(f"Previously tracked test is missing: {path}")
-              print("Deferred dashboard suite: source PR has not added its test module to this candidate yet.")
-          else:
-              result = subprocess.run([sys.executable, "-m", "unittest", "tests.test_control_center_api", "-v"])
-              raise SystemExit(result.returncode)
-          PY
+        run: python -c "import os,subprocess,sys; from pathlib import Path; p=Path('tests/test_control_center_api.py'); base=os.environ.get('BASE_SHA',''); previous=bool(base and set(base)!={'0'} and subprocess.run(['git','cat-file','-e',f'{base}:{p.as_posix()}'],capture_output=True).returncode==0); exists=p.is_file(); print('Deferred dashboard suite: source PR has not added its test module to this candidate yet.' if not exists and not previous else ('Previously tracked dashboard test is missing.' if previous and not exists else 'Running dashboard suite.')); sys.exit(1 if previous and not exists else (0 if not exists else subprocess.run([sys.executable,'-m','unittest','tests.test_control_center_api','-v']).returncode))
       - name: Verify durable graph workspace ownership and restart recovery
         run: python -m unittest tests.test_graph_workspace_registry -v
       - name: Verify delivery-mode enforcement and PR integration guard
