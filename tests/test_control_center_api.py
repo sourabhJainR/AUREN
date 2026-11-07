@@ -115,5 +115,20 @@ class ControlCenterApiTests(unittest.TestCase):
         css = (root / "assets" / "styles.css").read_text(encoding="utf-8")
         self.assertIn(".pill.warning", css)
 
+    def test_live_operations_asset_is_served_and_uses_bounded_read_only_polling(self):
+        base = "http://127.0.0.1:%d" % self.server.server_port
+        with urlopen(base + "/assets/control-center-live.js", timeout=2) as response:
+            self.assertEqual(200, response.status)
+            script = response.read().decode("utf-8")
+        self.assertIn("/api/sessions?offset=0&limit=50", script)
+        self.assertIn("/api/observability", script)
+        self.assertIn("/api/health", script)
+        self.assertIn("REQUEST_TIMEOUT_MS", script)
+        self.assertIn("document.visibilityState", script)
+        self.assertIn("last sample retained", script)
+        self.assertIn("does not certify CI, review, merge or production readiness", script)
+        html = (Path(__file__).resolve().parents[1] / "site" / "control-center.html").read_text(encoding="utf-8")
+        self.assertIn("/assets/control-center-live.js", html)
+
 if __name__ == "__main__":
     unittest.main()
