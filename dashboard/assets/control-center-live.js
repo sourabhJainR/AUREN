@@ -11,7 +11,7 @@
   const panel = document.createElement("section");
   panel.id = "auren-live-ops";
   panel.className = "panel";
-  panel.setAttribute("aria-live", "polite");
+  panel.setAttribute("aria-label", "Live operations and delivery tracking");
   panel.innerHTML = `
     <style>
       #auren-live-ops .ops-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
