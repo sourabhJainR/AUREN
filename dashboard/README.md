@@ -13,6 +13,12 @@ The view separates active, completed, blocked, and unverified sessions; includes
 
 The endpoint uses an allowlist projection. It does not return session intent, raw error text, task messages, plan goals, prompts, or credentials. Checkpoint digests and safe identifiers remain visible for correlation. The endpoint remains behind the dashboard's loopback-origin guard and bounded atomic JSON response limit. If the response exceeds that limit, the API fails closed rather than truncating the session list.
 
+## Live operations tracking
+
+The control center loads a read-only operational tracking panel from `/assets/control-center-live.js`. It polls the bounded session inventory, observability summary and health endpoint every 15 seconds while the page is visible. Requests have a four-second timeout; browser offline/online and visibility changes are handled without clearing the last confirmed sample.
+
+The panel reports source-backed active, blocked/stale/unverified, task and trace counts, plus delivery worker/queue/unknown-outcome/acknowledgement metrics when the runtime supplies them. Missing values remain unavailable rather than being rendered as zero. Refresh failures retain the last sample and show a degraded/unavailable state. These aggregate views do not certify CI, independent review, merge readiness or production deployment; those remain evidence gates owned by their respective systems.
+
 ## Unified AUREN × Muxin control center
 
 The unified control center is served by the installed AUREN dashboard server at **http://127.0.0.1:8765/control-center**. Start the server first; keep its terminal/process running while using the browser.
