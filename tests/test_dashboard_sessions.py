@@ -278,7 +278,7 @@ def test_workspace_inventory_is_bounded_and_rejects_unsafe_paths(tmp_path):
     rows = [
         {"workspace_id": f"workspace-{index}", "status": "running",
          "changed_paths": [f"src/module_{index}.py"]}
-        for index in range(51)
+        for index in range(26)
     ]
     adapter = MuxinSessionAdapter(
         tmp_path, session_store=SessionStore(tmp_path / "sessions"), dashboard=_Dashboard(),
@@ -286,8 +286,8 @@ def test_workspace_inventory_is_bounded_and_rejects_unsafe_paths(tmp_path):
     )
     inventory = adapter.session_snapshot()["workspaces"]
     assert inventory["status"] == "available"
-    assert inventory["total_count"] == 51
-    assert len(inventory["records"]) == 50
+    assert inventory["total_count"] == 26
+    assert len(inventory["records"]) == 25
     assert inventory["truncated"] is True
 
     unsafe = MuxinSessionAdapter(
