@@ -94,6 +94,14 @@ def analyze_delivery_parallelism(
             raise ValueError(f"duration for {task_id} must be finite and positive")
         durations[task_id] = float(value)
 
+    if isinstance(serial_task_ids, (str, bytes)):
+        raise ValueError("serial_task_ids must be a sequence of task IDs")
+    if any(not isinstance(task_id, str) or not task_id for task_id in serial_task_ids):
+        raise ValueError("serial_task_ids must contain non-empty task IDs")
+    serial_ids = set(serial_task_ids)
+    if not serial_ids <= set(task_ids):
+        raise ValueError(f"serial_task_ids contain unknown tasks: {sorted(serial_ids - set(task_ids))}")
+
     locks_by_task: dict[str, tuple[str, ...]] = {}
     resource_locks = resource_locks or {}
     unknown_lock_tasks = set(resource_locks) - set(task_ids)
@@ -105,7 +113,9 @@ def analyze_delivery_parallelism(
             raise ValueError(f"resource locks for {task_id} must be a sequence of keys")
         if any(not isinstance(key, str) or not key.strip() for key in raw):
             raise ValueError(f"resource lock keys for {task_id} must be non-empty strings")
-        keys = tuple(sorted(set(raw)))
+        if "__auren_serial_phase__" in raw:
+            raise ValueError("resource lock key __auren_serial_phase__ is reserved")
+        keys = tuple(sorted(set(raw) | ({"__auren_serial_phase__"} if task_id in serial_ids else set())))
         locks_by_task[task_id] = keys
 
     definitions = {task.task_id: task for task in plan.tasks}
@@ -157,14 +167,6 @@ def analyze_delivery_parallelism(
             task_id=task_id, worker_slot=worker_slot, start_seconds=start,
             finish_seconds=end, duration_seconds=durations[task_id], resource_keys=locks,
         ))
-
-    if isinstance(serial_task_ids, (str, bytes)):
-        raise ValueError("serial_task_ids must be a sequence of task IDs")
-    if any(not isinstance(task_id, str) or not task_id for task_id in serial_task_ids):
-        raise ValueError("serial_task_ids must contain non-empty task IDs")
-    serial_ids = set(serial_task_ids)
-    if not serial_ids <= set(task_ids):
-        raise ValueError(f"serial_task_ids contain unknown tasks: {sorted(serial_ids - set(task_ids))}")
 
     sequential = sum(durations.values())
     coordination_total = float(coordination_overhead_seconds) * sum(
