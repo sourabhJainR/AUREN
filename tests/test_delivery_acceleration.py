@@ -61,6 +61,7 @@ class DeliveryAccelerationTests(unittest.TestCase):
         result = analyze_delivery_parallelism(
             value, durations_seconds={"one": 3, "two": 4}, worker_limit=2,
             resource_locks={"one": ("shared-db",), "two": ("shared-db",)},
+            serial_task_ids=(),
         )
         by_id = {task.task_id: task for task in result.tasks}
         self.assertEqual(0, by_id["one"].start_seconds)
@@ -74,6 +75,7 @@ class DeliveryAccelerationTests(unittest.TestCase):
         )
         result = analyze_delivery_parallelism(
             value, durations_seconds={"one": 3, "two": 4}, worker_limit=2,
+            serial_task_ids=(),
         )
         self.assertEqual({0, 1}, {task.worker_slot for task in result.tasks})
         self.assertEqual(4, result.scheduled_seconds)
@@ -81,11 +83,11 @@ class DeliveryAccelerationTests(unittest.TestCase):
     def test_duration_and_worker_inputs_fail_closed(self):
         value = plan(PlanTask("one", "One", ("done",), "revert"))
         with self.assertRaisesRegex(ValueError, "exactly match"):
-            analyze_delivery_parallelism(value, durations_seconds={}, worker_limit=1)
+            analyze_delivery_parallelism(value, durations_seconds={}, worker_limit=1, serial_task_ids=())
         with self.assertRaisesRegex(ValueError, "positive"):
-            analyze_delivery_parallelism(value, durations_seconds={"one": 0}, worker_limit=1)
+            analyze_delivery_parallelism(value, durations_seconds={"one": 0}, worker_limit=1, serial_task_ids=())
         with self.assertRaisesRegex(ValueError, "worker_limit"):
-            analyze_delivery_parallelism(value, durations_seconds={"one": 1}, worker_limit=0)
+            analyze_delivery_parallelism(value, durations_seconds={"one": 1}, worker_limit=0, serial_task_ids=())
 
     def test_declared_serial_work_is_serialized_in_the_schedule(self):
         value = plan(
@@ -103,12 +105,26 @@ class DeliveryAccelerationTests(unittest.TestCase):
         self.assertEqual(1.0, result.serial_fraction)
         self.assertEqual(1.0, result.amdahl_upper_bound)
 
+    def test_amdahl_estimate_requires_explicit_serial_task_classification(self):
+        value = plan(PlanTask("one", "One", ("done",), "revert"))
+        with self.assertRaisesRegex(ValueError, "explicitly supplied"):
+            analyze_delivery_parallelism(
+                value, durations_seconds={"one": 1}, worker_limit=2,
+            )
+        classified = analyze_delivery_parallelism(
+            value, durations_seconds={"one": 1}, worker_limit=2,
+            serial_task_ids=(),
+        )
+        self.assertEqual(0.0, classified.serial_fraction)
+        self.assertEqual(2.0, classified.amdahl_upper_bound)
+
     def test_unknown_resource_lock_owner_is_rejected(self):
         value = plan(PlanTask("one", "One", ("done",), "revert"))
         with self.assertRaisesRegex(ValueError, "unknown tasks"):
             analyze_delivery_parallelism(
                 value, durations_seconds={"one": 1}, worker_limit=1,
                 resource_locks={"missing": ("db",)},
+                serial_task_ids=(),
             )
 
 
