@@ -177,7 +177,7 @@
       return;
     }
     const total = Number.isInteger(inventory.total_count) ? inventory.total_count : "Unknown";
-    count.textContent = total + " workspaces" + (inventory.truncated ? " · showing first 50" : "");
+    count.textContent = total + " workspaces" + (inventory.truncated ? " · showing first 25" : "");
     const records = Array.isArray(inventory.records) ? inventory.records : [];
     target.innerHTML = records.length ? records.map(workspaceCard).join("") :
       '<div class="empty">No isolated workspaces are currently registered.</div>';
