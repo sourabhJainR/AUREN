@@ -38,10 +38,10 @@ def workspace_registry_reader(registry_path: str | Path) -> Callable[[], list[di
     directories, executes Git commands, or exposes persisted host filesystem paths.
     """
     path = Path(registry_path).expanduser()
-    if not path.is_absolute():
-        raise ValueError("workspace registry path must be absolute")
 
     def read() -> list[dict[str, Any]]:
+        if not path.is_absolute():
+            raise ValueError("workspace registry path must be absolute")
         if path.is_symlink():
             raise PermissionError("workspace registry must not be a symlink")
         resolved = path.resolve(strict=True)
