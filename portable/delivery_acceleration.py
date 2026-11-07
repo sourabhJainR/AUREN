@@ -82,6 +82,13 @@ def analyze_delivery_parallelism(
     ):
         raise ValueError("coordination overhead must be a finite non-negative number")
 
+    if not isinstance(durations_seconds, Mapping):
+        raise ValueError("durations_seconds must be a task-to-duration mapping")
+    if resource_locks is not None and not isinstance(resource_locks, Mapping):
+        raise ValueError("resource_locks must be a task-to-resource mapping")
+    if isinstance(serial_task_ids, (str, bytes)) or not isinstance(serial_task_ids, Sequence):
+        raise ValueError("serial_task_ids must be a sequence of task IDs")
+
     task_ids = [task.task_id for task in plan.tasks]
     if set(durations_seconds) != set(task_ids):
         missing = sorted(set(task_ids) - set(durations_seconds))
@@ -94,8 +101,6 @@ def analyze_delivery_parallelism(
             raise ValueError(f"duration for {task_id} must be finite and positive")
         durations[task_id] = float(value)
 
-    if isinstance(serial_task_ids, (str, bytes)):
-        raise ValueError("serial_task_ids must be a sequence of task IDs")
     if any(not isinstance(task_id, str) or not task_id for task_id in serial_task_ids):
         raise ValueError("serial_task_ids must contain non-empty task IDs")
     serial_ids = set(serial_task_ids)
