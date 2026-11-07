@@ -143,7 +143,7 @@ class CapabilityCoverageMatrixTests(unittest.TestCase):
                 self.assertTrue(signals[signal_id]["acceptance_threshold"].strip())
                 self.assertTrue(signals[signal_id]["rollback"].strip())
         observation = radar["repository_observation"]
-        self.assertEqual(observation["main_sha"], "22e086d18e6becb814e54d7b653267332a0ce0f5")
+        self.assertEqual(observation["main_sha"], "5b3d506c2dadf14f54608423b7eaeffc1e09e071")
         self.assertEqual(observation["current_main_check_runs"],
                          {"status": "terminal", "total": 28, "success": 28,
                           "skipped": 0, "failed": 0, "pending": 0})
@@ -164,7 +164,7 @@ class CapabilityCoverageMatrixTests(unittest.TestCase):
         self.assertEqual(radar["artifact_integrity"]["inner_bundle_sha256"],
                          "3e9b4b24b0d08acada646758f8675c4089ccca1a396406ed404111fd718b74e8")
         self.assertEqual(radar["artifact_integrity"]["source_commit"],
-                         "22e086d18e6becb814e54d7b653267332a0ce0f5")
+                         "5b3d506c2dadf14f54608423b7eaeffc1e09e071")
         self.assertEqual(signals["long_running_host_sandbox"]["deployment_status"], "not verified")
         self.assertEqual(signals["realistic_agent_evaluation"]["independent_evaluation_status"], "blocked")
         self.assertIn("No AGI/SI claim", radar["status"])
