@@ -13,6 +13,13 @@ The view separates active, completed, blocked, and unverified sessions; includes
 
 The endpoint uses an allowlist projection. It does not return session intent, raw error text, task messages, plan goals, prompts, or credentials. Checkpoint digests and safe identifiers remain visible for correlation. The endpoint remains behind the dashboard's loopback-origin guard and bounded atomic JSON response limit. If the response exceeds that limit, the API fails closed rather than truncating the session list.
 
+### Isolated workspace inventory
+
+The Sessions panel includes an optional read-only workspace inventory. A host may inject `workspace_reader` into `MuxinSessionAdapter`; that reader must project records from the canonical `GraphWorkspaceCoordinator`/workspace registry and must not create a second workspace or task store. The projection allowlists workspace, worker, task and sandbox identifiers, status, base revision, branch, repository-relative owned/changed paths and evidence references. Host filesystem paths, raw worker output, credentials and coordinator internals are never returned. The inventory is bounded to 50 records and 20 values per list, with truncation reported explicitly.
+
+If the host reader is absent, the UI says **Not configured**; if it fails or returns unsafe data, the UI says **Unavailable**. Neither state is rendered as an empty healthy inventory. This panel is observational only. It does not start, pause, cancel, resume, approve, merge or delete workspaces. Those controls require a separately authenticated and authorized canonical-controller API with CSRF protection and auditable command receipts.
+
+
 ## Live operations tracking
 
 The control center loads a read-only operational tracking panel from `/assets/control-center-live.js`. It polls the bounded session inventory, observability summary and health endpoint every 15 seconds while the page is visible. Requests have a four-second timeout; browser offline/online and visibility changes are handled without clearing the last confirmed sample.
