@@ -30,10 +30,13 @@ bottlenecks, integration queues, sequential verification or release gates.
 For a measured serial fraction s and N workers, the theoretical speedup ceiling is
 S(N) = 1 / (s + (1 - s) / N).
 
-The ceiling is not a performance claim. portable.delivery_acceleration provides a
-deterministic planning estimate from explicit task-duration estimates, dependencies,
-resource locks, worker capacity and coordination overhead. It reports the critical
-path, feasible schedule, theoretical bound and estimated speedup. It does not launch
+The serial fraction must be explicitly classified from the work contract; it is not
+inferred from the critical path. The planner separately reports the DAG critical-path
+bound, because dependency graphs are more general than Amdahl's single serial/parallel
+split. portable.delivery_acceleration provides a deterministic planning estimate from
+explicit task-duration estimates, serial task IDs, dependencies, resource locks, worker
+capacity and coordination overhead. It reports both bounds, the feasible schedule and
+estimated speedup. It does not launch
 workers or own task state. The canonical ExecutionController remains authoritative.
 
 ## New delivery principles
