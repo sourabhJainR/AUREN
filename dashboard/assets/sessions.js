@@ -140,11 +140,54 @@
       tasks + '</div><div><span class="status ' + statusClass(row.status) + '">' + safe(row.status || "unknown") +
       '</span><div class="muted">' + safe(row.evidence_count ?? "—") + ' evidence records</div></div></article>';
   }
+  function workspaceCard(row) {
+    const status = row.status || "unknown";
+    const fields = [
+      ["Workspace", row.workspace_id], ["Worker", row.worker_id], ["Task", row.task_id],
+      ["Sandbox", row.sandbox_id], ["Base", row.base_revision ? String(row.base_revision).slice(0, 12) : null],
+      ["Branch", row.branch], ["Updated", time(row.updated_at)]
+    ];
+    const detailHtml = fields.map(([key, value]) =>
+      '<div><small>' + safe(key) + '</small><strong>' + safe(value ?? "—") + '</strong></div>'
+    ).join("");
+    const changed = Array.isArray(row.changed_paths) ? row.changed_paths : [];
+    const owned = Array.isArray(row.owned_paths) ? row.owned_paths : [];
+    const evidence = Array.isArray(row.evidence_refs) ? row.evidence_refs : [];
+    const list = (label, values) => values.length
+      ? '<div class="session-meta"><strong>' + safe(label) + ':</strong> ' + safe(values.join(", ")) + '</div>' : "";
+    return '<article class="session-task"><div><strong>' + safe(row.workspace_id || "Unidentified workspace") +
+      '</strong><div class="muted">' + safe(row.worker_id || "No worker identity") + ' · ' +
+      safe(row.task_id || "No task binding") + '</div></div><div><span class="status ' +
+      statusClass(status) + '">' + safe(status) + '</span><div class="muted">' +
+      safe(row.branch || "No branch metadata") + '</div></div><div class="workspace-details">' +
+      detailHtml + '</div><div>' + list("Changed", changed) + list("Owned", owned) +
+      list("Evidence", evidence) + (row.lists_truncated ? '<div class="muted">Workspace detail lists are truncated.</div>' : "") +
+      '</div></article>';
+  }
+  function renderWorkspaces(data) {
+    const inventory = data.workspaces;
+    const count = byId("workspace-count");
+    const target = byId("workspace-list");
+    if (!inventory || inventory.status !== "available") {
+      const configured = inventory?.status === "not_configured";
+      count.textContent = configured ? "Not configured" : "Unavailable";
+      target.innerHTML = '<div class="empty">' + (configured
+        ? "A host-owned workspace reader is not configured. No workspace state is inferred."
+        : "Workspace inventory is unavailable. Previously observed work is not marked complete.") + '</div>';
+      return;
+    }
+    const total = Number.isInteger(inventory.total_count) ? inventory.total_count : "Unknown";
+    count.textContent = total + " workspaces" + (inventory.truncated ? " · showing first 50" : "");
+    const records = Array.isArray(inventory.records) ? inventory.records : [];
+    target.innerHTML = records.length ? records.map(workspaceCard).join("") :
+      '<div class="empty">No isolated workspaces are currently registered.</div>';
+  }
   function render() {
     const data = state.snapshot;
     if (!data) return;
     renderMetrics(data);
     renderDeliveryMetrics(data);
+    renderWorkspaces(data);
     const sessions = data.sessions || [];
     byId("session-count").textContent = (data.pagination?.total ?? sessions.length) + " matching sessions";
     const page = data.pagination || {offset:0,limit:state.limit,total:(data.sessions || []).length,has_more:false};
