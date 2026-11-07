@@ -101,7 +101,7 @@ def analyze_delivery_parallelism(
         raise ValueError(f"resource locks reference unknown tasks: {sorted(unknown_lock_tasks)}")
     for task_id in task_ids:
         raw = resource_locks.get(task_id, ())
-        if isinstance(raw, (str, bytes)):
+        if isinstance(raw, (str, bytes)) or not isinstance(raw, Sequence):
             raise ValueError(f"resource locks for {task_id} must be a sequence of keys")
         if any(not isinstance(key, str) or not key.strip() for key in raw):
             raise ValueError(f"resource lock keys for {task_id} must be non-empty strings")
@@ -135,9 +135,12 @@ def analyze_delivery_parallelism(
     for task_id in topological:
         task = definitions[task_id]
         dependency_finish = max((finish[item] for item in task.depends_on), default=0.0)
-        worker_slot = min(range(worker_limit), key=lambda slot: (worker_free[slot], slot))
         locks = locks_by_task[task_id]
         resource_ready = max((resource_free.get(key, 0.0) for key in locks), default=0.0)
+        worker_slot = min(
+            range(worker_limit),
+            key=lambda slot: (max(dependency_finish, worker_free[slot], resource_ready), slot),
+        )
         start = max(dependency_finish, worker_free[worker_slot], resource_ready)
         coordination = float(coordination_overhead_seconds) if task.depends_on else 0.0
         effective_duration = durations[task_id] + coordination
@@ -157,6 +160,8 @@ def analyze_delivery_parallelism(
 
     if isinstance(serial_task_ids, (str, bytes)):
         raise ValueError("serial_task_ids must be a sequence of task IDs")
+    if any(not isinstance(task_id, str) or not task_id for task_id in serial_task_ids):
+        raise ValueError("serial_task_ids must contain non-empty task IDs")
     serial_ids = set(serial_task_ids)
     if not serial_ids <= set(task_ids):
         raise ValueError(f"serial_task_ids contain unknown tasks: {sorted(serial_ids - set(task_ids))}")
