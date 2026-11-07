@@ -568,8 +568,8 @@
     }
   ],
   "review_snapshot": {
-    "reviewed_at": "2026-11-06",
-    "baseline_main_sha": "c67356be753d310b1babe340d84caa0ff7a987a8",
+    "reviewed_at": "2026-11-07",
+    "baseline_main_sha": "22e086d18e6becb814e54d7b653267332a0ce0f5",
     "current_main_check_runs": {
       "total": 30,
       "success": 30,
@@ -585,74 +585,76 @@
       "pending": 0,
       "runs": [
         {
+          "name": "Repository Construct Traceability Check",
+          "run_id": 42383803450,
+          "conclusion": "success",
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803450"
+        },
+        {
+          "name": "AUREN cleanup contract",
+          "run_id": 42383803408,
+          "conclusion": "success",
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803408"
+        },
+        {
           "name": "Agent Capability Runtime",
-          "run_id": 42235459821,
+          "run_id": 42383803375,
           "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42235459821"
-        },
-        {
-          "name": "AUREN Portable Bundle",
-          "run_id": 42235460037,
-          "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42235460037"
-        },
-        {
-          "name": "PostgreSQL Attestation Replay Integration",
-          "run_id": 42235459798,
-          "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42235459798"
-        },
-        {
-          "name": "Stock Research Canonical Runtime Acceptance",
-          "run_id": 42235459879,
-          "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42235459879"
-        },
-        {
-          "name": "AI Harness Check",
-          "run_id": 42235459959,
-          "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42235459959"
-        },
-        {
-          "name": "Architecture Integrity",
-          "run_id": 42235459712,
-          "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42235459712"
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803375"
         },
         {
           "name": "Production AI Harness Hardening",
-          "run_id": 42235459901,
+          "run_id": 42383803414,
           "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42235459901"
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803414"
+        },
+        {
+          "name": "Architecture Integrity",
+          "run_id": 42383803461,
+          "conclusion": "success",
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803461"
+        },
+        {
+          "name": "AI Harness Check",
+          "run_id": 42383803460,
+          "conclusion": "success",
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803460"
         },
         {
           "name": "Runtime Resilience Matrix",
-          "run_id": 42235459888,
+          "run_id": 42383803463,
           "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42235459888"
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803463"
+        },
+        {
+          "name": "AUREN Portable Bundle",
+          "run_id": 42383803431,
+          "conclusion": "success",
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803431"
         }
       ]
     },
     "portable_bundle": {
       "status": "downloaded_and_rehashed",
-      "workflow_run_id": 42235460037,
-      "bundle_artifact_id": 13512140165,
-      "checksum_artifact_id": 13511034641,
-      "outer_bundle_artifact_sha256": "0063eb47fbfaf265528ac4bf0766d2be753302e2523f4934a067be137b6b26dd",
-      "outer_checksum_artifact_sha256": "5d6aaf6e4125a48839db86e1fcec0743eaa9090a578862448ddfae43af83d447",
-      "inner_bundle_sha256": "5c5fdb4ebd372312be87d803ad2dbad085c9b37771be4cb834cbc9ab7411a9ab",
+      "workflow_run_id": 42383803431,
+      "bundle_artifact_id": 13578577907,
+      "checksum_artifact_id": 13578852228,
+      "outer_bundle_artifact_sha256": "fa9c6926b912a48d8c964e7460605609c6dbd737923b06419a2cd0c130b53625",
+      "outer_checksum_artifact_sha256": "80ffbdd2a57f87e85389f4e9f1a3a44e5d4c0bb0a38478e99709d54c75fc48fd",
+      "inner_bundle_sha256": "e9279f48a0e8425398eb1dc788794b04b13ae81040533690781018a2a21e56a5",
       "inner_checksum_status": "verified locally; auren-portable.sha256 matches the embedded ZIP SHA-256",
-      "manifest_file_count": 534,
+      "manifest_file_count": 537,
       "manifest_hash_or_size_mismatches": 0,
       "missing_manifest_entries": 0,
       "unexpected_generated_entries": [
         "payload/PORTABLE_BUNDLE.txt"
       ],
-      "source_commit": "c67356be753d310b1babe340d84caa0ff7a987a8",
+      "source_commit": "22e086d18e6becb814e54d7b653267332a0ce0f5",
       "version": "1.0.6",
       "target_repository_mutation": false,
-      "local_download_rehash": "Completed in the container: outer artifact digests, embedded ZIP digest and all 534 manifest entries verified."
+      "bundle_expires_at": "2026-12-07T14:55:29Z",
+      "checksum_expires_at": "2026-12-07T14:55:30Z",
+      "local_download_rehash": "Downloaded and rehashed in the container: outer artifact digests match GitHub metadata, the embedded ZIP matches the checksum file, and all 537 manifest entries match size and SHA-256."
     },
     "required_check_enforcement": {
       "status": "not_fully_confirmed",
@@ -663,10 +665,10 @@
     "independent_evaluation_status": "blocked; independent evaluator identity, sealed holdout custody, production isolation and external campaign receipts are not available",
     "capability_claim": "No AGI/SI or broad-generalization claim is supported; repository CI verifies internal contracts only.",
     "stock_research_acceptance": {
-      "status": "Current-main Stock Research Canonical Runtime Acceptance workflow succeeded on c67356be753d310b1babe340d84caa0ff7a987a8; fixture-backed repository acceptance only, with no live provider, licensing, production deployment or independent evaluator claim.",
-      "workflow_run_id": 42235459879,
-      "candidate_sha": "c67356be753d310b1babe340d84caa0ff7a987a8",
-      "acceptance_type": "fixture-backed repository CI only",
+      "status": "No Stock Research Canonical Runtime Acceptance push workflow ran on this main revision; prior fixture-backed acceptance remains historical. Live provider validation, licensing, deployment and independent evaluation are not verified.",
+      "workflow_run_id": null,
+      "candidate_sha": "22e086d18e6becb814e54d7b653267332a0ce0f5",
+      "acceptance_type": "not run on this revision",
       "live_provider_validation": "not verified",
       "provider_licensing": "not verified",
       "deployment_status": "not verified",
@@ -674,9 +676,9 @@
     }
   },
   "radar_refresh": {
-    "reviewed_at": "2026-11-06",
-    "baseline_main_sha": "c67356be753d310b1babe340d84caa0ff7a987a8",
-    "status": "candidate signals only. Research refreshed through 2026-11-06. Main c67356be753d310b1babe340d84caa0ff7a987a8 has 30/30 terminal-successful current-main check-runs, zero skipped or failed, and all eight post-merge push workflows succeeded. The v1.0.6 portable bundle and checksum were downloaded and rehashed; outer and embedded digests match and all 534 manifest entries match. No open PRs remain. Production host isolation, independent evaluator/corpus custody, sealed holdout, operator migration/rollback and scientific replication remain blocked. No AGI/SI claim or default capability promotion is supported.",
+    "reviewed_at": "2026-11-07",
+    "baseline_main_sha": "22e086d18e6becb814e54d7b653267332a0ce0f5",
+    "status": "candidate signals only. Research refreshed through 2026-11-07. Main 22e086d18e6becb814e54d7b653267332a0ce0f5 has 30 terminal check-runs: 30 successful, zero skipped, failed or pending. All eight post-merge push workflows succeeded. The v1.0.6 portable bundle and checksum were downloaded and rehashed; outer and embedded digests match and all 537 manifest entries match. Three PRs remain open: #1297 and #1299 have Windows durable-runtime checks pending; #1300 has 22 successful checks and four impact-filtered skips, with no pending or failed checks. Production isolation, independent evaluator/corpus custody, sealed holdout, operator migration/rollback and scientific replication remain blocked. No AGI/SI claim or default capability promotion is supported.",
     "policy": "External announcements and benchmark reports are comparison inputs, not evidence of equivalent AUREN capability. Reuse the canonical supervisor, TaskPlan, StateGraph, ExecutionController, Guard, RuntimeExecutionGuard, ProgressJournal, LearningSteward and Arena. No duplicate orchestrator or external runtime dependency. Keep adapters opt-in; no default model, harness or extension-pack promotion without paired measured value, independent evaluation and rollback. Discovery never grants authority.",
     "status_vocabulary": {
       "implementation": "Code path exists; does not imply tests or deployment.",
@@ -1186,13 +1188,153 @@
         "benchmark": "Preregister hypotheses, causal graph, analysis and success criteria before outcomes are visible. Use raw versioned datasets, executable baselines, withheld-condition predictions, sensitivity analyses, negative-result retention and independent domain replication. Measure mechanism accuracy, predictive validity, intervention success, novelty, calibration, reproducibility, source-domain regression and resource cost. Add preregistered analysis, withheld-condition prediction, controls, sensitivity checks, expert review and independent replication before learning promotion. Add a preregistered cheminformatics workflow with curated source data, matched-molecular-pair analysis, withheld-compound predictions, negative controls, expert review and wet-lab replication. Preregister claims and analysis; test controls, withheld conditions, structure fidelity, expert rubric, uncertainty, negative results and independent replication. Compare symbolic hypotheses with conventional and expert baselines on frozen datasets, then evaluate on withheld conditions and fresh domains. Measure equation recovery, predictive error, sensitivity, intervention validity, uncertainty, reproducibility, negative-result retention and expert agreement; require independent experimental replication.",
         "acceptance_threshold": "A plausible narrative or literature synthesis is not validation. Promote no lesson without executable evidence, independent replication on fresh tasks, explicit uncertainty, retained negative results and source-domain regression checks. A candidate molecule or synthesis route is not a validated discovery; require independent domain review and experimental replication. Scientific claims and learning promotion remain blocked until independent domain replication succeeds and rollback evidence is retained. Benchmark improvements or plausible equations are not validated scientific discoveries. No scientific lesson or capability claim without executable predictions, controls, withheld-condition success and independent domain replication.",
         "rollback": "Reject or retract the lesson, restore the prior memory/policy digest, retain the failed experiment and negative evidence, and rerun the pinned regression corpus. Retract the candidate lesson, restore the prior memory/policy digest, retain failed predictions and negative evidence, and rerun the pinned regression corpus."
+      },
+      {
+        "id": "event_driven_monitoring_agents",
+        "source_date": "2026-06-08",
+        "sources": [
+          "https://www.microsoft.com/en-us/research/articles/sentinelbench-a-benchmark-for-long-running-monitoring-agents/"
+        ],
+        "owner": [
+          "portable.execution_controller.ExecutionController",
+          "portable.progress_journal.ProgressJournal",
+          "portable.runtime_recovery.RuntimeExecutionGuard",
+          "portable.trigger_runtime.TriggerRuntime",
+          "portable.automation_scheduler.AutomationScheduler",
+          "portable.engineering_dashboard.EngineeringDashboard"
+        ],
+        "status": "candidate_benchmark_only",
+        "implementation_status": "Canonical durable execution and routine-trigger owners exist; SentinelBench-style event-driven monitoring is not independently implemented or measured.",
+        "ci_status": "Selected durable identity, cancellation, deadline and restart contracts are repository-tested; the monitoring benchmark and event-detection quality are not CI-verified.",
+        "deployment_status": "not verified",
+        "independent_evaluation_status": "blocked",
+        "measured_gap": "SentinelBench contains 100 tasks across 10 time-evolving synthetic web environments. It highlights watch/wait/respond tasks where external events, not repeated agent actions, create progress. AUREN has no paired monitoring benchmark for event detection, missed/false wakeups, reaction time, polling churn, resource cost or duplicate effects.",
+        "benchmark": "Run identical scripted event timelines against bounded polling and event-driven wakeup candidates. Measure task completion, reaction time, missed and false triggers, action count, token/tool cost, deadline behavior, cancellation, duplicate side effects and recovery after process restart. Retain an independent event oracle and exact task/environment digests.",
+        "acceptance_threshold": "Wakeups must be authenticated and replay-safe; no unbounded polling or retry; occurrence identity and action ledger remain canonical; cancellation/deadline and unknown-outcome reconciliation remain fail-closed. No default trigger promotion without paired measured benefit and independent evaluation.",
+        "rollback": "Disable the candidate event adapter, preserve occurrence receipts and checkpoints, and return to bounded operator-managed polling or manual invocation through the canonical ExecutionController."
+      },
+      {
+        "id": "agentic_security_fabric",
+        "source_date": "2026-11-03",
+        "sources": [
+          "https://www.gartner.com/en/documents/8595537"
+        ],
+        "owner": [
+          "Guard",
+          "portable.runtime_recovery.RuntimeExecutionGuard",
+          "portable.execution_boundary.ExecutionBoundary",
+          "filesystem/process/network adapters",
+          "independent host-isolation auditor"
+        ],
+        "status": "comparison_taxonomy_only",
+        "implementation_status": "AUREN has application-level Guard and execution-boundary owners; Gartner's framework is not imported as a runtime and does not establish host enforcement.",
+        "ci_status": "Repository CI covers selected denial-before-launch and lifecycle contracts only; host/kernel isolation and independent supervision are not proven.",
+        "deployment_status": "not verified",
+        "independent_evaluation_status": "blocked",
+        "measured_gap": "The framework separates resource access, agent runtime execution and independent supervision. AUREN still lacks independently administered proof of host/kernel containment, secret and egress isolation, monitor integrity, escape resistance and stop confirmation.",
+        "benchmark": "On operator-managed hosts, test forbidden resource access, process/network actions, secret reads, policy drift after restart, monitor disablement, credential revocation, process-tree termination, host escape and post-escape egress. Measure denial-before-launch, coverage, false positives, time-to-detect and time-to-stop.",
+        "acceptance_threshold": "No consequential action without a valid resource policy and execution-boundary decision; monitoring remains outside worker authority. Production isolation stays blocked until independent host receipts cover kernel, egress, secrets, escape and monitor integrity.",
+        "rollback": "Disable the candidate adapter, revoke credentials and egress scope, preserve receipts, and return to the last-known-good approved executor while reconciling unknown effects."
+      },
+      {
+        "id": "federated_agent_governance",
+        "source_date": "2026-08-27",
+        "sources": [
+          "https://arxiv.org/abs/2608.26626"
+        ],
+        "owner": [
+          "portable.action_governance.ActionRequest",
+          "delegated authority policy",
+          "portable.execution_boundary.ExecutionBoundary",
+          "A2A adapter",
+          "portable.execution_controller.ExecutionController",
+          "independent verifier"
+        ],
+        "status": "research_candidate_only",
+        "implementation_status": "AUREN has an internal identity/delegation chain; no cross-organisation federation policy or external principal trust is claimed.",
+        "ci_status": "Internal delegation, revocation and denial-before-action contracts are repository-tested; cross-organisation agent governance is not.",
+        "deployment_status": "not verified",
+        "independent_evaluation_status": "blocked",
+        "measured_gap": "The report distinguishes single-governance, federated and open agent environments. AUREN's internal role separation does not prove cross-organisation principal attribution, shared policy, authority attenuation or incident visibility when remote agents interact.",
+        "benchmark": "Simulate agents from separate organisations with forged or expired identities, replayed handoffs, widened scopes, policy-version conflicts, mid-run revocation and uncertain provider outcomes. Measure actor attribution, scope attenuation, replay rejection, revocation latency, denial-before-action and stop confirmation.",
+        "acceptance_threshold": "Remote agents remain untrusted principals. Require authenticated issuer/recipient, explicit shared policy, narrowed scope and attributable action receipts. If a common policy or authoritative outcome lookup is absent, block consequential remote actions.",
+        "rollback": "Revoke the federation credential and delegated scopes, stop remote consequential dispatch, preserve audit receipts and reconcile unknown side effects before resuming."
+      },
+      {
+        "id": "wet_lab_scientific_agents",
+        "source_date": "2026-11-04; 2026-10-22",
+        "sources": [
+          "https://www.nature.com/articles/d41586-026-03270-1",
+          "https://www.nature.com/articles/s43586-026-00534-y",
+          "https://doi.org/10.1038/s41586-026-11228-6"
+        ],
+        "owner": [
+          "LearningSteward",
+          "causal attribution",
+          "experiment manifests",
+          "canonical evidence graph",
+          "Arena",
+          "independent laboratory operator"
+        ],
+        "status": "research_and_benchmark_only",
+        "implementation_status": "AUREN has causal attribution, experiment manifests and evidence-provenance foundations; no wet-lab instrument execution or independent scientific replication is claimed.",
+        "ci_status": "Repository CI covers selected learning/provenance contracts only; no physical laboratory or AutoDNA-style workflow has run on AUREN.",
+        "deployment_status": "not verified",
+        "independent_evaluation_status": "blocked",
+        "measured_gap": "Nature's AutoDNA coverage reports agents planning and conducting DNA/molecular-biology experiments with limited human intervention. This is a workflow signal, not proof of general scientific reliability. AUREN lacks instrument-safety, calibration, contamination control, chain-of-custody and independent wet-lab replication evidence.",
+        "benchmark": "Preregister a bounded molecular-biology task with controls, withheld conditions and an expert rubric. Retain raw instrument logs, calibration, sample provenance, human approvals and negative results. Require an independent laboratory to reproduce the result and score predictive validity, safety, reproducibility and uncertainty.",
+        "acceptance_threshold": "Physical actions require operator approval and safe instrument boundaries. No scientific claim or positive learning promotion without executable predictions, controls, withheld-condition success, expert review and independent laboratory replication.",
+        "rollback": "Disable physical instrument adapters, preserve raw data and experiment receipts, retract dependent lessons, restore the prior memory/policy digest and rerun the pinned regression corpus."
       }
     ],
     "repository_observation": {
-      "reviewed_at": "2026-11-06",
-      "main_sha": "c67356be753d310b1babe340d84caa0ff7a987a8",
-      "open_pr_count": 0,
-      "open_prs": [],
+      "reviewed_at": "2026-11-07",
+      "main_sha": "22e086d18e6becb814e54d7b653267332a0ce0f5",
+      "open_pr_count": 3,
+      "open_prs": [
+        {
+          "number": 1297,
+          "title": "Harden the local dashboard security and readiness boundary",
+          "head_sha": "9919df56da5c23068237020a07e4fd1adacd2f79",
+          "base_sha": "22e086d18e6becb814e54d7b653267332a0ce0f5",
+          "state": "open",
+          "checks": {
+            "total": 29,
+            "success": 27,
+            "pending": 2,
+            "failed": 0,
+            "skipped": 0
+          }
+        },
+        {
+          "number": 1299,
+          "title": "Add durable, idempotent routine trigger registry",
+          "head_sha": "76829c4cf342d45c7566bd514e6c8b549f9c2898",
+          "base_sha": "22e086d18e6becb814e54d7b653267332a0ce0f5",
+          "state": "open",
+          "checks": {
+            "total": 27,
+            "success": 24,
+            "pending": 3,
+            "failed": 0,
+            "skipped": 0
+          }
+        },
+        {
+          "number": 1300,
+          "title": "Refresh AI/SI capability radar with 2026-11-07 evidence",
+          "head_sha": "aaf99cf1148f152b43d0754c33b189617ce42f36",
+          "base_sha": "22e086d18e6becb814e54d7b653267332a0ce0f5",
+          "state": "open",
+          "checks": {
+            "total": 26,
+            "success": 22,
+            "pending": 0,
+            "failed": 0,
+            "skipped": 4
+          }
+        }
+      ],
       "current_main_check_runs": {
         "status": "terminal",
         "total": 30,
@@ -1201,6 +1343,7 @@
         "failed": 0,
         "pending": 0
       },
+      "skipped_checks": [],
       "post_merge_push_workflows": {
         "status": "terminal",
         "total": 8,
@@ -1209,72 +1352,80 @@
         "pending": 0,
         "runs": [
           {
+            "name": "Repository Construct Traceability Check",
+            "run_id": 42383803450,
+            "conclusion": "success",
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803450"
+          },
+          {
+            "name": "AUREN cleanup contract",
+            "run_id": 42383803408,
+            "conclusion": "success",
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803408"
+          },
+          {
             "name": "Agent Capability Runtime",
-            "run_id": 42235459821,
-            "conclusion": "success"
-          },
-          {
-            "name": "AUREN Portable Bundle",
-            "run_id": 42235460037,
-            "conclusion": "success"
-          },
-          {
-            "name": "PostgreSQL Attestation Replay Integration",
-            "run_id": 42235459798,
-            "conclusion": "success"
-          },
-          {
-            "name": "Stock Research Canonical Runtime Acceptance",
-            "run_id": 42235459879,
-            "conclusion": "success"
-          },
-          {
-            "name": "AI Harness Check",
-            "run_id": 42235459959,
-            "conclusion": "success"
-          },
-          {
-            "name": "Architecture Integrity",
-            "run_id": 42235459712,
-            "conclusion": "success"
+            "run_id": 42383803375,
+            "conclusion": "success",
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803375"
           },
           {
             "name": "Production AI Harness Hardening",
-            "run_id": 42235459901,
-            "conclusion": "success"
+            "run_id": 42383803414,
+            "conclusion": "success",
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803414"
+          },
+          {
+            "name": "Architecture Integrity",
+            "run_id": 42383803461,
+            "conclusion": "success",
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803461"
+          },
+          {
+            "name": "AI Harness Check",
+            "run_id": 42383803460,
+            "conclusion": "success",
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803460"
           },
           {
             "name": "Runtime Resilience Matrix",
-            "run_id": 42235459888,
-            "conclusion": "success"
+            "run_id": 42383803463,
+            "conclusion": "success",
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803463"
+          },
+          {
+            "name": "AUREN Portable Bundle",
+            "run_id": 42383803431,
+            "conclusion": "success",
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42383803431"
           }
         ]
       },
-      "required_check_enforcement": "The active mainBranchRule exposes deletion and non-fast-forward protections but no required-status-check rule. The branch-protection API returned 403 Resource not accessible by integration; owner/admin confirmation is still required before claiming that no hidden required checks exist.",
-      "local_checkout_and_runtime": "No local AUREN checkout/runtime is available; no local tests or process-level fault injection are claimed."
+      "required_check_enforcement": "The active mainBranchRule exposes deletion and non-fast-forward protections only; no required-status-check rule is visible. The branch-protection API returned 403 Resource not accessible by integration; owner/admin confirmation is required.",
+      "local_checkout_and_runtime": "No local AUREN checkout or AutonomousCompany/ExecutionController runtime invocation is available in this environment; no local tests or process-level fault injection are claimed."
     },
     "artifact_integrity": {
       "status": "downloaded_and_rehashed",
-      "workflow_run_id": 42235460037,
-      "bundle_artifact_id": 13512140165,
-      "checksum_artifact_id": 13511034641,
-      "outer_bundle_artifact_sha256": "0063eb47fbfaf265528ac4bf0766d2be753302e2523f4934a067be137b6b26dd",
-      "outer_checksum_artifact_sha256": "5d6aaf6e4125a48839db86e1fcec0743eaa9090a578862448ddfae43af83d447",
-      "inner_bundle_sha256": "5c5fdb4ebd372312be87d803ad2dbad085c9b37771be4cb834cbc9ab7411a9ab",
+      "workflow_run_id": 42383803431,
+      "bundle_artifact_id": 13578577907,
+      "checksum_artifact_id": 13578852228,
+      "outer_bundle_artifact_sha256": "fa9c6926b912a48d8c964e7460605609c6dbd737923b06419a2cd0c130b53625",
+      "outer_checksum_artifact_sha256": "80ffbdd2a57f87e85389f4e9f1a3a44e5d4c0bb0a38478e99709d54c75fc48fd",
+      "inner_bundle_sha256": "e9279f48a0e8425398eb1dc788794b04b13ae81040533690781018a2a21e56a5",
       "inner_checksum_status": "verified locally; auren-portable.sha256 matches the embedded ZIP SHA-256",
-      "manifest_file_count": 534,
+      "manifest_file_count": 537,
       "manifest_hash_or_size_mismatches": 0,
       "missing_manifest_entries": 0,
       "unexpected_generated_entries": [
         "payload/PORTABLE_BUNDLE.txt"
       ],
-      "source_commit": "c67356be753d310b1babe340d84caa0ff7a987a8",
+      "source_commit": "22e086d18e6becb814e54d7b653267332a0ce0f5",
       "version": "1.0.6",
       "target_repository_mutation": false,
-      "bundle_expires_at": null,
-      "checksum_expires_at": null,
-      "local_download_rehash": "Completed in the container: outer artifact digests, embedded ZIP digest and all 534 manifest entries verified."
+      "bundle_expires_at": "2026-12-07T14:55:29Z",
+      "checksum_expires_at": "2026-12-07T14:55:30Z",
+      "local_download_rehash": "Downloaded and rehashed in the container: outer artifact digests match GitHub metadata, the embedded ZIP matches the checksum file, and all 537 manifest entries match size and SHA-256."
     }
   },
-  "status": "Candidate signals only. Research refreshed through 2026-11-06. Current main c67356be753d310b1babe340d84caa0ff7a987a8 is terminal at 30/30 successful check-runs and eight successful push workflows; portable v1.0.6 artifact and checksum are downloaded and rehashed with all 534 manifest entries matching. Implementation, repository CI, deployment and independent evaluation remain separate statuses. Production isolation, evaluator/corpus custody, sealed holdout, operator migration/rollback and scientific replication remain blocked. No AGI/SI claim or default capability promotion is supported."
+  "status": "Candidate signals only. Research refreshed through 2026-11-07; reviewed main 22e086d18e6becb814e54d7b653267332a0ce0f5 has 30/30 terminal-successful current-main checks and eight successful post-merge push workflows. The v1.0.6 portable bundle and checksum were downloaded and rehashed; all 537 manifest entries match. Three open PRs are tracked by exact head. Implementation, repository CI, deployment and independent evaluation remain separate statuses. Production isolation, evaluator/corpus custody, sealed holdout, operator migration/rollback and scientific replication remain blocked. No AGI/SI claim or default capability promotion is supported."
 }
