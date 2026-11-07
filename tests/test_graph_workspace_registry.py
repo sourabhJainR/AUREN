@@ -43,9 +43,14 @@ class DurableGraphWorkspaceRegistryTests(unittest.TestCase):
             coordinator.close()
         self.temp.cleanup()
 
-    def test_legacy_registry_migrates_task_id_column_without_losing_rows(self):
-        self.registry.parent.mkdir(parents=True, exist_ok=True)
+    def test_legacy_registry_migrates_task_id_column_and_preserves_rows(self):
+        first = self.make_coordinator()
+        first.create_worker("worker-legacy", ["src/legacy.py"])
+        first.close()
+        self.coordinators.remove(first)
+
         db = sqlite3.connect(self.registry)
+        db.execute("ALTER TABLE graph_workspace_registry RENAME TO registry_with_task_id")
         db.execute(
             """CREATE TABLE graph_workspace_registry (
                 worker_id TEXT PRIMARY KEY, base_revision TEXT NOT NULL,
@@ -54,6 +59,15 @@ class DurableGraphWorkspaceRegistryTests(unittest.TestCase):
                 proposal_paths TEXT, cancellation_reason TEXT, termination_evidence TEXT
             )"""
         )
+        db.execute(
+            """INSERT INTO graph_workspace_registry
+               (worker_id,base_revision,owned_paths,workspace_path,state,artifact_path,
+                artifact_digest,proposal_paths,cancellation_reason,termination_evidence)
+               SELECT worker_id,base_revision,owned_paths,workspace_path,state,artifact_path,
+                      artifact_digest,proposal_paths,cancellation_reason,termination_evidence
+               FROM registry_with_task_id"""
+        )
+        db.execute("DROP TABLE registry_with_task_id")
         db.commit()
         db.close()
 
@@ -64,7 +78,8 @@ class DurableGraphWorkspaceRegistryTests(unittest.TestCase):
             )
         }
         self.assertIn("task_id", columns)
-        self.assertEqual(coordinator.worker_states(), {})
+        self.assertIn("worker-legacy", coordinator.worker_states())
+        self.assertIsNone(coordinator._task_ids["worker-legacy"])
 
     def test_task_identity_is_persisted_and_restored_with_workspace(self):
         first = self.make_coordinator()
