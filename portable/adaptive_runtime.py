@@ -1331,7 +1331,7 @@ class AdaptiveRuntime:
         worker_limit: int,
         resource_locks: Mapping[str, Sequence[str]] | None = None,
         coordination_overhead_seconds: float = 0.0,
-        serial_task_ids: Sequence[str] = (),
+        serial_task_ids: Sequence[str] | None = None,
     ) -> DeliveryAcceleration:
         """Expose critical-path and Amdahl estimates without granting dispatch authority.
 
