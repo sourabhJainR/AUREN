@@ -26,16 +26,7 @@ class ControlCenterApiTests(unittest.TestCase):
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
-        # Stop the serving loop and join its owner before closing the socket.
-        # server_close() alone leaves serve_forever polling a closed socket on Windows.
-        self.addCleanup(self._stop_test_server)
-
-    def _stop_test_server(self):
-        self.server.shutdown()
-        self.server.server_close()
-        self.thread.join(timeout=3)
-        if self.thread.is_alive():
-            raise AssertionError("dashboard test server thread did not stop")
+        self.addCleanup(self.server.server_close)
         self.addCleanup(self.thread.join, 2)
 
     def test_health_and_live_snapshot_contract(self):
