@@ -312,7 +312,7 @@ class WorkspaceInventoryTests(unittest.TestCase):
         connection = sqlite3.connect(registry)
         connection.execute(
             """CREATE TABLE graph_workspace_registry (
-                worker_id TEXT PRIMARY KEY, base_revision TEXT NOT NULL,
+                worker_id TEXT PRIMARY KEY, task_id TEXT, base_revision TEXT NOT NULL,
                 owned_paths TEXT NOT NULL, workspace_path TEXT NOT NULL,
                 state TEXT NOT NULL, artifact_path TEXT, artifact_digest TEXT,
                 proposal_paths TEXT, cancellation_reason TEXT, termination_evidence TEXT
@@ -320,10 +320,10 @@ class WorkspaceInventoryTests(unittest.TestCase):
         )
         connection.execute(
             """INSERT INTO graph_workspace_registry
-               (worker_id,base_revision,owned_paths,workspace_path,state,artifact_path,
+               (worker_id,task_id,base_revision,owned_paths,workspace_path,state,artifact_path,
                 artifact_digest,proposal_paths)
-               VALUES(?,?,?,?,?,?,?,?)""",
-            ("worker-7", "a" * 40, json.dumps(["src"]), "/private/worktree/worker-7",
+               VALUES(?,?,?,?,?,?,?,?,?)""",
+            ("worker-7", "task-7", "a" * 40, json.dumps(["src"]), "/private/worktree/worker-7",
              "proposal_ready", "/private/artifacts/proposal.patch", "sha256:" + "c" * 64,
              json.dumps(["src/app.py"])),
         )
@@ -335,6 +335,7 @@ class WorkspaceInventoryTests(unittest.TestCase):
         self.assertEqual(rows[0], {
             "workspace_id": "worker-7",
             "worker_id": "worker-7",
+            "task_id": "task-7",
             "status": "proposal_ready",
             "base_revision": "a" * 40,
             "owned_paths": ["src"],
