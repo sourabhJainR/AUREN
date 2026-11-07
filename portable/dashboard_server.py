@@ -72,6 +72,17 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+            "connect-src 'self'; object-src 'none'; base-uri 'none'; "
+            "form-action 'self'; frame-ancestors 'none'",
+        )
         for name, value in (extra_headers or {}).items():
             self.send_header(name, value)
         self.send_header("Content-Length", str(len(body)))
@@ -117,10 +128,34 @@ class _Handler(BaseHTTPRequestHandler):
             and not parsed.fragment
         )
 
-    def _guard_api_origin(self, path):
-        if path.startswith("/api/") and not self._origin_is_local():
-            self._send(403, b'{"error":"untrusted origin"}', "application/json; charset=utf-8")
+    def _host_is_local(self):
+        host = self.headers.get("Host", "")
+        try:
+            parsed = urlparse("//" + host)
+            port = parsed.port
+        except ValueError:
             return False
+        return (
+            parsed.hostname in {"127.0.0.1", "localhost"}
+            and port == self.server.server_port
+            and parsed.username is None
+            and parsed.password is None
+            and parsed.path == ""
+            and not parsed.query
+            and not parsed.fragment
+        )
+
+    def _guard_api_origin(self, path):
+        # Host validation prevents DNS-rebinding requests from reaching a
+        # loopback-only service through an attacker-controlled hostname.
+        if not self._host_is_local():
+            self._send(403, b'{"error":"untrusted host"}', "application/json; charset=utf-8")
+            return False
+        if path.startswith("/api/"):
+            fetch_site = self.headers.get("Sec-Fetch-Site", "").lower()
+            if fetch_site == "cross-site" or not self._origin_is_local():
+                self._send(403, b'{"error":"untrusted request origin"}', "application/json; charset=utf-8")
+                return False
         return True
 
 
@@ -640,7 +675,45 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(503, b'{"error":"control center snapshot unavailable"}', "application/json; charset=utf-8")
             return
         if path == "/api/health":
-            self._send_api_json(200, {"status": "ok"})
+            # Liveness and readiness are separate. A responding HTTP process
+            # must not imply that durable runtime stores are healthy.
+            checks = {"http": "ok"}
+            if self.progress_journal is None:
+                checks["progress_journal"] = "not_configured"
+            else:
+                try:
+                    self.progress_journal.list_snapshots()
+                    checks["progress_journal"] = "ok"
+                except Exception:
+                    checks["progress_journal"] = "unavailable"
+            try:
+                trace_path = canonical_runtime_home() / "observability" / "traces.jsonl"
+                trace_snapshot = observability_snapshot(trace_path)
+                checks["observability"] = str(trace_snapshot.get("status", "unknown"))
+            except Exception:
+                checks["observability"] = "unavailable"
+            if self.delivery_supervisor is None:
+                checks["delivery_supervisor"] = "not_configured"
+            else:
+                try:
+                    self.delivery_supervisor.metrics_snapshot()
+                    checks["delivery_supervisor"] = "ok"
+                except Exception:
+                    checks["delivery_supervisor"] = "unavailable"
+            critical = (
+                checks["progress_journal"] == "ok"
+                and checks["delivery_supervisor"] == "ok"
+            )
+            ready = critical and checks["observability"] in {"ok", "empty"}
+            self._send_api_json(200, {
+                "status": "ok",
+                "readiness": "ready" if ready else "degraded",
+                "checks": checks,
+                "scope": "local_dashboard_runtime",
+                "provider_health": "not_checked",
+                "postgres_health": "not_checked",
+                "host_identity": "not_attested",
+            })
             return
         if path == "/control-center":
             self._serve(self.control_center_path, "text/html; charset=utf-8")
