@@ -118,7 +118,7 @@ class CapabilityCoverageMatrixTests(unittest.TestCase):
         matrix = json.loads(MATRIX_PATH.read_text(encoding="utf-8"))
         radar = matrix["radar_refresh"]
         self.assertEqual(radar["reviewed_at"], "2026-11-07")
-        self.assertEqual(radar["baseline_main_sha"], "5c5f86bd2469c1943276d84ac78034ddb3b3d3bc")
+        self.assertEqual(radar["baseline_main_sha"], "22e086d18e6becb814e54d7b653267332a0ce0f5")
         signals = {item["id"]: item for item in radar["signals"]}
         required_sources = {
             "long_running_host_sandbox": "https://www.tomshardware.com/tech-industry/artificial-intelligence/openais-isolated-redteam-ai-agents-built-a-hidden-cpu-cache-channel-to-talk-with-no-network-or-shared-files-exploited-cpu-cache-timing-to-bypass-microvm-sandboxes",
@@ -143,19 +143,21 @@ class CapabilityCoverageMatrixTests(unittest.TestCase):
                 self.assertTrue(signals[signal_id]["acceptance_threshold"].strip())
                 self.assertTrue(signals[signal_id]["rollback"].strip())
         observation = radar["repository_observation"]
-        self.assertEqual(observation["main_sha"], "5c5f86bd2469c1943276d84ac78034ddb3b3d3bc")
+        self.assertEqual(observation["main_sha"], "22e086d18e6becb814e54d7b653267332a0ce0f5")
         self.assertEqual(observation["current_main_check_runs"],
-                         {"status": "terminal", "total": 30, "success": 29,
-                          "skipped": 1, "failed": 0, "pending": 0})
-        self.assertEqual(observation["skipped_checks"], ["hardening"])
+                         {"status": "terminal", "total": 30, "success": 30,
+                          "skipped": 0, "failed": 0, "pending": 0})
+        self.assertEqual(observation["skipped_checks"], [])
         self.assertEqual(observation["post_merge_push_workflows"]["total"], 8)
         self.assertEqual(observation["post_merge_push_workflows"]["success"], 8)
         self.assertEqual(observation["open_pr_count"], 3)
-        self.assertEqual(radar["artifact_integrity"]["manifest_file_count"], 536)
+        self.assertEqual([item["number"] for item in observation["open_prs"]], [1297, 1299, 1300])
+        self.assertTrue(all(item["base_sha"] == main for item in observation["open_prs"]))
+        self.assertEqual(radar["artifact_integrity"]["manifest_file_count"], 537)
         self.assertEqual(radar["artifact_integrity"]["manifest_hash_or_size_mismatches"], 0)
         self.assertEqual(radar["artifact_integrity"]["missing_manifest_entries"], 0)
         self.assertEqual(radar["artifact_integrity"]["source_commit"],
-                         "5c5f86bd2469c1943276d84ac78034ddb3b3d3bc")
+                         "22e086d18e6becb814e54d7b653267332a0ce0f5")
         self.assertEqual(signals["long_running_host_sandbox"]["deployment_status"], "not verified")
         self.assertEqual(signals["realistic_agent_evaluation"]["independent_evaluation_status"], "blocked")
         self.assertIn("No AGI/SI claim", radar["status"])
