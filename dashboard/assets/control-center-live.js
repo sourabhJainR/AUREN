@@ -43,7 +43,7 @@
   const el = id => document.getElementById(id);
   const safe = value => String(value ?? "").replace(/[&<>"']/g, c =>
     ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-  const number = value => Number.isFinite(Number(value)) ? Number(value).toLocaleString() : "—";
+  const number = value => value === null || value === undefined || value === "" || !Number.isFinite(Number(value)) ? "—" : Number(value).toLocaleString();
   let timer = null;
   let inFlight = false;
   let lastSuccess = 0;
