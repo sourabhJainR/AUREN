@@ -1632,6 +1632,18 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
                 "timeout_seconds": 5,
             }
             path.write_text(json.dumps(config), encoding="utf-8")
+            config["mcp_tools"]["repository"] = {
+                "argv": [sys.executable, "-c", "pass"],
+                "tool_name": "repository",
+                "operation_lookup": {
+                    "argv": [sys.executable, "-c", "pass"],
+                    "tool_name": "lookup_repository_operation",
+                    "argument_map": {
+                        "operation_id": "$operation_id",
+                        "idempotency_key": "$idempotency_key",
+                    },
+                },
+            }
             config["provider_capabilities"] = {
                 "development": {
                     "supports_provider_idempotency": True,
