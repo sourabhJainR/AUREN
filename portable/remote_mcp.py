@@ -274,6 +274,9 @@ class AurenMCPService:
         self.trigger = AdaptiveTrigger.for_runtime(runtime)
         self._stop = threading.Event()
         self._worker: threading.Thread | None = None
+        self._dispatcher_last_error: str | None = None
+        self._dispatcher_last_run_at: str | None = None
+        self._dispatcher_processed_count = 0
         self.dispatcher_poll_seconds = dispatcher_poll_seconds
         self.control_db = (
             Path(control_store_path).expanduser().resolve()
@@ -612,11 +615,23 @@ class AurenMCPService:
             except Exception as exc:
                 findings = ["health_check_unavailable:" + type(exc).__name__]
             control = self._control()
-            degraded = bool(findings) or queue.get("status") == "unavailable" or not control["audit_chain_valid"]
+            dispatcher = {
+                "running": bool(self._worker and self._worker.is_alive()),
+                "last_run_at": self._dispatcher_last_run_at,
+                "last_error_type": self._dispatcher_last_error,
+                "processed_count": self._dispatcher_processed_count,
+                "poll_seconds": self.dispatcher_poll_seconds,
+            }
+            degraded = (
+                bool(findings) or queue.get("status") == "unavailable"
+                or not control["audit_chain_valid"] or not dispatcher["running"]
+                or dispatcher["last_error_type"] is not None
+            )
             return {
                 "status": "degraded" if degraded else "ok",
                 "workspace": str(self.project_root), "admissions": control,
-                "queue": queue, "health_findings": [_safe_text(x, 300) for x in findings],
+                "queue": queue, "dispatcher": dispatcher,
+                "health_findings": [_safe_text(x, 300) for x in findings],
                 "mcp_protocol_versions": list(SUPPORTED_PROTOCOL_VERSIONS),
             }
         if name == "auren.submit_task":
@@ -948,6 +963,15 @@ class AurenMCPService:
             return None
         raise MCPServiceError("method not found: " + method, code=-32601, status=404)
 
+    def readiness(self) -> bool:
+        worker_ready = bool(self._worker and self._worker.is_alive())
+        try:
+            audit_ready = self.verify_control_audit()
+            self.trigger_runtime.list_events(limit=1)
+        except Exception:
+            return False
+        return worker_ready and audit_ready
+
     def start(self) -> None:
         if self._worker and self._worker.is_alive():
             return
@@ -956,9 +980,13 @@ class AurenMCPService:
         def dispatch_loop():
             while not self._stop.is_set():
                 try:
-                    self.trigger.dispatch_once(limit=10)
-                except Exception:
-                    pass
+                    dispatched = self.trigger.dispatch_once(limit=10)
+                    self._dispatcher_last_error = None
+                    self._dispatcher_last_run_at = datetime.now(timezone.utc).isoformat()
+                    self._dispatcher_processed_count += len(dispatched or ())
+                except Exception as exc:
+                    self._dispatcher_last_error = type(exc).__name__
+                    self._dispatcher_last_run_at = datetime.now(timezone.utc).isoformat()
                 self._stop.wait(self.dispatcher_poll_seconds)
 
         self._worker = threading.Thread(
@@ -1064,11 +1092,14 @@ class AurenMCPASGI:
             body = _canonical_json(self.service.protected_resource_metadata()).encode("utf-8")
             await self._send(send, 200, body, cors + [(b"content-type", b"application/json; charset=utf-8")])
             return
-        if path == "/healthz":
+        if path in {"/healthz", "/readyz"}:
             if method != "GET":
                 await self._send(send, 405, headers=[(b"allow", b"GET")])
                 return
-            await self._send(send, 200, b'{"status":"ok"}', [(b"content-type", b"application/json")])
+            if path == "/readyz" and not self.service.readiness():
+                await self._send(send, 503, b'{"status":"not_ready"}', [(b"content-type", b"application/json")])
+            else:
+                await self._send(send, 200, b'{"status":"ok"}', [(b"content-type", b"application/json")])
             return
         if path != self.service.endpoint_path:
             await self._send(send, 404)
