@@ -122,6 +122,7 @@ Do not bind to 0.0.0.0 or :: unless AUREN_MCP_ALLOW_PUBLIC_BIND=1 is explicitly 
 | AUREN_MCP_ALLOWED_HOSTS | Yes | Exact public hostnames |
 | AUREN_MCP_ALLOWED_ORIGINS | Browser clients | Exact browser origins; never wildcard |
 | AUREN_MCP_CONTROL_DB | No | Persistent control/rate-limit database path |
+| AUREN_MCP_MAX_PENDING_TASKS | No | Maximum pending/claimed/retryable MCP trigger events; defaults to 1000 |
 | AUREN_MCP_ENDPOINT_PATH | No | MCP path; defaults to /mcp |
 | AUREN_MCP_BIND_HOST | No | Defaults to 127.0.0.1 |
 | AUREN_MCP_PORT | No | Defaults to 8765 |
