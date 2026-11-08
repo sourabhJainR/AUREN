@@ -25,7 +25,7 @@ The service does not implement an OAuth authorization server. An established ide
 |---|---|---|
 | auren.get_profile | auren:tasks:read | Stable opaque identity for the authenticated connection |
 | auren.service_status | auren:tasks:read | Queue, health, dispatcher and admission status |
-| auren.submit_task | auren:tasks:write | Durable task acceptance in the server-configured workspace |
+| auren.submit_task | auren:tasks:write | Durable task acceptance in the server-configured workspace; requires a caller-scoped idempotency key |
 | auren.list_tasks | auren:tasks:read | Bounded task and trigger inventory |
 | auren.get_task | auren:tasks:read | Task/trigger status and progress |
 | auren.cancel_task | auren:tasks:cancel | Cancel pending triggers or signal a live runtime guard |
