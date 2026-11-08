@@ -2555,6 +2555,9 @@ class LocalVibeCodingHost:
             "preview_deployment_required": self.config.preview_deployment_required,
             "preview_deployment_rationale": self.config.preview_deployment_rationale,
             "security_tool_required": self.config.security_tool_required,
+            "provider_capabilities": {
+                key: dict(value) for key, value in sorted(self.config.provider_capabilities.items())
+            },
         })
         project_tool = LocalProjectTool(workspace, lease.base_revision, allow_workspace_writes=self.config.allow_workspace_writes)
         test_tool = LocalTestExecutionTool(workspace, self.config.test_commands, timeout_seconds=self.config.test_timeout_seconds, env_allowlist=self.config.env_allowlist)
