@@ -379,7 +379,8 @@ class AurenMCPService:
             raise PermissionError("authenticated principal is not authorized for this AUREN workspace")
 
     def _event_for_principal(self, event_id: str, principal: MCPPrincipal):
-        event = self.trigger_runtime.get_event(event_id)
+        normalized_id = event_id.removeprefix("llm-chat:")
+        event = self.trigger_runtime.get_event(normalized_id)
         if event is None or event.kind != "adaptive_runtime":
             return None
         owner = event.payload.get("_auren_mcp_subject")
@@ -387,16 +388,26 @@ class AurenMCPService:
             raise PermissionError("task is not visible to this principal")
         return event
 
-    @staticmethod
-    def _trigger_summary(event: Any) -> dict[str, Any]:
+    def _trigger_summary(self, event: Any) -> dict[str, Any]:
+        runtime_task_id = "llm-chat:" + event.event_id
+        runtime_progress = self.controller.progress_journal.snapshot(
+            runtime_task_id, stale_after_seconds=120,
+        )
+        execution_status = event.outcome.get("result_status") if isinstance(event.outcome, Mapping) else None
+        reported_status = (
+            execution_status if event.status == "success" and isinstance(execution_status, str)
+            else event.status
+        )
         return {
-            "task_id": event.event_id, "kind": "adaptive_runtime",
-            "status": event.status, "attempts": event.attempts,
+            "task_id": event.event_id, "runtime_task_id": runtime_task_id,
+            "kind": "adaptive_runtime",
+            "status": reported_status, "dispatch_status": event.status,
+            "attempts": event.attempts,
             "max_attempts": event.max_attempts, "created_at": event.created_at,
             "available_at": event.available_at, "claimed_at": event.claimed_at,
             "lease_until": event.lease_until, "completed_at": event.completed_at,
             "last_detail": _safe_text(event.last_detail, 500),
-            "outcome": dict(event.outcome),
+            "outcome": dict(event.outcome), "runtime_progress": runtime_progress,
         }
 
     def _task_summary(self, task_id: str) -> dict[str, Any]:
@@ -543,9 +554,20 @@ class AurenMCPService:
             event = self._event_for_principal(task_id.strip(), principal)
             if event is not None:
                 cancelled = self.trigger_runtime.cancel_pending(event.event_id, reason=reason)
-                return {"task_id": task_id, "cancellation_requested": cancelled,
-                        "status": "cancelled" if cancelled else event.status,
-                        "note": "claimed trigger work cannot be interrupted through this trigger API"}
+                if cancelled:
+                    return {"task_id": task_id, "cancellation_requested": True, "status": "cancelled"}
+                signalled = False
+                if event.status == "claimed":
+                    cancel = getattr(self.runtime, "request_cancel", None)
+                    if callable(cancel):
+                        signalled = bool(cancel(
+                            "llm-chat:" + event.event_id, reason=reason,
+                        ))
+                return {
+                    "task_id": task_id, "cancellation_requested": signalled,
+                    "status": "cancellation_requested" if signalled else event.status,
+                    "note": "the durable trigger remains nonterminal until the running supervisor confirms its outcome",
+                }
             cancelled = self.controller.request_cancellation(task_id.strip(), reason=reason)
             task = self.controller.task(task_id.strip())
             return {"task_id": task_id, "cancellation_requested": cancelled,
@@ -560,7 +582,12 @@ class AurenMCPService:
                 raise ValueError("limit must be between 1 and 100")
             event = self._event_for_principal(task_id.strip(), principal)
             if event is not None:
-                return {"task_id": task_id, "trigger": self._trigger_summary(event), "events": []}
+                runtime_task_id = "llm-chat:" + event.event_id
+                return {
+                    "task_id": task_id, "trigger": self._trigger_summary(event),
+                    "snapshot": self.controller.progress_journal.snapshot(runtime_task_id),
+                    "events": self.controller.progress_journal.events_for_task(runtime_task_id, limit=limit),
+                }
             events = self.controller.progress_journal.events_for_task(task_id.strip(), limit=limit)
             return {
                 "task_id": task_id, "snapshot": self.controller.progress_journal.snapshot(task_id.strip()),
