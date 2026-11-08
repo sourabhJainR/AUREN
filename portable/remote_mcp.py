@@ -276,7 +276,9 @@ class AurenMCPService:
         resource_url: str, authorization_server_url: str | None = None,
         allowed_origins: tuple[str, ...] = (), allowed_hosts: tuple[str, ...] = (),
         require_https: bool = True, endpoint_path: str = DEFAULT_ENDPOINT_PATH,
-        max_body_bytes: int = DEFAULT_MAX_BODY_BYTES, rate_limit: int = DEFAULT_RATE_LIMIT,
+        max_body_bytes: int = DEFAULT_MAX_BODY_BYTES,
+        max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
+        rate_limit: int = DEFAULT_RATE_LIMIT,
         rate_window_seconds: int = DEFAULT_RATE_WINDOW_SECONDS,
         approval_store: DurableApprovalStore | None = None,
         dispatcher_poll_seconds: float = 2.0,
@@ -329,6 +331,8 @@ class AurenMCPService:
                 raise ValueError("allowed hosts must be hostnames, optionally with a port")
         if type(max_body_bytes) is not int or not 1024 <= max_body_bytes <= 1_048_576:
             raise ValueError("max_body_bytes must be an integer between 1 KiB and 1 MiB")
+        if type(max_response_bytes) is not int or not 1024 <= max_response_bytes <= 2_097_152:
+            raise ValueError("max_response_bytes must be an integer between 1 KiB and 2 MiB")
         if (
             type(rate_limit) is not int or not 1 <= rate_limit <= 10_000
             or type(rate_window_seconds) is not int or not 1 <= rate_window_seconds <= 3600
@@ -352,6 +356,7 @@ class AurenMCPService:
         self.require_https = require_https
         self.endpoint_path = endpoint_path
         self.max_body_bytes = max_body_bytes
+        self.max_response_bytes = max_response_bytes
         if type(max_pending_tasks) is not int or not 1 <= max_pending_tasks <= 10_000:
             raise ValueError("max_pending_tasks must be between 1 and 10000")
         self.rate_limit = rate_limit
@@ -1324,6 +1329,15 @@ class AurenMCPASGI:
             )
             response_protocol = negotiated or protocol or "2025-03-26"
             body = _canonical_json(response).encode("utf-8")
+            if len(body) > self.service.max_response_bytes:
+                body = _canonical_json({
+                    "jsonrpc": "2.0", "id": response.get("id"),
+                    "error": {"code": -32054, "message": "MCP response exceeds configured size limit"},
+                }).encode("utf-8")
+                await self._send(send, 413, body, cors + [
+                    (b"content-type", b"application/json; charset=utf-8"),
+                ])
+                return
             extra = cors + [
                 (b"content-type", b"application/json; charset=utf-8"),
                 (b"mcp-protocol-version", response_protocol.encode("ascii")),
@@ -1407,6 +1421,7 @@ def service_from_environment(runtime: Any, *, project_root: str | Path) -> Auren
         endpoint_path=os.environ.get("AUREN_MCP_ENDPOINT_PATH", DEFAULT_ENDPOINT_PATH),
         control_store_path=os.environ.get("AUREN_MCP_CONTROL_DB") or None,
         max_pending_tasks=int(os.environ.get("AUREN_MCP_MAX_PENDING_TASKS", "1000")),
+        max_response_bytes=int(os.environ.get("AUREN_MCP_MAX_RESPONSE_BYTES", str(DEFAULT_MAX_RESPONSE_BYTES))),
     )
 
 
