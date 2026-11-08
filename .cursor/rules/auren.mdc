@@ -1,0 +1,12 @@
+---
+description: Apply AUREN's guarded engineering workflow to this repository.
+alwaysApply: true
+---
+
+Use `AGENTS.md` as the canonical repository-wide engineering contract and `.agents/skills/ai-coding-orchestrator/SKILL.md` for the reusable workflow. Read the relevant instructions before editing.
+
+AUREN owns planning, execution boundaries, evidence, verification, review and delivery state. The model is not an authority source. Do not bypass repository Guard policies, approval requirements, required CI checks, exact-head review or post-merge verification.
+
+Prefer the AUREN CLI and configured MCP tools when available. If the AUREN MCP server or CLI is unavailable, state that limitation and continue only with safe repository-native work. Never claim AUREN execution or evidence that was not produced.
+
+Use bounded changes, isolated workspaces where required, explicit file staging, finite retries and a clear stopping condition. Do not merge or release without the repository's required evidence and authorization.

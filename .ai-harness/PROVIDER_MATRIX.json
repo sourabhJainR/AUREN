@@ -3,37 +3,114 @@
   "principle": "AUREN owns orchestration semantics; providers supply inference and native capabilities",
   "providers": {
     "claude": {
-      "surfaces": ["claude-code-cli", "claude-code-ide", "claude-code-desktop", "claude-code-web"],
-      "instruction_files": ["CLAUDE.md", ".claude/skills/ai-coding-orchestrator/SKILL.md"],
-      "optional_mechanisms": ["hooks", "MCP", "subagents"],
-      "command_template": ["{python}", ".ai-harness/safe_provider.py", "--prompt-file", "{prompt_file}", "--", "claude", "-p"],
+      "surfaces": [
+        "claude-code-cli",
+        "claude-code-ide",
+        "claude-code-desktop",
+        "claude-code-web"
+      ],
+      "instruction_files": [
+        "CLAUDE.md",
+        ".claude/skills/ai-coding-orchestrator/SKILL.md"
+      ],
+      "optional_mechanisms": [
+        "hooks",
+        "MCP",
+        "subagents"
+      ],
+      "command_template": [
+        "{python}",
+        ".ai-harness/safe_provider.py",
+        "--prompt-file",
+        "{prompt_file}",
+        "--",
+        "claude",
+        "-p"
+      ],
       "native_context_is_jit": true,
       "supports_local_execution": true,
       "chatgpt_surface": false
     },
     "codex": {
-      "surfaces": ["codex-cli", "codex-ide", "codex-desktop", "codex-web"],
-      "instruction_files": ["AGENTS.md", ".agents/skills/ai-coding-orchestrator/SKILL.md"],
-      "optional_mechanisms": ["MCP", "plugins", "skills", "worktrees"],
-      "command_template": ["{python}", ".ai-harness/safe_provider.py", "--prompt-file", "{prompt_file}", "--", "codex", "exec"],
+      "surfaces": [
+        "codex-cli",
+        "codex-ide",
+        "codex-desktop",
+        "codex-web"
+      ],
+      "instruction_files": [
+        "AGENTS.md",
+        ".agents/skills/ai-coding-orchestrator/SKILL.md"
+      ],
+      "optional_mechanisms": [
+        "MCP",
+        "plugins",
+        "skills",
+        "worktrees"
+      ],
+      "command_template": [
+        "{python}",
+        ".ai-harness/safe_provider.py",
+        "--prompt-file",
+        "{prompt_file}",
+        "--",
+        "codex",
+        "exec"
+      ],
       "native_context_is_jit": true,
       "supports_local_execution": true,
       "chatgpt_surface": true
     },
     "gemini": {
-      "surfaces": ["gemini-cli", "gemini-code-assist", "antigravity"],
-      "instruction_files": ["GEMINI.md", "AGENTS.md", ".gemini/agents/"],
-      "optional_mechanisms": ["extensions", "MCP", "A2A", "custom-commands"],
-      "command_template": ["{python}", ".ai-harness/safe_provider.py", "--prompt-file", "{prompt_file}", "--", "gemini", "-p"],
+      "surfaces": [
+        "gemini-cli",
+        "gemini-code-assist",
+        "antigravity"
+      ],
+      "instruction_files": [
+        "GEMINI.md",
+        "AGENTS.md",
+        ".gemini/agents/"
+      ],
+      "optional_mechanisms": [
+        "extensions",
+        "MCP",
+        "A2A",
+        "custom-commands"
+      ],
+      "command_template": [
+        "{python}",
+        ".ai-harness/safe_provider.py",
+        "--prompt-file",
+        "{prompt_file}",
+        "--",
+        "gemini",
+        "-p"
+      ],
       "native_context_is_jit": true,
       "supports_local_execution": true,
       "chatgpt_surface": false,
-      "migration_aliases": ["antigravity"]
+      "migration_aliases": [
+        "antigravity"
+      ]
     },
     "chatgpt": {
-      "surfaces": ["chatgpt", "chatgpt-project", "codex-in-chatgpt", "openai-api"],
-      "instruction_files": ["AGENTS.md"],
-      "optional_mechanisms": ["MCP", "apps", "plugins", "skills", "containers"],
+      "surfaces": [
+        "chatgpt",
+        "chatgpt-project",
+        "codex-in-chatgpt",
+        "openai-api"
+      ],
+      "instruction_files": [
+        "AGENTS.md"
+      ],
+      "optional_mechanisms": [
+        "MCP",
+        "apps",
+        "plugins",
+        "skills",
+        "containers"
+      ],
       "command_template": null,
       "native_context_is_jit": false,
       "supports_local_execution": false,
@@ -52,5 +129,343 @@
     "tool_observations",
     "verification_evidence",
     "outcome"
-  ]
+  ],
+  "platform_integrations": {
+    "chatgpt_web": {
+      "kind": "hosted_chat",
+      "support": "partial",
+      "mechanisms": [
+        "ChatGPT custom MCP app",
+        "plugin-distributed Agent Skills"
+      ],
+      "repository_artifacts": [
+        "AGENTS.md"
+      ],
+      "current_gap": "AUREN has no published ChatGPT plugin and no remote Streamable HTTP MCP endpoint. The existing local stdio capability cannot be connected directly to ChatGPT web.",
+      "next_steps": [
+        "Deploy an authenticated remote MCP endpoint or Secure MCP Tunnel bridge.",
+        "Expose narrowly scoped tools with read/write separation and approval metadata.",
+        "Package the AUREN skill and MCP app as a ChatGPT plugin; test on supported workspace plans."
+      ],
+      "live_verified": false
+    },
+    "chatgpt_desktop_codex": {
+      "kind": "coding_host",
+      "support": "partial",
+      "mechanisms": [
+        "Codex desktop surface",
+        "AGENTS.md",
+        "Agent Skills",
+        "MCP"
+      ],
+      "repository_artifacts": [
+        "AGENTS.md",
+        ".agents/skills/ai-coding-orchestrator/SKILL.md"
+      ],
+      "current_gap": "Repository guidance and skills exist, but no AUREN plugin is published in the ChatGPT/Codex universal directory and no desktop live conformance run is recorded.",
+      "next_steps": [
+        "Install the AUREN skill in the supported project or user skill directory.",
+        "Register the AUREN MCP server in Codex settings.",
+        "Package and publish a plugin if ChatGPT Chat/Work distribution is required."
+      ],
+      "live_verified": false
+    },
+    "codex_cli": {
+      "kind": "coding_host",
+      "support": "repository_configured",
+      "mechanisms": [
+        "codex exec",
+        "AGENTS.md",
+        "Agent Skills",
+        "MCP"
+      ],
+      "repository_artifacts": [
+        "AGENTS.md",
+        ".agents/skills/ai-coding-orchestrator/SKILL.md",
+        ".ai-harness/config.toml"
+      ],
+      "current_gap": "The provider conformance harness supports a read-only CLI probe, but no successful live probe from this audit environment is recorded.",
+      "next_steps": [
+        "Install Codex CLI and authenticate.",
+        "Run the static provider conformance suite, then the opt-in read-only live probe.",
+        "Verify MCP discovery and exact-head CI behavior in a disposable repository."
+      ],
+      "live_verified": false
+    },
+    "codex_app": {
+      "kind": "coding_host",
+      "support": "repository_configured",
+      "mechanisms": [
+        "Codex app / desktop",
+        "AGENTS.md",
+        "Agent Skills",
+        "MCP"
+      ],
+      "repository_artifacts": [
+        "AGENTS.md",
+        ".agents/skills/ai-coding-orchestrator/SKILL.md"
+      ],
+      "current_gap": "The same repo instructions and skills are available, but app-specific MCP registration and end-to-end behavior are not live tested.",
+      "next_steps": [
+        "Install the AUREN skill in the project or user skill directory.",
+        "Add MCP server through Codex app settings and verify tool discovery.",
+        "Run a read-only repository task followed by a sandboxed change and exact-head verification."
+      ],
+      "live_verified": false
+    },
+    "claude_chat_web": {
+      "kind": "hosted_chat",
+      "support": "chat_only",
+      "mechanisms": [
+        "Projects / project instructions",
+        "uploaded repository context",
+        "available remote connectors"
+      ],
+      "repository_artifacts": [],
+      "current_gap": "Claude chat is not Claude Code. It does not inherit local CLAUDE.md, local skills, or local shell access just because the repository contains them.",
+      "next_steps": [
+        "Use Claude Code for repository execution.",
+        "For chat-only use, attach the required artifacts and keep execution in AUREN CLI.",
+        "If remote tool use is enabled, connect a separately deployed authenticated MCP service."
+      ],
+      "live_verified": false
+    },
+    "claude_code_cli": {
+      "kind": "coding_host",
+      "support": "repository_configured",
+      "mechanisms": [
+        "claude -p",
+        "CLAUDE.md",
+        "Claude Agent Skills",
+        "plugin",
+        "MCP",
+        "hooks"
+      ],
+      "repository_artifacts": [
+        "CLAUDE.md",
+        "skills/ai-coding-orchestrator/SKILL.md",
+        ".claude-plugin/plugin.json",
+        ".ai-harness/config.toml"
+      ],
+      "current_gap": "Repository integration is present; provider CLI execution and permission-mode compatibility still need live checks against the installed Claude Code version.",
+      "next_steps": [
+        "Install Claude Code and the AUREN plugin or skill.",
+        "Verify /mcp and plugin hook discovery.",
+        "Run the opt-in read-only probe, then a sandboxed disposable-repo acceptance run."
+      ],
+      "live_verified": false
+    },
+    "claude_desktop": {
+      "kind": "coding_host",
+      "support": "repository_configured",
+      "mechanisms": [
+        "Claude Desktop Code tab / Claude Code",
+        "plugin",
+        "MCP"
+      ],
+      "repository_artifacts": [
+        "CLAUDE.md",
+        "skills/ai-coding-orchestrator/SKILL.md",
+        ".claude-plugin/plugin.json"
+      ],
+      "current_gap": "The plugin and skill are packaged, but Desktop-specific plugin installation and the Code tab workflow are not verified here. Ordinary Claude chat remains chat-only.",
+      "next_steps": [
+        "Use the Code tab / Claude Code experience, not ordinary chat, for repository execution.",
+        "Install the AUREN plugin and confirm MCP server status.",
+        "Run a read-only smoke test and verify the tool cannot bypass AUREN gates."
+      ],
+      "live_verified": false
+    },
+    "claude_vscode": {
+      "kind": "ide_host",
+      "support": "repository_configured",
+      "mechanisms": [
+        "Claude Code VS Code extension",
+        "CLAUDE.md",
+        "Agent Skills",
+        "MCP",
+        "hooks"
+      ],
+      "repository_artifacts": [
+        "CLAUDE.md",
+        "skills/ai-coding-orchestrator/SKILL.md",
+        ".claude-plugin/plugin.json"
+      ],
+      "current_gap": "No automated VS Code extension smoke test or editor-specific setup validation is in CI.",
+      "next_steps": [
+        "Install the official Claude Code VS Code extension.",
+        "Open the AUREN repository as the workspace and verify CLAUDE.md and skill discovery.",
+        "Check MCP status and run a read-only test before enabling write actions."
+      ],
+      "live_verified": false
+    },
+    "visual_studio_ide": {
+      "kind": "ide_host",
+      "support": "not_native",
+      "mechanisms": [
+        "external terminal / CLI only"
+      ],
+      "repository_artifacts": [
+        "AGENTS.md"
+      ],
+      "current_gap": "Do not conflate Microsoft Visual Studio with Visual Studio Code. AUREN has no dedicated Visual Studio extension or integration.",
+      "next_steps": [
+        "Use Claude Code in VS Code if that is the intended IDE.",
+        "For Microsoft Visual Studio, invoke a supported CLI or remote MCP host separately and retain AUREN as the authority boundary."
+      ],
+      "live_verified": false
+    },
+    "gemini_cli": {
+      "kind": "coding_host",
+      "support": "repository_configured",
+      "mechanisms": [
+        "gemini -p",
+        "GEMINI.md",
+        "AGENTS.md",
+        "Agent Skills",
+        "MCP",
+        "headless JSONL"
+      ],
+      "repository_artifacts": [
+        "GEMINI.md",
+        "AGENTS.md",
+        ".agents/skills/ai-coding-orchestrator/SKILL.md",
+        ".ai-harness/config.toml"
+      ],
+      "current_gap": "AUREN documentation pointed the Gemini MCP command at agency_mcp.py, which is a protocol helper rather than the stdio server. The correct stdio entry point is portable/chat_capability.py.",
+      "next_steps": [
+        "Use the corrected portable/chat_capability.py stdio entry point.",
+        "Install/link the AUREN skill and verify /skills list and /mcp list.",
+        "Add Gemini headless JSONL parsing and live conformance to the provider harness."
+      ],
+      "live_verified": false
+    },
+    "gemini_code_assist_vscode": {
+      "kind": "ide_host",
+      "support": "partial",
+      "mechanisms": [
+        "GEMINI.md / AGENTS.md where honored",
+        "Gemini CLI IDE companion"
+      ],
+      "repository_artifacts": [
+        "GEMINI.md",
+        "AGENTS.md",
+        ".agents/skills/ai-coding-orchestrator/SKILL.md"
+      ],
+      "current_gap": "Gemini CLI IDE companion and Gemini Code Assist are separate products. No dedicated Code Assist extension package or Code Assist live test is present.",
+      "next_steps": [
+        "Use Gemini CLI integration in VS Code for the complete AUREN CLI/MCP path.",
+        "Validate GEMINI.md discovery for the specific Code Assist mode before relying on it.",
+        "Do not assume Gemini CLI skill/MCP configuration transfers to Code Assist."
+      ],
+      "live_verified": false
+    },
+    "cursor": {
+      "kind": "ide_host",
+      "support": "partial",
+      "mechanisms": [
+        "AGENTS.md",
+        "Agent Skills",
+        "MCP",
+        "Cursor project rules"
+      ],
+      "repository_artifacts": [
+        "AGENTS.md",
+        ".agents/skills/ai-coding-orchestrator/SKILL.md"
+      ],
+      "current_gap": "Cursor supports AGENTS.md, .agents/skills and MCP, but AUREN has no .cursor/rules policy file, no checked-in Cursor MCP setup, and no Cursor live conformance run.",
+      "next_steps": [
+        "Add a small .cursor/rules/auren.mdc rule that delegates to AGENTS.md and the AUREN skill.",
+        "Provide an opt-in local MCP configuration using portable/chat_capability.py.",
+        "Test local and Cloud Agent skill visibility separately; local user skills are not automatically copied to cloud workers."
+      ],
+      "live_verified": false
+    },
+    "groq_api": {
+      "kind": "model_api",
+      "support": "not_wired",
+      "mechanisms": [
+        "OpenAI-compatible API",
+        "Responses / tool calling",
+        "remote MCP"
+      ],
+      "repository_artifacts": [],
+      "current_gap": "No Groq provider adapter, model catalog, GROQ_API_KEY allowlist, timeout/retry contract, or live model conformance test exists. OpenAI-compatible does not mean every API feature is identical.",
+      "next_steps": [
+        "Add a dedicated API provider adapter using https://api.groq.com/openai/v1.",
+        "Allow only the required secret through the secret broker/environment policy.",
+        "Implement capability/model discovery, structured tool-call normalization, usage/cost capture, retry budgets and unsupported-feature handling.",
+        "Run paired quality, latency, cost and safety tests before enabling routing."
+      ],
+      "live_verified": false
+    },
+    "grok_chat_web": {
+      "kind": "hosted_chat",
+      "support": "chat_only",
+      "mechanisms": [
+        "chat context / file upload"
+      ],
+      "repository_artifacts": [],
+      "current_gap": "Grok web chat has no AUREN-native repository skill, local process, or repo execution adapter.",
+      "next_steps": [
+        "Use a coding host with AUREN skill/MCP support, or attach bounded artifacts for discussion only.",
+        "Keep code changes, tests, approvals and merge authority inside AUREN."
+      ],
+      "live_verified": false
+    },
+    "xai_api": {
+      "kind": "model_api",
+      "support": "not_wired",
+      "mechanisms": [
+        "OpenAI-compatible Responses API",
+        "remote MCP"
+      ],
+      "repository_artifacts": [],
+      "current_gap": "No xAI API adapter, XAI_API_KEY allowlist, model catalog, response/tool-call normalizer, or live provider test exists.",
+      "next_steps": [
+        "Add a dedicated xAI Responses adapter using https://api.x.ai/v1.",
+        "Implement remote MCP allowlists, approval handling, model capability declarations and cost/usage capture.",
+        "Test API-specific behavior; do not assume OpenAI feature parity or MCP approval parity."
+      ],
+      "live_verified": false
+    },
+    "grok_build_cli": {
+      "kind": "coding_host",
+      "support": "partial",
+      "mechanisms": [
+        "remote MCP",
+        "Grok Build CLI"
+      ],
+      "repository_artifacts": [],
+      "current_gap": "No AUREN-specific Grok Build project instructions, skills package or local provider command is present.",
+      "next_steps": [
+        "Connect a deployed remote AUREN MCP endpoint and allow only named tools.",
+        "Add a Grok Build instruction file only after validating its supported project-context contract.",
+        "Keep all high-impact approvals and release authority in AUREN."
+      ],
+      "live_verified": false
+    },
+    "github_copilot": {
+      "kind": "ide_host",
+      "support": "repository_configured",
+      "mechanisms": [
+        "AGENTS.md",
+        "Copilot instructions",
+        "Agent Skills",
+        "MCP"
+      ],
+      "repository_artifacts": [
+        "AGENTS.md",
+        ".github/copilot-instructions.md",
+        ".agents/skills/ai-coding-orchestrator/SKILL.md"
+      ],
+      "current_gap": "Instruction artifacts exist, but no Copilot Agent-mode MCP discovery or task acceptance run is part of CI.",
+      "next_steps": [
+        "Verify .github/copilot-instructions.md and AGENTS.md are loaded in the intended Copilot mode.",
+        "Register the AUREN MCP server using the supported VS Code MCP configuration.",
+        "Run a read-only task and a guarded write task with evidence and CI checks."
+      ],
+      "live_verified": false
+    }
+  }
 }

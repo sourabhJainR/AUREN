@@ -1,6 +1,6 @@
 # AUREN Usage and Platform Integration
 
-AUREN is a provider-neutral engineering runtime. The canonical runtime, state and package names are AUREN; no host integration is a hard dependency.
+AUREN is a provider-neutral engineering runtime. The canonical runtime, state and package names are AUREN; no host integration is a hard dependency. See the [Cross-Platform Compatibility Matrix](PLATFORM_COMPATIBILITY_MATRIX.md) for verified repository artifacts, product-surface limitations and prioritized integration gaps.
 
 ## 1. Install AUREN
 
@@ -132,7 +132,7 @@ If the host supports local MCP servers, register AUREN's stdio MCP server:
   "mcpServers": {
     "auren": {
       "command": "python",
-      "args": ["/absolute/path/to/.auren/current/portable/agency_mcp.py"]
+      "args": ["/absolute/path/to/.auren/current/portable/chat_capability.py"]
     }
   }
 }
@@ -196,7 +196,7 @@ If you use the workspace scope, use the scope option supported by your installed
 Gemini can also connect to an AUREN MCP server where MCP is enabled:
 
 ~~~bash
-gemini mcp add auren python /absolute/path/to/.auren/current/portable/agency_mcp.py --scope user
+gemini mcp add auren python /absolute/path/to/.auren/current/portable/chat_capability.py --scope user
 ~~~
 
 ## 9. Grok, Kimi and other released LLM hosts

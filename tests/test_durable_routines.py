@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -243,6 +244,117 @@ class DurableRoutineRegistryTests(unittest.TestCase):
         self.assertEqual("submitted", second[0].status)
         self.assertEqual("already-created-task", second[0].task_id)
         self.assertEqual([], self.submissions)
+
+    def test_interval_downtime_coalesces_missed_occurrences_without_backlog(self):
+        spec = self.spec(
+            trigger="interval", event_type=None, interval_seconds=60,
+        )
+        self.registry.register(spec)
+        now = datetime.now(timezone.utc) + timedelta(minutes=20)
+
+        dispatched = self.registry.dispatch_due(now=now, submit=self.submit)
+
+        self.assertEqual(1, len(dispatched))
+        self.assertEqual("submitted", dispatched[0].status)
+        self.assertEqual(1, len(self.submissions))
+        payload = self.submissions[0][1]
+        self.assertGreater(payload["_auren_coalesced_missed_intervals"], 0)
+        occurrence = self.registry.occurrence(dispatched[0].occurrence_key)
+        receipt = json.loads(occurrence["receipt_json"])
+        self.assertEqual(
+            payload["_auren_coalesced_missed_intervals"],
+            receipt["coalesced_missed_intervals"],
+        )
+        with closing(self.registry._connect()) as db:
+            next_run_at = db.execute(
+                "SELECT next_run_at FROM routines WHERE routine_id=?",
+                (spec.routine_id,),
+            ).fetchone()["next_run_at"]
+        self.assertGreater(datetime.fromisoformat(next_run_at), now)
+        self.assertEqual(
+            (),
+            self.registry.dispatch_due(now=now, submit=self.submit),
+        )
+        self.assertEqual(1, len(self.submissions))
+
+    def test_interval_unknown_outcome_is_reconciled_before_later_due_slots(self):
+        spec = self.spec(
+            trigger="interval", event_type=None, interval_seconds=60,
+        )
+        self.registry.register(spec)
+        first_due = datetime.now(timezone.utc) + timedelta(seconds=61)
+
+        def uncertain(*args, **kwargs):
+            raise TimeoutError("ack lost after dispatch")
+
+        first = self.registry.dispatch_due(now=first_due, submit=uncertain)
+        later = first_due + timedelta(minutes=20)
+        still_unknown = self.registry.dispatch_due(now=later, submit=self.submit)
+
+        self.assertEqual("unknown", first[0].status)
+        self.assertEqual("unknown", still_unknown[0].status)
+        self.assertEqual(first[0].occurrence_key, still_unknown[0].occurrence_key)
+        self.assertEqual([], self.submissions)
+
+        recovered = self.registry.dispatch_due(
+            now=later,
+            submit=self.submit,
+            reconcile=lambda work_key: {"id": "original-scheduled-task"},
+        )
+        self.assertEqual("submitted", recovered[0].status)
+        self.assertEqual(first[0].occurrence_key, recovered[0].occurrence_key)
+        self.assertEqual("original-scheduled-task", recovered[0].task_id)
+        self.assertEqual([], self.submissions)
+
+        occurrence = self.registry.occurrence(recovered[0].occurrence_key)
+        receipt = json.loads(occurrence["receipt_json"])
+        self.assertGreater(receipt["coalesced_missed_intervals"], 0)
+        with closing(self.registry._connect()) as db:
+            next_run_at = db.execute(
+                "SELECT next_run_at FROM routines WHERE routine_id=?",
+                (spec.routine_id,),
+            ).fetchone()["next_run_at"]
+        self.assertGreater(datetime.fromisoformat(next_run_at), later)
+        self.assertEqual((), self.registry.dispatch_due(now=later, submit=self.submit))
+
+    def test_interval_submitted_occurrence_recovers_schedule_advance_after_restart(self):
+        spec = self.spec(
+            trigger="interval", event_type=None, interval_seconds=60,
+        )
+        self.registry.register(spec)
+        with closing(self.registry._connect()) as db:
+            cursor_text = db.execute(
+                "SELECT next_run_at FROM routines WHERE routine_id=?",
+                (spec.routine_id,),
+            ).fetchone()["next_run_at"]
+        cursor = datetime.fromisoformat(cursor_text)
+        trigger_key = f"{spec.routine_id}:v{spec.version}:{cursor.isoformat(timespec='microseconds')}"
+
+        submitted = self.registry._dispatch(
+            spec.routine_id, spec.trigger, trigger_key,
+            submit=self.submit, approval=None, reconcile=None,
+            scheduled_at=cursor, schedule_cursor=cursor,
+            expected_version=spec.version,
+        )
+        self.assertEqual("submitted", submitted.status)
+        self.assertEqual(1, len(self.submissions))
+
+        later = cursor + timedelta(minutes=20)
+        recovered = self.registry.dispatch_due(now=later, submit=self.submit)
+
+        self.assertEqual("duplicate", recovered[0].status)
+        self.assertEqual(submitted.occurrence_key, recovered[0].occurrence_key)
+        self.assertEqual(1, len(self.submissions))
+        occurrence = self.registry.occurrence(submitted.occurrence_key)
+        receipt = json.loads(occurrence["receipt_json"])
+        self.assertGreater(receipt["coalesced_missed_intervals"], 0)
+        self.assertTrue(receipt["coalesced_after_submission"])
+        with closing(self.registry._connect()) as db:
+            next_run_at = db.execute(
+                "SELECT next_run_at FROM routines WHERE routine_id=?",
+                (spec.routine_id,),
+            ).fetchone()["next_run_at"]
+        self.assertGreater(datetime.fromisoformat(next_run_at), later)
 
     def test_receipt_keeps_trigger_digest_after_submission_and_unknown_transition(self):
         spec = self.spec()
