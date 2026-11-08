@@ -87,7 +87,7 @@ export AUREN_MCP_INTROSPECTION_URL=https://identity.example.com/oauth/introspect
 export AUREN_MCP_INTROSPECTION_CLIENT_ID=auren-mcp-resource
 export AUREN_MCP_INTROSPECTION_CLIENT_SECRET="$(secret-manager read auren/mcp/introspection-secret)"
 export AUREN_MCP_ALLOWED_HOSTS=mcp.example.com
-export AUREN_MCP_ALLOWED_ORIGINS=https://chatgpt.com,https://claude.ai
+export AUREN_MCP_ALLOWED_ORIGINS=https://your-approved-browser-origin.example
 export AUREN_MCP_CONTROL_DB=/var/lib/auren/mcp/operator-control.sqlite3
 
 python -m portable.remote_mcp_server \
@@ -96,7 +96,7 @@ python -m portable.remote_mcp_server \
   --host 127.0.0.1 --port 8765
 ~~~
 
-The shell command illustrates environment names. Use the actual origins registered by each host and the secret manager supplied by the deployment. Do not put tokens or client secrets in repository files, MCP client configuration, command-line arguments or logs.
+The shell command illustrates environment names. Replace the browser-origin placeholder with exact origins observed and approved for your clients; native MCP clients may not send an Origin header. Do not guess vendor origins. Use the secret manager supplied by the deployment. Do not put tokens or client secrets in repository files, MCP client configuration, command-line arguments or logs.
 
 Place a TLS reverse proxy in front of the loopback listener. Configure it to:
 - Terminate TLS and reject invalid hostnames.
