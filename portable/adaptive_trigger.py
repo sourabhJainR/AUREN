@@ -152,25 +152,38 @@ class AdaptiveTrigger:
         if claim is None:
             return None
         now = datetime.now(timezone.utc)
+        if self.trigger_runtime.is_cancel_requested(event_id):
+            self.trigger_runtime.complete(
+                event_id, claim.claim_id, "cancelled", "cancelled before runtime dispatch",
+                now=now, outcome={"cancelled": True},
+            )
+            return None
         try:
             outcome = self._handle_event(claim.event)
+            metadata = self._result_metadata(outcome.result)
+            result_status = str(metadata.get("result_status", "")).lower()
+            terminal_status = (
+                "cancelled" if result_status in {"cancelled", "canceled", "aborted", "interrupted"}
+                else "success"
+            )
             self.trigger_runtime.complete(
-                event_id,
-                claim.claim_id,
-                "success",
-                now=now,
-                outcome=self._result_metadata(outcome.result),
+                event_id, claim.claim_id, terminal_status,
+                "runtime cancellation confirmed" if terminal_status == "cancelled" else "",
+                now=now, outcome=metadata,
             )
             return outcome
         except Exception as exc:
-            self.trigger_runtime.complete(
-                event_id,
-                claim.claim_id,
-                "retryable",
-                str(exc),
-                now=now,
-                outcome={"error_type": type(exc).__name__},
-            )
+            if self.trigger_runtime.is_cancel_requested(event_id):
+                self.trigger_runtime.complete(
+                    event_id, claim.claim_id, "cancelled",
+                    "runtime stopped after operator cancellation; error_type=" + type(exc).__name__,
+                    now=now, outcome={"cancelled": True, "error_type": type(exc).__name__},
+                )
+            else:
+                self.trigger_runtime.complete(
+                    event_id, claim.claim_id, "retryable", str(exc), now=now,
+                    outcome={"error_type": type(exc).__name__},
+                )
             return None
 
     def _handle_event(self, event: TriggerEvent) -> TriggerOutcome:
