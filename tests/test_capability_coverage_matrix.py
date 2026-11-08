@@ -118,7 +118,7 @@ class CapabilityCoverageMatrixTests(unittest.TestCase):
         matrix = json.loads(MATRIX_PATH.read_text(encoding="utf-8"))
         radar = matrix["radar_refresh"]
         self.assertEqual(radar["reviewed_at"], "2026-11-08")
-        self.assertEqual(radar["baseline_main_sha"], "c99ade6fff9d7221da5ee74511b6ce39a873824e")
+        self.assertEqual(radar["baseline_main_sha"], "f5739d5f809a76d0d52f2138422ea52124eda5e5")
         signals = {item["id"]: item for item in radar["signals"]}
         required_sources = {
             "long_running_host_sandbox": "https://www.tomshardware.com/tech-industry/artificial-intelligence/openais-isolated-redteam-ai-agents-built-a-hidden-cpu-cache-channel-to-talk-with-no-network-or-shared-files-exploited-cpu-cache-timing-to-bypass-microvm-sandboxes",
@@ -132,6 +132,9 @@ class CapabilityCoverageMatrixTests(unittest.TestCase):
             "agentic_security_fabric": "https://www.gartner.com/en/documents/8595537",
             "federated_agent_governance": "https://arxiv.org/abs/2608.26626",
             "wet_lab_scientific_agents": "https://www.nature.com/articles/d41586-026-03270-1",
+            "long_horizon_agent_control_architecture": "https://arxiv.org/abs/2609.19519",
+            "trajectory_level_long_horizon_evaluation": "https://arxiv.org/abs/2608.13417",
+            "trajectory_auditable_agent_deployment": "https://arxiv.org/abs/2608.16411",
         }
         for signal_id, source in required_sources.items():
             with self.subTest(signal=signal_id):
@@ -143,31 +146,30 @@ class CapabilityCoverageMatrixTests(unittest.TestCase):
                 self.assertTrue(signals[signal_id]["acceptance_threshold"].strip())
                 self.assertTrue(signals[signal_id]["rollback"].strip())
         observation = radar["repository_observation"]
-        self.assertEqual(observation["main_sha"], "c99ade6fff9d7221da5ee74511b6ce39a873824e")
+        self.assertEqual(observation["main_sha"], "f5739d5f809a76d0d52f2138422ea52124eda5e5")
         self.assertEqual(observation["current_main_check_runs"],
-                         {"status": "terminal", "total": 30, "success": 30,
+                         {"status": "terminal", "total": 28, "success": 28,
                           "skipped": 0, "failed": 0, "pending": 0})
         self.assertEqual(observation["skipped_checks"], [])
-        self.assertEqual(observation["post_merge_push_workflows"]["total"], 8)
-        self.assertEqual(observation["post_merge_push_workflows"]["success"], 8)
-        self.assertEqual(observation["open_pr_count"], 2)
-        self.assertEqual([item["number"] for item in observation["open_prs"]], [1304, 1305])
-        self.assertIn("before PR #1306 was opened", observation["snapshot_note"])
+        self.assertEqual(observation["post_merge_push_workflows"]["total"], 6)
+        self.assertEqual(observation["post_merge_push_workflows"]["success"], 6)
+        self.assertEqual(observation["open_pr_count"], 1)
+        self.assertEqual([item["number"] for item in observation["open_prs"]], [1305])
+        self.assertIn("after PR #1307 merged", observation["snapshot_note"])
         open_prs = {item["number"]: item for item in observation["open_prs"]}
-        self.assertNotEqual(open_prs[1304]["base_sha"], radar["baseline_main_sha"])
         self.assertEqual(open_prs[1305]["base_sha"], radar["baseline_main_sha"])
         self.assertEqual(radar["artifact_integrity"]["manifest_file_count"], 538)
         self.assertEqual(radar["artifact_integrity"]["manifest_hash_or_size_mismatches"], 0)
         self.assertEqual(radar["artifact_integrity"]["missing_manifest_entries"], 0)
-        self.assertEqual(radar["artifact_integrity"]["workflow_run_id"], 42439765536)
+        self.assertEqual(radar["artifact_integrity"]["workflow_run_id"], 42493782068)
         self.assertEqual(radar["artifact_integrity"]["outer_bundle_artifact_sha256"],
-                         "4739d865da93c639ca2e06eb83a2f76a1b6e0bd6b25c502fa2abbd5776c8cf36")
+                         "ec729395e71a193e45694a081b56bbb1e0243e02b5b0d97ec32eb2f115ffff98")
         self.assertEqual(radar["artifact_integrity"]["outer_checksum_artifact_sha256"],
-                         "40d27b229d608b08085b3dc373147df300b084c35fe0dc72f9904636a1994335")
+                         "0a789bbba81b16df51217e504a01cd6fd290cb21835474dcbf3ecac5dc9a0248")
         self.assertEqual(radar["artifact_integrity"]["inner_bundle_sha256"],
-                         "0bb57a6b7215fd846cb7252a70a469a4ee6c3d6cfdb94d91c4f445c1596804f7")
+                         "b96de0c00c654b3ceb796d88474a9a87b580de6fe4f8c996df0947ff457341e8")
         self.assertEqual(radar["artifact_integrity"]["source_commit"],
-                         "c99ade6fff9d7221da5ee74511b6ce39a873824e")
+                         "f5739d5f809a76d0d52f2138422ea52124eda5e5")
         self.assertEqual(signals["long_running_host_sandbox"]["deployment_status"], "not verified")
         self.assertEqual(signals["realistic_agent_evaluation"]["independent_evaluation_status"], "blocked")
         self.assertIn("No AGI/SI claim", radar["status"])
@@ -176,6 +178,22 @@ class CapabilityCoverageMatrixTests(unittest.TestCase):
         self.assertIn("collusion", signals["agent_coordination_action_oversight"]["benchmark"].lower())
         self.assertIn("https://www.nature.com/articles/s44386-026-00075-0",
                       signals["wet_lab_scientific_agents"]["sources"])
+        for signal_id in (
+            "long_horizon_agent_control_architecture",
+            "trajectory_level_long_horizon_evaluation",
+            "trajectory_auditable_agent_deployment",
+        ):
+            with self.subTest(signal=signal_id):
+                signal = signals[signal_id]
+                self.assertEqual(signal["deployment_status"], "not verified")
+                self.assertEqual(signal["independent_evaluation_status"], "blocked")
+                self.assertTrue(signal["owner"])
+                self.assertIn("rollback", signal)
+                self.assertIn("independent", signal["acceptance_threshold"].lower())
+        self.assertEqual(observation["current_main_check_runs"]["success"], 28)
+        self.assertEqual(observation["post_merge_push_workflows"]["success"], 6)
+        self.assertEqual(radar["artifact_integrity"]["source_commit"], radar["baseline_main_sha"])
+
 
 
 if __name__ == "__main__":
