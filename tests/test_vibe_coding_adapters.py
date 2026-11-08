@@ -393,12 +393,12 @@ class VibeCodingAdapterTests(unittest.TestCase):
                 self.assertEqual([], calls)
                 self.assertIsNone(ledger.get(operation_key))
 
-    def test_missing_lookup_does_not_consume_authorized_deployment_retry(self):
-        for stage in (VibeStage.PREVIEW_DEPLOYMENT, VibeStage.PRODUCTION_DEPLOY):
+    def test_missing_lookup_does_not_consume_authorized_consequential_retry(self):
+        for stage in (VibeStage.DEVELOPMENT, VibeStage.PREVIEW_DEPLOYMENT, VibeStage.PRODUCTION_DEPLOY):
             with self.subTest(stage=stage.value), tempfile.TemporaryDirectory() as directory:
                 operation_key = (
                     f"vibe-stage:workflow-retry:{stage.value}:"
-                    "deployment-without-lookup:1"
+                    "consequential-without-lookup:1"
                 )
                 ledger = DurableSideEffectLedger(
                     Path(directory) / "side-effects.sqlite3",
@@ -416,7 +416,7 @@ class VibeCodingAdapterTests(unittest.TestCase):
                 registry = VibeAdapterRegistry(max_risk="critical", side_effect_ledger=ledger)
                 calls = []
                 registry.register(AdapterRegistration(
-                    "deployment-without-lookup", "1", (stage,),
+                    "consequential-without-lookup", "1", (stage,),
                     frozenset(default_stage_capabilities()[stage.value]),
                     lambda request: calls.append(request) or output_for(stage, request["state"]),
                     risk=next(spec.risk for spec in STAGE_SPECS if spec.stage == stage),
