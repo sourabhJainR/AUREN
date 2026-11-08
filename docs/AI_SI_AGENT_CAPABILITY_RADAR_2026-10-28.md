@@ -239,8 +239,8 @@ The [cross-organisational multi-agent risk framework](https://arxiv.org/abs/2608
 ### Evidence status
 
 - **Implemented:** canonical owners and selected runtime/evidence contracts exist.
-- **CI-verified:** exact-revision repository checks only; main `5b3d506c2dadf14f54608423b7eaeffc1e09e071` has 28/28 terminal-successful check-runs, zero skipped, failed or pending; all six post-merge push workflows succeeded.
-- **Portable bundle:** v1.0.6 from run [42399630477](https://github.com/sourabhJainR/AUREN/actions/runs/42399630477) was downloaded and rehashed. The outer bundle/checksum digests match GitHub metadata, the embedded ZIP matches its checksum, and all 538 manifest entries match size and SHA-256; `payload/PORTABLE_BUNDLE.txt` is the expected generated entry outside the manifest.
+- **CI-verified:** exact-revision repository checks only; main `c99ade6fff9d7221da5ee74511b6ce39a873824e` has 30/30 terminal-successful check-runs, zero skipped, failed or pending; all eight post-merge push workflows succeeded.
+- **Portable bundle:** v1.0.6 from run [42439765536](https://github.com/sourabhJainR/AUREN/actions/runs/42439765536) was downloaded and rehashed. Outer bundle artifact SHA-256 `4739d865da93c639ca2e06eb83a2f76a1b6e0bd6b25c502fa2abbd5776c8cf36`, checksum archive SHA-256 `40d27b229d608b08085b3dc373147df300b084c35fe0dc72f9904636a1994335`, embedded ZIP SHA-256 `0bb57a6b7215fd846cb7252a70a469a4ee6c3d6cfdb94d91c4f445c1596804f7`; all 538 manifest entries match size and SHA-256, with `payload/PORTABLE_BUNDLE.txt` as the expected generated entry outside the manifest.
 - **Deployment-verified:** not verified for production host isolation, computer-use continuity, cross-organisation actions, live event monitoring or physical laboratory execution.
 - **Independently verified:** blocked for evaluator/corpus custody, sealed holdout, host audit and scientific replication.
 
