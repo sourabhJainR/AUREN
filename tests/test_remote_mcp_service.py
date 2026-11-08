@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from portable.adaptive_runtime import AdaptiveRuntime
 from portable.adaptive_trigger import TriggerReceipt
-from portable.orchestration import Graph
+from portable.orchestration import Graph, Node, NodeKind
 from portable.remote_mcp import (
     AurenMCPASGI,
     AurenMCPService,
@@ -26,7 +26,10 @@ class RemoteMCPServiceTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
-        self.runtime = AdaptiveRuntime(Graph([]), state_root=self.root / "runtime")
+        self.runtime = AdaptiveRuntime(
+            Graph([Node("mcp-noop", NodeKind.DETERMINISTIC, lambda _state: "ok")]),
+            state_root=self.root / "runtime",
+        )
         self.token = "test-remote-mcp-token-" + ("x" * 40)
         self.principal = MCPPrincipal(
             "operator-1",
