@@ -146,7 +146,7 @@ class VibeCodingAdapterTests(unittest.TestCase):
         self.assertIsNone(with_lookup._adapters["host-integrated:production_deploy"].lookup_operation)
         self.assertNotEqual(without_lookup.configuration_digest, with_lookup.configuration_digest)
 
-        with self.assertRaisesRegex(ValueError, "only configurable for consequential stages"):
+        with self.assertRaisesRegex(ValueError, "only configurable for side-effect stages"):
             build_host_adapter_registry(
                 lambda _request: {}, tools, max_risk="critical",
                 lookup_operations={"testing": lookup},
