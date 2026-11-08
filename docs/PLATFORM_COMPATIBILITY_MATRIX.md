@@ -32,6 +32,7 @@ The main gap is not the engineering workflow. It is the last-mile product integr
 | Product surface | Status | Available AUREN path | Main gap |
 |---|---|---|---|
 | ChatGPT web | Partial | Remote Streamable HTTP MCP, OAuth tool metadata, profile identity | External OAuth 2.1 authorization server, ChatGPT app setup and live acceptance |
+| ChatGPT desktop | Partial | Shared MCP server protocol if app connector is available | Official setup path is documented for web; native desktop acceptance not recorded |
 | ChatGPT desktop / Codex in ChatGPT | Partial | `AGENTS.md`, Agent Skills, remote MCP | OAuth connection and desktop acceptance not recorded |
 | Codex CLI | Repository configured | `AGENTS.md`, skills, remote MCP, `codex exec` | Live OAuth and tool acceptance not recorded |
 | Codex app | Repository configured | Shared Codex MCP configuration and skills | App-specific live acceptance not recorded |
@@ -116,6 +117,17 @@ AUREN's current guarded CLI bridge only recognizes Claude, Codex and Gemini exec
 
 OpenAI API compatibility is partial compatibility, not proof that all request fields, streaming events, tool semantics or approval features match. In particular, xAI's remote MCP implementation does not currently support the Responses API `require_approval` and `connector_id` parameters, so AUREN must enforce its own approval boundary and tool allowlist.
 
+## MCP hosts versus model providers
+
+These are two separate compatibility layers.
+
+- **MCP host compatibility:** ChatGPT, Codex, Claude, Gemini/Antigravity, Cursor, VS Code Copilot and Visual Studio can connect through the remote MCP endpoint when their installed version supports Streamable HTTP and the configured OAuth flow.
+- **Model-provider compatibility:** AUREN's ProviderFabric currently discovers Claude, Codex, Gemini and Copilot CLI hosts. Local fallback uses an Ollama-compatible loopback endpoint. This is not the same as having direct HTTP API adapters for every model vendor.
+- **Not wired as direct API providers:** Groq, xAI/Grok, OpenAI Chat Completions, OpenRouter, Together, Fireworks, DeepSeek and Mistral do not have native AUREN HTTP provider adapters in this implementation.
+- **Privacy boundary:** The hybrid router forbids remote fallback for private tasks. Any future remote API adapter must preserve that rule, enforce endpoint allowlists, keep credentials outside task context, normalize tool calls without executing them, and use finite request/time budgets.
+
+AUREN can therefore be used as the MCP execution layer from multiple model hosts today, but it cannot yet route inference directly through every vendor's API. Do not describe those two capabilities as equivalent.
+
 ## Current MCP boundary
 
 The local stdio server remains `portable/chat_capability.py` and is intended for local MCP hosts. The remote operator service is now implemented in:
@@ -176,6 +188,7 @@ The static suite checks repository declarations only. Live provider tests must b
 - [OpenAI MCP authentication](https://developers.openai.com/plugins/build/auth)
 - [OpenAI MCP integration guide](https://developers.openai.com/api/docs/mcp)
 - [Claude remote MCP connectors](https://support.anthropic.com/en/articles/11503834-building-custom-integrations-via-remote-mcp)
+- [Gemini CLI to Antigravity transition](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/)
 - [Antigravity MCP configuration](https://antigravity.google/docs/mcp)
 - [Gemini CLI to Antigravity transition](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/)
 - [Gemini Code Assist Agent mode](https://docs.cloud.google.com/gemini/docs/codeassist/use-agentic-chat-pair-programmer)
