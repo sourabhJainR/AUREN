@@ -474,6 +474,7 @@ class RemoteMCPASGITests(unittest.TestCase):
         self.assertTrue(result["isError"])
         challenge = result["_meta"]["mcp/www_authenticate"][0]
         self.assertIn("resource_metadata=", challenge)
+        self.assertIn("/.well-known/oauth-protected-resource/mcp", challenge)
         self.assertIn("error=", challenge)
         self.assertIn(b"www-authenticate", headers)
 
@@ -521,6 +522,18 @@ class RemoteMCPASGITests(unittest.TestCase):
             scheme="http",
         )
         self.assertEqual(400, status)
+
+    def test_path_specific_rfc9728_metadata_is_available(self):
+        status, _, body = self.request(
+            method="GET", path="/.well-known/oauth-protected-resource/mcp", body=None,
+        )
+        self.assertEqual(200, status)
+        metadata = json.loads(body)
+        self.assertEqual("https://mcp.example.test/mcp", metadata["resource"])
+        self.assertEqual(
+            "https://github.com/sourabhJainR/AUREN/blob/main/docs/REMOTE_MCP_PRIVACY.md",
+            metadata["resource_policy_uri"],
+        )
 
     def test_side_effecting_tool_cannot_be_invoked_as_notification(self):
         status, _, body = self.request(
