@@ -357,9 +357,18 @@ class AurenMCPService:
         self.resource_url = resource_url.rstrip("/")
         self.authorization_server_url = authorization_server_url
         self.allowed_origins = frozenset(origin.rstrip("/") for origin in allowed_origins)
-        allowed_hostnames = frozenset(urlsplit("//" + x).hostname.lower() for x in allowed_hosts)
-        if allowed_hostnames and parsed_resource.hostname.lower() not in allowed_hostnames:
-            raise ValueError("MCP resource hostname must be included in allowed_hosts")
+        allowed_hostnames = frozenset(
+            (urlsplit("//" + host).hostname.lower(), urlsplit("//" + host).port)
+            for host in allowed_hosts
+        )
+        resource_host = parsed_resource.hostname.lower()
+        resource_port = parsed_resource.port
+        if allowed_hostnames and not (
+            (resource_host, resource_port) in allowed_hostnames
+            or ((resource_host, None) in allowed_hostnames and resource_port in {None, 443})
+            or ((resource_host, 443) in allowed_hostnames and resource_port in {None, 443})
+        ):
+            raise ValueError("MCP resource hostname and port must be included in allowed_hosts")
         self.allowed_hosts = allowed_hostnames
         self.require_https = require_https
         self.endpoint_path = endpoint_path
@@ -1249,8 +1258,20 @@ class AurenMCPASGI:
             return True
         if not host:
             return False
-        hostname = urlsplit("//" + host).hostname
-        return bool(hostname and hostname.lower() in self.service.allowed_hosts)
+        parsed = urlsplit("//" + host)
+        hostname = parsed.hostname
+        try:
+            port = parsed.port
+        except ValueError:
+            return False
+        if not hostname:
+            return False
+        key = (hostname.lower(), port)
+        return (
+            key in self.service.allowed_hosts
+            or ((hostname.lower(), None) in self.service.allowed_hosts and port in {None, 443})
+            or ((hostname.lower(), 443) in self.service.allowed_hosts and port in {None, 443})
+        )
 
     async def _body(self, receive) -> bytes:
         body = bytearray()
