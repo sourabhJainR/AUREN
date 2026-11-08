@@ -132,14 +132,25 @@ class OAuthIntrospectionVerifier:
         audience: str, issuer: str, timeout_seconds: float = 3.0, cache_seconds: int = 15,
     ):
         parsed = urlsplit(endpoint)
-        if parsed.scheme != "https" or not parsed.netloc:
-            raise ValueError("OAuth introspection endpoint must use HTTPS")
+        if (
+            parsed.scheme != "https" or not parsed.netloc
+            or parsed.username or parsed.password or parsed.fragment
+        ):
+            raise ValueError("OAuth introspection endpoint must use HTTPS without userinfo or fragment")
         issuer_url = urlsplit(issuer)
-        if issuer_url.scheme != "https" or not issuer_url.netloc:
-            raise ValueError("OAuth issuer must be an absolute HTTPS URL")
+        if (
+            issuer_url.scheme != "https" or not issuer_url.netloc
+            or issuer_url.username or issuer_url.password
+            or issuer_url.query or issuer_url.fragment
+        ):
+            raise ValueError("OAuth issuer must be an absolute HTTPS URL without query or fragment")
         if not all(isinstance(x, str) and x for x in (client_id, client_secret, audience, issuer)):
             raise ValueError("OAuth introspection credentials, audience and issuer are required")
-        if not 0.1 <= timeout_seconds <= 10 or not 0 <= cache_seconds <= 60:
+        if (
+            isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, (int, float))
+            or not math.isfinite(float(timeout_seconds)) or not 0.1 <= timeout_seconds <= 10
+            or type(cache_seconds) is not int or not 0 <= cache_seconds <= 60
+        ):
             raise ValueError("OAuth timeout/cache bounds are invalid")
         self.endpoint = endpoint
         self.client_id = client_id
