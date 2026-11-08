@@ -164,6 +164,7 @@ class RemoteMCPServiceTests(unittest.TestCase):
         self.assertTrue(requested["cancellation_requested"])
         self.assertEqual("cancellation_requested", requested["status"])
         self.assertTrue(guard.cancellation_event.is_set())
+        self.assertTrue(self.runtime.trigger_runtime.is_cancel_requested(active["task_id"]))
 
     def test_profile_identity_is_stable_across_calls(self):
         first = self.service.call_tool("auren.get_profile", {}, self.principal)
@@ -178,6 +179,27 @@ class RemoteMCPServiceTests(unittest.TestCase):
                 "auren.get_task", {"task_id": "task-1", "include_prompt": True},
                 self.principal,
             )
+
+    def test_durable_cancel_request_stops_trigger_before_replay(self):
+        event = self.runtime.trigger_runtime.emit(
+            "adaptive_runtime",
+            {"task": "must be cancelled", "context": {"_auren_mcp_subject": self.service._principal_key(self.principal)}},
+            event_id="cancel-before-dispatch", max_attempts=4,
+        )
+        claim = self.runtime.trigger_runtime.claim(event.event_id)
+        self.assertIsNotNone(claim)
+        self.assertTrue(self.runtime.trigger_runtime.request_cancel_claimed(
+            event.event_id, reason="operator cancellation",
+            requester_digest=self.service._principal_key(self.principal),
+        ))
+        with patch.object(self.runtime.trigger_runtime, "claim", return_value=claim):
+            with patch.object(self.service.trigger, "_handle_event") as handler:
+                result = self.service.trigger._dispatch_event(event.event_id)
+        self.assertIsNone(result)
+        handler.assert_not_called()
+        final = self.runtime.trigger_runtime.get_event(event.event_id)
+        self.assertEqual("cancelled", final.status)
+        self.assertTrue(self.runtime.trigger_runtime.is_cancel_requested(event.event_id))
 
     def test_status_and_evidence_are_read_only(self):
         self.service.start()
