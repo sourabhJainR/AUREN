@@ -356,10 +356,11 @@ class VibeAdapterRegistry:
             )
             existing_effect = self.side_effect_lifecycle.ledger.get(operation_key)
             # Completed receipts are safe to replay without a remote lookup.
-            # A new write or authorized retry needs a provider-native lookup port
-            # so an ambiguous remote outcome can be resolved without redispatch.
+            # Every consequential write, including repository mutation, needs
+            # provider-native lookup and idempotency before dispatch so an
+            # ambiguous remote outcome can be resolved without redispatch.
             if (
-                stage in {VibeStage.PREVIEW_DEPLOYMENT, VibeStage.PRODUCTION_DEPLOY}
+                stage in _SIDE_EFFECT_STAGES
                 and (
                     selected.lookup_operation is None
                     or not selected.supports_provider_idempotency
@@ -368,7 +369,7 @@ class VibeAdapterRegistry:
                 and (existing_effect is None or existing_effect["state"] == "retry_authorized")
             ):
                 raise AdapterUnavailable(
-                    f"stage {stage.value} requires provider-native operation lookup plus idempotency support and authoritative lookup semantics before deployment dispatch"
+                    f"stage {stage.value} requires provider-native operation lookup plus idempotency support and authoritative lookup semantics before consequential dispatch"
                 )
         stats = self._stats[selected.adapter_id]
         stats.attempts += 1
@@ -757,8 +758,8 @@ def build_host_adapter_registry(
             stage = key if isinstance(key, VibeStage) else VibeStage(str(key))
         except (TypeError, ValueError) as exc:
             raise ValueError(f"invalid provider-capability stage: {key!r}") from exc
-        if stage not in {VibeStage.PREVIEW_DEPLOYMENT, VibeStage.PRODUCTION_DEPLOY}:
-            raise ValueError(f"provider capabilities are only configurable for deployment stages: {stage.value}")
+        if stage not in _SIDE_EFFECT_STAGES:
+            raise ValueError(f"provider capabilities are only configurable for consequential stages: {stage.value}")
         if not isinstance(capability_values, Mapping):
             raise ValueError(f"provider capabilities for {stage.value} must be a mapping")
         unknown = set(capability_values) - {"supports_provider_idempotency", "lookup_not_found_is_authoritative"}
