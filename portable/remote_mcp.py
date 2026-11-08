@@ -121,19 +121,23 @@ class OAuthIntrospectionVerifier:
 
     def __init__(
         self, *, endpoint: str, client_id: str, client_secret: str,
-        audience: str, timeout_seconds: float = 3.0, cache_seconds: int = 15,
+        audience: str, issuer: str, timeout_seconds: float = 3.0, cache_seconds: int = 15,
     ):
         parsed = urlsplit(endpoint)
         if parsed.scheme != "https" or not parsed.netloc:
             raise ValueError("OAuth introspection endpoint must use HTTPS")
-        if not all(isinstance(x, str) and x for x in (client_id, client_secret, audience)):
-            raise ValueError("OAuth introspection credentials and audience are required")
+        issuer_url = urlsplit(issuer)
+        if issuer_url.scheme != "https" or not issuer_url.netloc:
+            raise ValueError("OAuth issuer must be an absolute HTTPS URL")
+        if not all(isinstance(x, str) and x for x in (client_id, client_secret, audience, issuer)):
+            raise ValueError("OAuth introspection credentials, audience and issuer are required")
         if not 0.1 <= timeout_seconds <= 10 or not 0 <= cache_seconds <= 60:
             raise ValueError("OAuth timeout/cache bounds are invalid")
         self.endpoint = endpoint
         self.client_id = client_id
         self.client_secret = client_secret
         self.audience = audience
+        self.issuer = issuer.rstrip("/")
         self.timeout_seconds = timeout_seconds
         self.cache_seconds = cache_seconds
         self._cache: dict[str, tuple[float, MCPPrincipal | None]] = {}
@@ -176,6 +180,11 @@ class OAuthIntrospectionVerifier:
                     isinstance(audiences, list) and self.audience in audiences
                     and isinstance(expiry, (int, float)) and expiry > time.time()
                     and isinstance(payload.get("sub"), str) and payload["sub"]
+                    and isinstance(payload.get("iss"), str)
+                    and payload["iss"].rstrip("/") == self.issuer
+                    and (payload.get("nbf") is None or (
+                        isinstance(payload.get("nbf"), (int, float)) and payload["nbf"] <= time.time()
+                    ))
                 ):
                     raw_scopes = payload.get("scope", "")
                     scopes = raw_scopes.split() if isinstance(raw_scopes, str) else raw_scopes
@@ -1070,7 +1079,7 @@ def service_from_environment(runtime: Any, *, project_root: str | Path) -> Auren
             endpoint=introspection,
             client_id=os.environ.get("AUREN_MCP_INTROSPECTION_CLIENT_ID", ""),
             client_secret=os.environ.get("AUREN_MCP_INTROSPECTION_CLIENT_SECRET", ""),
-            audience=resource_url,
+            audience=resource_url, issuer=authorization_server,
         )
     else:
         if os.environ.get("AUREN_MCP_ALLOW_STATIC_TOKENS") != "1":
