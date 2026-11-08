@@ -86,13 +86,13 @@ class RemoteMCPServiceTests(unittest.TestCase):
         with patch.object(self.service.trigger, "trigger_adaptive_runtime", side_effect=self._enqueue) as enqueue:
             first = self.service.call_tool(
                 "auren.submit_task",
-                {"task": "Implement a safe feature", "idempotency_key": "request-0001",
+                {"task": "Implement a safe feature", "idempotency_key": "request-0001-unique",
                  "context": {"acceptance_criteria": ["tests pass"]}},
                 self.principal,
             )
             second = self.service.call_tool(
                 "auren.submit_task",
-                {"task": "Implement a safe feature", "idempotency_key": "request-0001",
+                {"task": "Implement a safe feature", "idempotency_key": "request-0001-unique",
                  "context": {"acceptance_criteria": ["tests pass"]}},
                 self.principal,
             )
@@ -113,7 +113,7 @@ class RemoteMCPServiceTests(unittest.TestCase):
             with self.subTest(context=context):
                 with self.assertRaisesRegex(ValueError, "host-controlled"):
                     self.service.call_tool(
-                        "auren.submit_task", {"task": "bad", "context": context},
+                        "auren.submit_task", {"task": "bad", "idempotency_key": "bad-context-0000001", "context": context},
                         self.principal,
                     )
 
@@ -124,7 +124,7 @@ class RemoteMCPServiceTests(unittest.TestCase):
         self.assertTrue(paused["admissions_paused"])
         self.assertTrue(paused["audit_chain_valid"])
         with self.assertRaisesRegex(Exception, "admissions are paused"):
-            self.service.call_tool("auren.submit_task", {"task": "blocked"}, self.principal)
+            self.service.call_tool("auren.submit_task", {"task": "blocked", "idempotency_key": "blocked-task-0000001"}, self.principal)
         resumed = self.service.call_tool(
             "auren.resume_admissions", {"reason": "maintenance completed"}, self.principal,
         )
@@ -140,12 +140,12 @@ class RemoteMCPServiceTests(unittest.TestCase):
             )
         self.assertFalse(self.service.verify_control_audit())
         with self.assertRaisesRegex(Exception, "audit is inconsistent"):
-            self.service.call_tool("auren.submit_task", {"task": "must not enter"}, self.principal)
+            self.service.call_tool("auren.submit_task", {"task": "must not enter", "idempotency_key": "audit-tamper-000001"}, self.principal)
 
     def test_cancel_pending_trigger_and_live_runtime_guard(self):
         with patch.object(self.service.trigger, "trigger_adaptive_runtime", side_effect=self._enqueue):
             receipt = self.service.call_tool(
-                "auren.submit_task", {"task": "pending work"}, self.principal,
+                "auren.submit_task", {"task": "pending work", "idempotency_key": "pending-task-000001"}, self.principal,
             )
         cancelled = self.service.call_tool(
             "auren.cancel_task", {"task_id": receipt["task_id"], "reason": "operator stop"},
@@ -156,7 +156,7 @@ class RemoteMCPServiceTests(unittest.TestCase):
 
         with patch.object(self.service.trigger, "trigger_adaptive_runtime", side_effect=self._enqueue):
             active = self.service.call_tool(
-                "auren.submit_task", {"task": "active work"}, self.principal,
+                "auren.submit_task", {"task": "active work", "idempotency_key": "active-task-000001"}, self.principal,
             )
         claim = self.runtime.trigger_runtime.claim(active["task_id"])
         self.assertIsNotNone(claim)
@@ -423,7 +423,7 @@ class RemoteMCPASGITests(unittest.TestCase):
         status, _, body = self.request(
             body={
                 "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                "params": {"name": "auren.submit_task", "arguments": {"task": "not authorized"}},
+                "params": {"name": "auren.submit_task", "arguments": {"task": "not authorized", "idempotency_key": "unauthorized-task-001"}},
             },
         )
         self.assertEqual(200, status)
