@@ -94,7 +94,8 @@ class RemoteMCPServiceTests(unittest.TestCase):
         self.assertEqual(2, enqueue.call_count)
         event = self.runtime.trigger_runtime.get_event(first["task_id"])
         self.assertEqual(str(self.root), event.payload["project_root"])
-        self.assertEqual("operator-1", event.payload["context"]["_auren_mcp_subject"])
+        self.assertEqual(self.service._principal_key(self.principal), event.payload["context"]["_auren_mcp_subject"])
+        self.assertNotIn("operator-1", event.payload["context"]["_auren_mcp_subject"])
 
     def test_submit_rejects_host_controlled_context_fields(self):
         with self.assertRaisesRegex(ValueError, "host-controlled"):
