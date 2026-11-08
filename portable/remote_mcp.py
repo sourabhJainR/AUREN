@@ -724,14 +724,14 @@ class AurenMCPService:
             limit = arguments.get("limit", 30)
             if type(limit) is not int or not 1 <= limit <= 100:
                 raise ValueError("limit must be between 1 and 100")
-            events = self.trigger_runtime.list_events(kind="adaptive_runtime", limit=limit * 4)
+            events = self.trigger_runtime.list_events(kind="adaptive_runtime", limit=500)
             trigger_tasks = [
                 self._trigger_summary(event) for event in events
                 if event.payload.get("_auren_mcp_subject") == self._principal_key(principal)
                 or principal.allows(_SCOPE_ADMIN)
             ][:limit]
             progress = self.controller.progress_journal.list_snapshots(stale_after_seconds=120)
-            return {"trigger_tasks": trigger_tasks, "controller_tasks": _safe_value(progress[:limit])}
+            return {"trigger_tasks": trigger_tasks, "controller_tasks": _safe_value(progress[-limit:][::-1])}
         if name == "auren.get_task":
             self._require(principal, _SCOPE_READ)
             task_id = arguments.get("task_id")
