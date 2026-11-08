@@ -47,19 +47,23 @@ with a stable key derived from the canonical run/task/action identity.
   a transient task ID, so recreating a task for the same canonical dispatch reuses its
   receipt or blocks for reconciliation. Ordinary tasks use their durable task ID. Distinct
   dispatches still require a stable provider idempotency key to deduplicate at the provider.
-- The 18-stage Vibe adapter registry also requires the canonical ledger for registrations
+- The 18-stage Vibe adapter registry requires the canonical ledger for registrations
   marked `external_side_effects=True`. It binds each stage operation to workflow ID,
   stage, adapter ID/version, and the sanitized request; completed receipts replay without
   invoking the adapter again. Missing ledger or workflow identity blocks the call before
   adapter dispatch. The local stage receipt does not prove provider-native idempotency.
-
-- A Vibe adapter may provide an `lookup_operation(operation_id, idempotency_key)`
-  callback. A lookup is used only after the durable ledger marks an operation
+- Every consequential Vibe stage, including repository mutation during development,
+  preview deployment, and production release, must declare provider idempotency support,
+  authoritative not-found lookup semantics, and a trusted `lookup_operation(operation_id,
+  idempotency_key)` callback before a new write or authorized retry is dispatched.
+  Missing capability evidence blocks before the ledger claim and host adapter call.
+- A Vibe lookup is used only after the durable ledger marks an operation
   `reconcile_required`; it never triggers redispatch. The result is accepted only
   when the ledger's configured trusted reconciliation verifier validates the
   provider operation ID and evidence reference. Without both a lookup and trusted
   verifier, recovery remains blocked.
-- Production rollout still needs failure-injection evidence against each consequential adapter.
+- Rollout still needs failure-injection evidence against each consequential adapter
+  using the actual provider implementation; fixture adapters prove only the contract.
 
 ## Trust callback return contract
 
