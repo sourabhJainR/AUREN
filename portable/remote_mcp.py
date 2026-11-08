@@ -218,6 +218,29 @@ def _safe_text(value: Any, limit: int = 1000) -> str:
     return _SECRETISH.sub("[redacted]", str(value))[:limit]
 
 
+def _safe_value(value: Any, *, depth: int = 0) -> Any:
+    if depth > 6:
+        return "[truncated]"
+    if isinstance(value, str):
+        return _safe_text(value, 1000)
+    if isinstance(value, Mapping):
+        hidden = {
+            "token", "access_token", "refresh_token", "authorization", "password",
+            "secret", "api_key", "prompt", "payload", "raw_request", "raw_response",
+            "environment", "headers", "stdout", "stderr",
+        }
+        return {
+            str(key): _safe_value(item, depth=depth + 1)
+            for key, item in list(value.items())[:100]
+            if str(key).lower() not in hidden
+        }
+    if isinstance(value, (list, tuple)):
+        return [_safe_value(item, depth=depth + 1) for item in value[:100]]
+    if value is None or type(value) in {bool, int, float}:
+        return value
+    return _safe_text(value, 500)
+
+
 def _bounded_json(value: Any, *, limit: int) -> Any:
     encoded = _canonical_json(value)
     if len(encoded.encode("utf-8")) > limit:
@@ -464,7 +487,7 @@ class AurenMCPService:
             "available_at": event.available_at, "claimed_at": event.claimed_at,
             "lease_until": event.lease_until, "completed_at": event.completed_at,
             "last_detail": _safe_text(event.last_detail, 500),
-            "outcome": dict(event.outcome), "runtime_progress": runtime_progress,
+            "outcome": _safe_value(dict(event.outcome)), "runtime_progress": _safe_value(runtime_progress),
         }
 
     def _task_summary(self, task_id: str) -> dict[str, Any]:
@@ -475,7 +498,7 @@ class AurenMCPService:
         return {
             "task_id": task.id, "state": task.state, "attempts": task.attempts,
             "work_unit_id": task.work_unit_id, "deadline_at": task.deadline_at,
-            "progress": progress,
+            "progress": _safe_value(progress),
         }
 
     def list_tools(self, principal: MCPPrincipal | None) -> list[dict[str, Any]]:
@@ -645,7 +668,8 @@ class AurenMCPService:
             )
             return {
                 "status": "degraded" if degraded else "ok",
-                "workspace": str(self.project_root), "admissions": control,
+                "workspace_id": hashlib.sha256(str(self.project_root).encode("utf-8")).hexdigest()[:16],
+                "admissions": control,
                 "queue": queue, "dispatcher": dispatcher,
                 "health_findings": [_safe_text(x, 300) for x in findings],
                 "mcp_protocol_versions": list(SUPPORTED_PROTOCOL_VERSIONS),
@@ -701,7 +725,7 @@ class AurenMCPService:
                 or principal.allows(_SCOPE_ADMIN)
             ][:limit]
             progress = self.controller.progress_journal.list_snapshots(stale_after_seconds=120)
-            return {"trigger_tasks": trigger_tasks, "controller_tasks": progress[:limit]}
+            return {"trigger_tasks": trigger_tasks, "controller_tasks": _safe_value(progress[:limit])}
         if name == "auren.get_task":
             self._require(principal, _SCOPE_READ)
             task_id = arguments.get("task_id")
@@ -752,12 +776,12 @@ class AurenMCPService:
                 runtime_task_id = "llm-chat:" + event.event_id
                 return {
                     "task_id": task_id, "trigger": self._trigger_summary(event),
-                    "snapshot": self.controller.progress_journal.snapshot(runtime_task_id),
+                    "snapshot": _safe_value(self.controller.progress_journal.snapshot(runtime_task_id)),
                     "events": self.controller.progress_journal.events_for_task(runtime_task_id, limit=limit),
                 }
             events = self.controller.progress_journal.events_for_task(task_id.strip(), limit=limit)
             return {
-                "task_id": task_id, "snapshot": self.controller.progress_journal.snapshot(task_id.strip()),
+                "task_id": task_id, "snapshot": _safe_value(self.controller.progress_journal.snapshot(task_id.strip())),
                 "events": [{
                     key: _safe_text(value, 1000) if isinstance(value, str) else value
                     for key, value in row.items()
