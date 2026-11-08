@@ -61,7 +61,7 @@ class RemoteMCPServiceTests(unittest.TestCase):
         self.runtime = None
         self.temp.cleanup()
 
-    def _enqueue(self, task, project_root, context, *, priority, event_id, max_attempts, fire_and_forget):
+    def _enqueue(self, task, project_root, context, *, priority, event_id, max_attempts, fire_and_forget, max_pending_events=None):
         event = self.runtime.trigger_runtime.emit(
             "adaptive_runtime",
             {
@@ -70,6 +70,7 @@ class RemoteMCPServiceTests(unittest.TestCase):
             },
             event_id=event_id, max_attempts=max_attempts,
             priority={"high": 0, "normal": 1, "low": 2}[priority],
+            max_pending_events=max_pending_events,
         )
         return TriggerReceipt(event.event_id, event.status, event.created_at)
 
