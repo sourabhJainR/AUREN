@@ -459,7 +459,7 @@ class AurenMCPService:
             "progress": progress,
         }
 
-    def list_tools(self, principal: MCPPrincipal) -> list[dict[str, Any]]:
+    def list_tools(self, principal: MCPPrincipal | None) -> list[dict[str, Any]]:
         definitions = [
             ("auren.service_status", "Read AUREN service health, queue capacity and admission state.", _SCOPE_READ,
              {"type": "object", "properties": {}, "additionalProperties": False}),
@@ -498,10 +498,48 @@ class AurenMCPService:
             ("auren.resume_admissions", "Resume new MCP task submissions after an operator pause. Existing task state is unchanged.", _SCOPE_ADMIN,
              {"type": "object", "required": ["reason"], "properties": {"reason": {"type": "string", "minLength": 1, "maxLength": 500}}, "additionalProperties": False}),
         ]
-        return [
-            {"name": name, "description": description, "inputSchema": schema}
-            for name, description, scope, schema in definitions if principal.allows(scope)
-        ]
+        definitions.insert(1, (
+            "auren.get_profile",
+            "Return the stable opaque identity associated with the authenticated AUREN connection.",
+            _SCOPE_READ,
+            {"type": "object", "properties": {}, "additionalProperties": False},
+        ))
+        tools = []
+        for name, description, scope, schema in definitions:
+            if principal is not None and not principal.allows(scope):
+                continue
+            read_only = name in {
+                "auren.service_status", "auren.get_profile", "auren.list_tasks",
+                "auren.get_task", "auren.get_evidence", "auren.list_approvals",
+                "auren.get_approval",
+            }
+            tool = {
+                "name": name, "description": description, "inputSchema": schema,
+                "annotations": {
+                    "readOnlyHint": read_only,
+                    "destructiveHint": name in {
+                        "auren.cancel_task", "auren.decide_approval",
+                        "auren.pause_admissions", "auren.resume_admissions",
+                    },
+                    "openWorldHint": False,
+                },
+                "_meta": {"securitySchemes": [{"type": "oauth2", "scopes": [scope]}]},
+            }
+            if name == "auren.get_profile":
+                tool["outputSchema"] = {
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "minLength": 1},
+                        "name": {"type": "string"},
+                        "nickname": {"type": "string"},
+                    },
+                    "required": ["id"],
+                    "additionalProperties": False,
+                }
+                tool["_meta"]["openai/profile"] = True
+            tools.append(tool)
+        return tools
 
     @staticmethod
     def _validate_schema(value: Any, schema: Mapping[str, Any], path: str = "arguments") -> None:
@@ -560,6 +598,9 @@ class AurenMCPService:
             raise KeyError("unknown or unauthorized AUREN operator tool")
         self._validate_schema(arguments, definition["inputSchema"])
         self._require_project(principal)
+        if name == "auren.get_profile":
+            self._require(principal, _SCOPE_READ)
+            return self._profile(principal)
         if name == "auren.service_status":
             self._require(principal, _SCOPE_READ)
             try:
