@@ -735,12 +735,14 @@ class AurenMCPService:
         if not isinstance(params, Mapping):
             raise MCPServiceError("JSON-RPC params must be an object", code=-32600, status=400)
         if method == "initialize":
+            if notification or request_id is None:
+                raise MCPServiceError("initialize must be a JSON-RPC request with an id", code=-32600, status=400)
             version = params.get("protocolVersion", "2025-03-26")
             if version not in SUPPORTED_PROTOCOL_VERSIONS:
-                return {"jsonrpc": "2.0", "id": request_id, "error": {
-                    "code": -32000, "message": "unsupported MCP protocol version",
-                    "data": {"supported": list(SUPPORTED_PROTOCOL_VERSIONS)},
-                }}
+                raise MCPServiceError(
+                    "unsupported MCP protocol version; supported: " + ", ".join(SUPPORTED_PROTOCOL_VERSIONS),
+                    code=-32000, status=400,
+                )
             return {"jsonrpc": "2.0", "id": request_id, "result": {
                 "protocolVersion": version,
                 "capabilities": {
@@ -967,14 +969,24 @@ class AurenMCPASGI:
             if response is None:
                 await self._send(send, 202, headers=cors)
                 return
+            negotiated = (
+                response.get("result", {}).get("protocolVersion")
+                if isinstance(response.get("result"), Mapping) else None
+            )
+            response_protocol = negotiated or protocol or "2025-03-26"
             body = _canonical_json(response).encode("utf-8")
             extra = cors + [
                 (b"content-type", b"application/json; charset=utf-8"),
-                (b"mcp-protocol-version", (protocol or "2025-03-26").encode("ascii")),
+                (b"mcp-protocol-version", response_protocol.encode("ascii")),
             ]
             await self._send(send, 200, body, extra)
         except MCPServiceError as exc:
-            body = _canonical_json({"error": _safe_text(exc, 500), "code": exc.code}).encode("utf-8")
+            request_id = request.get("id") if isinstance(locals().get("request"), Mapping) else None
+            rpc_error = {
+                "jsonrpc": "2.0", "id": request_id,
+                "error": {"code": exc.code, "message": _safe_text(exc, 500)},
+            }
+            body = _canonical_json(rpc_error).encode("utf-8")
             extra = cors + [(b"content-type", b"application/json; charset=utf-8")]
             if exc.status == 401:
                 resource = urlsplit(self.service.resource_url)
