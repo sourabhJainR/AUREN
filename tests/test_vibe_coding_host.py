@@ -1517,26 +1517,32 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
             try:
                 host_config = load_host_config(config_path)
                 try:
-                    report = LocalVibeCodingHost(project, config=host_config, state_root=base / "auren-state").run(
+                    LocalVibeCodingHost(project, config=host_config, state_root=base / "auren-state").run(
                         "auren-host-e2e", "Implement a small deterministic addition feature"
                     )
                 except RuntimeError as exc:
+                    self.assertIn(
+                        "stage development requires provider-native operation lookup",
+                        str(exc),
+                    )
                     marker = "report="
                     report_path = str(exc).split(marker, 1)[1] if marker in str(exc) else ""
-                    detail = Path(report_path).read_text(encoding="utf-8") if report_path and Path(report_path).is_file() else "no report file"
-                    self.fail(f"{exc}\\nReport: {detail}")
+                    self.assertTrue(report_path and Path(report_path).is_file(), "blocked host run must retain its report")
+                    report = json.loads(Path(report_path).read_text(encoding="utf-8"))
+                else:
+                    self.fail("host must block repository mutation without provider-native recovery capabilities")
             finally:
                 os.environ["PATH"] = previous_path
                 if previous_pythonpath is None:
                     os.environ.pop("PYTHONPATH", None)
                 else:
                     os.environ["PYTHONPATH"] = previous_pythonpath
-            self.assertEqual(report["run_status"], "accepted", report["stop_reason"])
-            self.assertEqual(len(report["stage_statuses"]), 18)
+            self.assertEqual(report["run_status"], "failed", report["stop_reason"])
+            self.assertEqual("failed", report["stage_statuses"]["development"])
             self.assertFalse(report["production_deployment_performed"])
             self.assertFalse(report["merge_or_publish_performed"])
-            self.assertIn("src/feature.py", report["workspace_changed_files"])
-            self.assertTrue((Path(report["workspace_root"]) / "src" / "feature.py").is_file())
+            self.assertNotIn("src/feature.py", report["workspace_changed_files"])
+            self.assertFalse((Path(report["workspace_root"]) / "src" / "feature.py").exists())
             self.assertFalse((project / "src" / "feature.py").exists())
             self.assertTrue(Path(report["learning_receipt"]).is_file())
             self.assertTrue(Path(report["checkpoint_receipt"]).is_file())
@@ -1553,7 +1559,7 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
             self.assertIn("provider_operation_events", tables)
             with closing(sqlite3.connect(base / "auren-state" / "operations.sqlite3")) as db, db:
                 event_count = db.execute("SELECT COUNT(*) FROM provider_operation_events").fetchone()[0]
-            self.assertGreater(event_count, 0)
+            self.assertEqual(0, event_count, "no provider operation may be claimed before capability validation")
             source_status = subprocess.run(
                 ["git", "-C", str(project), "status", "--porcelain"],
                 check=True, text=True, capture_output=True,
