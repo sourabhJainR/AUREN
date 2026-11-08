@@ -611,7 +611,11 @@
       "body_limits",
       "sqlite_rate_limit_buckets",
       "append_only_operator_control_hash_chain",
-      "readiness_probe"
+      "readiness_probe",
+      "caller_and_issuer_scoped_required_idempotency_keys",
+      "durable_workspace_queue_admission_cap",
+      "bounded_request_and_response_sizes",
+      "cross_instance_persistent_rate_limits"
     ],
     "known_limits": [
       "external_oauth_authorization_server_not_included",
