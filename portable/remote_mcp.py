@@ -592,7 +592,7 @@ class AurenMCPService:
         if not isinstance(arguments, Mapping):
             raise TypeError("tool arguments must be an object")
         definition = next(
-            (item for item in self.list_tools(principal) if item["name"] == name), None,
+            (item for item in self.list_tools(None) if item["name"] == name), None,
         )
         if definition is None:
             raise KeyError("unknown or unauthorized AUREN operator tool")
