@@ -2483,6 +2483,17 @@ def load_host_config(path: str | Path | None = None) -> VibeHostConfig:
         }
         if any(type(value) is not bool for value in normalized.values()):
             raise ValueError(f"provider capabilities for {stage} must be booleans")
+        if normalized["lookup_not_found_is_authoritative"]:
+            lookup_capability = {
+                "development": "repository",
+                "preview_deployment": "deployment",
+                "production_deploy": "release",
+            }[stage]
+            if not isinstance(tools.get(lookup_capability, {}).get("operation_lookup"), Mapping):
+                raise ValueError(
+                    f"authoritative provider lookup for {stage} requires "
+                    f"mcp_tools.{lookup_capability}.operation_lookup"
+                )
         provider_capabilities[stage] = normalized
     return VibeHostConfig(
         provider=raw.get("provider"),
