@@ -54,7 +54,7 @@ The machine-readable declarations live in `.ai-harness/PROVIDER_MATRIX.json`. Th
 
 ### ChatGPT web is not Codex CLI
 
-ChatGPT web can use custom MCP apps when the workspace, plan and admin permissions allow it. It connects to a remote MCP endpoint; it cannot directly launch AUREN's local stdio process. Full MCP write/modify support is currently workspace-plan dependent. Pro access is more limited and should not be treated as equivalent to Business or Enterprise/Edu write access.
+ChatGPT web can use custom MCP apps when the workspace, plan and admin permissions allow it. It connects to a remote MCP endpoint; it cannot directly launch AUREN's local stdio process. Full MCP write/modify support is currently limited to Business and Enterprise/Edu workspaces. Pro access is limited to read/fetch actions; Free does not provide this custom MCP write path. Do not treat plan access as equivalent across tiers.
 
 **Required AUREN work:**
 - Deploy a remote Streamable HTTP MCP service or a supported Secure MCP Tunnel bridge.
@@ -113,7 +113,7 @@ AUREN's current guarded CLI bridge only recognizes Claude, Codex and Gemini exec
 5. Test tool-call replay, malformed responses, rate limits, timeout-after-acceptance and provider outage.
 6. Run paired quality, cost, latency and safety evaluations before allowing automatic routing.
 
-OpenAI API compatibility is partial compatibility, not proof that all request fields, streaming events, tool semantics or approval features match.
+OpenAI API compatibility is partial compatibility, not proof that all request fields, streaming events, tool semantics or approval features match. In particular, xAI's remote MCP implementation does not currently support the Responses API `require_approval` and `connector_id` parameters, so AUREN must enforce its own approval boundary and tool allowlist.
 
 ## Current MCP boundary
 
