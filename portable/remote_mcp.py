@@ -807,6 +807,8 @@ class AurenMCPService:
             task = arguments.get("task")
             if not isinstance(task, str) or not task.strip() or len(task) > DEFAULT_MAX_TASK_CHARS:
                 raise ValueError("task must be non-empty text within the configured limit")
+            if _SECRETISH.search(task):
+                raise ValueError("task text appears to contain a credential; use a secret reference instead")
             priority = arguments.get("priority", "normal")
             if priority not in {"high", "normal", "low"}:
                 raise ValueError("priority must be high, normal or low")
@@ -814,6 +816,8 @@ class AurenMCPService:
             if type(max_attempts) is not int or not 1 <= max_attempts <= 8:
                 raise ValueError("max_attempts must be an integer between 1 and 8")
             context = _bounded_json(arguments.get("context", {}), limit=DEFAULT_MAX_CONTEXT_BYTES)
+            if _SECRETISH.search(_canonical_json(context)):
+                raise ValueError("task context appears to contain a credential; use a secret reference instead")
             if not isinstance(context, Mapping):
                 raise TypeError("context must be an object")
             if self._contains_host_controlled_context(context):
