@@ -92,9 +92,9 @@ class StaticBearerTokenVerifier:
         for record in records:
             token = record.get("token")
             subject = record.get("subject")
-            scopes = record.get("scopes", ())
-            roles = record.get("roles", ())
-            projects = record.get("projects", ())
+            scopes = record.get("scopes", [])
+            roles = record.get("roles", [])
+            projects = record.get("projects", [])
             issuer = record.get("issuer", "static")
             if not isinstance(token, str) or len(token) < 32:
                 raise ValueError("static MCP tokens must contain at least 32 characters")
@@ -102,7 +102,11 @@ class StaticBearerTokenVerifier:
                 raise ValueError("static MCP token subject is required")
             if not isinstance(issuer, str) or not issuer.strip():
                 raise ValueError("static MCP token issuer must be non-empty text")
-            if not isinstance(scopes, list) or not set(scopes).issubset(_ALL_SCOPES):
+            if (
+                not isinstance(scopes, list)
+                or not all(isinstance(x, str) for x in scopes)
+                or not set(scopes).issubset(_ALL_SCOPES)
+            ):
                 raise ValueError("static MCP token scopes are invalid")
             if not isinstance(roles, list) or not all(isinstance(x, str) and x for x in roles):
                 raise ValueError("static MCP token roles are invalid")
@@ -828,12 +832,12 @@ class AurenMCPService:
             if type(max_attempts) is not int or not 1 <= max_attempts <= 8:
                 raise ValueError("max_attempts must be an integer between 1 and 8")
             context = _bounded_json(arguments.get("context", {}), limit=DEFAULT_MAX_CONTEXT_BYTES)
-            if _SECRETISH.search(_canonical_json(context)):
-                raise ValueError("task context appears to contain a credential; use a secret reference instead")
             if not isinstance(context, Mapping):
                 raise TypeError("context must be an object")
             if self._contains_host_controlled_context(context):
                 raise ValueError("context contains a host-controlled or credential field")
+            if _SECRETISH.search(_canonical_json(context)):
+                raise ValueError("task context appears to contain a credential; use a secret reference instead")
             idempotency = arguments.get("idempotency_key")
             if not isinstance(idempotency, str) or not 16 <= len(idempotency) <= 200:
                 raise ValueError("idempotency_key must contain 16 to 200 characters")
