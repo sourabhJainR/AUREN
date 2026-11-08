@@ -14,7 +14,7 @@ AUREN separates **execution authority from learning**. Active runs operate under
 
 ## Remote MCP and AI host integration
 
-The authenticated remote MCP operator service is under review in [PR #1310](https://github.com/sourabhJainR/AUREN/pull/1310). It adds a stateless Streamable HTTP endpoint, OAuth resource-server validation, per-tool scopes, durable task submission with caller-scoped idempotency, task status/cancellation, evidence, approvals, and admission controls.
+The authenticated remote MCP operator service is under review in [PR #1312](https://github.com/sourabhJainR/AUREN/pull/1312). It adds a stateless Streamable HTTP endpoint, OAuth resource-server validation, per-tool scopes, durable task submission with caller-scoped idempotency, task status/cancellation, evidence, approvals, and admission controls.
 
 The same AUREN endpoint is designed for MCP-capable hosts including ChatGPT web, Codex CLI/app, Claude web/Desktop/Code, Gemini CLI, Antigravity, Cursor, VS Code Copilot and Microsoft Visual Studio. The integration is not live-deployed or vendor-accepted yet. Hosted OAuth requires an external authorization server; the current durable stores remain single-host SQLite. Groq and xAI/Grok direct inference adapters are separate work and are not claimed as supported.
 
