@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import json
+import hashlib
 import sqlite3
 from typing import Any, Callable, Mapping
 import uuid
@@ -151,6 +152,24 @@ class TriggerRuntime:
                     db.execute(statement)
             db.execute("CREATE INDEX IF NOT EXISTS idx_trigger_due ON trigger_events(status, priority, available_at, event_id)")
             db.execute("CREATE INDEX IF NOT EXISTS idx_trigger_kind_due ON trigger_events(kind, status, priority, available_at, event_id)")
+            db.execute(
+                """CREATE TABLE IF NOT EXISTS trigger_cancel_requests(
+                    event_id TEXT PRIMARY KEY,
+                    requested_at TEXT NOT NULL,
+                    requester_digest TEXT NOT NULL,
+                    reason_digest TEXT NOT NULL,
+                    status_at_request TEXT NOT NULL)"""
+            )
+            db.execute(
+                "CREATE TRIGGER IF NOT EXISTS immutable_trigger_cancel_update "
+                "BEFORE UPDATE ON trigger_cancel_requests BEGIN "
+                "SELECT RAISE(ABORT, 'trigger cancellation records are immutable'); END"
+            )
+            db.execute(
+                "CREATE TRIGGER IF NOT EXISTS immutable_trigger_cancel_delete "
+                "BEFORE DELETE ON trigger_cancel_requests BEGIN "
+                "SELECT RAISE(ABORT, 'trigger cancellation records are immutable'); END"
+            )
 
     @staticmethod
     def _select_sql() -> str:
@@ -272,13 +291,17 @@ class TriggerRuntime:
                 ).fetchall()
         return tuple(self._event(row) for row in rows)
 
-    def cancel_pending(self, event_id: str, *, reason: str) -> bool:
-        """Cancel only an unclaimed event; active work requires its own supervisor."""
+    def cancel_pending(
+        self, event_id: str, *, reason: str, requester_digest: str = "0" * 64,
+    ) -> bool:
+        """Cancel only an unclaimed event and append an immutable cancellation receipt."""
         if not isinstance(event_id, str) or not event_id.strip():
             raise ValueError("event_id is required")
         if not isinstance(reason, str) or not reason.strip() or len(reason) > 1000:
             raise ValueError("cancellation reason must be non-empty text of at most 1000 characters")
-        reason_digest = __import__("hashlib").sha256(reason.strip().encode("utf-8")).hexdigest()
+        if not isinstance(requester_digest, str) or len(requester_digest) != 64:
+            raise ValueError("requester_digest must be a SHA-256 hex digest")
+        reason_digest = hashlib.sha256(reason.strip().encode("utf-8")).hexdigest()
         now = _utc().isoformat()
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -288,7 +311,46 @@ class TriggerRuntime:
                 "WHERE event_id=? AND status='pending' AND claim_id IS NULL",
                 (now, "cancelled by operator; reason_digest=" + reason_digest, event_id.strip()),
             ).rowcount
+            if changed == 1:
+                db.execute(
+                    "INSERT INTO trigger_cancel_requests VALUES(?,?,?,?,?)",
+                    (event_id.strip(), now, requester_digest, reason_digest, "pending"),
+                )
         return changed == 1
+
+    def request_cancel_claimed(
+        self, event_id: str, *, reason: str, requester_digest: str,
+    ) -> bool:
+        """Persist an operator cancellation request for a claimed trigger."""
+        if not isinstance(event_id, str) or not event_id.strip():
+            raise ValueError("event_id is required")
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > 1000:
+            raise ValueError("cancellation reason must be non-empty text of at most 1000 characters")
+        if not isinstance(requester_digest, str) or len(requester_digest) != 64:
+            raise ValueError("requester_digest must be a SHA-256 hex digest")
+        now = _utc().isoformat()
+        reason_digest = hashlib.sha256(reason.strip().encode("utf-8")).hexdigest()
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT status FROM trigger_events WHERE event_id=?",
+                (event_id.strip(),),
+            ).fetchone()
+            if not row or row[0] != "claimed":
+                return False
+            db.execute(
+                "INSERT OR IGNORE INTO trigger_cancel_requests VALUES(?,?,?,?,?)",
+                (event_id.strip(), now, requester_digest, reason_digest, "claimed"),
+            )
+        return self.is_cancel_requested(event_id)
+
+    def is_cancel_requested(self, event_id: str) -> bool:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT 1 FROM trigger_cancel_requests WHERE event_id=?",
+                (event_id,),
+            ).fetchone()
+        return row is not None
 
     def claim(self, event_id: str, *, now: datetime | None = None) -> TriggerClaim | None:
         now = _aware(now) if now is not None else _utc()
