@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -118,6 +119,17 @@ class RemoteMCPServiceTests(unittest.TestCase):
         )
         self.assertFalse(resumed["admissions_paused"])
         self.assertTrue(self.service.verify_control_audit())
+
+    def test_operator_control_audit_tampering_blocks_new_admissions(self):
+        with sqlite3.connect(self.service.control_db) as db:
+            db.execute("DROP TRIGGER immutable_service_control_event_update")
+            db.execute(
+                "UPDATE service_control_events SET event_json=? WHERE sequence=0",
+                ('{"sequence":0,"type":"tampered"}',),
+            )
+        self.assertFalse(self.service.verify_control_audit())
+        with self.assertRaisesRegex(Exception, "audit is inconsistent"):
+            self.service.call_tool("auren.submit_task", {"task": "must not enter"}, self.principal)
 
     def test_cancel_pending_trigger_and_live_runtime_guard(self):
         with patch.object(self.service.trigger, "trigger_adaptive_runtime", side_effect=self._enqueue):
