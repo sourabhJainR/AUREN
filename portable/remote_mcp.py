@@ -747,7 +747,10 @@ class AurenMCPService:
                 raise ValueError("reason is required and must be at most 500 characters")
             event = self._event_for_principal(task_id.strip(), principal)
             if event is not None:
-                cancelled = self.trigger_runtime.cancel_pending(event.event_id, reason=reason)
+                requester_digest = self._principal_key(principal)
+                cancelled = self.trigger_runtime.cancel_pending(
+                    event.event_id, reason=reason, requester_digest=requester_digest,
+                )
                 if cancelled:
                     return {"task_id": task_id, "cancellation_requested": True, "status": "cancelled"}
                 signalled = False
@@ -757,10 +760,14 @@ class AurenMCPService:
                         signalled = bool(cancel(
                             "llm-chat:" + event.event_id, reason=reason,
                         ))
+                    if signalled:
+                        signalled = self.trigger_runtime.request_cancel_claimed(
+                            event.event_id, reason=reason, requester_digest=requester_digest,
+                        )
                 return {
                     "task_id": task_id, "cancellation_requested": signalled,
                     "status": "cancellation_requested" if signalled else event.status,
-                    "note": "the durable trigger remains nonterminal until the running supervisor confirms its outcome",
+                    "note": "the durable trigger remains nonterminal until the running supervisor records its outcome",
                 }
             cancelled = self.controller.request_cancellation(task_id.strip(), reason=reason)
             task = self.controller.task(task_id.strip())
