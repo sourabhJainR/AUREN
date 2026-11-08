@@ -598,7 +598,7 @@ class AurenMCPService:
              {"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 100}}, "additionalProperties": False}),
             ("auren.get_task", "Read one task or trigger status without exposing its full prompt or payload.", _SCOPE_READ,
              {"type": "object", "required": ["task_id"], "properties": {"task_id": {"type": "string", "minLength": 1, "maxLength": 200}}, "additionalProperties": False}),
-            ("auren.cancel_task", "Request cancellation of a durable controller task, or cancel a trigger that has not been claimed. Active trigger work is not reported as cancelled.", _SCOPE_CANCEL,
+            ("auren.cancel_task", "Request cancellation of a controller task or pending/retryable trigger, or signal an active runtime guard. Active work remains nonterminal until the supervisor confirms its outcome.", _SCOPE_CANCEL,
              {"type": "object", "required": ["task_id", "reason"], "properties": {"task_id": {"type": "string"}, "reason": {"type": "string", "minLength": 1, "maxLength": 500}}, "additionalProperties": False}),
             ("auren.get_evidence", "Read bounded progress and evidence references for a task.", _SCOPE_EVIDENCE,
              {"type": "object", "required": ["task_id"], "properties": {"task_id": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}}, "additionalProperties": False}),
