@@ -532,6 +532,18 @@ class RemoteMCPASGITests(unittest.TestCase):
         self.assertEqual(200, status)
         self.assertEqual({"status": "ok"}, json.loads(body))
 
+    def test_response_size_limit_is_enforced(self):
+        self.service.max_response_bytes = 1024
+        with patch.object(
+            self.service, "_rpc",
+            return_value={"jsonrpc": "2.0", "id": 1, "result": {"large": "x" * 2048}},
+        ):
+            status, _, body = self.request(
+                body={"jsonrpc": "2.0", "id": 1, "method": "ping", "params": {}},
+            )
+        self.assertEqual(413, status)
+        self.assertIn(b"response exceeds configured size limit", body)
+
     def test_protected_resource_metadata_is_public_but_origin_checked(self):
         status, _, body = self.request(
             method="GET", path="/.well-known/oauth-protected-resource", body=None,
