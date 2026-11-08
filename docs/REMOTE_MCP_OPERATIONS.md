@@ -255,6 +255,24 @@ Add to .vscode/mcp.json:
 
 The VS Code MCP host is not the same as Microsoft Visual Studio. Visual Studio itself needs a separate product/version acceptance test before it can be marked supported.
 
+### Microsoft Visual Studio 2022 / 2026
+
+Visual Studio 2022 version 17.14 or later and Visual Studio 2026 support remote MCP through GitHub Copilot Agent mode. Add a solution-level .mcp.json:
+
+~~~json
+{
+  "servers": {
+    "auren": {
+      "url": "https://mcp.example.com/mcp"
+    }
+  }
+}
+~~~
+
+Open Copilot Chat in Agent mode, add or enable the AUREN server in the tool picker, and complete the OAuth sign-in prompt. The AUREN service runs on its configured host; this does not give it unrestricted access to the Visual Studio workstation.
+
+Claude Code's supported IDE integrations are separate from Microsoft Visual Studio. Use Claude Code CLI, Claude Code for VS Code, or Claude Desktop remote connectors for Anthropic-hosted workflows. Visual Studio can connect to AUREN through its own MCP host and Copilot Agent mode.
+
 ### ChatGPT web and ChatGPT desktop
 
 Use the custom MCP app/connector setup in the ChatGPT workspace and point it at https://mcp.example.com/mcp. Complete the OAuth connection using the configured identity provider. Workspace admin settings, plan eligibility and app/developer-mode availability are controlled by ChatGPT, not by AUREN.
