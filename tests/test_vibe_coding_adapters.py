@@ -128,18 +128,25 @@ class VibeCodingAdapterTests(unittest.TestCase):
         )
         with_lookup = build_host_adapter_registry(
             lambda _request: {}, tools, max_risk="critical",
-            lookup_operations={"preview_deployment": lookup},
-            provider_capabilities={"preview_deployment": {
-                "supports_provider_idempotency": True,
-                "lookup_not_found_is_authoritative": True,
-            }},
+            lookup_operations={"development": lookup, "preview_deployment": lookup},
+            provider_capabilities={
+                "development": {
+                    "supports_provider_idempotency": True,
+                    "lookup_not_found_is_authoritative": True,
+                },
+                "preview_deployment": {
+                    "supports_provider_idempotency": True,
+                    "lookup_not_found_is_authoritative": True,
+                },
+            },
         )
         adapter = with_lookup._adapters["host-integrated:preview_deployment"]
         self.assertIs(adapter.lookup_operation, lookup)
+        self.assertIs(with_lookup._adapters["host-integrated:development"].lookup_operation, lookup)
         self.assertIsNone(with_lookup._adapters["host-integrated:production_deploy"].lookup_operation)
         self.assertNotEqual(without_lookup.configuration_digest, with_lookup.configuration_digest)
 
-        with self.assertRaisesRegex(ValueError, "only configurable for side-effect stages"):
+        with self.assertRaisesRegex(ValueError, "only configurable for consequential stages"):
             build_host_adapter_registry(
                 lambda _request: {}, tools, max_risk="critical",
                 lookup_operations={"testing": lookup},
@@ -188,8 +195,11 @@ class VibeCodingAdapterTests(unittest.TestCase):
         capabilities = {
             cap for values in default_stage_capabilities().values() for cap in values if cap != "agent"
         }
+        development_operation_bindings = []
         def tool_for(request, capability):
             stage = VibeStage(request["stage"])
+            if stage == VibeStage.DEVELOPMENT and capability == "repository":
+                development_operation_bindings.append(dict(request.get("provider_operation", {})))
             stage_output = output_for(stage, request["state"])
             fields = authority.get(stage, {}).get(capability, ())
             extra = {}
@@ -234,6 +244,10 @@ class VibeCodingAdapterTests(unittest.TestCase):
                 "production_deploy": lookup,
             },
             provider_capabilities={
+                "development": {
+                    "supports_provider_idempotency": True,
+                    "lookup_not_found_is_authoritative": True,
+                },
                 "preview_deployment": {
                     "supports_provider_idempotency": True,
                     "lookup_not_found_is_authoritative": True,
@@ -260,6 +274,12 @@ class VibeCodingAdapterTests(unittest.TestCase):
         )
         self.assertEqual(run.status, RunStatus.ACCEPTED, run.stop_reason)
         self.assertEqual(len(run.results), 18)
+        self.assertEqual(len(development_operation_bindings), 1)
+        binding = development_operation_bindings[0]
+        self.assertTrue(binding.get("operation_id", "").startswith("auren-op-"))
+        self.assertTrue(binding.get("idempotency_key", "").startswith("vibe-stage:"))
+        self.assertEqual("host-integrated:development", binding.get("provider"))
+        self.assertEqual("host-registered", binding.get("adapter_version"))
 
 
 
@@ -348,13 +368,13 @@ class VibeCodingAdapterTests(unittest.TestCase):
             self.assertIsNone(ledger.get(key))
 
     def test_external_side_effect_requires_lookup_before_first_dispatch(self):
-        for stage in (VibeStage.PREVIEW_DEPLOYMENT, VibeStage.PRODUCTION_DEPLOY):
+        for stage in (VibeStage.DEVELOPMENT, VibeStage.PREVIEW_DEPLOYMENT, VibeStage.PRODUCTION_DEPLOY):
             with self.subTest(stage=stage.value), tempfile.TemporaryDirectory() as directory:
                 ledger = DurableSideEffectLedger(Path(directory) / "side-effects.sqlite3")
                 registry = VibeAdapterRegistry(max_risk="critical", side_effect_ledger=ledger)
                 calls = []
                 registry.register(AdapterRegistration(
-                    "deployment-without-lookup", "1", (stage,),
+                    "consequential-without-lookup", "1", (stage,),
                     frozenset(default_stage_capabilities()[stage.value]),
                     lambda request: calls.append(request) or output_for(stage, request["state"]),
                     risk=next(spec.risk for spec in STAGE_SPECS if spec.stage == stage),
@@ -362,7 +382,7 @@ class VibeCodingAdapterTests(unittest.TestCase):
                 ))
                 operation_key = (
                     f"vibe-stage:workflow-no-lookup:{stage.value}:"
-                    "deployment-without-lookup:1"
+                    "consequential-without-lookup:1"
                 )
                 with self.assertRaisesRegex(AdapterUnavailable, "provider-native operation lookup"):
                     registry.invoke(stage, {
