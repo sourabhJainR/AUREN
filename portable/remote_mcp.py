@@ -766,8 +766,10 @@ class AurenMCPService:
                 pending_mcp_tasks = self.trigger_runtime.count_events(
                     kind="adaptive_runtime", statuses=("pending", "claimed", "retryable"),
                 )
-            except Exception:
+                trigger_queue_status = "available"
+            except Exception as exc:
                 pending_mcp_tasks = self.max_pending_tasks
+                trigger_queue_status = "unavailable:" + type(exc).__name__
             dispatcher = {
                 "running": bool(self._worker and self._worker.is_alive()),
                 "last_run_at": self._dispatcher_last_run_at,
@@ -779,6 +781,7 @@ class AurenMCPService:
                 bool(findings) or queue.get("status") == "unavailable"
                 or not control["audit_chain_valid"] or not dispatcher["running"]
                 or dispatcher["last_error_type"] is not None
+                or trigger_queue_status != "available"
             )
             return {
                 "status": "degraded" if degraded else "ok",
@@ -789,6 +792,7 @@ class AurenMCPService:
                     "pending_or_active": pending_mcp_tasks,
                     "max_pending": self.max_pending_tasks,
                     "at_capacity": pending_mcp_tasks >= self.max_pending_tasks,
+                    "status": trigger_queue_status,
                 },
                 "health_findings": [_safe_text(x, 300) for x in findings],
                 "mcp_protocol_versions": list(SUPPORTED_PROTOCOL_VERSIONS),
