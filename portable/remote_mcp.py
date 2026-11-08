@@ -714,8 +714,11 @@ class AurenMCPService:
                 priority=priority, event_id=event_id, max_attempts=max_attempts,
                 fire_and_forget=True,
             )
-            return {"task_id": receipt.trigger_id, "status": receipt.status,
-                    "accepted_at": receipt.accepted_at, "execution_started": False}
+            return {
+                "task_id": receipt.trigger_id, "status": "accepted",
+                "trigger_status": receipt.status, "accepted_at": receipt.accepted_at,
+                "completion_verified": False,
+            }
         if name == "auren.list_tasks":
             self._require(principal, _SCOPE_READ)
             limit = arguments.get("limit", 30)
