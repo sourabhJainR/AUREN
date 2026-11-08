@@ -105,6 +105,7 @@ class AdaptiveTrigger:
         event_id: str | None = None,
         max_attempts: int = 3,
         fire_and_forget: bool = True,
+        max_pending_events: int | None = None,
     ) -> TriggerReceipt:
         """Persist a chat request and optionally dispatch it without blocking."""
         if not isinstance(task, str) or not task.strip():
@@ -127,6 +128,7 @@ class AdaptiveTrigger:
                 event_id=event_id,
                 max_attempts=max_attempts,
                 priority=_PRIORITY[request.priority],
+                max_pending_events=max_pending_events,
             )
             if fire_and_forget:
                 future = _BACKGROUND_EXECUTOR.submit(self._dispatch_event, event.event_id)
