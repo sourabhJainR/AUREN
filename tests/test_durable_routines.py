@@ -244,6 +244,38 @@ class DurableRoutineRegistryTests(unittest.TestCase):
         self.assertEqual("already-created-task", second[0].task_id)
         self.assertEqual([], self.submissions)
 
+    def test_interval_downtime_coalesces_missed_occurrences_without_backlog(self):
+        spec = self.spec(
+            trigger="interval", event_type=None, interval_seconds=60,
+        )
+        self.registry.register(spec)
+        now = datetime.now(timezone.utc) + timedelta(minutes=20)
+
+        dispatched = self.registry.dispatch_due(now=now, submit=self.submit)
+
+        self.assertEqual(1, len(dispatched))
+        self.assertEqual("submitted", dispatched[0].status)
+        self.assertEqual(1, len(self.submissions))
+        payload = self.submissions[0][1]
+        self.assertGreater(payload["_auren_coalesced_missed_intervals"], 0)
+        occurrence = self.registry.occurrence(dispatched[0].occurrence_key)
+        receipt = json.loads(occurrence["receipt_json"])
+        self.assertEqual(
+            payload["_auren_coalesced_missed_intervals"],
+            receipt["coalesced_missed_intervals"],
+        )
+        with self.registry._connect() as db:
+            next_run_at = db.execute(
+                "SELECT next_run_at FROM routines WHERE routine_id=?",
+                (spec.routine_id,),
+            ).fetchone()["next_run_at"]
+        self.assertGreater(datetime.fromisoformat(next_run_at), now)
+        self.assertEqual(
+            (),
+            self.registry.dispatch_due(now=now, submit=self.submit),
+        )
+        self.assertEqual(1, len(self.submissions))
+
     def test_receipt_keeps_trigger_digest_after_submission_and_unknown_transition(self):
         spec = self.spec()
         self.registry.register(spec)
