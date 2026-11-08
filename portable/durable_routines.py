@@ -348,7 +348,7 @@ class DurableRoutineRegistry:
             rows = db.execute(
                 "SELECT occurrence_key,work_key,status,task_id,receipt_json "
                 "FROM routine_occurrences WHERE routine_id=? AND routine_version=? "
-                "AND trigger_kind='interval' ORDER BY created_at DESC",
+                "AND trigger_kind='interval' ORDER BY created_at DESC LIMIT 1",
                 (routine_id, version),
             ).fetchall()
         for row in rows:
@@ -371,6 +371,23 @@ class DurableRoutineRegistry:
         work_key = str(occurrence["work_key"])
         status = str(occurrence["status"])
         if status == "submitted":
+            receipt = json.loads(occurrence["receipt_json"])
+            coalesced = receipt.get("coalesced_missed_intervals", 0)
+            scheduled_at = receipt.get("scheduled_at")
+            if isinstance(scheduled_at, str):
+                try:
+                    due_at = _utc(datetime.fromisoformat(scheduled_at))
+                    coalesced += max(
+                        0, int((now - due_at).total_seconds() // interval_seconds)
+                    )
+                except (TypeError, ValueError):
+                    pass
+            if coalesced != receipt.get("coalesced_missed_intervals", 0):
+                self._update_receipt(
+                    occurrence_key, status="submitted",
+                    updates={"coalesced_missed_intervals": coalesced,
+                             "coalesced_after_submission": True},
+                )
             return RoutineDispatch(occurrence_key, work_key, "duplicate", occurrence.get("task_id"))
         if status not in {"dispatching", "unknown"}:
             return RoutineDispatch(occurrence_key, work_key, status)
