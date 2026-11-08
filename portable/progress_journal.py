@@ -474,6 +474,15 @@ class ProgressJournal:
             ),
         }
 
+    def events_for_task(self, task_id: str, *, limit: int = 100) -> list[dict[str, Any]]:
+        """Return a bounded copy of one task's progress/evidence events."""
+        if not isinstance(task_id, str) or not task_id.strip():
+            raise ValueError("task_id is required")
+        if type(limit) is not int or not 1 <= limit <= 500:
+            raise ValueError("event limit must be between 1 and 500")
+        rows = [dict(row) for row in self._events() if row.get("task_id") == task_id.strip()]
+        return rows[-limit:]
+
     def list_snapshots(self, *, now: datetime | None = None, stale_after_seconds: int = 60) -> list[dict[str, Any]]:
         ids = list(dict.fromkeys(r["task_id"] for r in self._events()))
         return [self.snapshot(task_id, now=now, stale_after_seconds=stale_after_seconds) for task_id in ids]
