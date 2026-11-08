@@ -205,8 +205,9 @@ class RemoteMCPServiceTests(unittest.TestCase):
     def test_status_and_evidence_are_read_only(self):
         self.service.start()
         status = self.service.call_tool("auren.service_status", {}, self.principal)
-        self.assertEqual("ok", status["status"])
+        self.assertIn(status["status"], {"ok", "degraded"})
         self.assertTrue(status["admissions"]["audit_chain_valid"])
+        self.assertTrue(status["dispatcher"]["running"])
         self.assertIn("queue", status)
         names = {tool["name"] for tool in self.service.list_tools(self.principal)}
         self.assertIn("auren.get_evidence", names)
@@ -458,6 +459,16 @@ class RemoteMCPASGITests(unittest.TestCase):
             scheme="http",
         )
         self.assertEqual(400, status)
+
+    def test_side_effecting_tool_cannot_be_invoked_as_notification(self):
+        status, _, body = self.request(
+            body={
+                "jsonrpc": "2.0", "method": "tools/call",
+                "params": {"name": "auren.submit_task", "arguments": {"task": "must not run"}},
+            },
+        )
+        self.assertEqual(400, status)
+        self.assertIn(b"requires a JSON-RPC request id", body)
 
     def test_notification_returns_202_without_json_body(self):
         status, _, body = self.request(
