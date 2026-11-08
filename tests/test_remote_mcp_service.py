@@ -161,6 +161,7 @@ class RemoteMCPServiceTests(unittest.TestCase):
             )
 
     def test_status_and_evidence_are_read_only(self):
+        self.service.start()
         status = self.service.call_tool("auren.service_status", {}, self.principal)
         self.assertEqual("ok", status["status"])
         self.assertTrue(status["admissions"]["audit_chain_valid"])
@@ -338,6 +339,14 @@ class RemoteMCPASGITests(unittest.TestCase):
         )
         self.assertEqual(202, status)
         self.assertEqual(b"", body)
+
+    def test_readiness_requires_the_durable_dispatcher(self):
+        status, _, body = self.request(method="GET", path="/readyz", body=None)
+        self.assertEqual(503, status)
+        self.service.start()
+        status, _, body = self.request(method="GET", path="/readyz", body=None)
+        self.assertEqual(200, status)
+        self.assertEqual({"status": "ok"}, json.loads(body))
 
     def test_protected_resource_metadata_is_public_but_origin_checked(self):
         status, _, body = self.request(
