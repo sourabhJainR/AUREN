@@ -677,8 +677,8 @@
   },
   "radar_refresh": {
     "reviewed_at": "2026-11-08",
-    "baseline_main_sha": "c99ade6fff9d7221da5ee74511b6ce39a873824e",
-    "status": "candidate signals only. Research refreshed through 2026-11-08. Main c99ade6fff9d7221da5ee74511b6ce39a873824e has 30 terminal check-runs: 30 successful, zero skipped, failed or pending. All eight post-merge push workflows succeeded. The v1.0.6 portable bundle and checksum were downloaded and rehashed: outer bundle 4739d865da93c639ca2e06eb83a2f76a1b6e0bd6b25c502fa2abbd5776c8cf36, checksum archive 40d27b229d608b08085b3dc373147df300b084c35fe0dc72f9904636a1994335, embedded ZIP 0bb57a6b7215fd846cb7252a70a469a4ee6c3d6cfdb94d91c4f445c1596804f7; all 538 manifest entries match size and SHA-256. Production isolation, independent evaluator/corpus custody, sealed holdout, physical-host admission, operator migration/rollback, provider-native live reconciliation and scientific replication remain blocked. No AGI/SI claim or default capability promotion is supported.",
+    "baseline_main_sha": "f5739d5f809a76d0d52f2138422ea52124eda5e5",
+    "status": "candidate signals only. Research refreshed through 2026-11-08. Current main f5739d5f809a76d0d52f2138422ea52124eda5e5 has 28 terminal check-runs: 28 successful, zero skipped, failed or pending. All six post-merge push workflows succeeded. The v1.0.6 portable bundle and checksum from run 42493782068 were downloaded and rehashed: outer bundle ec729395e71a193e45694a081b56bbb1e0243e02b5b0d97ec32eb2f115ffff98, checksum archive 0a789bbba81b16df51217e504a01cd6fd290cb21835474dcbf3ecac5dc9a0248, embedded ZIP b96de0c00c654b3ceb796d88474a9a87b580de6fe4f8c996df0947ff457341e8; all 538 manifest entries match size and SHA-256. PR #1305 exact head 539ffa957b74a55573608b041253c64b2f017f9e has 28/28 successful check-runs and six successful PR workflows, but independent review and real provider-native failure-injection receipts remain absent. Main's visible branch-protection metadata exposes no required status checks. Production isolation, independent evaluator/corpus custody, sealed holdout, physical-host admission, operator migration/rollback, live provider reconciliation and scientific replication remain blocked. No AGI/SI claim or default capability promotion is supported.",
     "policy": "External announcements and benchmark reports are comparison inputs, not evidence of equivalent AUREN capability. Reuse the canonical supervisor, TaskPlan, StateGraph, ExecutionController, Guard, RuntimeExecutionGuard, ProgressJournal, LearningSteward and Arena. No duplicate orchestrator or external runtime dependency. Keep adapters opt-in; no default model, harness or extension-pack promotion without paired measured value, independent evaluation and rollback. Discovery never grants authority.",
     "status_vocabulary": {
       "implementation": "Code path exists; does not imply tests or deployment.",
@@ -1288,34 +1288,93 @@
         "benchmark": "Preregister a bounded molecular-biology task with controls, withheld conditions and an expert rubric. Retain raw instrument logs, calibration, sample provenance, human approvals and negative results. Require an independent laboratory to reproduce the result and score predictive validity, safety, reproducibility and uncertainty. Include scientist-in-the-loop checkpoints, preregistered objectives and controls, raw-data and instrument provenance, alternative analytical choices, uncertainty, expert scoring, withheld-condition evaluation and independent laboratory replication.",
         "acceptance_threshold": "Physical actions require operator approval and safe instrument boundaries. No scientific claim or positive learning promotion without executable predictions, controls, withheld-condition success, expert review and independent laboratory replication. No physical experiment, clinical recommendation or scientific capability claim without explicit human authorization for consequential steps, expert review, reproducible raw evidence and independent domain replication.",
         "rollback": "Disable physical instrument adapters, preserve raw data and experiment receipts, retract dependent lessons, restore the prior memory/policy digest and rerun the pinned regression corpus. Disable physical-instrument adapters, preserve raw data and negative results, retract dependent lessons, restore the prior memory/policy digest and rerun the pinned regression corpus."
+      },
+      {
+        "id": "long_horizon_agent_control_architecture",
+        "source_date": "2026-09-17",
+        "sources": [
+          "https://arxiv.org/abs/2609.19519"
+        ],
+        "owner": [
+          "portable.execution_controller.ExecutionController",
+          "portable.progress_journal.ProgressJournal",
+          "portable.adaptive_runtime.AdaptiveRuntime",
+          "EngineeringPlanGoalReconciler"
+        ],
+        "status": "candidate_signal_only",
+        "implementation_status": "Canonical stable work identity, checkpoints, restart reconciliation and bounded parent-goal continuation already exist. The paper's hierarchical tick and review-triggered escalation pattern is a research comparison, not a new AUREN runtime.",
+        "ci_status": "Existing repository tests cover work-key resume, dependency continuation, bounded retry and no-progress termination; no multi-day independent campaign has run.",
+        "deployment_status": "not verified",
+        "independent_evaluation_status": "blocked",
+        "measured_gap": "The paper describes time-scale hierarchy, bounded summaries, clocked work ticks and escalation to a stronger model after failed review; it reports a ten-day campaign. AUREN has no independent long-duration measurement of continuity, no-progress detection, escalation quality, budget preservation or duplicate effects across process and context resets.",
+        "benchmark": "Run pinned multi-day engineering objectives with fresh-process restarts and context compaction. Score requirement retention, task state, duplicate consequential dispatch, recovery latency, no-progress termination, escalation count, deadline adherence, cost and rollback. Compare the canonical deterministic route with any bounded cascade on identical tasks and budgets.",
+        "acceptance_threshold": "Preserve the same stable work key, plan digest, approval state, budget and side-effect ledger across every restart; zero duplicate consequential dispatch; no budget reset; escalate only after a recorded review failure; no false completion. Capability claims still require an independently controlled evaluator and holdout.",
+        "rollback": "Disable the candidate tick/cascade adapter and resume from the last compatible canonical checkpoint through ExecutionController. Preserve traces and reconcile every unknown provider outcome before retry."
+      },
+      {
+        "id": "trajectory_level_long_horizon_evaluation",
+        "source_date": "2026-08-13",
+        "sources": [
+          "https://arxiv.org/abs/2608.13417"
+        ],
+        "owner": [
+          "Arena",
+          "LearningSteward",
+          "experiment manifests",
+          "evidence graph"
+        ],
+        "status": "candidate_signal_only",
+        "implementation_status": "AUREN has durable execution receipts, evidence envelopes and evidence-gated learning contracts; the paper's process-level R&D evaluation is not implemented as an independently operated benchmark.",
+        "ci_status": "Repository CI verifies selected recovery and learning contracts only; no external 36-task campaign or cross-task experience-reuse evaluation has run.",
+        "deployment_status": "not verified",
+        "independent_evaluation_status": "blocked",
+        "measured_gap": "The paper evaluates seven models on 36 long-horizon tasks and separates solution framing, execution and feedback control. It reports that experience reuse can help or mislead later decisions and that similar final scores can hide different bottlenecks. AUREN lacks a retained trajectory-level baseline with run-to-run variance and cross-task reuse attribution.",
+        "benchmark": "Use a frozen task set and identical budgets to compare the current canonical runtime with a candidate. Score framing/requirement reconstruction, execution quality, feedback control, intermediate state correctness, run variance, experience reuse benefit and harm, regressions, tool calls, latency and cost. Keep task/oracle versions and all negative results.",
+        "acceptance_threshold": "Do not accept final score alone. Require traceable intermediate outcomes, repeated-run uncertainty, negative-result retention and independent held-out evaluation before learning or capability promotion.",
+        "rollback": "Reject the candidate lesson or workflow change, retain its failed trajectory, restore the prior memory/component digest and rerun the pinned regression set."
+      },
+      {
+        "id": "trajectory_auditable_agent_deployment",
+        "source_date": "2026-08-17",
+        "sources": [
+          "https://arxiv.org/abs/2608.16411"
+        ],
+        "owner": [
+          "Evidence Envelope",
+          "ActionGovernance",
+          "ExecutionBoundary",
+          "Arena",
+          "independent evaluator gateway"
+        ],
+        "status": "candidate_signal_only",
+        "implementation_status": "Canonical action receipts, evidence envelopes and guarded dispatch exist; a separately administered trajectory-audit campaign and adequacy metric are not available.",
+        "ci_status": "Internal tests cover selected policy, receipt and replay contracts; they do not establish complete production telemetry, oracle adequacy or independent deployment safety.",
+        "deployment_status": "not verified",
+        "independent_evaluation_status": "blocked",
+        "measured_gap": "The paper frames deployment safety around full trajectories and highlights oracle design, non-determinism, trajectory validation, adequacy metrics and root-cause attribution. AUREN has no independently measured trace-completeness rate, oracle false-accept rate or trajectory-level failure-attribution quality.",
+        "benchmark": "For each consequential action, bind intent, principal, policy digest, request/response digest, pre/post state, approval, provider operation ID and terminal outcome. Inject missing/reordered events, stale or contradictory observations, non-deterministic outcomes and monitor suppression. Measure trace completeness, oracle agreement, false accepts/rejects, attribution accuracy and time-to-stop.",
+        "acceptance_threshold": "Every consequential action must be attributable to a host-verifiable identity and policy; missing or contradictory trace segments remain blocked. Require an independent evaluator and operator-host receipts before deployment or safety claims.",
+        "rollback": "Disable the affected action adapter, revoke its scope, preserve the incomplete trace, restore the last-known-good Guard policy and reconcile unknown external effects before resuming."
       }
     ],
     "repository_observation": {
       "reviewed_at": "2026-11-08",
-      "main_sha": "c99ade6fff9d7221da5ee74511b6ce39a873824e",
-      "open_pr_count": 2,
+      "main_sha": "f5739d5f809a76d0d52f2138422ea52124eda5e5",
+      "open_pr_count": 1,
       "open_prs": [
-        {
-          "number": 1304,
-          "title": "Prove executive roles cannot bypass mandatory delivery gates",
-          "base_sha": "405024ecc26ed891f48910f537a8c639af18fc26",
-          "head_sha": "209f159850bb19faf1a0a254bf026a4aa97f7fa4",
-          "state": "open",
-          "note": "Base is behind current main; exact-head checks are historical to the old base and the PR needs a fresh-base update and rerun. Independent review is not recorded."
-        },
         {
           "number": 1305,
           "title": "Require native recovery for every consequential Vibe stage",
-          "base_sha": "c99ade6fff9d7221da5ee74511b6ce39a873824e",
-          "head_sha": "418e49c177dd5e1b476b74fe4e8d643724aefcf6",
+          "base_sha": "f5739d5f809a76d0d52f2138422ea52124eda5e5",
+          "head_sha": "539ffa957b74a55573608b041253c64b2f017f9e",
           "state": "open",
-          "note": "Base equals this main snapshot. Exact-head checks are terminal-successful; provider SDK behavior and independent review remain unverified."
+          "note": "Exact-head check-runs: 28/28 successful; six PR workflows terminal-successful. Do not merge: independent authorized review and provider-native failure-injection receipts proving idempotency, authoritative not-found and uncertain-outcome reconciliation are absent."
         }
       ],
       "current_main_check_runs": {
         "status": "terminal",
-        "total": 30,
-        "success": 30,
+        "total": 28,
+        "success": 28,
         "skipped": 0,
         "failed": 0,
         "pending": 0
@@ -1323,73 +1382,61 @@
       "skipped_checks": [],
       "post_merge_push_workflows": {
         "status": "terminal",
-        "total": 8,
-        "success": 8,
+        "total": 6,
+        "success": 6,
         "failed": 0,
         "pending": 0,
         "runs": [
           {
-            "name": "Production AI Harness Hardening",
-            "run_id": 42439765529,
-            "conclusion": "success",
-            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42439765529"
-          },
-          {
-            "name": "Runtime Resilience Matrix",
-            "run_id": 42439765517,
-            "conclusion": "success",
-            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42439765517"
-          },
-          {
             "name": "Agent Capability Runtime",
-            "run_id": 42439765512,
+            "run_id": 42493781970,
             "conclusion": "success",
-            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42439765512"
-          },
-          {
-            "name": "AUREN cleanup contract",
-            "run_id": 42439765500,
-            "conclusion": "success",
-            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42439765500"
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42493781970"
           },
           {
             "name": "AUREN Portable Bundle",
-            "run_id": 42439765536,
+            "run_id": 42493782068,
             "conclusion": "success",
-            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42439765536"
-          },
-          {
-            "name": "Repository Construct Traceability Check",
-            "run_id": 42439765541,
-            "conclusion": "success",
-            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42439765541"
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42493782068"
           },
           {
             "name": "Architecture Integrity",
-            "run_id": 42439765494,
+            "run_id": 42493782062,
             "conclusion": "success",
-            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42439765494"
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42493782062"
           },
           {
             "name": "AI Harness Check",
-            "run_id": 42439765547,
+            "run_id": 42493782045,
             "conclusion": "success",
-            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42439765547"
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42493782045"
+          },
+          {
+            "name": "Production AI Harness Hardening",
+            "run_id": 42493782071,
+            "conclusion": "success",
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42493782071"
+          },
+          {
+            "name": "Runtime Resilience Matrix",
+            "run_id": 42493782080,
+            "conclusion": "success",
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42493782080"
           }
         ]
       },
-      "required_check_enforcement": "The active mainBranchRule exposes deletion and non-fast-forward protections only; no required-status-check rule is visible. The branch-protection API returned 403 Resource not accessible by integration; owner/admin confirmation is required.",
-      "local_checkout_and_runtime": "No local AUREN checkout or AutonomousCompany/ExecutionController runtime invocation is available in this environment; no local tests or process-level fault injection are claimed. GitHub Actions exact-head and main check-run evidence was inspected.",
-      "snapshot_note": "Open PRs 1304 and 1305 are the snapshot captured against main before PR #1306 was opened; PR #1306 is the current radar-refresh proposal and is intentionally excluded from this baseline list."
+      "required_check_enforcement": "The main branch endpoint reports protected=true but protection.enabled=false and required_status_checks has no contexts or checks. Effective required-check enforcement is not verified by this integration; owner/admin confirmation is required.",
+      "local_checkout_and_runtime": "No local AUREN checkout or AutonomousCompany/ExecutionController service invocation is available in this environment. The GitHub integration exposes no workflow-dispatch action. No local tests or process-level fault injection are claimed; exact-head GitHub Actions evidence was inspected.",
+      "snapshot_note": "Current snapshot is after PR #1307 merged to main. The only open PR is #1305; its exact-head checks are green but independent review and provider-native receipts remain blockers."
     },
     "artifact_integrity": {
       "status": "downloaded_and_rehashed",
-      "workflow_run_id": 42439765536,
-      "bundle_artifact_id": 13601481077,
-      "checksum_artifact_id": 13601705298,
-      "outer_bundle_artifact_sha256": "4739d865da93c639ca2e06eb83a2f76a1b6e0bd6b25c502fa2abbd5776c8cf36",
-      "outer_checksum_artifact_sha256": "40d27b229d608b08085b3dc373147df300b084c35fe0dc72f9904636a1994335",
-      "inner_bundle_sha256": "0bb57a6b7215fd846cb7252a70a469a4ee6c3d6cfdb94d91c4f445c1596804f7",
+      "workflow_run_id": 42493782068,
+      "bundle_artifact_id": 13622377492,
+      "checksum_artifact_id": 13622367600,
+      "outer_bundle_artifact_sha256": "ec729395e71a193e45694a081b56bbb1e0243e02b5b0d97ec32eb2f115ffff98",
+      "outer_checksum_artifact_sha256": "0a789bbba81b16df51217e504a01cd6fd290cb21835474dcbf3ecac5dc9a0248",
+      "inner_bundle_sha256": "b96de0c00c654b3ceb796d88474a9a87b580de6fe4f8c996df0947ff457341e8",
       "inner_checksum_status": "verified: checksum file matches the embedded ZIP SHA-256",
       "manifest_file_count": 538,
       "manifest_hash_or_size_mismatches": 0,
@@ -1397,13 +1444,13 @@
       "unexpected_generated_entries": [
         "payload/PORTABLE_BUNDLE.txt"
       ],
-      "source_commit": "c99ade6fff9d7221da5ee74511b6ce39a873824e",
+      "source_commit": "f5739d5f809a76d0d52f2138422ea52124eda5e5",
       "version": "1.0.6",
       "target_repository_mutation": false,
-      "bundle_expires_at": "2026-12-08T02:44:51Z",
-      "checksum_expires_at": "2026-12-08T02:44:53Z",
-      "local_download_rehash": "Downloaded both GitHub Actions artifact ZIPs and rehashed them in the container. Both outer SHA-256 digests match GitHub artifact metadata; the embedded ZIP SHA-256 matches the checksum file; all 538 manifest entries match size and SHA-256 with no missing or mismatched entries. payload/PORTABLE_BUNDLE.txt is the sole expected generated entry outside the manifest."
+      "bundle_expires_at": "2026-12-08T15:15:05Z",
+      "checksum_expires_at": "2026-12-08T15:15:07Z",
+      "local_download_rehash": "Downloaded both GitHub Actions artifact ZIPs and rehashed them. Outer bundle and checksum archive SHA-256 values match GitHub artifact metadata; the embedded ZIP digest matches auren-portable.sha256; all 538 manifest entries match recorded size and SHA-256 with no missing or mismatched files. payload/PORTABLE_BUNDLE.txt is the sole generated entry outside the manifest."
     }
   },
-  "status": "candidate signals only. Research refreshed through 2026-11-08. Main c99ade6fff9d7221da5ee74511b6ce39a873824e has 30 terminal check-runs: 30 successful, zero skipped, failed or pending. All eight post-merge push workflows succeeded. The v1.0.6 portable bundle and checksum were downloaded and rehashed: outer bundle 4739d865da93c639ca2e06eb83a2f76a1b6e0bd6b25c502fa2abbd5776c8cf36, checksum archive 40d27b229d608b08085b3dc373147df300b084c35fe0dc72f9904636a1994335, embedded ZIP 0bb57a6b7215fd846cb7252a70a469a4ee6c3d6cfdb94d91c4f445c1596804f7; all 538 manifest entries match size and SHA-256. Production isolation, independent evaluator/corpus custody, sealed holdout, physical-host admission, operator migration/rollback, provider-native live reconciliation and scientific replication remain blocked. No AGI/SI claim or default capability promotion is supported."
+  "status": "candidate signals only. Research refreshed through 2026-11-08. Current main f5739d5f809a76d0d52f2138422ea52124eda5e5 has 28 terminal check-runs: 28 successful, zero skipped, failed or pending. All six post-merge push workflows succeeded. The v1.0.6 portable bundle and checksum from run 42493782068 were downloaded and rehashed: outer bundle ec729395e71a193e45694a081b56bbb1e0243e02b5b0d97ec32eb2f115ffff98, checksum archive 0a789bbba81b16df51217e504a01cd6fd290cb21835474dcbf3ecac5dc9a0248, embedded ZIP b96de0c00c654b3ceb796d88474a9a87b580de6fe4f8c996df0947ff457341e8; all 538 manifest entries match size and SHA-256. PR #1305 exact head 539ffa957b74a55573608b041253c64b2f017f9e has 28/28 successful check-runs and six successful PR workflows, but independent review and real provider-native failure-injection receipts remain absent. Main's visible branch-protection metadata exposes no required status checks. Production isolation, independent evaluator/corpus custody, sealed holdout, physical-host admission, operator migration/rollback, live provider reconciliation and scientific replication remain blocked. No AGI/SI claim or default capability promotion is supported."
 }
