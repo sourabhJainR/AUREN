@@ -25,6 +25,10 @@ def _load_runtime(factory_path: str, project_root: Path) -> Any:
         raise TypeError("runtime factory did not configure the AUREN execution controller")
     if getattr(runtime, "trigger_runtime", None) is None:
         raise TypeError("runtime factory did not configure the durable trigger runtime")
+    graph = getattr(getattr(runtime, "orchestrator", None), "graph", None)
+    order = getattr(graph, "order", None)
+    if not callable(order) or not order():
+        raise TypeError("runtime factory must return a configured runtime with a non-empty agent graph")
     return runtime
 
 
