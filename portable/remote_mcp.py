@@ -226,6 +226,7 @@ class AurenMCPService:
         rate_window_seconds: int = DEFAULT_RATE_WINDOW_SECONDS,
         approval_store: DurableApprovalStore | None = None,
         dispatcher_poll_seconds: float = 2.0,
+        control_store_path: str | Path | None = None,
     ):
         self.runtime = runtime
         self.controller = getattr(runtime, "execution_controller", None)
@@ -265,7 +266,11 @@ class AurenMCPService:
         self._stop = threading.Event()
         self._worker: threading.Thread | None = None
         self.dispatcher_poll_seconds = dispatcher_poll_seconds
-        self.control_db = canonical_auren_home() / "mcp" / "operator-control.sqlite3"
+        self.control_db = (
+            Path(control_store_path).expanduser().resolve()
+            if control_store_path is not None
+            else canonical_auren_home() / "mcp" / "operator-control.sqlite3"
+        )
         self.control_db.parent.mkdir(parents=True, exist_ok=True)
         self._initialize_control_store()
 
@@ -479,9 +484,11 @@ class AurenMCPService:
                 findings = list(self.controller.health_findings())[:50]
             except Exception as exc:
                 findings = ["health_check_unavailable:" + type(exc).__name__]
+            control = self._control()
+            degraded = bool(findings) or queue.get("status") == "unavailable" or not control["audit_chain_valid"]
             return {
-                "status": "degraded" if findings or queue.get("status") == "unavailable" else "ok",
-                "workspace": str(self.project_root), "admissions": self._control(),
+                "status": "degraded" if degraded else "ok",
+                "workspace": str(self.project_root), "admissions": control,
                 "queue": queue, "health_findings": [_safe_text(x, 300) for x in findings],
                 "mcp_protocol_versions": list(SUPPORTED_PROTOCOL_VERSIONS),
             }
