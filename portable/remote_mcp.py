@@ -555,15 +555,18 @@ class AurenMCPService:
                 "auren.get_task", "auren.get_evidence", "auren.list_approvals",
                 "auren.get_approval",
             }
+            consequential = name in {
+                "auren.submit_task", "auren.cancel_task", "auren.decide_approval",
+                "auren.resume_provider_task", "auren.pause_admissions", "auren.resume_admissions",
+            }
+            title = name.removeprefix("auren.").replace("_", " ").title()[:64]
             tool = {
-                "name": name, "description": description, "inputSchema": schema,
+                "name": name, "title": title, "description": description, "inputSchema": schema,
                 "annotations": {
+                    "title": title,
                     "readOnlyHint": read_only,
-                    "destructiveHint": name in {
-                        "auren.cancel_task", "auren.decide_approval",
-                        "auren.pause_admissions", "auren.resume_admissions",
-                    },
-                    "openWorldHint": False,
+                    "destructiveHint": consequential,
+                    "openWorldHint": consequential,
                 },
                 "_meta": {"securitySchemes": [{"type": "oauth2", "scopes": [scope]}]},
             }
