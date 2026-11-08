@@ -62,6 +62,8 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("tests/test_agency_observability.py", ("tests.test_agency_observability",), True),
     ("portable/engineering_dashboard.py", ("tests.test_engineering_dashboard",), True),
     ("tests/test_engineering_dashboard.py", ("tests.test_engineering_dashboard",), True),
+    ("portable/muxin_session_adapter.py", ("tests.test_dashboard_sessions", "tests.test_control_center_api"), False),
+    ("tests/test_dashboard_sessions.py", ("tests.test_dashboard_sessions",), False),
     ("portable/dashboard_server.py", ("tests.test_control_center_api",), True),
     ("tests/test_control_center_api.py", ("tests.test_control_center_api",), True),
     ("portable/durable_routines.py", ("tests.test_durable_routines", "tests.test_continuous_execution"), True),

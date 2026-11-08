@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import time
 import urllib.error
 import urllib.request
@@ -25,7 +26,57 @@ _STAGE_ORDER = (
 _STAGE_PROGRESS = {name: round(index * 100 / (len(_STAGE_ORDER) - 1)) for index, name in enumerate(_STAGE_ORDER)}
 _TERMINAL_FAILURES = {"failed", "blocked", "cancelled", "canceled"}
 _MAX_SESSIONS = 100
+_MAX_WORKSPACES = 25
+_MAX_WORKSPACE_LIST_ITEMS = 20
 _MAX_RESPONSE_BYTES = 1024 * 1024
+
+
+def workspace_registry_reader(registry_path: str | Path) -> Callable[[], list[dict[str, Any]]]:
+    """Create a read-only adapter for the canonical GraphWorkspaceCoordinator registry.
+
+    The registry location is host-configured. This adapter never reads workspace
+    directories, executes Git commands, or exposes persisted host filesystem paths.
+    """
+    path = Path(registry_path).expanduser()
+
+    def read() -> list[dict[str, Any]]:
+        if not path.is_absolute():
+            raise ValueError("workspace registry path must be absolute")
+        if path.is_symlink():
+            raise PermissionError("workspace registry must not be a symlink")
+        resolved = path.resolve(strict=True)
+        if not resolved.is_file():
+            raise FileNotFoundError("workspace registry is not a file")
+        connection = sqlite3.connect(f"{resolved.as_uri()}?mode=ro", uri=True, timeout=2)
+        connection.row_factory = sqlite3.Row
+        try:
+            connection.execute("PRAGMA query_only=ON")
+            rows = connection.execute(
+                """SELECT worker_id, task_id, base_revision, owned_paths, state,
+                          artifact_digest, proposal_paths
+                   FROM graph_workspace_registry
+                   ORDER BY worker_id LIMIT 1001"""
+            ).fetchall()
+            records = []
+            for row in rows:
+                owned_paths = json.loads(row["owned_paths"] or "[]")
+                proposal_paths = json.loads(row["proposal_paths"] or "[]")
+                digest = row["artifact_digest"]
+                records.append({
+                    "workspace_id": row["worker_id"],
+                    "worker_id": row["worker_id"],
+                    "task_id": row["task_id"],
+                    "status": row["state"],
+                    "base_revision": row["base_revision"],
+                    "owned_paths": owned_paths,
+                    "changed_paths": proposal_paths,
+                    "evidence_refs": [digest] if digest else [],
+                })
+            return records
+        finally:
+            connection.close()
+
+    return read
 
 
 def stage_progress(stage: str) -> int:
@@ -44,11 +95,15 @@ class MuxinSessionAdapter:
         session_store: SessionStore | None = None,
         dashboard: EngineeringDashboard | None = None,
         learning_reader: Callable[[], list[dict[str, Any]]] | None = None,
+        workspace_reader: Callable[[], list[dict[str, Any]]] | None = None,
     ) -> None:
         self.project_root = Path(project_root).expanduser().resolve()
         self.session_store = session_store or SessionStore()
         self.dashboard = dashboard or EngineeringDashboard(self.project_root)
         self.learning_reader = learning_reader or self._canonical_learnings
+        # The host supplies a read-only projection from the canonical workspace registry.
+        # The dashboard never opens worker paths or owns workspace lifecycle.
+        self.workspace_reader = workspace_reader
 
     def _canonical_learnings(self) -> list[dict[str, Any]]:
         """Read learnings through the existing canonical memory/provenance graph."""
@@ -188,6 +243,89 @@ class MuxinSessionAdapter:
             "evidence": [],
         }
 
+    @staticmethod
+    def _workspace_text(value: Any, field: str, *, required: bool = False, limit: int = 256) -> str | None:
+        if value is None and not required:
+            return None
+        if not isinstance(value, str) or not value.strip() or len(value) > limit or "\x00" in value:
+            raise ValueError(f"workspace {field} must be non-empty bounded text")
+        return value.strip()
+
+    @classmethod
+    def _workspace_list(
+        cls, value: Any, field: str, *, path_list: bool = False,
+    ) -> tuple[list[str], bool]:
+        if value is None:
+            return [], False
+        if not isinstance(value, (list, tuple)):
+            raise ValueError(f"workspace {field} must be a list")
+        result = []
+        for item in value[:_MAX_WORKSPACE_LIST_ITEMS]:
+            text = cls._workspace_text(item, field, required=True, limit=256)
+            if path_list and (
+                text.startswith("/") or "\\" in text or (len(text) > 1 and text[1] == ":")
+                or any(part in {"", ".", ".."} for part in text.split("/"))
+            ):
+                raise ValueError(f"workspace {field} must contain normalized repository-relative paths")
+            result.append(text)
+        return result, len(value) > _MAX_WORKSPACE_LIST_ITEMS
+
+    def _workspace_snapshot(self) -> dict[str, Any]:
+        """Return a bounded, allowlisted view of host-owned workspace receipts.
+
+        Host filesystem paths, raw worker output, credentials and coordinator
+        internals are deliberately excluded. Missing or failed readers are not
+        represented as an empty, healthy workspace inventory.
+        """
+        if self.workspace_reader is None:
+            return {
+                "status": "not_configured", "total_count": None,
+                "truncated": False, "records": [],
+                "reason": "host_workspace_reader_not_configured",
+            }
+        try:
+            rows = self.workspace_reader()
+            if not isinstance(rows, (list, tuple)) or len(rows) > 1000:
+                raise ValueError("workspace reader returned an invalid or oversized inventory")
+            records = []
+            seen_workspace_ids: set[str] = set()
+            for raw in rows[:_MAX_WORKSPACES]:
+                if not isinstance(raw, dict):
+                    raise ValueError("workspace record must be an object")
+                workspace_id = self._workspace_text(raw.get("workspace_id"), "workspace_id", required=True)
+                if workspace_id in seen_workspace_ids:
+                    raise ValueError("workspace inventory contains duplicate workspace IDs")
+                seen_workspace_ids.add(workspace_id)
+                owned, owned_truncated = self._workspace_list(raw.get("owned_paths"), "owned_paths", path_list=True)
+                changed, changed_truncated = self._workspace_list(raw.get("changed_paths"), "changed_paths", path_list=True)
+                evidence, evidence_truncated = self._workspace_list(raw.get("evidence_refs"), "evidence_refs")
+                record = {
+                    "workspace_id": workspace_id,
+                    "worker_id": self._workspace_text(raw.get("worker_id"), "worker_id"),
+                    "task_id": self._workspace_text(raw.get("task_id"), "task_id"),
+                    "sandbox_id": self._workspace_text(raw.get("sandbox_id"), "sandbox_id"),
+                    "status": self._workspace_text(raw.get("status"), "status", required=True, limit=80),
+                    "base_revision": self._workspace_text(raw.get("base_revision"), "base_revision", limit=64),
+                    "branch": self._workspace_text(raw.get("branch"), "branch"),
+                    "updated_at": self._workspace_text(raw.get("updated_at"), "updated_at", limit=80),
+                    "owned_paths": owned,
+                    "changed_paths": changed,
+                    "evidence_refs": evidence,
+                    "lists_truncated": owned_truncated or changed_truncated or evidence_truncated,
+                }
+                records.append(record)
+            return {
+                "status": "available", "total_count": len(rows),
+                "truncated": len(rows) > len(records), "records": records,
+                "reason": None,
+            }
+        except Exception as exc:
+            return {
+                "status": "unavailable", "total_count": None,
+                "truncated": False, "records": [],
+                "reason": type(exc).__name__,
+            }
+
     def session_snapshot(self, *, offset: int = 0, limit: int = 50, query: str = "", status: str = "all") -> dict[str, Any]:
         """Return a bounded, privacy-safe live view of durable sessions and tasks.
 
@@ -233,7 +371,7 @@ class MuxinSessionAdapter:
             "schema_version": 1,
             "generated_at": dashboard.get("generated_at"),
             "project": dashboard.get("project"),
-            "source": "durable session checkpoints, supervisor progress journal and verified plan store",
+            "source": "durable session checkpoints, supervisor progress journal, verified plan store and optional host workspace projection",
             "counts": {
                 **counts, "tasks": len(tasks), "plan_runs": len(plans),
             },
@@ -245,6 +383,7 @@ class MuxinSessionAdapter:
             "sessions": sessions,
             "tasks": tasks,
             "plan_runs": plans,
+            "workspaces": self._workspace_snapshot(),
         }
 
     def snapshot(self) -> dict[str, Any]:

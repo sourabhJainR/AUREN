@@ -111,6 +111,17 @@ class ImpactPolicyTests(unittest.TestCase):
                 for suite in impact.required_suites:
                     self.assertIn(suite, hardening_workflow, f"{path} requires {suite}, but hardening does not run it")
 
+    def test_workspace_dashboard_projection_has_focused_runtime_coverage(self):
+        adapter = classify_path("portable/muxin_session_adapter.py")
+        tests = classify_path("tests/test_dashboard_sessions.py")
+        self.assertIsNotNone(adapter)
+        self.assertIsNotNone(tests)
+        self.assertFalse(adapter.hardening_required)
+        self.assertFalse(tests.hardening_required)
+        self.assertIn("tests.test_dashboard_sessions", adapter.required_suites)
+        self.assertIn("tests.test_control_center_api", adapter.required_suites)
+        self.assertEqual(("tests.test_dashboard_sessions",), tests.required_suites)
+
     def test_runtime_resilience_filter_covers_recovery_sensitive_paths(self):
         workflow = Path(".github/workflows/runtime-resilience.yml").read_text(encoding="utf-8")
         match = re.search(r"patterns = (\[.*?\])", workflow, re.DOTALL)
@@ -164,6 +175,8 @@ class ImpactPolicyTests(unittest.TestCase):
             "tests/test_agency_evolution_gates.py",
             "portable/dashboard_server.py",
             "tests/test_control_center_api.py",
+            "portable/muxin_session_adapter.py",
+            "tests/test_dashboard_sessions.py",
             "portable/durable_routines.py",
             "tests/test_durable_routines.py",
         )

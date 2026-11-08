@@ -6,6 +6,13 @@ The Engineering Console is a read-only observability surface over AUREN's existi
 
 The Sessions tab polls the read-only `GET /api/sessions` endpoint every four seconds. It combines project-scoped durable session checkpoints, supervisor progress journal rows and digest-verified plan-run summaries. Session checkpoints are paginated (50 per request by default), with inventory-wide counts and explicit previous/next navigation so larger inventories are not silently truncated. Search and state filters are applied to the full verified inventory before pagination, so results and page totals remain correct across large histories. Active, completed, blocked, stale and unverified records remain distinct. The endpoint uses an allowlist projection and excludes session intent, raw error text, task messages, plan goals, prompts and credentials. A failed refresh is shown as unavailable; it does not clear or complete previously observed work.
 
+### Isolated workspace inventory
+
+The session snapshot can include a read-only `workspaces` projection when the host injects `workspace_reader` into `MuxinSessionAdapter`. The reader must adapt the canonical `GraphWorkspaceCoordinator` registry; the dashboard does not create a parallel workspace store or open worker filesystem paths. The projection exposes only workspace/worker/task/sandbox IDs, status, base revision, branch, bounded repository-relative owned/changed paths and evidence references. Host paths, raw worker output, credentials and coordinator internals are excluded. The response is capped at 25 workspaces and 20 values per list, with truncation marked.
+
+An absent reader is `not_configured`; a failed or invalid reader is `unavailable`. Neither is represented as zero workspaces. This is a read-only visibility slice, not a control plane. The dashboard CLI uses the built-in read-only SQLite adapter when `AUREN_WORKSPACE_REGISTRY` is set to the absolute path of the host's canonical, project-scoped `graph_workspace_registry` database. Do not share one registry across unrelated repositories. If the variable is unset, the panel reports `not_configured`; an unreadable or incompatible registry reports `unavailable`. Start/pause/interrupt/cancel/resume/approval and merge controls remain unavailable until a separately authenticated, CSRF-protected adapter can authorize every command through the canonical controller and persist auditable receipts.
+
+
 ## Run from an installed AUREN
 
 The portable installation keeps the active build under ~/.auren/current on Linux/macOS and %USERPROFILE%\\.auren\\current on Windows.

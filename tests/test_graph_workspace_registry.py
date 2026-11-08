@@ -43,6 +43,61 @@ class DurableGraphWorkspaceRegistryTests(unittest.TestCase):
             coordinator.close()
         self.temp.cleanup()
 
+    def test_legacy_registry_migrates_task_id_column_and_preserves_rows(self):
+        first = self.make_coordinator()
+        first.create_worker("worker-legacy", ["src/legacy.py"])
+        first.close()
+        self.coordinators.remove(first)
+
+        db = sqlite3.connect(self.registry)
+        db.execute("ALTER TABLE graph_workspace_registry RENAME TO registry_with_task_id")
+        db.execute(
+            """CREATE TABLE graph_workspace_registry (
+                worker_id TEXT PRIMARY KEY, base_revision TEXT NOT NULL,
+                owned_paths TEXT NOT NULL, workspace_path TEXT NOT NULL,
+                state TEXT NOT NULL, artifact_path TEXT, artifact_digest TEXT,
+                proposal_paths TEXT, cancellation_reason TEXT, termination_evidence TEXT
+            )"""
+        )
+        db.execute(
+            """INSERT INTO graph_workspace_registry
+               (worker_id,base_revision,owned_paths,workspace_path,state,artifact_path,
+                artifact_digest,proposal_paths,cancellation_reason,termination_evidence)
+               SELECT worker_id,base_revision,owned_paths,workspace_path,state,artifact_path,
+                      artifact_digest,proposal_paths,cancellation_reason,termination_evidence
+               FROM registry_with_task_id"""
+        )
+        db.execute("DROP TABLE registry_with_task_id")
+        db.commit()
+        db.close()
+
+        coordinator = self.make_coordinator()
+        columns = {
+            row[1] for row in coordinator._registry.execute(
+                "PRAGMA table_info(graph_workspace_registry)"
+            )
+        }
+        self.assertIn("task_id", columns)
+        self.assertIn("worker-legacy", coordinator.worker_states())
+        self.assertIsNone(coordinator._task_ids["worker-legacy"])
+
+    def test_task_identity_is_persisted_and_restored_with_workspace(self):
+        first = self.make_coordinator()
+        first.create_worker("worker-task-bound", ["src/task.py"], task_id="task-123")
+        first.close()
+
+        second = self.make_coordinator()
+        self.assertEqual(second._task_ids["worker-task-bound"], "task-123")
+        db = sqlite3.connect(self.registry)
+        try:
+            task_id = db.execute(
+                "SELECT task_id FROM graph_workspace_registry WHERE worker_id=?",
+                ("worker-task-bound",),
+            ).fetchone()[0]
+        finally:
+            db.close()
+        self.assertEqual(task_id, "task-123")
+
     def test_fresh_coordinator_restores_worker_ownership_and_blocks_duplicate_id(self):
         first = self.make_coordinator()
         workspace = first.create_worker("worker-a", ["src/a.py"])

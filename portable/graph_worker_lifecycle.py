@@ -502,7 +502,7 @@ class GraphWorkerLifecycle:
                 message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "worker_started")
                 + "; budget=" + json.dumps(self._budget_summary(), sort_keys=True, separators=(",", ":")),
             )
-            workspace = self.coordinator.create_worker(worker_id, owned_paths)
+            workspace = self.coordinator.create_worker(worker_id, owned_paths, task_id=task_id)
             recovery_state = self.recovery_bridge.load()["nodes"][task_id]
             self._record_recovery_node(
                 task_id=task_id, status="working", next_safe_action="execute_worker_and_capture_proposal",

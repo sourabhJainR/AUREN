@@ -99,6 +99,7 @@ class GraphWorkspaceCoordinator:
         self._cancel_event = threading.Event()
         self._cancel_reason: str | None = None
         self._owners: dict[str, tuple[str, ...]] = {}
+        self._task_ids: dict[str, str | None] = {}
         self._leases: dict[str, IsolatedGitWorktree] = {}
         self._states: dict[str, str] = {}
         self._proposals: dict[str, WorkspaceProposal] = {}
@@ -114,7 +115,7 @@ class GraphWorkspaceCoordinator:
         self._registry.execute("PRAGMA journal_mode=WAL")
         self._registry.execute("PRAGMA synchronous=FULL")
         self._registry.execute("""CREATE TABLE IF NOT EXISTS graph_workspace_registry (
-            worker_id TEXT PRIMARY KEY, base_revision TEXT NOT NULL, owned_paths TEXT NOT NULL,
+            worker_id TEXT PRIMARY KEY, task_id TEXT, base_revision TEXT NOT NULL, owned_paths TEXT NOT NULL,
             workspace_path TEXT NOT NULL, state TEXT NOT NULL, artifact_path TEXT,
             artifact_digest TEXT, proposal_paths TEXT, cancellation_reason TEXT,
             termination_evidence TEXT
@@ -122,6 +123,8 @@ class GraphWorkspaceCoordinator:
         columns = {row[1] for row in self._registry.execute("PRAGMA table_info(graph_workspace_registry)")}
         if "termination_evidence" not in columns:
             self._registry.execute("ALTER TABLE graph_workspace_registry ADD COLUMN termination_evidence TEXT")
+        if "task_id" not in columns:
+            self._registry.execute("ALTER TABLE graph_workspace_registry ADD COLUMN task_id TEXT")
         self._registry.execute("""CREATE TABLE IF NOT EXISTS graph_workspace_adoptions (
             adoption_id TEXT PRIMARY KEY, base_revision TEXT NOT NULL, worker_ids TEXT NOT NULL,
             paths TEXT NOT NULL, artifact_path TEXT NOT NULL, artifact_digest TEXT NOT NULL,
@@ -160,16 +163,16 @@ class GraphWorkspaceCoordinator:
                 proposal_paths = json.dumps(list(proposal.paths)) if proposal else None
                 self._registry.execute(
                     """INSERT INTO graph_workspace_registry
-                    (worker_id, base_revision, owned_paths, workspace_path, state, artifact_path,
+                    (worker_id, task_id, base_revision, owned_paths, workspace_path, state, artifact_path,
                      artifact_digest, proposal_paths, cancellation_reason, termination_evidence)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(worker_id) DO UPDATE SET base_revision=excluded.base_revision,
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(worker_id) DO UPDATE SET task_id=excluded.task_id, base_revision=excluded.base_revision,
                     owned_paths=excluded.owned_paths, workspace_path=excluded.workspace_path,
                     state=excluded.state, artifact_path=excluded.artifact_path,
                     artifact_digest=excluded.artifact_digest, proposal_paths=excluded.proposal_paths,
                     cancellation_reason=excluded.cancellation_reason,
                     termination_evidence=excluded.termination_evidence""",
-                    (worker_id, lease.base_revision, json.dumps(list(self._owners[worker_id])),
+                    (worker_id, self._task_ids.get(worker_id), lease.base_revision, json.dumps(list(self._owners[worker_id])),
                      str(lease.path), state, artifact_path, artifact_digest, proposal_paths,
                      self._cancel_reason, self._termination_evidence.get(worker_id)),
                 )
@@ -519,9 +522,9 @@ class GraphWorkspaceCoordinator:
     def _restore_registry(self) -> None:
         """Restore exact-base workers, plus only workers covered by a verified adoption commit receipt."""
         rows = self._registry.execute(
-            "SELECT worker_id, base_revision, owned_paths, workspace_path, state, artifact_path, artifact_digest, proposal_paths, cancellation_reason, termination_evidence FROM graph_workspace_registry ORDER BY worker_id"
+            "SELECT worker_id, task_id, base_revision, owned_paths, workspace_path, state, artifact_path, artifact_digest, proposal_paths, cancellation_reason, termination_evidence FROM graph_workspace_registry ORDER BY worker_id"
         ).fetchall()
-        for worker_id, base, owned, workspace, state, artifact, digest, proposal_paths, reason, termination_evidence in rows:
+        for worker_id, task_id, base, owned, workspace, state, artifact, digest, proposal_paths, reason, termination_evidence in rows:
             committed_id = self._committed_workers.get(worker_id)
             if base != self.base_revision:
                 receipt = self._committed_adoptions.get(committed_id) if committed_id else None
@@ -532,6 +535,7 @@ class GraphWorkspaceCoordinator:
                     raise RuntimeError("durable graph workspace registry is bound to a stale base revision; operator reconciliation required")
             path = Path(workspace)
             self._owners[worker_id] = tuple(json.loads(owned))
+            self._task_ids[worker_id] = task_id
             self._leases[worker_id] = _RecoveredLease(path, base)
             if artifact:
                 self._captured_artifacts[worker_id] = artifact
@@ -575,9 +579,15 @@ class GraphWorkspaceCoordinator:
     def cancellation_event(self) -> threading.Event:
         return self._cancel_event
 
-    def create_worker(self, worker_id: str, owned_paths: Iterable[str]) -> Path:
+    def create_worker(
+        self, worker_id: str, owned_paths: Iterable[str], *, task_id: str | None = None,
+    ) -> Path:
         if not isinstance(worker_id, str) or not _WORKER_ID.fullmatch(worker_id):
             raise ValueError("worker_id must be a safe identifier")
+        if task_id is not None and (
+            not isinstance(task_id, str) or not task_id.strip() or len(task_id) > 256 or "\\x00" in task_id
+        ):
+            raise ValueError("task_id must be non-empty bounded text")
         paths = tuple(sorted({_clean_path(path) for path in owned_paths}))
         if not paths:
             raise ValueError("each worker must declare at least one owned path")
@@ -601,6 +611,7 @@ class GraphWorkspaceCoordinator:
             if lease.base_revision != self.base_revision:
                 raise RuntimeError("worker worktree base differs from coordinator base")
             self._owners[worker_id] = paths
+            self._task_ids[worker_id] = task_id.strip() if task_id else None
             self._leases[worker_id] = lease
             self._states[worker_id] = "running"
             self._persist_registry()

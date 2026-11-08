@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 import subprocess
 import sys
 import textwrap
@@ -108,6 +109,15 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
         self.assertEqual(plan.recovery_bridge.load()["nodes"]["write-a"]["status"], "complete")
         self.assertEqual(plan.recovery_bridge.load()["run_status"], "complete")
         self.assertTrue(Path(result["workers"]["worker-a"]["receipt_path"]).is_file())
+        registry = sqlite3.connect(self.coordinator.registry_path)
+        try:
+            task_id = registry.execute(
+                "SELECT task_id FROM graph_workspace_registry WHERE worker_id=?",
+                ("worker-a",),
+            ).fetchone()[0]
+        finally:
+            registry.close()
+        self.assertEqual(task_id, "write-a")
 
     def test_failed_independent_check_never_adopts_or_reports_success(self):
         plan = self.lifecycle([
