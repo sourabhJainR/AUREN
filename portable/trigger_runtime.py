@@ -270,6 +270,26 @@ class TriggerRuntime:
             row = db.execute(self._select_sql() + " WHERE event_id=?", (event_id.strip(),)).fetchone()
         return self._event(row) if row else None
 
+    def count_events(
+        self, *, kind: str | None = None,
+        statuses: tuple[str, ...] = ("pending", "claimed", "retryable"),
+    ) -> int:
+        """Return an exact durable count for workspace admission control."""
+        allowed = {"pending", "claimed", "retryable", "success", "failed", "cancelled"}
+        if not statuses or any(status not in allowed for status in statuses):
+            raise ValueError("event statuses are invalid")
+        if kind is not None and (not isinstance(kind, str) or not kind.strip()):
+            raise ValueError("kind must be non-empty text when supplied")
+        placeholders = ",".join("?" for _ in statuses)
+        sql = "SELECT COUNT(*) FROM trigger_events WHERE status IN (" + placeholders + ")"
+        params: tuple[Any, ...] = tuple(statuses)
+        if kind is not None:
+            sql += " AND kind=?"
+            params += (kind.strip(),)
+        with self._connect() as db:
+            row = db.execute(sql, params).fetchone()
+        return int(row[0])
+
     def list_events(
         self, *, kind: str | None = None, limit: int = 100,
     ) -> tuple[TriggerEvent, ...]:
