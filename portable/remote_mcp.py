@@ -180,18 +180,20 @@ class OAuthIntrospectionVerifier:
                 if response.status != 200:
                     raise ValueError("OAuth introspection did not return HTTP 200")
                 payload = json.loads(response.read(32_768).decode("utf-8"))
+            if not isinstance(payload, Mapping):
+                raise ValueError("OAuth introspection response must be an object")
             if payload.get("active") is True:
                 audience = payload.get("aud")
                 audiences = [audience] if isinstance(audience, str) else audience
                 expiry = payload.get("exp")
                 if (
                     isinstance(audiences, list) and self.audience in audiences
-                    and isinstance(expiry, (int, float)) and expiry > time.time()
+                    and type(expiry) in {int, float} and expiry > time.time()
                     and isinstance(payload.get("sub"), str) and payload["sub"]
                     and isinstance(payload.get("iss"), str)
                     and payload["iss"].rstrip("/") == self.issuer
                     and (payload.get("nbf") is None or (
-                        isinstance(payload.get("nbf"), (int, float)) and payload["nbf"] <= time.time()
+                        type(payload.get("nbf")) in {int, float} and payload["nbf"] <= time.time()
                     ))
                 ):
                     raw_scopes = payload.get("scope", "")
