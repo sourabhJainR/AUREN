@@ -16,6 +16,7 @@ from portable.remote_mcp import (
     AurenMCPASGI,
     AurenMCPService,
     MCPPrincipal,
+    MCPServiceError,
     OAuthIntrospectionVerifier,
     StaticBearerTokenVerifier,
 )
@@ -209,6 +210,33 @@ class RemoteMCPServiceTests(unittest.TestCase):
         self.assertIn("queue", status)
         names = {tool["name"] for tool in self.service.list_tools(self.principal)}
         self.assertIn("auren.get_evidence", names)
+
+    def test_rate_limit_is_shared_by_service_instances_on_the_host(self):
+        verifier = StaticBearerTokenVerifier([{
+            "token": self.token, "subject": self.principal.subject,
+            "scopes": sorted(self.principal.scopes), "roles": list(self.principal.roles),
+            "projects": list(self.principal.projects),
+        }])
+        first = AurenMCPService(
+            self.runtime, project_root=self.root, token_verifier=verifier,
+            resource_url="https://mcp.example.test/mcp",
+            allowed_hosts=("mcp.example.test",), require_https=True,
+            control_store_path=self.root / "shared-rate.sqlite3", rate_limit=1,
+        )
+        second = AurenMCPService(
+            self.runtime, project_root=self.root, token_verifier=verifier,
+            resource_url="https://mcp.example.test/mcp",
+            allowed_hosts=("mcp.example.test",), require_https=True,
+            control_store_path=self.root / "shared-rate.sqlite3", rate_limit=1,
+        )
+        try:
+            headers = {"authorization": "Bearer " + self.token}
+            self.assertEqual(self.principal.subject, first.authenticate(headers).subject)
+            with self.assertRaisesRegex(MCPServiceError, "rate limit exceeded"):
+                second.authenticate(headers)
+        finally:
+            first.close()
+            second.close()
 
     def test_static_tokens_reject_weak_or_unknown_scopes(self):
         with self.assertRaisesRegex(ValueError, "at least 32"):
