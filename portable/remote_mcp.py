@@ -1264,7 +1264,10 @@ class AurenMCPASGI:
             port = parsed.port
         except ValueError:
             return False
-        if not hostname:
+        if (
+            not hostname or parsed.username or parsed.password
+            or parsed.path or parsed.query or parsed.fragment
+        ):
             return False
         key = (hostname.lower(), port)
         return (
