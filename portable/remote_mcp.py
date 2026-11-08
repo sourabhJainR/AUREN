@@ -118,6 +118,11 @@ class StaticBearerTokenVerifier:
         return found
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, message, headers, new_url):
+        return None
+
+
 class OAuthIntrospectionVerifier:
     """RFC 7662 resource-server adapter with audience checks and bounded caching."""
 
@@ -144,6 +149,7 @@ class OAuthIntrospectionVerifier:
         self.cache_seconds = cache_seconds
         self._cache: dict[str, tuple[float, MCPPrincipal | None]] = {}
         self._lock = threading.Lock()
+        self._opener = urllib.request.build_opener(_NoRedirectHandler())
 
     def verify(self, token: str) -> MCPPrincipal | None:
         if not token or len(token) > 16_384:
@@ -170,7 +176,7 @@ class OAuthIntrospectionVerifier:
         )
         principal = None
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+            with self._opener.open(request, timeout=self.timeout_seconds) as response:
                 if response.status != 200:
                     raise ValueError("OAuth introspection did not return HTTP 200")
                 payload = json.loads(response.read(32_768).decode("utf-8"))
