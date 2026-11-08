@@ -227,6 +227,22 @@ class RemoteMCPServiceTests(unittest.TestCase):
                 self.principal,
             )
 
+    def test_retryable_unclaimed_trigger_can_be_cancelled_before_replay(self):
+        event = self.runtime.trigger_runtime.emit(
+            "adaptive_runtime", {"task": "retryable task"}, event_id="retryable-cancel",
+        )
+        claim = self.runtime.trigger_runtime.claim(event.event_id)
+        self.assertIsNotNone(claim)
+        self.runtime.trigger_runtime.complete(
+            event.event_id, claim.claim_id, "retryable", "temporary provider failure",
+        )
+        cancelled = self.runtime.trigger_runtime.cancel_pending(
+            event.event_id, reason="operator stops retry",
+            requester_digest=self.service._principal_key(self.principal),
+        )
+        self.assertTrue(cancelled)
+        self.assertEqual("cancelled", self.runtime.trigger_runtime.get_event(event.event_id).status)
+
     def test_durable_cancel_request_stops_trigger_before_replay(self):
         event = self.runtime.trigger_runtime.emit(
             "adaptive_runtime",
