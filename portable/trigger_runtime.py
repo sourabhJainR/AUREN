@@ -325,16 +325,23 @@ class TriggerRuntime:
         now = _utc().isoformat()
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            current = db.execute(
+                "SELECT status,claim_id FROM trigger_events WHERE event_id=?",
+                (event_id.strip(),),
+            ).fetchone()
+            if not current or current[0] not in {"pending", "retryable"} or current[1] is not None:
+                return False
             changed = db.execute(
                 "UPDATE trigger_events SET status='cancelled',claim_id=NULL,claimed_at=NULL,"
                 "lease_until=NULL,completed_at=?,last_detail=? "
-                "WHERE event_id=? AND status='pending' AND claim_id IS NULL",
-                (now, "cancelled by operator; reason_digest=" + reason_digest, event_id.strip()),
+                "WHERE event_id=? AND status=? AND claim_id IS NULL",
+                (now, "cancelled by operator; reason_digest=" + reason_digest,
+                 event_id.strip(), current[0]),
             ).rowcount
             if changed == 1:
                 db.execute(
                     "INSERT INTO trigger_cancel_requests VALUES(?,?,?,?,?)",
-                    (event_id.strip(), now, requester_digest, reason_digest, "pending"),
+                    (event_id.strip(), now, requester_digest, reason_digest, current[0]),
                 )
         return changed == 1
 
