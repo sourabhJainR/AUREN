@@ -154,7 +154,7 @@ From an AUREN checkout:
 python scripts/provider_conformance.py --json
 python -m unittest tests.test_provider_conformance -v
 python -m unittest tests.test_ai_coding_system_practices -v
-python -m unittest tests.test_chat_capability -v
+python -m unittest discover -s tests -p '*mcp*' -v
 ```
 
 The static suite checks repository declarations only. Live provider tests must be explicitly enabled and run in an environment with the relevant CLI, authentication and permission controls.
