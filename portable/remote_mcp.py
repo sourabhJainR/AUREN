@@ -10,6 +10,7 @@ import base64
 import hashlib
 import hmac
 import json
+import math
 import os
 import re
 import sqlite3
@@ -286,12 +287,16 @@ class AurenMCPService:
         parsed_resource = urlsplit(resource_url)
         if (
             parsed_resource.scheme != "https" or not parsed_resource.netloc
+            or parsed_resource.username or parsed_resource.password
             or parsed_resource.query or parsed_resource.fragment
         ):
             raise ValueError("MCP resource URL must be an absolute HTTPS URL without query or fragment")
         if authorization_server_url is not None:
             auth_url = urlsplit(authorization_server_url)
-            if auth_url.scheme != "https" or not auth_url.netloc or auth_url.query or auth_url.fragment:
+            if (
+                auth_url.scheme != "https" or not auth_url.netloc
+                or auth_url.username or auth_url.password or auth_url.query or auth_url.fragment
+            ):
                 raise ValueError("authorization server URL must be an absolute HTTPS issuer URL")
         if not endpoint_path.startswith("/") or "?" in endpoint_path or "#" in endpoint_path:
             raise ValueError("MCP endpoint_path must be an absolute path")
@@ -303,18 +308,27 @@ class AurenMCPService:
             if (
                 parsed_origin.scheme != "https" and not local_http
                 or not parsed_origin.netloc or parsed_origin.path not in {"", "/"}
-                or parsed_origin.query or parsed_origin.fragment or parsed_origin.username
+                or parsed_origin.query or parsed_origin.fragment
+                or parsed_origin.username or parsed_origin.password
             ):
                 raise ValueError("allowed origins must be exact HTTPS origins (loopback HTTP is allowed for development)")
         for host in allowed_hosts:
             parsed_host = urlsplit("//" + host)
             if not parsed_host.hostname or parsed_host.path or parsed_host.username or parsed_host.password:
                 raise ValueError("allowed hosts must be hostnames, optionally with a port")
-        if not 1024 <= max_body_bytes <= 1_048_576:
-            raise ValueError("max_body_bytes must be between 1 KiB and 1 MiB")
-        if not 1 <= rate_limit <= 10_000 or not 1 <= rate_window_seconds <= 3600:
+        if type(max_body_bytes) is not int or not 1024 <= max_body_bytes <= 1_048_576:
+            raise ValueError("max_body_bytes must be an integer between 1 KiB and 1 MiB")
+        if (
+            type(rate_limit) is not int or not 1 <= rate_limit <= 10_000
+            or type(rate_window_seconds) is not int or not 1 <= rate_window_seconds <= 3600
+        ):
             raise ValueError("rate limit configuration is invalid")
-        if not 0.1 <= dispatcher_poll_seconds <= 30:
+        if (
+            isinstance(dispatcher_poll_seconds, bool)
+            or not isinstance(dispatcher_poll_seconds, (int, float))
+            or not math.isfinite(float(dispatcher_poll_seconds))
+            or not 0.1 <= dispatcher_poll_seconds <= 30
+        ):
             raise ValueError("dispatcher poll interval must be between 0.1 and 30 seconds")
         self.token_verifier = token_verifier
         self.resource_url = resource_url.rstrip("/")
