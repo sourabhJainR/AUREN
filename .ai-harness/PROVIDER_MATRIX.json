@@ -316,18 +316,23 @@
       "live_verified": false
     },
     "visual_studio_ide": {
-      "kind": "ide_host",
-      "support": "not_native",
+      "kind": "coding_host",
+      "support": "partial",
       "mechanisms": [
-        "external terminal / CLI only"
+        "Visual Studio 2022 17.14+ / 2026",
+        "GitHub Copilot Agent mode",
+        "Remote Streamable HTTP MCP",
+        "OAuth"
       ],
       "repository_artifacts": [
-        "AGENTS.md"
+        "docs/REMOTE_MCP_OPERATIONS.md",
+        "portable/remote_mcp.py"
       ],
-      "current_gap": "Do not conflate Microsoft Visual Studio with Visual Studio Code. AUREN has no dedicated Visual Studio extension or integration.",
+      "current_gap": "Visual Studio itself supports remote MCP in Copilot Agent mode and has a documented .mcp.json setup. No AUREN Visual Studio connection, OAuth sign-in or tool acceptance run is recorded. This is not a Claude Code for Visual Studio extension.",
       "next_steps": [
-        "Use Claude Code in VS Code if that is the intended IDE.",
-        "For Microsoft Visual Studio, invoke a supported CLI or remote MCP host separately and retain AUREN as the authority boundary."
+        "Add AUREN to solution-level .mcp.json and enable it in Copilot Agent mode.",
+        "Complete OAuth and verify read/write scope filtering.",
+        "Run Visual Studio-specific task, cancellation, approval and evidence acceptance."
       ],
       "live_verified": false
     },
@@ -347,32 +352,34 @@
         ".agents/skills/ai-coding-orchestrator/SKILL.md",
         "docs/REMOTE_MCP_OPERATIONS.md"
       ],
-      "current_gap": "The remote HTTP configuration is documented. OAuth issuer integration and a live Gemini CLI connection remain unverified.",
+      "current_gap": "Gemini CLI supports Streamable HTTP MCP and registration is documented. Google has moved some consumer Gemini CLI/Code Assist tiers to Antigravity; plan-specific availability must be checked. No live AUREN OAuth or Gemini CLI acceptance is recorded.",
       "next_steps": [
-        "Register with gemini mcp add --transport http auren https://<host>/mcp.",
-        "Complete OAuth and verify /mcp tool discovery.",
-        "Run headless JSON/JSONL acceptance and test task/evidence tools."
+        "Use gemini mcp add --transport http auren https://<host>/mcp where Gemini CLI remains available.",
+        "For consumer tiers migrated to Antigravity, use the Antigravity CLI entry and serverUrl configuration.",
+        "Complete OAuth and run task/status/evidence/cancellation acceptance."
       ],
       "live_verified": false
     },
     "gemini_code_assist_vscode": {
-      "kind": "ide_host",
+      "kind": "coding_host",
       "support": "partial",
       "mechanisms": [
-        "Repository instructions",
-        "VS Code MCP host",
-        "Remote Streamable HTTP MCP"
+        "Gemini Code Assist Agent mode",
+        "Gemini CLI MCP integration",
+        "Remote Streamable HTTP MCP",
+        "Gemini settings.json"
       ],
       "repository_artifacts": [
         "GEMINI.md",
         "AGENTS.md",
+        ".agents/skills/ai-coding-orchestrator/SKILL.md",
         "docs/REMOTE_MCP_OPERATIONS.md"
       ],
-      "current_gap": "Gemini CLI and Gemini Code Assist are separate products. VS Code has a remote MCP host path, but the Code Assist-specific agent workflow and OAuth behavior have not been verified.",
+      "current_gap": "Gemini Code Assist Agent mode in VS Code can load MCP servers through Gemini settings and the Gemini CLI integration. No AUREN connection or live test exists. Some consumer plans have migrated to Antigravity.",
       "next_steps": [
-        "Configure the remote server in the supported VS Code MCP settings.",
-        "Test the actual Gemini Code Assist extension/version separately.",
-        "Do not infer Code Assist support from Gemini CLI success."
+        "Add the remote AUREN server to ~/.gemini/settings.json under mcpServers.",
+        "Test the supported Gemini Code Assist Standard/Enterprise agent mode separately from Gemini CLI.",
+        "For migrated consumer plans, use Antigravity CLI or IDE and its serverUrl configuration."
       ],
       "live_verified": false
     },
@@ -450,17 +457,15 @@
     },
     "grok_build_cli": {
       "kind": "coding_host",
-      "support": "partial",
+      "support": "not_native",
       "mechanisms": [
-        "remote MCP",
-        "Grok Build CLI"
+        "xAI/Grok model APIs are separate from MCP client hosts"
       ],
       "repository_artifacts": [],
-      "current_gap": "No AUREN-specific Grok Build project instructions, skills package or local provider command is present.",
+      "current_gap": "No verified general-purpose Grok Build CLI client integration is established in this audit. xAI API model routing is also not wired in AUREN.",
       "next_steps": [
-        "Connect a deployed remote AUREN MCP endpoint and allow only named tools.",
-        "Add a Grok Build instruction file only after validating its supported project-context contract.",
-        "Keep all high-impact approvals and release authority in AUREN."
+        "Confirm the exact xAI/Grok product and supported MCP client protocol before adding an adapter.",
+        "Keep xAI inference-provider work separate from remote MCP client integration."
       ],
       "live_verified": false
     },
@@ -484,6 +489,68 @@
         "Register AUREN in .vscode/mcp.json.",
         "Enable the server in Copilot Agent mode and verify OAuth/scoped tool discovery.",
         "Run a disposable-repository task and verify AUREN remains the execution authority."
+      ],
+      "live_verified": false
+    },
+    "claude_visual_studio": {
+      "kind": "coding_host",
+      "support": "not_native",
+      "mechanisms": [
+        "Remote MCP through other MCP-capable Visual Studio agent hosts"
+      ],
+      "repository_artifacts": [
+        "docs/REMOTE_MCP_OPERATIONS.md"
+      ],
+      "current_gap": "There is no verified first-party Claude Code extension for Microsoft Visual Studio. Claude Code CLI, VS Code extension and Claude Desktop remote connectors are separate supported paths. Visual Studio can still use AUREN through its GitHub Copilot MCP host, but that is not Claude Code.",
+      "next_steps": [
+        "Use Claude Code CLI or VS Code extension for Anthropic coding-agent workflows.",
+        "Use Visual Studio Copilot Agent mode if Visual Studio is the required IDE.",
+        "Do not label Visual Studio Copilot MCP as Claude Code integration."
+      ],
+      "live_verified": false
+    },
+    "antigravity_cli": {
+      "kind": "coding_host",
+      "support": "repository_configured",
+      "mechanisms": [
+        "Antigravity CLI",
+        "Remote Streamable HTTP MCP",
+        "OAuth",
+        "AGENTS.md",
+        "Agent Skills"
+      ],
+      "repository_artifacts": [
+        "AGENTS.md",
+        ".agents/skills/ai-coding-orchestrator/SKILL.md",
+        "docs/REMOTE_MCP_OPERATIONS.md"
+      ],
+      "current_gap": "Antigravity CLI remote MCP configuration is documented using serverUrl. AUREN is not yet connected to a live Antigravity CLI instance.",
+      "next_steps": [
+        "Add serverUrl to ~/.gemini/config/mcp_config.json or workspace .agents/mcp_config.json.",
+        "Open /mcp and verify the remote server, OAuth and tool catalog.",
+        "Run a disposable workspace task and verify AUREN status/evidence/cancellation."
+      ],
+      "live_verified": false
+    },
+    "antigravity_ide": {
+      "kind": "coding_host",
+      "support": "repository_configured",
+      "mechanisms": [
+        "Antigravity IDE",
+        "MCP Store / custom mcp_config.json",
+        "Remote Streamable HTTP MCP",
+        "OAuth"
+      ],
+      "repository_artifacts": [
+        "AGENTS.md",
+        ".agents/skills/ai-coding-orchestrator/SKILL.md",
+        "docs/REMOTE_MCP_OPERATIONS.md"
+      ],
+      "current_gap": "Antigravity IDE supports custom remote MCP configuration. No AUREN installation or IDE live acceptance is recorded.",
+      "next_steps": [
+        "Install the AUREN remote server through Antigravity MCP settings or custom mcp_config.json.",
+        "Complete OAuth and inspect the enabled tool list.",
+        "Run a guarded end-to-end task and verify AUREN remains the execution authority."
       ],
       "live_verified": false
     }
@@ -532,7 +599,9 @@
       "single_host_sqlite_state_only",
       "no_live_vendor_client_acceptance",
       "no_groq_or_xai_provider_adapter",
-      "no_sse_or_mcp_session_affinity"
+      "no_sse_or_mcp_session_affinity",
+      "MCP Tasks extension and server-sent event streaming are not implemented; long-running AUREN work uses explicit submit/status/evidence/cancel tools.",
+      "External OAuth provider must support the host-specific client registration and PKCE flow; no authorization server is bundled."
     ],
     "live_verified": false
   }
