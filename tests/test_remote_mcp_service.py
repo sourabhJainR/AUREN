@@ -106,12 +106,16 @@ class RemoteMCPServiceTests(unittest.TestCase):
         self.assertNotIn("operator-1", event.payload["context"]["_auren_mcp_subject"])
 
     def test_submit_rejects_host_controlled_context_fields(self):
-        with self.assertRaisesRegex(ValueError, "host-controlled"):
-            self.service.call_tool(
-                "auren.submit_task",
-                {"task": "bad", "context": {"project_root": "/other"}},
-                self.principal,
-            )
+        for context in (
+            {"project_root": "/other"},
+            {"metadata": {"authorization": "Bearer should-not-be-forwarded"}},
+        ):
+            with self.subTest(context=context):
+                with self.assertRaisesRegex(ValueError, "host-controlled"):
+                    self.service.call_tool(
+                        "auren.submit_task", {"task": "bad", "context": context},
+                        self.principal,
+                    )
 
     def test_pause_and_resume_admissions_are_durable_and_hash_chained(self):
         paused = self.service.call_tool(
