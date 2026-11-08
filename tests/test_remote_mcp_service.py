@@ -573,6 +573,13 @@ class RemoteMCPASGITests(unittest.TestCase):
         self.assertEqual(200, status)
         self.assertEqual({"status": "ok"}, json.loads(body))
 
+    def test_host_allowlist_rejects_unapproved_port(self):
+        status, _, _ = self.request(
+            method="GET", path="/healthz", body=None,
+            extra_headers={"host": "mcp.example.test:8443"},
+        )
+        self.assertEqual(400, status)
+
     def test_response_size_limit_is_enforced(self):
         self.service.max_response_bytes = 1024
         with patch.object(
