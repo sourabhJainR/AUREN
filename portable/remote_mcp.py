@@ -317,7 +317,13 @@ class AurenMCPService:
                     subject_digest TEXT PRIMARY KEY,
                     profile_id TEXT NOT NULL UNIQUE,
                     created_at TEXT NOT NULL
-                )
+                );
+                CREATE TRIGGER IF NOT EXISTS immutable_service_control_event_update
+                    BEFORE UPDATE ON service_control_events
+                    BEGIN SELECT RAISE(ABORT, 'operator control audit events are immutable'); END;
+                CREATE TRIGGER IF NOT EXISTS immutable_service_control_event_delete
+                    BEFORE DELETE ON service_control_events
+                    BEGIN SELECT RAISE(ABORT, 'operator control audit events are immutable'); END;
             """)
             row = db.execute("SELECT singleton FROM service_control WHERE singleton=1").fetchone()
             if row is None:
@@ -368,6 +374,8 @@ class AurenMCPService:
         }
 
     def _set_admissions(self, paused: bool, principal: MCPPrincipal, reason: str) -> dict[str, Any]:
+        if not self.verify_control_audit():
+            raise MCPServiceError("operator control audit is inconsistent; state changes are blocked", code=-32052, status=503)
         if not isinstance(reason, str) or not reason.strip() or len(reason) > 500:
             raise ValueError("reason must be non-empty text of at most 500 characters")
         now = datetime.now(timezone.utc).isoformat()
@@ -645,6 +653,8 @@ class AurenMCPService:
         if name == "auren.submit_task":
             self._require(principal, _SCOPE_WRITE)
             control = self._control()
+            if not control["audit_chain_valid"]:
+                raise MCPServiceError("operator control audit is inconsistent; task admission is blocked", code=-32052, status=503)
             if control["admissions_paused"]:
                 raise MCPServiceError("new AUREN task admissions are paused", code=-32051, status=423)
             task = arguments.get("task")
