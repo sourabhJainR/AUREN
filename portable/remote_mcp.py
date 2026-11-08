@@ -623,6 +623,22 @@ class AurenMCPService:
         return tools
 
     @staticmethod
+    def _contains_host_controlled_context(value: Any) -> bool:
+        forbidden = {
+            "project_root", "root", "handler", "tool", "command", "shell",
+            "authorization", "token", "api_key", "environment", "headers",
+        }
+        if isinstance(value, Mapping):
+            return any(
+                str(key).lower() in forbidden
+                or AurenMCPService._contains_host_controlled_context(item)
+                for key, item in value.items()
+            )
+        if isinstance(value, (list, tuple)):
+            return any(AurenMCPService._contains_host_controlled_context(item) for item in value)
+        return False
+
+    @staticmethod
     def _validate_schema(value: Any, schema: Mapping[str, Any], path: str = "arguments") -> None:
         expected = schema.get("type")
         valid = {
@@ -732,8 +748,7 @@ class AurenMCPService:
             context = _bounded_json(arguments.get("context", {}), limit=DEFAULT_MAX_CONTEXT_BYTES)
             if not isinstance(context, Mapping):
                 raise TypeError("context must be an object")
-            forbidden = {"project_root", "root", "handler", "tool", "command", "shell", "authorization", "token", "api_key"}
-            if forbidden.intersection(str(key).lower() for key in context):
+            if self._contains_host_controlled_context(context):
                 raise ValueError("context contains a host-controlled or credential field")
             idempotency = arguments.get("idempotency_key")
             event_id = None
