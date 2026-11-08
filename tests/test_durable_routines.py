@@ -277,6 +277,46 @@ class DurableRoutineRegistryTests(unittest.TestCase):
         )
         self.assertEqual(1, len(self.submissions))
 
+    def test_interval_unknown_outcome_is_reconciled_before_later_due_slots(self):
+        spec = self.spec(
+            trigger="interval", event_type=None, interval_seconds=60,
+        )
+        self.registry.register(spec)
+        first_due = datetime.now(timezone.utc) + timedelta(seconds=61)
+
+        def uncertain(*args, **kwargs):
+            raise TimeoutError("ack lost after dispatch")
+
+        first = self.registry.dispatch_due(now=first_due, submit=uncertain)
+        later = first_due + timedelta(minutes=20)
+        still_unknown = self.registry.dispatch_due(now=later, submit=self.submit)
+
+        self.assertEqual("unknown", first[0].status)
+        self.assertEqual("unknown", still_unknown[0].status)
+        self.assertEqual(first[0].occurrence_key, still_unknown[0].occurrence_key)
+        self.assertEqual([], self.submissions)
+
+        recovered = self.registry.dispatch_due(
+            now=later,
+            submit=self.submit,
+            reconcile=lambda work_key: {"id": "original-scheduled-task"},
+        )
+        self.assertEqual("submitted", recovered[0].status)
+        self.assertEqual(first[0].occurrence_key, recovered[0].occurrence_key)
+        self.assertEqual("original-scheduled-task", recovered[0].task_id)
+        self.assertEqual([], self.submissions)
+
+        occurrence = self.registry.occurrence(recovered[0].occurrence_key)
+        receipt = json.loads(occurrence["receipt_json"])
+        self.assertGreater(receipt["coalesced_missed_intervals"], 0)
+        with closing(self.registry._connect()) as db:
+            next_run_at = db.execute(
+                "SELECT next_run_at FROM routines WHERE routine_id=?",
+                (spec.routine_id,),
+            ).fetchone()["next_run_at"]
+        self.assertGreater(datetime.fromisoformat(next_run_at), later)
+        self.assertEqual((), self.registry.dispatch_due(now=later, submit=self.submit))
+
     def test_receipt_keeps_trigger_digest_after_submission_and_unknown_transition(self):
         spec = self.spec()
         self.registry.register(spec)
