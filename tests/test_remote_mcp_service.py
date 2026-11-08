@@ -105,6 +105,48 @@ class RemoteMCPServiceTests(unittest.TestCase):
         self.assertEqual(self.service._principal_key(self.principal), event.payload["context"]["_auren_mcp_subject"])
         self.assertNotIn("operator-1", event.payload["context"]["_auren_mcp_subject"])
 
+    def test_idempotency_keys_are_scoped_to_issuer_and_subject(self):
+        other = MCPPrincipal(
+            "operator-2", self.principal.scopes, roles=self.principal.roles,
+            projects=self.principal.projects, issuer=self.principal.issuer,
+        )
+        with patch.object(self.service.trigger, "trigger_adaptive_runtime", side_effect=self._enqueue):
+            first = self.service.call_tool(
+                "auren.submit_task",
+                {"task": "same task", "idempotency_key": "shared-idempotency-0001"},
+                self.principal,
+            )
+            second = self.service.call_tool(
+                "auren.submit_task",
+                {"task": "same task", "idempotency_key": "shared-idempotency-0001"},
+                other,
+            )
+        self.assertNotEqual(first["task_id"], second["task_id"])
+
+    def test_mcp_task_admission_has_a_durable_queue_limit(self):
+        limited = AurenMCPService(
+            self.runtime, project_root=self.root, token_verifier=self.service.token_verifier,
+            resource_url="https://mcp.example.test/mcp",
+            allowed_hosts=("mcp.example.test",), require_https=True,
+            control_store_path=self.root / "limited-control.sqlite3",
+            max_pending_tasks=1,
+        )
+        try:
+            with patch.object(limited.trigger, "trigger_adaptive_runtime", side_effect=self._enqueue):
+                limited.call_tool(
+                    "auren.submit_task",
+                    {"task": "first queued task", "idempotency_key": "queue-first-task-0001"},
+                    self.principal,
+                )
+                with self.assertRaisesRegex(MCPServiceError, "at capacity"):
+                    limited.call_tool(
+                        "auren.submit_task",
+                        {"task": "second queued task", "idempotency_key": "queue-second-task-0001"},
+                        self.principal,
+                    )
+        finally:
+            limited.close()
+
     def test_submit_rejects_host_controlled_context_fields(self):
         for context in (
             {"project_root": "/other"},
