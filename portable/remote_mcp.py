@@ -30,6 +30,7 @@ from urllib.parse import urlsplit
 from .adaptive_trigger import AdaptiveTrigger
 from .durable_approval import DurableApprovalStore
 from .identity_compat import canonical_auren_home
+from .trigger_runtime import TriggerQueueCapacityError
 
 
 SUPPORTED_PROTOCOL_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26")
@@ -802,21 +803,19 @@ class AurenMCPService:
             event_id = hashlib.sha256(
                 (self._principal_key(principal) + "\0" + idempotency).encode("utf-8")
             ).hexdigest()[:40]
-            pending_count = self.trigger_runtime.count_events(
-                kind="adaptive_runtime", statuses=("pending", "claimed", "retryable"),
-            )
-            if pending_count >= self.max_pending_tasks:
+            task_context = dict(context)
+            task_context["_auren_mcp_subject"] = self._principal_key(principal)
+            try:
+                receipt = self.trigger.trigger_adaptive_runtime(
+                    task.strip(), self.project_root, task_context,
+                    priority=priority, event_id=event_id, max_attempts=max_attempts,
+                    fire_and_forget=True, max_pending_events=self.max_pending_tasks,
+                )
+            except TriggerQueueCapacityError as exc:
                 raise MCPServiceError(
                     "AUREN MCP task queue is at capacity; retry after an existing task advances",
                     code=-32053, status=429,
-                )
-            task_context = dict(context)
-            task_context["_auren_mcp_subject"] = self._principal_key(principal)
-            receipt = self.trigger.trigger_adaptive_runtime(
-                task.strip(), self.project_root, task_context,
-                priority=priority, event_id=event_id, max_attempts=max_attempts,
-                fire_and_forget=True,
-            )
+                ) from exc
             event = self.trigger_runtime.get_event(receipt.trigger_id)
             summary = self._trigger_summary(event) if event is not None else {}
             trigger_status = event.status if event is not None else receipt.status
