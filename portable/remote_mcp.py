@@ -398,7 +398,7 @@ class AurenMCPService:
     def _initialize_control_store(self) -> None:
         with closing(sqlite3.connect(self.control_db, timeout=10)) as db, db:
             db.execute("PRAGMA journal_mode=WAL")
-            db.execute("""
+            db.executescript("""
                 CREATE TABLE IF NOT EXISTS service_control(
                     singleton INTEGER PRIMARY KEY CHECK(singleton=1),
                     admissions_paused INTEGER NOT NULL DEFAULT 0,
