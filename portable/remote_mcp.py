@@ -307,6 +307,11 @@ class AurenMCPService:
                     bucket INTEGER NOT NULL,
                     request_count INTEGER NOT NULL,
                     PRIMARY KEY(subject,bucket)
+                );
+                CREATE TABLE IF NOT EXISTS operator_profiles(
+                    subject_digest TEXT PRIMARY KEY,
+                    profile_id TEXT NOT NULL UNIQUE,
+                    created_at TEXT NOT NULL
                 )
             """)
             row = db.execute("SELECT singleton FROM service_control WHERE singleton=1").fetchone()
@@ -384,11 +389,30 @@ class AurenMCPService:
             )
         return self._control()
 
-    def _require(self, principal: MCPPrincipal, scope: str) -> None:
-        if not principal.allows(scope):
+    def _profile(self, principal: MCPPrincipal) -> dict[str, str]:
+        subject_digest = hashlib.sha256(principal.subject.encode("utf-8")).hexdigest()
+        with closing(sqlite3.connect(self.control_db, timeout=10)) as db, db:
+            row = db.execute(
+                "SELECT profile_id FROM operator_profiles WHERE subject_digest=?",
+                (subject_digest,),
+            ).fetchone()
+            if row is None:
+                profile_id = "auren_" + secrets.token_urlsafe(18)
+                db.execute(
+                    "INSERT INTO operator_profiles VALUES(?,?,?)",
+                    (subject_digest, profile_id, datetime.now(timezone.utc).isoformat()),
+                )
+            else:
+                profile_id = str(row[0])
+        return {"id": profile_id, "name": "AUREN", "nickname": "AUREN workspace"}
+
+    def _require(self, principal: MCPPrincipal | None, scope: str) -> None:
+        if principal is None or not principal.allows(scope):
             raise PermissionError("authenticated principal lacks the required AUREN scope")
 
-    def _require_project(self, principal: MCPPrincipal) -> None:
+    def _require_project(self, principal: MCPPrincipal | None) -> None:
+        if principal is None:
+            raise PermissionError("authentication is required for this AUREN workspace")
         if principal.projects and str(self.project_root) not in principal.projects:
             raise PermissionError("authenticated principal is not authorized for this AUREN workspace")
 
