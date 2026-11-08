@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -264,7 +265,7 @@ class DurableRoutineRegistryTests(unittest.TestCase):
             payload["_auren_coalesced_missed_intervals"],
             receipt["coalesced_missed_intervals"],
         )
-        with self.registry._connect() as db:
+        with closing(self.registry._connect()) as db:
             next_run_at = db.execute(
                 "SELECT next_run_at FROM routines WHERE routine_id=?",
                 (spec.routine_id,),
