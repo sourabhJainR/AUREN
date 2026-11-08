@@ -24,9 +24,10 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("tests/test_trusted_plan_profile_binding.py", ("tests.test_trusted_plan_profile_binding",), True),
     ("tests/test_trusted_plan_approval_preflight.py", ("tests.test_trusted_plan_approval_preflight", "tests.test_trusted_plan_dispatch", "tests.test_durable_approval", "tests.test_execution_controller"), True),
     ("portable/adaptive_runtime.py", ("tests.test_trusted_plan_dispatch", "tests.test_adaptive_runtime_recovery_integration", "tests.test_execution_controller_cancellation", "tests.test_remote_mcp_service"), True),
+    ("portable/adaptive_trigger.py", ("tests.test_adaptive_trigger", "tests.test_remote_mcp_service"), True),
     ("portable/remote_mcp.py", ("tests.test_remote_mcp_service",), True),
     ("portable/remote_mcp_server.py", ("tests.test_remote_mcp_service",), True),
-    ("portable/trigger_runtime.py", ("tests.test_remote_mcp_service", "tests.test_adaptive_trigger"), True),
+    ("portable/trigger_runtime.py", ("tests.test_remote_mcp_service",), True),
     ("tests/test_remote_mcp_service.py", ("tests.test_remote_mcp_service",), True),
     ("portable/engineering_design_guard.py", ("tests.test_engineering_design_guard", "tests.test_engineering_conflict_decisions", "tests.test_trusted_conflict_scope_composition"), False),
     ("tests/test_engineering_conflict_decisions.py", ("tests.test_engineering_conflict_decisions",), False),
@@ -196,7 +197,7 @@ _SENSITIVE_PREFIXES = (
     ".ai-harness/security", ".ai-harness/runtime/rollback",
 )
 _SENSITIVE_NAMES = ("authority", "security", "guard", "approval", "rollback", "recovery", "side_effect", "execution_controller",
-                    "progress_journal", "canonical_evidence", "engineering_evidence", "provider_operation", "action_governance", "execution_boundary", "ai_coding_agency_bridge", "agency_team_orchestrator", "arena", "sealed", "evaluator", "sandbox", "corpus", "external_evaluation", "independent_evaluation", "attestation", "evolution_gates", "improvement_journal", "mcp", "trigger_runtime", "oauth", "token", "operator")
+                    "progress_journal", "canonical_evidence", "engineering_evidence", "provider_operation", "action_governance", "execution_boundary", "ai_coding_agency_bridge", "agency_team_orchestrator", "arena", "sealed", "evaluator", "sandbox", "corpus", "external_evaluation", "independent_evaluation", "attestation", "evolution_gates", "improvement_journal", "mcp", "trigger_runtime", "adaptive_trigger", "oauth", "token", "operator")
 
 
 def is_sensitive_path(path: str) -> bool:
