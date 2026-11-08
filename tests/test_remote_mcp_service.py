@@ -146,6 +146,20 @@ class RemoteMCPServiceTests(unittest.TestCase):
         self.assertEqual("cancellation_requested", requested["status"])
         self.assertTrue(guard.cancellation_event.is_set())
 
+    def test_profile_identity_is_stable_across_calls(self):
+        first = self.service.call_tool("auren.get_profile", {}, self.principal)
+        second = self.service.call_tool("auren.get_profile", {}, self.principal)
+        self.assertEqual(first, second)
+        self.assertTrue(first["id"].startswith("auren_"))
+        self.assertNotIn(self.principal.subject, first["id"])
+
+    def test_tool_schemas_are_enforced_server_side(self):
+        with self.assertRaisesRegex(ValueError, "unsupported field"):
+            self.service.call_tool(
+                "auren.get_task", {"task_id": "task-1", "include_prompt": True},
+                self.principal,
+            )
+
     def test_status_and_evidence_are_read_only(self):
         status = self.service.call_tool("auren.service_status", {}, self.principal)
         self.assertEqual("ok", status["status"])
@@ -235,7 +249,13 @@ class RemoteMCPASGITests(unittest.TestCase):
         status, _, body = self.request(body={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
                                        extra_headers={"mcp-protocol-version": "2025-11-25"})
         self.assertEqual(200, status)
-        self.assertIn("auren.list_tasks", {tool["name"] for tool in json.loads(body)["result"]["tools"]})
+        discovered = {tool["name"]: tool for tool in json.loads(body)["result"]["tools"]}
+        self.assertIn("auren.list_tasks", discovered)
+        self.assertIn("auren.get_profile", discovered)
+        self.assertEqual(
+            [{"type": "oauth2", "scopes": ["auren:tasks:read"]}],
+            discovered["auren.list_tasks"]["_meta"]["securitySchemes"],
+        )
 
     def test_invalid_origin_and_host_are_rejected(self):
         status, _, _ = self.request(
@@ -249,14 +269,44 @@ class RemoteMCPASGITests(unittest.TestCase):
         )
         self.assertEqual(400, status)
 
-    def test_authentication_is_required_and_challenged(self):
+    def test_chatgpt_tool_level_oauth_challenge_is_returned_without_a_token(self):
         status, headers, body = self.request(
-            body={"jsonrpc": "2.0", "id": 1, "method": "ping", "params": {}},
+            body={
+                "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": {"name": "auren.service_status", "arguments": {}},
+            },
+            extra_headers={"authorization": ""},
+        )
+        self.assertEqual(200, status)
+        response = json.loads(body)
+        result = response["result"]
+        self.assertTrue(result["isError"])
+        challenge = result["_meta"]["mcp/www_authenticate"][0]
+        self.assertIn("resource_metadata=", challenge)
+        self.assertIn("error=", challenge)
+        self.assertIn(b"www-authenticate", headers)
+
+    def test_protected_resources_require_authentication(self):
+        status, headers, _ = self.request(
+            body={"jsonrpc": "2.0", "id": 1, "method": "resources/list", "params": {}},
             extra_headers={"authorization": ""},
         )
         self.assertEqual(401, status)
         self.assertIn(b"resource_metadata=", headers[b"www-authenticate"])
-        self.assertIn(b"bearer authentication required", body)
+
+    def test_unauthenticated_discovery_advertises_per_tool_oauth_scopes(self):
+        status, _, body = self.request(
+            body={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+            extra_headers={"authorization": ""},
+        )
+        self.assertEqual(200, status)
+        tools = {tool["name"]: tool for tool in json.loads(body)["result"]["tools"]}
+        self.assertIn("auren.submit_task", tools)
+        self.assertEqual(
+            [{"type": "oauth2", "scopes": ["auren:tasks:write"]}],
+            tools["auren.submit_task"]["_meta"]["securitySchemes"],
+        )
+        self.assertTrue(tools["auren.get_profile"]["_meta"]["openai/profile"])
 
     def test_transport_methods_and_https_are_enforced(self):
         status, headers, _ = self.request(method="GET")
