@@ -359,7 +359,7 @@ class VibeAdapterRegistry:
             # A new write or authorized retry needs a provider-native lookup port
             # so an ambiguous remote outcome can be resolved without redispatch.
             if (
-                stage in {VibeStage.PREVIEW_DEPLOYMENT, VibeStage.PRODUCTION_DEPLOY}
+                stage in _SIDE_EFFECT_STAGES
                 and (
                     selected.lookup_operation is None
                     or not selected.supports_provider_idempotency
@@ -757,8 +757,8 @@ def build_host_adapter_registry(
             stage = key if isinstance(key, VibeStage) else VibeStage(str(key))
         except (TypeError, ValueError) as exc:
             raise ValueError(f"invalid provider-capability stage: {key!r}") from exc
-        if stage not in {VibeStage.PREVIEW_DEPLOYMENT, VibeStage.PRODUCTION_DEPLOY}:
-            raise ValueError(f"provider capabilities are only configurable for deployment stages: {stage.value}")
+        if stage not in _SIDE_EFFECT_STAGES:
+            raise ValueError(f"provider capabilities are only configurable for consequential stages: {stage.value}")
         if not isinstance(capability_values, Mapping):
             raise ValueError(f"provider capabilities for {stage.value} must be a mapping")
         unknown = set(capability_values) - {"supports_provider_idempotency", "lookup_not_found_is_authoritative"}
