@@ -221,7 +221,7 @@ For Gemini Code Assist Agent mode in VS Code, add the server to the Gemini setti
 }
 ~~~
 
-Gemini Code Assist Agent mode uses the Gemini CLI tool integration for MCP. It is a separate acceptance target from the standalone Gemini CLI. Google has moved some consumer Gemini CLI/Code Assist tiers to Antigravity; check the current plan and product migration status before choosing the host.
+Gemini Code Assist Agent mode uses the Gemini CLI tool integration for MCP. It is a separate acceptance target from the standalone Gemini CLI. As of June 18, 2026, Gemini CLI and Gemini Code Assist IDE extensions stopped serving Gemini Code Assist for Individuals, Google AI Pro and Google AI Ultra tiers. Gemini Code Assist Standard/Enterprise and paid Gemini API-key access remain available; affected consumer users should use Antigravity CLI/IDE instead.
 
 ### Antigravity CLI and IDE
 
@@ -279,11 +279,26 @@ Claude Code's supported IDE integrations are separate from Microsoft Visual Stud
 
 Use the custom MCP app/connector setup in the ChatGPT workspace and point it at https://mcp.example.com/mcp. Complete the OAuth connection using the configured identity provider. Workspace admin settings, plan eligibility and app/developer-mode availability are controlled by ChatGPT, not by AUREN.
 
-The ChatGPT OAuth authorization server must support authorization-code flow with PKCE S256, the resource parameter and either Client ID Metadata Documents (CIMD) or Dynamic Client Registration (DCR). AUREN publishes protected-resource metadata and validates access tokens, but it does not implement the authorization server or client registration.
+The ChatGPT OAuth authorization server must support authorization-code flow with PKCE S256, the resource parameter and either Client ID Metadata Documents (CIMD) or Dynamic Client Registration (DCR). ChatGPT does not use machine-to-machine client-credentials grants or customer-supplied API keys for this flow. AUREN publishes protected-resource metadata and validates access tokens, but it does not implement the authorization server or client registration. ChatGPT also presents an OpenAI-managed client certificate; if client identity verification is required, enforce the current OpenAI certificate chain/SAN policy at the TLS ingress. Do not assume a public endpoint alone proves the caller is ChatGPT.
+
+Full MCP write/modify access is currently limited to eligible Business, Enterprise and Edu workspaces. Pro users can connect custom MCP servers with read/fetch permissions, while Free does not have the full custom MCP write path. The custom server connection flow is documented for ChatGPT web; do not assume the native desktop app has identical setup until tested.
 
 ### Groq, xAI/Grok and other model APIs
 
 These are model-provider APIs, not interchangeable MCP host applications. An MCP client may connect to AUREN regardless of which model it uses, but routing inference through Groq or xAI requires separate AUREN provider adapters, key isolation and provider conformance tests. This MCP service does not add those model adapters.
+
+## Official client references
+
+- [ChatGPT custom MCP connections](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt)
+- [OpenAI MCP authentication and client identification](https://developers.openai.com/plugins/build/auth)
+- [OpenAI MCP server integration guide](https://developers.openai.com/api/docs/mcp)
+- [Claude remote MCP connectors](https://support.anthropic.com/en/articles/11503834-building-custom-integrations-via-remote-mcp)
+- [Claude Desktop remote connectors](https://support.anthropic.com/en/articles/11175166-about-custom-integrations-using-remote-mcp)
+- [Codex MCP configuration](https://developers.openai.com/codex/mcp/)
+- [Gemini Code Assist Agent mode and MCP](https://docs.cloud.google.com/gemini/docs/codeassist/use-agentic-chat-pair-programmer)
+- [Google transition from Gemini CLI to Antigravity CLI](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/)
+- [Antigravity MCP configuration](https://antigravity.google/docs/mcp)
+- [Visual Studio MCP servers](https://learn.microsoft.com/en-us/visualstudio/ide/mcp-servers?view=visualstudio)
 
 ## Production boundary and remaining gates
 
