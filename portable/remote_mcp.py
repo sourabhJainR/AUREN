@@ -470,9 +470,62 @@ class AurenMCPService:
             for name, description, scope, schema in definitions if principal.allows(scope)
         ]
 
+    @staticmethod
+    def _validate_schema(value: Any, schema: Mapping[str, Any], path: str = "arguments") -> None:
+        expected = schema.get("type")
+        valid = {
+            "object": isinstance(value, Mapping),
+            "array": isinstance(value, list),
+            "string": isinstance(value, str),
+            "integer": type(value) is int,
+            "number": type(value) in {int, float},
+            "boolean": type(value) is bool,
+            "null": value is None,
+        }
+        if expected in valid and not valid[expected]:
+            raise ValueError(f"{path} must be {expected}")
+        if "enum" in schema and value not in schema["enum"]:
+            raise ValueError(f"{path} is not an allowed value")
+        if isinstance(value, str):
+            if len(value) < schema.get("minLength", 0):
+                raise ValueError(f"{path} is too short")
+            if len(value) > schema.get("maxLength", 1_000_000):
+                raise ValueError(f"{path} is too long")
+        if type(value) in {int, float}:
+            if "minimum" in schema and value < schema["minimum"]:
+                raise ValueError(f"{path} is below its minimum")
+            if "maximum" in schema and value > schema["maximum"]:
+                raise ValueError(f"{path} is above its maximum")
+        if isinstance(value, list):
+            if len(value) < schema.get("minItems", 0) or len(value) > schema.get("maxItems", 100_000):
+                raise ValueError(f"{path} has an invalid item count")
+            item_schema = schema.get("items")
+            if isinstance(item_schema, Mapping):
+                for index, item in enumerate(value):
+                    AurenMCPService._validate_schema(item, item_schema, f"{path}[{index}]")
+        if isinstance(value, Mapping):
+            properties = schema.get("properties", {})
+            required = schema.get("required", ())
+            missing = [key for key in required if key not in value]
+            if missing:
+                raise ValueError(f"{path} is missing required field(s): {', '.join(missing)}")
+            if schema.get("additionalProperties") is False:
+                unknown = set(value) - set(properties)
+                if unknown:
+                    raise ValueError(f"{path} contains unsupported field(s): {', '.join(sorted(map(str, unknown)))}")
+            for key, child_schema in properties.items():
+                if key in value and isinstance(child_schema, Mapping):
+                    AurenMCPService._validate_schema(value[key], child_schema, f"{path}.{key}")
+
     def call_tool(self, name: str, arguments: Mapping[str, Any], principal: MCPPrincipal) -> Any:
         if not isinstance(arguments, Mapping):
             raise TypeError("tool arguments must be an object")
+        definition = next(
+            (item for item in self.list_tools(principal) if item["name"] == name), None,
+        )
+        if definition is None:
+            raise KeyError("unknown or unauthorized AUREN operator tool")
+        self._validate_schema(arguments, definition["inputSchema"])
         self._require_project(principal)
         if name == "auren.service_status":
             self._require(principal, _SCOPE_READ)
