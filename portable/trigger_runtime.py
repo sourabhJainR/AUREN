@@ -6,6 +6,7 @@ crash recovery, kind isolation, priority ordering and durable status metadata.
 """
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import json
@@ -286,7 +287,7 @@ class TriggerRuntime:
         if kind is not None:
             sql += " AND kind=?"
             params += (kind.strip(),)
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             row = db.execute(sql, params).fetchone()
         return int(row[0])
 
@@ -323,7 +324,7 @@ class TriggerRuntime:
             raise ValueError("requester_digest must be a SHA-256 hex digest")
         reason_digest = hashlib.sha256(reason.strip().encode("utf-8")).hexdigest()
         now = _utc().isoformat()
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             current = db.execute(
                 "SELECT status,claim_id FROM trigger_events WHERE event_id=?",
@@ -357,7 +358,7 @@ class TriggerRuntime:
             raise ValueError("requester_digest must be a SHA-256 hex digest")
         now = _utc().isoformat()
         reason_digest = hashlib.sha256(reason.strip().encode("utf-8")).hexdigest()
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 "SELECT status FROM trigger_events WHERE event_id=?",
@@ -372,7 +373,7 @@ class TriggerRuntime:
         return self.is_cancel_requested(event_id)
 
     def is_cancel_requested(self, event_id: str) -> bool:
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             row = db.execute(
                 "SELECT 1 FROM trigger_cancel_requests WHERE event_id=?",
                 (event_id,),
