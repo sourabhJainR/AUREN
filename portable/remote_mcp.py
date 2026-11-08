@@ -1017,9 +1017,13 @@ class AurenMCPService:
             self._check_rate(principal)
         return principal
 
+    def resource_metadata_path(self) -> str:
+        resource_path = urlsplit(self.resource_url).path.rstrip("/")
+        return "/.well-known/oauth-protected-resource" + resource_path
+
     def authentication_challenge(self, *, error: str, description: str) -> str:
         resource = urlsplit(self.resource_url)
-        metadata = f"{resource.scheme}://{resource.netloc}/.well-known/oauth-protected-resource"
+        metadata = f"{resource.scheme}://{resource.netloc}{self.resource_metadata_path()}"
         safe_description = _safe_text(description, 180).replace('"', "'")
         return (
             f'Bearer resource_metadata="{metadata}", error="{error}", '
