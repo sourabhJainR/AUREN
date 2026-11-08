@@ -19,29 +19,30 @@ AUREN already has a strong cross-host foundation: `AGENTS.md`, `CLAUDE.md`, `GEM
 
 The main gap is not the engineering workflow. It is the last-mile product integration:
 
-1. AUREN has no published ChatGPT plugin or remote MCP service. ChatGPT web cannot connect directly to AUREN's local stdio server.
-2. The current MCP capability exposes a durable task trigger, not the complete AUREN operator surface. It is not a remote HTTP MCP server.
-3. The documented Gemini MCP command pointed to `portable/agency_mcp.py`, which is a protocol helper, not the stdio server. The correct entry point is `portable/chat_capability.py`.
-4. Cursor can use the existing `AGENTS.md` and `.agents/skills`, but AUREN lacked a Cursor-specific rule and setup guidance.
-5. Groq and xAI/Grok are model/API integrations, not drop-in coding-agent CLIs. AUREN currently has no reviewed API adapters, key allowlists, model catalog entries, or live conformance tests for them.
-6. The compatibility harness is static by default. Live checks for installed vendor clients and desktop/IDE workflows remain opt-in or manual.
+1. AUREN now has an authenticated remote Streamable HTTP MCP service and a broader operator tool surface. It is implemented in the repository but not yet deployed or live-tested with vendor clients.
+2. The service uses an external OAuth authorization server for hosted-client login. AUREN validates issuer, audience, expiry and scopes through token introspection; it does not implement the authorization server, PKCE, DCR or CIMD itself.
+3. Codex, Claude, Gemini, Cursor and VS Code remote MCP setup paths are documented. Client-specific OAuth and desktop/IDE acceptance remains open.
+4. Claude web and Claude Desktop support remote MCP connectors; this does not give those chat surfaces local filesystem access. AUREN executes tasks on its configured host.
+5. Cursor now has a project rule and remote MCP setup guide.
+6. Groq and xAI/Grok remain separate model-provider integrations. The remote MCP service does not add their inference adapters.
+7. The compatibility harness is static by default. Live checks for installed vendor clients and desktop/IDE workflows remain opt-in or manual.
 
 ## Compatibility matrix
 
 | Product surface | Status | Available AUREN path | Main gap |
 |---|---|---|---|
-| ChatGPT web | Partial | Custom MCP app / plugin-distributed skill | No remote MCP endpoint or ChatGPT plugin |
-| ChatGPT desktop / Codex in ChatGPT | Partial | `AGENTS.md`, Agent Skills, MCP | No published AUREN plugin or desktop acceptance run |
-| Codex CLI | Repository configured | `AGENTS.md`, `.agents/skills`, `codex exec`, MCP | Live CLI and MCP acceptance not recorded |
-| Codex app | Repository configured | Same project guidance, skills and MCP concepts | App-specific smoke test not in CI |
-| Claude chat web | Chat only | Project files / supplied context; remote connectors if configured | No local repo execution from ordinary chat |
-| Claude Code CLI | Repository configured | `CLAUDE.md`, skill, plugin, hooks, MCP, guarded CLI bridge | Live provider and permission-mode checks |
-| Claude Desktop | Repository configured | Claude Code Code tab, plugin and MCP | Desktop-specific install/test not recorded |
-| Claude Code for VS Code | Repository configured | `CLAUDE.md`, skill, plugin and MCP | VS Code extension smoke test not in CI |
+| ChatGPT web | Partial | Remote Streamable HTTP MCP, OAuth tool metadata, profile identity | External OAuth 2.1 authorization server, ChatGPT app setup and live acceptance |
+| ChatGPT desktop / Codex in ChatGPT | Partial | `AGENTS.md`, Agent Skills, remote MCP | OAuth connection and desktop acceptance not recorded |
+| Codex CLI | Repository configured | `AGENTS.md`, skills, remote MCP, `codex exec` | Live OAuth and tool acceptance not recorded |
+| Codex app | Repository configured | Shared Codex MCP configuration and skills | App-specific live acceptance not recorded |
+| Claude chat web | Partial | Remote MCP custom connectors, OAuth | AUREN endpoint deployment and Claude connector acceptance |
+| Claude Code CLI | Repository configured | `CLAUDE.md`, skill, plugin, hooks, remote MCP | Live provider and permission-mode checks |
+| Claude Desktop | Partial | Remote MCP Connectors and Claude Code Code tab | Connector/OAuth acceptance not recorded; remote tools execute on AUREN host |
+| Claude Code for VS Code | Repository configured | `CLAUDE.md`, skill, plugin and remote MCP | VS Code extension smoke test not in CI |
 | Microsoft Visual Studio IDE | Not native | External AUREN CLI or MCP host | No dedicated Visual Studio extension |
-| Gemini CLI | Repository configured | `GEMINI.md`, `AGENTS.md`, skill, MCP, headless mode | Corrected MCP command needs host smoke test |
-| Gemini Code Assist in VS Code | Partial | Repository instructions; Gemini CLI companion as a separate path | No dedicated Code Assist package or test |
-| Cursor | Partial | `AGENTS.md`, `.agents/skills`, MCP | Cursor rule and setup were missing; Cloud Agent behavior needs separate validation |
+| Gemini CLI | Repository configured | `GEMINI.md`, `AGENTS.md`, skill, remote HTTP MCP, headless mode | OAuth and host smoke test not recorded |
+| Gemini Code Assist in VS Code | Partial | Repository instructions and VS Code MCP host | Code Assist-specific agent workflow still needs validation |
+| Cursor | Partial | `AGENTS.md`, skills, `.cursor/rules/auren.mdc`, remote MCP | OAuth and local/cloud/SSH acceptance still open |
 | Groq API | Not wired | OpenAI-compatible API and remote MCP are available upstream | No AUREN API provider adapter |
 | Grok chat web | Chat only | Supplied context only | No AUREN repository execution surface |
 | xAI API / Grok API | Not wired | OpenAI-compatible Responses API and remote MCP are available upstream | No AUREN API provider adapter |
@@ -117,26 +118,29 @@ OpenAI API compatibility is partial compatibility, not proof that all request fi
 
 ## Current MCP boundary
 
-The local stdio server is `portable/chat_capability.py`. It exposes one tool, `adaptive_runtime_trigger`, which durably accepts a task and returns a trigger receipt. It does not expose a complete remote operator API or a full suite of repository read/write tools.
+The local stdio server remains `portable/chat_capability.py` and is intended for local MCP hosts. The remote operator service is now implemented in:
 
-`portable/agency_mcp.py` contains an MCP tool-endpoint abstraction; it is not the executable stdio server. Do not use it as the `command` in a host MCP configuration.
+- `portable/remote_mcp.py` — Streamable HTTP ASGI transport, OAuth resource-server validation, scoped tool catalog, task/evidence/approval operations, durable operator admission state and readiness.
+- `portable/remote_mcp_server.py` — ASGI runner with a trusted runtime-factory requirement.
+- `docs/REMOTE_MCP_OPERATIONS.md` — deployment and client setup instructions.
+- `tests/test_remote_mcp_service.py` — protocol, auth, scope, profile, cancellation, admission and readiness tests.
 
-Before broad deployment, AUREN needs:
-- A separately deployed Streamable HTTP transport for hosted clients.
-- OAuth or equivalent user-bound authentication and tenant isolation.
-- A tool catalog with explicit read-only versus consequential-write classification.
-- Per-tool authorization and approval requirements enforced by AUREN, not delegated to the model.
-- Durable request IDs, idempotency keys, status lookup and authoritative outcome reconciliation.
-- Protocol conformance tests for initialize, capability negotiation, tools/list, tools/call, notifications, cancellation, errors, size limits and transport disconnects.
-- Independent security review and deployment evidence.
+The remote service exposes task submission, status, listing, cancellation, evidence, approval listing/decision, blocked-provider reconciliation, service status and admission pause/resume. It binds the workspace root on the server. Tool schemas are validated server-side. It does not expose a general shell or arbitrary file/network tool.
+
+ChatGPT integration includes per-tool OAuth securitySchemes, a stable profile tool, protected-resource metadata and the tool-level authentication challenge required by ChatGPT's connector flow. AUREN remains the OAuth resource server: an external identity provider must implement authorization-code PKCE S256, resource/audience propagation, issuer discovery and CIMD or DCR. The external provider and ChatGPT connection have not yet been configured or live-tested.
+
+The service currently uses AUREN's SQLite-backed durable stores and is a single-host deployment. Do not deploy multiple physical-host replicas against SQLite or claim high availability. Multi-host operation remains gated on the deployment PostgreSQL store and independent host/failover evidence.
+
+`portable/agency_mcp.py` contains an MCP tool-endpoint abstraction; it is not the executable stdio server. Do not use it as the command in a host MCP configuration.
 
 ## Prioritized implementation plan
 
 | Priority | Work item | Acceptance evidence |
 |---|---|---|
 | P0 | Correct all MCP setup instructions to use `portable/chat_capability.py` | Docs test plus local stdio initialize/list/call smoke tests |
-| P0 | Build remote MCP transport for ChatGPT web and hosted clients | Authenticated Streamable HTTP conformance, tenant isolation, audit and approval tests |
-| P0 | Expand MCP tool surface with status and evidence retrieval | Stable schemas, read-only policy tests, durable status lookup |
+| P0 | Deploy remote MCP service with an external OAuth 2.1 provider | PKCE S256, resource/audience, issuer, DCR/CIMD and live ChatGPT/Claude OAuth evidence |
+| P0 | Complete remote operator tool authorization and independent review | Authenticated task, evidence, approval and cancellation acceptance; red-team results |
+| P0 | Replace SQLite control/trigger state for multi-host operation | PostgreSQL-backed admission, task and trigger stores with physical-host/failover evidence |
 | P1 | Add Cursor rule and host configuration guide | Rule/skill discovery and local/cloud/SSH acceptance results |
 | P1 | Add Codex app and CLI acceptance matrix | Read-only and guarded-write smoke tests, exact-head CI evidence |
 | P1 | Add Claude CLI/Desktop/VS Code host acceptance | Plugin, hook, skill, MCP and permission-mode test receipts |
@@ -155,6 +159,7 @@ python scripts/provider_conformance.py --json
 python -m unittest tests.test_provider_conformance -v
 python -m unittest tests.test_ai_coding_system_practices -v
 python -m unittest discover -s tests -p '*mcp*' -v
+python -m unittest tests.test_remote_mcp_service -v
 ```
 
 The static suite checks repository declarations only. Live provider tests must be explicitly enabled and run in an environment with the relevant CLI, authentication and permission controls.
@@ -165,6 +170,8 @@ The static suite checks repository declarations only. Live provider tests must b
 - [ChatGPT developer mode and MCP apps](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-connectors-in-chatgpt)
 - [ChatGPT custom MCP server connections](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt)
 - [ChatGPT and Codex plugins](https://help.openai.com/en/articles/20001256-plugins-in-chatgpt)
+- [Claude custom remote MCP connectors](https://support.anthropic.com/en/articles/11503834-building-custom-integrations-via-remote-mcp)
+- [Claude and Claude Desktop remote connectors](https://support.anthropic.com/en/articles/11175166-about-custom-integrations-using-remote-mcp)
 - [Claude Code CLI reference](https://docs.anthropic.com/en/docs/claude-code/cli-usage)
 - [Claude Code troubleshooting and VS Code integration](https://code.claude.com/docs/en/troubleshooting)
 - [Gemini CLI Agent Skills](https://geminicli.com/docs/cli/skills/)
