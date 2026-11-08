@@ -4,6 +4,7 @@ import asyncio
 import json
 import sqlite3
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -15,6 +16,7 @@ from portable.remote_mcp import (
     AurenMCPASGI,
     AurenMCPService,
     MCPPrincipal,
+    OAuthIntrospectionVerifier,
     StaticBearerTokenVerifier,
 )
 from portable.runtime_recovery import RuntimeExecutionGuard
@@ -189,6 +191,64 @@ class RemoteMCPServiceTests(unittest.TestCase):
             StaticBearerTokenVerifier([{
                 "token": "x" * 40, "subject": "x", "scopes": ["admin"],
             }])
+
+
+class OAuthIntrospectionVerifierTests(unittest.TestCase):
+    class Response:
+        status = 200
+
+        def __init__(self, payload):
+            self.payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, _limit):
+            return json.dumps(self.payload).encode("utf-8")
+
+    def setUp(self):
+        self.verifier = OAuthIntrospectionVerifier(
+            endpoint="https://identity.example.test/oauth/introspect",
+            client_id="auren-resource", client_secret="client-secret",
+            audience="https://mcp.example.test/mcp",
+            issuer="https://identity.example.test/",
+        )
+
+    def test_valid_introspection_binds_issuer_audience_expiry_and_scopes(self):
+        payload = {
+            "active": True, "iss": "https://identity.example.test",
+            "sub": "user-123", "aud": "https://mcp.example.test/mcp",
+            "exp": time.time() + 300, "nbf": time.time() - 1,
+            "scope": "openid auren:tasks:read auren:tasks:write",
+            "roles": ["engineer"], "projects": ["/workspace/main"],
+        }
+        with patch("portable.remote_mcp.urllib.request.urlopen", return_value=self.Response(payload)):
+            principal = self.verifier.verify("valid-access-token")
+        self.assertIsNotNone(principal)
+        self.assertEqual("user-123", principal.subject)
+        self.assertEqual("https://identity.example.test", principal.issuer)
+        self.assertEqual(
+            frozenset({"auren:tasks:read", "auren:tasks:write"}), principal.scopes,
+        )
+        self.assertEqual(("engineer",), principal.roles)
+
+    def test_wrong_issuer_audience_or_expiry_is_rejected(self):
+        cases = [
+            {"iss": "https://attacker.example", "aud": "https://mcp.example.test/mcp", "exp": time.time() + 300},
+            {"iss": "https://identity.example.test", "aud": "https://other.example/mcp", "exp": time.time() + 300},
+            {"iss": "https://identity.example.test", "aud": "https://mcp.example.test/mcp", "exp": time.time() - 1},
+        ]
+        for index, claims in enumerate(cases):
+            with self.subTest(claims=claims):
+                payload = {
+                    "active": True, "sub": "user-123", "scope": "auren:tasks:read",
+                    **claims,
+                }
+                with patch("portable.remote_mcp.urllib.request.urlopen", return_value=self.Response(payload)):
+                    self.assertIsNone(self.verifier.verify(f"invalid-access-token-{index}"))
 
 
 class RemoteMCPASGITests(unittest.TestCase):
