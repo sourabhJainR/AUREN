@@ -273,6 +273,10 @@ class AurenMCPService:
         self.trigger_runtime = getattr(runtime, "trigger_runtime", None)
         if self.controller is None or self.trigger_runtime is None:
             raise TypeError("runtime must expose the canonical execution_controller and trigger_runtime")
+        graph = getattr(getattr(runtime, "orchestrator", None), "graph", None)
+        graph_order = getattr(graph, "order", None)
+        if not callable(graph_order) or not graph_order():
+            raise ValueError("remote MCP requires a configured runtime with a non-empty reviewed agent graph")
         self.project_root = Path(project_root).expanduser().resolve()
         if not self.project_root.is_dir():
             raise ValueError("configured AUREN project_root must be an existing directory")
