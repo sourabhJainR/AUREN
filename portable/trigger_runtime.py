@@ -93,6 +93,10 @@ class TriggerStatus:
     outcome: Mapping[str, Any] = field(default_factory=dict)
 
 
+class TriggerQueueCapacityError(ValueError):
+    """The durable trigger queue has reached its configured admission limit."""
+
+
 class TriggerRuntime:
     """Persisted event inbox with at-most-one active claim per event."""
 
@@ -188,6 +192,7 @@ class TriggerRuntime:
         max_attempts: int = 3,
         not_before: datetime | None = None,
         priority: int = 1,
+        max_pending_events: int | None = None,
     ) -> TriggerEvent:
         if not isinstance(kind, str) or not kind.strip():
             raise ValueError("event kind is required")
@@ -197,6 +202,10 @@ class TriggerRuntime:
             raise ValueError("max_attempts must be positive")
         if priority not in {0, 1, 2}:
             raise ValueError("priority must be one of: 0, 1, 2")
+        if max_pending_events is not None and (
+            type(max_pending_events) is not int or not 1 <= max_pending_events <= self.max_events
+        ):
+            raise ValueError("max_pending_events must be between 1 and the durable event budget")
         try:
             clean_payload = json.loads(json.dumps(dict(payload), sort_keys=True, separators=(",", ":"), ensure_ascii=True))
         except (TypeError, ValueError) as exc:
@@ -217,6 +226,13 @@ class TriggerRuntime:
                 ):
                     raise ValueError("event_id already exists with different content")
                 return existing
+            if max_pending_events is not None:
+                pending = db.execute(
+                    "SELECT COUNT(*) FROM trigger_events WHERE kind=? AND status IN ('pending','claimed','retryable')",
+                    (kind.strip(),),
+                ).fetchone()[0]
+                if pending >= max_pending_events:
+                    raise TriggerQueueCapacityError("trigger queue is at its configured pending-event capacity")
             count = db.execute("SELECT COUNT(*) FROM trigger_events").fetchone()[0]
             if count >= self.max_events:
                 raise ValueError("trigger event budget exceeded")
