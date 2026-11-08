@@ -783,10 +783,18 @@ class AurenMCPService:
                 priority=priority, event_id=event_id, max_attempts=max_attempts,
                 fire_and_forget=True,
             )
+            event = self.trigger_runtime.get_event(receipt.trigger_id)
+            summary = self._trigger_summary(event) if event is not None else {}
+            trigger_status = event.status if event is not None else receipt.status
+            reported_status = (
+                "accepted" if trigger_status in {"pending", "claimed"}
+                else summary.get("status", trigger_status)
+            )
             return {
-                "task_id": receipt.trigger_id, "status": "accepted",
-                "trigger_status": receipt.status, "accepted_at": receipt.accepted_at,
-                "completion_verified": False,
+                "task_id": receipt.trigger_id, "status": reported_status,
+                "trigger_status": trigger_status, "accepted_at": receipt.accepted_at,
+                "completion_verified": bool(summary.get("completion_verified", False)),
+                "cancellation_requested": bool(summary.get("cancellation_requested", False)),
             }
         if name == "auren.list_tasks":
             self._require(principal, _SCOPE_READ)
