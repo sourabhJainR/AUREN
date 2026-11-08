@@ -286,6 +286,19 @@ class RemoteMCPASGITests(unittest.TestCase):
         self.assertIn("error=", challenge)
         self.assertIn(b"www-authenticate", headers)
 
+    def test_insufficient_scope_returns_oauth_tool_challenge(self):
+        status, _, body = self.request(
+            body={
+                "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": {"name": "auren.submit_task", "arguments": {"task": "not authorized"}},
+            },
+        )
+        self.assertEqual(200, status)
+        result = json.loads(body)["result"]
+        self.assertTrue(result["isError"])
+        challenge = result["_meta"]["mcp/www_authenticate"][0]
+        self.assertIn('error="insufficient_scope"', challenge)
+
     def test_protected_resources_require_authentication(self):
         status, headers, _ = self.request(
             body={"jsonrpc": "2.0", "id": 1, "method": "resources/list", "params": {}},
