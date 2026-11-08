@@ -25,6 +25,39 @@ class ProviderConformanceTests(unittest.TestCase):
         }
         self.assertTrue(expected.issubset(matrix["normalized_contract"]))
 
+    def test_platform_integration_matrix_covers_requested_hosts_without_claiming_live_validation(self):
+        matrix = json.loads(MATRIX.read_text(encoding="utf-8"))
+        integrations = matrix.get("platform_integrations", {})
+        required = {
+            "chatgpt_web", "chatgpt_desktop_codex", "codex_cli", "codex_app",
+            "claude_chat_web", "claude_code_cli", "claude_desktop", "claude_vscode",
+            "visual_studio_ide", "gemini_cli", "gemini_code_assist_vscode",
+            "cursor", "groq_api", "grok_chat_web", "xai_api", "grok_build_cli",
+            "github_copilot",
+        }
+        self.assertTrue(required.issubset(integrations))
+        for name in required:
+            with self.subTest(platform=name):
+                entry = integrations[name]
+                self.assertIn(entry.get("support"), {
+                    "repository_configured", "partial", "chat_only", "not_wired", "not_native",
+                })
+                self.assertTrue(entry.get("kind"))
+                self.assertTrue(entry.get("mechanisms"))
+                self.assertTrue(entry.get("next_steps"))
+                self.assertFalse(entry.get("live_verified", False))
+
+    def test_mcp_setup_docs_point_to_executable_stdio_server(self):
+        usage = (ROOT / "docs" / "USAGE_AND_PLATFORM_INTEGRATION.md").read_text(encoding="utf-8")
+        matrix_doc = (ROOT / "docs" / "PLATFORM_COMPATIBILITY_MATRIX.md").read_text(encoding="utf-8")
+        cursor_rule = ROOT / ".cursor" / "rules" / "auren.mdc"
+        self.assertIn("portable/chat_capability.py", usage)
+        self.assertNotIn("portable/agency_mcp.py", usage)
+        self.assertTrue(cursor_rule.is_file())
+        self.assertIn("AGENTS.md", cursor_rule.read_text(encoding="utf-8"))
+        self.assertIn("GROQ_API_KEY", matrix_doc)
+        self.assertIn("XAI_API_KEY", matrix_doc)
+
     def test_static_harness_passes_without_installed_providers(self):
         completed = subprocess.run(
             [sys.executable, str(SCRIPT), "--json"],
