@@ -23,7 +23,7 @@ The main gap is not the engineering workflow. It is the last-mile product integr
 2. The service uses an external OAuth authorization server for hosted-client login. AUREN validates issuer, audience, expiry and scopes through token introspection; it does not implement the authorization server, PKCE, DCR or CIMD itself.
 3. Codex, Claude, Gemini, Cursor and VS Code remote MCP setup paths are documented. Client-specific OAuth and desktop/IDE acceptance remains open.
 4. Claude web and Claude Desktop support remote MCP connectors; this does not give those chat surfaces local filesystem access. AUREN executes tasks on its configured host.
-5. Cursor now has a project rule and remote MCP setup guide.
+5. Cursor now has a project rule and remote MCP setup guide. Antigravity CLI/IDE and Visual Studio 2022 17.14+/2026 are also documented as remote MCP hosts; none has passed live AUREN acceptance yet.
 6. Groq and xAI/Grok remain separate model-provider integrations. The remote MCP service does not add their inference adapters.
 7. The compatibility harness is static by default. Live checks for installed vendor clients and desktop/IDE workflows remain opt-in or manual.
 
@@ -40,8 +40,8 @@ The main gap is not the engineering workflow. It is the last-mile product integr
 | Claude Desktop | Partial | Remote MCP Connectors and Claude Code Code tab | Connector/OAuth acceptance not recorded; remote tools execute on AUREN host |
 | Claude Code for VS Code | Repository configured | `CLAUDE.md`, skill, plugin and remote MCP | VS Code extension smoke test not in CI |
 | Microsoft Visual Studio IDE | Not native | External AUREN CLI or MCP host | No dedicated Visual Studio extension |
-| Gemini CLI | Repository configured | `GEMINI.md`, `AGENTS.md`, skill, remote HTTP MCP, headless mode | OAuth and host smoke test not recorded |
-| Gemini Code Assist in VS Code | Partial | Repository instructions and VS Code MCP host | Code Assist-specific agent workflow still needs validation |
+| Gemini CLI | Repository configured | `GEMINI.md`, `AGENTS.md`, skill, remote HTTP MCP, headless mode | OAuth and host smoke test not recorded; some consumer plans have moved to Antigravity |
+| Gemini Code Assist in VS Code | Partial | Agent mode can use MCP through Gemini CLI settings | AUREN connection not tested; product/plan-specific migration applies |
 | Cursor | Partial | `AGENTS.md`, skills, `.cursor/rules/auren.mdc`, remote MCP | OAuth and local/cloud/SSH acceptance still open |
 | Groq API | Not wired | OpenAI-compatible API and remote MCP are available upstream | No AUREN API provider adapter |
 | Grok chat web | Chat only | Supplied context only | No AUREN repository execution surface |
