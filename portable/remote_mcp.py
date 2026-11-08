@@ -588,7 +588,7 @@ class AurenMCPService:
                 if key in value and isinstance(child_schema, Mapping):
                     AurenMCPService._validate_schema(value[key], child_schema, f"{path}.{key}")
 
-    def call_tool(self, name: str, arguments: Mapping[str, Any], principal: MCPPrincipal) -> Any:
+    def call_tool(self, name: str, arguments: Mapping[str, Any], principal: MCPPrincipal | None) -> Any:
         if not isinstance(arguments, Mapping):
             raise TypeError("tool arguments must be an object")
         definition = next(
@@ -822,18 +822,28 @@ class AurenMCPService:
         if int(count) > self.rate_limit:
             raise MCPServiceError("rate limit exceeded", code=-32029, status=429)
 
-    def authenticate(self, headers: Mapping[str, str]) -> MCPPrincipal:
+    def authenticate(self, headers: Mapping[str, str]) -> MCPPrincipal | None:
         authorization = headers.get("authorization", "")
+        if not authorization:
+            return None
         if not authorization.startswith("Bearer "):
-            raise MCPServiceError("bearer authentication required", code=-32001, status=401)
+            return None
         token = authorization[7:].strip()
         if not token or len(token) > 16_384:
-            raise MCPServiceError("invalid bearer token", code=-32001, status=401)
+            return None
         principal = self.token_verifier.verify(token)
-        if principal is None:
-            raise MCPServiceError("invalid bearer token", code=-32001, status=401)
-        self._check_rate(principal)
+        if principal is not None:
+            self._check_rate(principal)
         return principal
+
+    def authentication_challenge(self, *, error: str, description: str) -> str:
+        resource = urlsplit(self.resource_url)
+        metadata = f"{resource.scheme}://{resource.netloc}/.well-known/oauth-protected-resource"
+        safe_description = _safe_text(description, 180).replace('"', "'")
+        return (
+            f'Bearer resource_metadata="{metadata}", error="{error}", '
+            f'error_description="{safe_description}"'
+        )
 
     def protected_resource_metadata(self) -> dict[str, Any]:
         if not self.authorization_server_url:
@@ -848,7 +858,7 @@ class AurenMCPService:
             "scopes_supported": list(_ALL_SCOPES),
         }
 
-    def _rpc(self, request: Mapping[str, Any], principal: MCPPrincipal) -> dict[str, Any] | None:
+    def _rpc(self, request: Mapping[str, Any], principal: MCPPrincipal | None) -> dict[str, Any] | None:
         if not isinstance(request, Mapping) or request.get("jsonrpc") != "2.0":
             raise MCPServiceError("invalid JSON-RPC 2.0 request", code=-32600, status=400)
         if "method" not in request:
@@ -899,7 +909,17 @@ class AurenMCPService:
                     "content": [{"type": "text", "text": _canonical_json(result)}],
                     "structuredContent": result,
                 }}
-            except (PermissionError, KeyError, TypeError, ValueError, MCPServiceError) as exc:
+            except PermissionError as exc:
+                challenge = self.authentication_challenge(
+                    error="invalid_token" if principal is None else "insufficient_scope",
+                    description="Authenticate and grant the required AUREN permission.",
+                )
+                return {"jsonrpc": "2.0", "id": request_id, "result": {
+                    "isError": True,
+                    "content": [{"type": "text", "text": _safe_text(exc, 500)}],
+                    "_meta": {"mcp/www_authenticate": [challenge]},
+                }}
+            except (KeyError, TypeError, ValueError, MCPServiceError) as exc:
                 return {"jsonrpc": "2.0", "id": request_id, "result": {
                     "isError": True, "content": [{"type": "text", "text": _safe_text(exc, 500)}],
                 }}
@@ -1106,7 +1126,24 @@ class AurenMCPASGI:
                 (b"content-type", b"application/json; charset=utf-8"),
                 (b"mcp-protocol-version", response_protocol.encode("ascii")),
             ]
+            result_meta = response.get("result", {}).get("_meta") if isinstance(response.get("result"), Mapping) else None
+            challenge_values = result_meta.get("mcp/www_authenticate") if isinstance(result_meta, Mapping) else None
+            if isinstance(challenge_values, list) and challenge_values and isinstance(challenge_values[0], str):
+                extra.append((b"www-authenticate", challenge_values[0].encode("latin1")))
             await self._send(send, 200, body, extra)
+        except PermissionError as exc:
+            challenge = self.service.authentication_challenge(
+                error="invalid_token", description="Authenticate to access this AUREN operator resource.",
+            )
+            request_id = request.get("id") if isinstance(locals().get("request"), Mapping) else None
+            body = _canonical_json({
+                "jsonrpc": "2.0", "id": request_id,
+                "error": {"code": -32001, "message": _safe_text(exc, 300)},
+            }).encode("utf-8")
+            await self._send(send, 401, body, cors + [
+                (b"content-type", b"application/json; charset=utf-8"),
+                (b"www-authenticate", challenge.encode("latin1")),
+            ])
         except MCPServiceError as exc:
             request_id = request.get("id") if isinstance(locals().get("request"), Mapping) else None
             rpc_error = {
