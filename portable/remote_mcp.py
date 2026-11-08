@@ -271,14 +271,32 @@ class AurenMCPService:
         if not self.project_root.is_dir():
             raise ValueError("configured AUREN project_root must be an existing directory")
         parsed_resource = urlsplit(resource_url)
-        if parsed_resource.scheme != "https" or not parsed_resource.netloc:
-            raise ValueError("MCP resource URL must be an absolute HTTPS URL")
+        if (
+            parsed_resource.scheme != "https" or not parsed_resource.netloc
+            or parsed_resource.query or parsed_resource.fragment
+        ):
+            raise ValueError("MCP resource URL must be an absolute HTTPS URL without query or fragment")
         if authorization_server_url is not None:
             auth_url = urlsplit(authorization_server_url)
-            if auth_url.scheme != "https" or not auth_url.netloc:
-                raise ValueError("authorization server URL must use HTTPS")
+            if auth_url.scheme != "https" or not auth_url.netloc or auth_url.query or auth_url.fragment:
+                raise ValueError("authorization server URL must be an absolute HTTPS issuer URL")
         if not endpoint_path.startswith("/") or "?" in endpoint_path or "#" in endpoint_path:
             raise ValueError("MCP endpoint_path must be an absolute path")
+        if parsed_resource.path.rstrip("/") != endpoint_path.rstrip("/"):
+            raise ValueError("MCP resource URL path must match the configured endpoint path")
+        for origin in allowed_origins:
+            parsed_origin = urlsplit(origin)
+            local_http = parsed_origin.scheme == "http" and parsed_origin.hostname in {"localhost", "127.0.0.1", "::1"}
+            if (
+                parsed_origin.scheme != "https" and not local_http
+                or not parsed_origin.netloc or parsed_origin.path not in {"", "/"}
+                or parsed_origin.query or parsed_origin.fragment or parsed_origin.username
+            ):
+                raise ValueError("allowed origins must be exact HTTPS origins (loopback HTTP is allowed for development)")
+        for host in allowed_hosts:
+            parsed_host = urlsplit("//" + host)
+            if not parsed_host.hostname or parsed_host.path or parsed_host.username or parsed_host.password:
+                raise ValueError("allowed hosts must be hostnames, optionally with a port")
         if not 1024 <= max_body_bytes <= 1_048_576:
             raise ValueError("max_body_bytes must be between 1 KiB and 1 MiB")
         if not 1 <= rate_limit <= 10_000 or not 1 <= rate_window_seconds <= 3600:
@@ -288,8 +306,8 @@ class AurenMCPService:
         self.token_verifier = token_verifier
         self.resource_url = resource_url.rstrip("/")
         self.authorization_server_url = authorization_server_url
-        self.allowed_origins = frozenset(allowed_origins)
-        self.allowed_hosts = frozenset(x.lower() for x in allowed_hosts)
+        self.allowed_origins = frozenset(origin.rstrip("/") for origin in allowed_origins)
+        self.allowed_hosts = frozenset(urlsplit("//" + x).hostname.lower() for x in allowed_hosts)
         self.require_https = require_https
         self.endpoint_path = endpoint_path
         self.max_body_bytes = max_body_bytes
