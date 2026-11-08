@@ -95,10 +95,13 @@ class StaticBearerTokenVerifier:
             scopes = record.get("scopes", ())
             roles = record.get("roles", ())
             projects = record.get("projects", ())
+            issuer = record.get("issuer", "static")
             if not isinstance(token, str) or len(token) < 32:
                 raise ValueError("static MCP tokens must contain at least 32 characters")
             if not isinstance(subject, str) or not subject.strip():
                 raise ValueError("static MCP token subject is required")
+            if not isinstance(issuer, str) or not issuer.strip():
+                raise ValueError("static MCP token issuer must be non-empty text")
             if not isinstance(scopes, list) or not set(scopes).issubset(_ALL_SCOPES):
                 raise ValueError("static MCP token scopes are invalid")
             if not isinstance(roles, list) or not all(isinstance(x, str) and x for x in roles):
@@ -108,7 +111,7 @@ class StaticBearerTokenVerifier:
             parsed.append((
                 hashlib.sha256(token.encode("utf-8")).hexdigest(),
                 MCPPrincipal(subject.strip(), frozenset(scopes), tuple(roles), tuple(projects),
-                             str(record.get("issuer", "static"))),
+                             issuer.strip()),
             ))
         if not parsed:
             raise ValueError("at least one static MCP token is required")
@@ -205,7 +208,7 @@ class OAuthIntrospectionVerifier:
                 if (
                     isinstance(audiences, list) and self.audience in audiences
                     and type(expiry) in {int, float} and expiry > time.time()
-                    and isinstance(payload.get("sub"), str) and payload["sub"]
+                    and isinstance(payload.get("sub"), str) and payload["sub"].strip()
                     and isinstance(payload.get("iss"), str)
                     and payload["iss"].rstrip("/") == self.issuer
                     and payload.get("cnf") is None
