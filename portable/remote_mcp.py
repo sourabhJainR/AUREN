@@ -307,7 +307,10 @@ class AurenMCPService:
         self.resource_url = resource_url.rstrip("/")
         self.authorization_server_url = authorization_server_url
         self.allowed_origins = frozenset(origin.rstrip("/") for origin in allowed_origins)
-        self.allowed_hosts = frozenset(urlsplit("//" + x).hostname.lower() for x in allowed_hosts)
+        allowed_hostnames = frozenset(urlsplit("//" + x).hostname.lower() for x in allowed_hosts)
+        if allowed_hostnames and parsed_resource.hostname.lower() not in allowed_hostnames:
+            raise ValueError("MCP resource hostname must be included in allowed_hosts")
+        self.allowed_hosts = allowed_hostnames
         self.require_https = require_https
         self.endpoint_path = endpoint_path
         self.max_body_bytes = max_body_bytes
@@ -1118,7 +1121,13 @@ class AurenMCPASGI:
                 return bytes(body)
 
     async def _send(self, send, status: int, body: bytes = b"", headers: list[tuple[bytes, bytes]] | None = None):
-        response_headers = [(b"cache-control", b"no-store"), (b"x-content-type-options", b"nosniff")]
+        response_headers = [
+            (b"cache-control", b"no-store"),
+            (b"x-content-type-options", b"nosniff"),
+            (b"referrer-policy", b"no-referrer"),
+            (b"x-frame-options", b"DENY"),
+            (b"strict-transport-security", b"max-age=31536000; includeSubDomains"),
+        ]
         response_headers.extend(headers or [])
         if body:
             response_headers.append((b"content-length", str(len(body)).encode("ascii")))
@@ -1147,8 +1156,9 @@ class AurenMCPASGI:
             cors = [
                 (b"access-control-allow-origin", origin.encode("latin1")),
                 (b"vary", b"Origin"),
-                (b"access-control-allow-headers", b"Authorization, Content-Type, Accept, MCP-Protocol-Version, Mcp-Method, Mcp-Name"),
+                (b"access-control-allow-headers", b"Authorization, Content-Type, Accept, MCP-Protocol-Version"),
                 (b"access-control-allow-methods", b"POST, GET, OPTIONS"),
+                (b"access-control-expose-headers", b"WWW-Authenticate, MCP-Protocol-Version"),
             ]
         if not self._origin_allowed(origin):
             await self._send(send, 403, b'{"error":"origin_forbidden"}')
