@@ -13,6 +13,7 @@ import json
 import math
 import os
 import re
+import secrets
 import sqlite3
 import threading
 import time
@@ -20,6 +21,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from contextlib import closing
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Protocol
@@ -33,6 +35,7 @@ from .identity_compat import canonical_auren_home
 SUPPORTED_PROTOCOL_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26")
 DEFAULT_ENDPOINT_PATH = "/mcp"
 DEFAULT_MAX_BODY_BYTES = 64 * 1024
+DEFAULT_MAX_RESPONSE_BYTES = 2_097_152
 DEFAULT_MAX_TASK_CHARS = 16_000
 DEFAULT_MAX_CONTEXT_BYTES = 16_384
 DEFAULT_RATE_LIMIT = 120
