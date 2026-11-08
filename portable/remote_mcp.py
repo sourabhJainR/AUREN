@@ -1082,6 +1082,7 @@ def service_from_environment(runtime: Any, *, project_root: str | Path) -> Auren
         if not isinstance(records, list):
             raise RuntimeError("AUREN_MCP_STATIC_TOKENS must be a JSON array")
         verifier = StaticBearerTokenVerifier(records)
+        authorization_server = None
     origins = tuple(x.strip() for x in os.environ.get("AUREN_MCP_ALLOWED_ORIGINS", "").split(",") if x.strip())
     hosts = tuple(x.strip() for x in os.environ.get("AUREN_MCP_ALLOWED_HOSTS", "").split(",") if x.strip())
     if not hosts:
@@ -1091,6 +1092,7 @@ def service_from_environment(runtime: Any, *, project_root: str | Path) -> Auren
         resource_url=resource_url, authorization_server_url=authorization_server,
         allowed_origins=origins, allowed_hosts=hosts, require_https=True,
         endpoint_path=os.environ.get("AUREN_MCP_ENDPOINT_PATH", DEFAULT_ENDPOINT_PATH),
+        control_store_path=os.environ.get("AUREN_MCP_CONTROL_DB") or None,
     )
 
 
