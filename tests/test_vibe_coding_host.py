@@ -1423,7 +1423,7 @@ class VibeCodingHostTests(unittest.TestCase):
                 )
 
     @unittest.skipIf(os.name == "nt", "isolated host integration currently targets POSIX provider CLIs")
-    def test_complete_host_workflow_on_isolated_clone_of_real_auren_project(self):
+    def test_host_workflow_blocks_repository_mutation_without_native_lookup(self):
         repository = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
@@ -1632,11 +1632,25 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
                 "timeout_seconds": 5,
             }
             path.write_text(json.dumps(config), encoding="utf-8")
+            config["provider_capabilities"] = {
+                "development": {
+                    "supports_provider_idempotency": True,
+                    "lookup_not_found_is_authoritative": True,
+                },
+            }
+            path.write_text(json.dumps(config), encoding="utf-8")
             loaded = load_host_config(path)
             lookup = loaded.mcp_tools["deployment"]["operation_lookup"]
             self.assertEqual("lookup", lookup["tool_name"])
             self.assertEqual(5, lookup["timeout_seconds"])
             self.assertEqual("$operation_id", lookup["argument_map"]["operation_id"])
+            self.assertTrue(loaded.provider_capabilities["development"]["supports_provider_idempotency"])
+            self.assertTrue(loaded.provider_capabilities["development"]["lookup_not_found_is_authoritative"])
+
+            config["provider_capabilities"]["development"]["supports_provider_idempotency"] = "yes"
+            path.write_text(json.dumps(config), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "must be booleans"):
+                load_host_config(path)
 
     @unittest.skipIf(os.name == "nt", "POSIX file permission contract")
     def test_host_config_requires_private_file_and_explicit_security_adapter(self):
