@@ -106,6 +106,16 @@ class RemoteMCPServiceTests(unittest.TestCase):
         self.assertEqual(self.service._principal_key(self.principal), event.payload["context"]["_auren_mcp_subject"])
         self.assertNotIn("operator-1", event.payload["context"]["_auren_mcp_subject"])
 
+    def test_submit_rejects_credential_like_task_text_and_context_values(self):
+        for arguments in (
+            {"task": "Deploy with API_KEY=secret-value", "idempotency_key": "credential-task-0001"},
+            {"task": "Deploy service", "idempotency_key": "credential-task-0002",
+             "context": {"notes": "Authorization: Bearer abcdefghijklmnop"}},
+        ):
+            with self.subTest(arguments=arguments):
+                with self.assertRaisesRegex(ValueError, "credential"):
+                    self.service.call_tool("auren.submit_task", arguments, self.principal)
+
     def test_idempotency_keys_are_scoped_to_issuer_and_subject(self):
         other = MCPPrincipal(
             "operator-2", self.principal.scopes, roles=self.principal.roles,
