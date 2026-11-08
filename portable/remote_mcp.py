@@ -1032,17 +1032,17 @@ class AurenMCPService:
         )
 
     def protected_resource_metadata(self) -> dict[str, Any]:
-        if not self.authorization_server_url:
-            return {
-                "resource": self.resource_url, "bearer_methods_supported": ["header"],
-                "scopes_supported": list(_ALL_SCOPES),
-            }
-        return {
+        metadata = {
             "resource": self.resource_url,
-            "authorization_servers": [self.authorization_server_url],
+            "resource_name": "AUREN Remote MCP",
+            "resource_documentation": "https://github.com/sourabhJainR/AUREN/blob/main/docs/REMOTE_MCP_OPERATIONS.md",
+            "resource_policy_uri": "https://github.com/sourabhJainR/AUREN/blob/main/docs/REMOTE_MCP_PRIVACY.md",
             "bearer_methods_supported": ["header"],
             "scopes_supported": list(_ALL_SCOPES),
         }
+        if self.authorization_server_url:
+            metadata["authorization_servers"] = [self.authorization_server_url]
+        return metadata
 
     def _rpc(self, request: Mapping[str, Any], principal: MCPPrincipal | None) -> dict[str, Any] | None:
         if not isinstance(request, Mapping) or request.get("jsonrpc") != "2.0":
@@ -1269,7 +1269,10 @@ class AurenMCPASGI:
         if self.service.require_https and scope.get("scheme") != "https":
             await self._send(send, 400, b'{"error":"https_required"}')
             return
-        if path == "/.well-known/oauth-protected-resource":
+        if path in {
+            "/.well-known/oauth-protected-resource",
+            self.service.resource_metadata_path(),
+        }:
             if method != "GET":
                 await self._send(send, 405, headers=[(b"allow", b"GET")])
                 return
@@ -1378,7 +1381,7 @@ class AurenMCPASGI:
             extra = cors + [(b"content-type", b"application/json; charset=utf-8")]
             if exc.status == 401:
                 resource = urlsplit(self.service.resource_url)
-                metadata = f"{resource.scheme}://{resource.netloc}/.well-known/oauth-protected-resource"
+                metadata = f"{resource.scheme}://{resource.netloc}{self.service.resource_metadata_path()}"
                 extra.append((b"www-authenticate", f'Bearer resource_metadata="{metadata}"'.encode("latin1")))
             await self._send(send, exc.status, body, extra)
         except Exception as exc:
