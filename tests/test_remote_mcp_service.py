@@ -93,7 +93,8 @@ class RemoteMCPServiceTests(unittest.TestCase):
                 self.principal,
             )
         self.assertEqual(first["task_id"], second["task_id"])
-        self.assertFalse(first["execution_started"])
+        self.assertEqual("accepted", first["status"])
+        self.assertFalse(first["completion_verified"])
         self.assertEqual(2, enqueue.call_count)
         event = self.runtime.trigger_runtime.get_event(first["task_id"])
         self.assertEqual(str(self.root), event.payload["project_root"])
