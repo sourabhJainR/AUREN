@@ -912,7 +912,7 @@ class AurenMCPService:
     def _check_rate(self, principal: MCPPrincipal) -> None:
         bucket = int(time.time() // self.rate_window_seconds)
         subject_key = self._principal_key(principal)
-        with closing(sqlite3.connect(self.control_db, timeout=10)) as db:
+        with closing(sqlite3.connect(self.control_db, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             db.execute(
                 "INSERT INTO request_rate_buckets(subject,bucket,request_count) VALUES(?,?,1) "
