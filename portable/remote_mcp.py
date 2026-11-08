@@ -507,12 +507,15 @@ class AurenMCPService:
         execution_status = event.outcome.get("result_status") if isinstance(event.outcome, Mapping) else None
         reported_status = (
             execution_status if event.status == "success" and isinstance(execution_status, str)
-            else event.status
+            else "dispatched" if event.status == "success" else event.status
         )
         return {
             "task_id": event.event_id, "runtime_task_id": runtime_task_id,
             "kind": "adaptive_runtime",
             "status": reported_status, "dispatch_status": event.status,
+            "execution_status": execution_status,
+            "completion_verified": str(execution_status).lower() in {"completed", "complete", "success"},
+            "cancellation_requested": self.trigger_runtime.is_cancel_requested(event.event_id),
             "attempts": event.attempts,
             "max_attempts": event.max_attempts, "created_at": event.created_at,
             "available_at": event.available_at, "claimed_at": event.claimed_at,
