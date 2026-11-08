@@ -152,6 +152,7 @@ class CapabilityCoverageMatrixTests(unittest.TestCase):
         self.assertEqual(observation["post_merge_push_workflows"]["success"], 8)
         self.assertEqual(observation["open_pr_count"], 2)
         self.assertEqual([item["number"] for item in observation["open_prs"]], [1304, 1305])
+        self.assertIn("before PR #1306 was opened", observation["snapshot_note"])
         open_prs = {item["number"]: item for item in observation["open_prs"]}
         self.assertNotEqual(open_prs[1304]["base_sha"], radar["baseline_main_sha"])
         self.assertEqual(open_prs[1305]["base_sha"], radar["baseline_main_sha"])
