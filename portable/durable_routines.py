@@ -285,11 +285,18 @@ class DurableRoutineRegistry:
         for row in rows:
             spec = RoutineSpec(**json.loads(row["spec_json"]))
             scheduled = _utc(datetime.fromisoformat(row["next_run_at"]))
+            missed_intervals = 0
+            if spec.trigger == "interval":
+                interval = spec.interval_seconds or 0
+                missed_intervals = max(0, int((instant - scheduled).total_seconds() // interval))
+                # Coalesce downtime into one occurrence. Do not replay every missed
+                # interval after an outage or let a stale schedule create a backlog.
+                scheduled = scheduled + timedelta(seconds=missed_intervals * interval)
             occurrence = f"{spec.routine_id}:v{spec.version}:{_iso(scheduled)}"
             dispatched = self._dispatch(
                 spec.routine_id, spec.trigger, occurrence, submit=submit,
                 approval=approval, reconcile=reconcile, scheduled_at=scheduled,
-                expected_version=spec.version,
+                expected_version=spec.version, missed_intervals=missed_intervals,
             )
             results.append(dispatched)
             if dispatched.status not in {"submitted", "duplicate"}:
@@ -316,11 +323,14 @@ class DurableRoutineRegistry:
         event_payload: Mapping[str, Any] | None = None,
         scheduled_at: datetime | None = None,
         expected_version: int | None = None,
+        missed_intervals: int = 0,
     ) -> RoutineDispatch:
         spec = self.get(routine_id)
         expected_version = spec.version if expected_version is None else expected_version
         if type(expected_version) is not int or expected_version < 1:
             raise ValueError("expected routine version must be a positive integer")
+        if type(missed_intervals) is not int or missed_intervals < 0:
+            raise ValueError("missed_intervals must be a non-negative integer")
         if spec.approval_required and (approval is None or approval(spec) is not True):
             return RoutineDispatch("", "", "blocked", reason="required approval is absent")
         occurrence_key = _digest({
@@ -386,8 +396,11 @@ class DurableRoutineRegistry:
             if not current["enabled"]:
                 db.execute("COMMIT")
                 return RoutineDispatch("", "", "disabled", reason="routine is disabled")
-            receipt = {"state": "dispatching", "routine_digest": spec.digest,
-                       "trigger_digest": trigger_digest}
+            receipt = {
+                "state": "dispatching", "routine_digest": spec.digest,
+                "trigger_digest": trigger_digest,
+                "coalesced_missed_intervals": missed_intervals,
+            }
             db.execute(
                 """INSERT INTO routine_occurrences
                    (occurrence_key,routine_id,routine_version,trigger_kind,status,work_key,
@@ -402,6 +415,8 @@ class DurableRoutineRegistry:
             payload["_auren_trigger_event"] = dict(event_payload)
         if scheduled_at is not None:
             payload["_auren_scheduled_at"] = _iso(scheduled_at)
+        if missed_intervals:
+            payload["_auren_coalesced_missed_intervals"] = missed_intervals
         try:
             task = submit(
                 spec.handler, payload, goal=spec.goal, work_key=work_key,
