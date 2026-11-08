@@ -269,6 +269,7 @@ class AurenMCPService:
         approval_store: DurableApprovalStore | None = None,
         dispatcher_poll_seconds: float = 2.0,
         control_store_path: str | Path | None = None,
+        max_pending_tasks: int = 1000,
     ):
         self.runtime = runtime
         self.controller = getattr(runtime, "execution_controller", None)
@@ -326,8 +327,11 @@ class AurenMCPService:
         self.require_https = require_https
         self.endpoint_path = endpoint_path
         self.max_body_bytes = max_body_bytes
+        if type(max_pending_tasks) is not int or not 1 <= max_pending_tasks <= 10_000:
+            raise ValueError("max_pending_tasks must be between 1 and 10000")
         self.rate_limit = rate_limit
         self.rate_window_seconds = rate_window_seconds
+        self.max_pending_tasks = max_pending_tasks
         self.approval_store = approval_store or DurableApprovalStore(self.controller)
         self.trigger = AdaptiveTrigger.for_runtime(runtime)
         self._stop = threading.Event()
@@ -541,12 +545,12 @@ class AurenMCPService:
         definitions = [
             ("auren.service_status", "Read AUREN service health, queue capacity and admission state.", _SCOPE_READ,
              {"type": "object", "properties": {}, "additionalProperties": False}),
-            ("auren.submit_task", "Durably submit an engineering task to the configured AUREN workspace. Returns an acceptance receipt, not a completion claim.", _SCOPE_WRITE,
-             {"type": "object", "required": ["task"], "properties": {
+            ("auren.submit_task", "Durably submit an engineering task to the configured AUREN workspace. A caller-scoped idempotency key is required. Returns an acceptance receipt, not a completion claim.", _SCOPE_WRITE,
+             {"type": "object", "required": ["task", "idempotency_key"], "properties": {
                  "task": {"type": "string", "minLength": 1, "maxLength": DEFAULT_MAX_TASK_CHARS},
                  "context": {"type": "object", "additionalProperties": True},
                  "priority": {"type": "string", "enum": ["high", "normal", "low"]},
-                 "idempotency_key": {"type": "string", "minLength": 8, "maxLength": 200},
+                 "idempotency_key": {"type": "string", "minLength": 16, "maxLength": 200},
                  "max_attempts": {"type": "integer", "minimum": 1, "maximum": 8},
              }, "additionalProperties": False}),
             ("auren.list_tasks", "List bounded task summaries for the configured AUREN workspace.", _SCOPE_READ,
@@ -709,6 +713,9 @@ class AurenMCPService:
             except Exception as exc:
                 findings = ["health_check_unavailable:" + type(exc).__name__]
             control = self._control()
+            pending_mcp_tasks = self.trigger_runtime.count_events(
+                kind="adaptive_runtime", statuses=("pending", "claimed", "retryable"),
+            )
             dispatcher = {
                 "running": bool(self._worker and self._worker.is_alive()),
                 "last_run_at": self._dispatcher_last_run_at,
@@ -726,6 +733,11 @@ class AurenMCPService:
                 "workspace_id": hashlib.sha256(str(self.project_root).encode("utf-8")).hexdigest()[:16],
                 "admissions": control,
                 "queue": queue, "dispatcher": dispatcher,
+                "mcp_admission": {
+                    "pending_or_active": pending_mcp_tasks,
+                    "max_pending": self.max_pending_tasks,
+                    "at_capacity": pending_mcp_tasks >= self.max_pending_tasks,
+                },
                 "health_findings": [_safe_text(x, 300) for x in findings],
                 "mcp_protocol_versions": list(SUPPORTED_PROTOCOL_VERSIONS),
             }
@@ -751,13 +763,19 @@ class AurenMCPService:
             if self._contains_host_controlled_context(context):
                 raise ValueError("context contains a host-controlled or credential field")
             idempotency = arguments.get("idempotency_key")
-            event_id = None
-            if idempotency is not None:
-                if not isinstance(idempotency, str) or not 8 <= len(idempotency) <= 200:
-                    raise ValueError("idempotency_key must contain 8 to 200 characters")
-                event_id = hashlib.sha256(
-                    (principal.subject + "\0" + idempotency).encode("utf-8")
-                ).hexdigest()[:40]
+            if not isinstance(idempotency, str) or not 16 <= len(idempotency) <= 200:
+                raise ValueError("idempotency_key must contain 16 to 200 characters")
+            event_id = hashlib.sha256(
+                (self._principal_key(principal) + "\0" + idempotency).encode("utf-8")
+            ).hexdigest()[:40]
+            pending_count = self.trigger_runtime.count_events(
+                kind="adaptive_runtime", statuses=("pending", "claimed", "retryable"),
+            )
+            if pending_count >= self.max_pending_tasks:
+                raise MCPServiceError(
+                    "AUREN MCP task queue is at capacity; retry after an existing task advances",
+                    code=-32053, status=429,
+                )
             task_context = dict(context)
             task_context["_auren_mcp_subject"] = self._principal_key(principal)
             receipt = self.trigger.trigger_adaptive_runtime(
@@ -1355,6 +1373,7 @@ def service_from_environment(runtime: Any, *, project_root: str | Path) -> Auren
         allowed_origins=origins, allowed_hosts=hosts, require_https=True,
         endpoint_path=os.environ.get("AUREN_MCP_ENDPOINT_PATH", DEFAULT_ENDPOINT_PATH),
         control_store_path=os.environ.get("AUREN_MCP_CONTROL_DB") or None,
+        max_pending_tasks=int(os.environ.get("AUREN_MCP_MAX_PENDING_TASKS", "1000")),
     )
 
 
