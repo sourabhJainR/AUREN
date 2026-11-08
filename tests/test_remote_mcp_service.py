@@ -342,7 +342,7 @@ class OAuthIntrospectionVerifierTests(unittest.TestCase):
             "scope": "openid auren:tasks:read auren:tasks:write",
             "roles": ["engineer"], "projects": ["/workspace/main"],
         }
-        with patch("portable.remote_mcp.urllib.request.urlopen", return_value=self.Response(payload)):
+        with patch.object(self.verifier._opener, "open", return_value=self.Response(payload)):
             principal = self.verifier.verify("valid-access-token")
         self.assertIsNotNone(principal)
         self.assertEqual("user-123", principal.subject)
@@ -364,7 +364,7 @@ class OAuthIntrospectionVerifierTests(unittest.TestCase):
                     "active": True, "sub": "user-123", "scope": "auren:tasks:read",
                     **claims,
                 }
-                with patch("portable.remote_mcp.urllib.request.urlopen", return_value=self.Response(payload)):
+                with patch.object(self.verifier._opener, "open", return_value=self.Response(payload)):
                     self.assertIsNone(self.verifier.verify(f"invalid-access-token-{index}"))
 
 
