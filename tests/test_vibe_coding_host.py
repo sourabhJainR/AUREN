@@ -1559,7 +1559,9 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
             self.assertIn("provider_operation_events", tables)
             with closing(sqlite3.connect(base / "auren-state" / "operations.sqlite3")) as db, db:
                 event_count = db.execute("SELECT COUNT(*) FROM provider_operation_events").fetchone()[0]
-            self.assertEqual(0, event_count, "no provider operation may be claimed before capability validation")
+                operation_count = db.execute("SELECT COUNT(*) FROM durable_side_effects").fetchone()[0]
+            self.assertEqual(0, event_count, "no provider event may be emitted before capability validation")
+            self.assertEqual(0, operation_count, "no side-effect intent may be claimed before capability validation")
             source_status = subprocess.run(
                 ["git", "-C", str(project), "status", "--porcelain"],
                 check=True, text=True, capture_output=True,
