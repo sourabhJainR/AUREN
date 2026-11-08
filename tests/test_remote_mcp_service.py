@@ -384,7 +384,10 @@ class RemoteMCPASGITests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
-        self.runtime = AdaptiveRuntime(Graph([]), state_root=self.root / "runtime")
+        self.runtime = AdaptiveRuntime(
+            Graph([Node("mcp-noop", NodeKind.DETERMINISTIC, lambda _state: "ok")]),
+            state_root=self.root / "runtime",
+        )
         self.token = "asgi-remote-mcp-token-" + ("y" * 40)
         verifier = StaticBearerTokenVerifier([{
             "token": self.token, "subject": "operator",
