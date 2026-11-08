@@ -1379,7 +1379,8 @@
         ]
       },
       "required_check_enforcement": "The active mainBranchRule exposes deletion and non-fast-forward protections only; no required-status-check rule is visible. The branch-protection API returned 403 Resource not accessible by integration; owner/admin confirmation is required.",
-      "local_checkout_and_runtime": "No local AUREN checkout or AutonomousCompany/ExecutionController runtime invocation is available in this environment; no local tests or process-level fault injection are claimed. GitHub Actions exact-head and main check-run evidence was inspected."
+      "local_checkout_and_runtime": "No local AUREN checkout or AutonomousCompany/ExecutionController runtime invocation is available in this environment; no local tests or process-level fault injection are claimed. GitHub Actions exact-head and main check-run evidence was inspected.",
+      "snapshot_note": "Open PRs 1304 and 1305 are the snapshot captured against main before PR #1306 was opened; PR #1306 is the current radar-refresh proposal and is intentionally excluded from this baseline list."
     },
     "artifact_integrity": {
       "status": "downloaded_and_rehashed",
