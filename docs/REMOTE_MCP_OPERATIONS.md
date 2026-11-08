@@ -174,16 +174,13 @@ Add to .cursor/mcp.json or ~/.cursor/mcp.json:
 {
   "mcpServers": {
     "auren": {
-      "url": "https://mcp.example.com/mcp",
-      "headers": {
-        "Authorization": "Bearer YOUR_LOCAL_SECRET"
-      }
+      "url": "https://mcp.example.com/mcp"
     }
   }
 }
 ~~~
 
-For OAuth-enabled Cursor versions, prefer the built-in remote MCP OAuth flow over static headers. Do not commit the secret.
+Cursor supports remote Streamable HTTP and OAuth discovery through the protected-resource metadata. Complete its sign-in flow when prompted. If using a pre-registered static OAuth client, configure its client ID through Cursor's auth settings; do not commit client secrets.
 
 ### Gemini CLI
 
@@ -201,7 +198,45 @@ Add to the Gemini CLI MCP settings:
 }
 ~~~
 
-Use Gemini's remote MCP OAuth support with the configured issuer. For private development environments, the client can send an Authorization header from a protected local secret store.
+Use Gemini's remote MCP OAuth support with the configured issuer. Gemini CLI can also register the endpoint directly:
+
+~~~bash
+gemini mcp add --transport http auren https://mcp.example.com/mcp
+gemini mcp list
+~~~
+
+For Gemini Code Assist Agent mode in VS Code, add the server to the Gemini settings JSON file (usually ~/.gemini/settings.json):
+
+~~~json
+{
+  "mcpServers": {
+    "auren": {
+      "httpUrl": "https://mcp.example.com/mcp",
+      "timeout": 30000,
+      "trust": false
+    }
+  }
+}
+~~~
+
+Gemini Code Assist Agent mode uses the Gemini CLI tool integration for MCP. It is a separate acceptance target from the standalone Gemini CLI. Google has moved some consumer Gemini CLI/Code Assist tiers to Antigravity; check the current plan and product migration status before choosing the host.
+
+### Antigravity CLI and IDE
+
+Antigravity supports remote Streamable HTTP MCP. Its remote configuration uses serverUrl, not the legacy httpUrl field:
+
+~~~json
+{
+  "mcpServers": {
+    "auren": {
+      "serverUrl": "https://mcp.example.com/mcp",
+      "timeoutSeconds": 600
+    }
+  }
+}
+~~~
+
+For Antigravity CLI, place this in ~/.gemini/config/mcp_config.json (global) or .agents/mcp_config.json (workspace). Open the interactive manager with /mcp to verify the connection. For Antigravity IDE, add the same server through the MCP Servers settings or its mcp_config.json.
 
 ### VS Code with GitHub Copilot Agent mode
 
