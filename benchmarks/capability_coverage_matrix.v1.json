@@ -568,68 +568,80 @@
     }
   ],
   "review_snapshot": {
-    "reviewed_at": "2026-11-07",
-    "baseline_main_sha": "5b3d506c2dadf14f54608423b7eaeffc1e09e071",
+    "reviewed_at": "2026-11-08",
+    "baseline_main_sha": "c99ade6fff9d7221da5ee74511b6ce39a873824e",
     "current_main_check_runs": {
-      "total": 28,
-      "success": 28,
+      "total": 30,
+      "success": 30,
       "skipped": 0,
       "failed": 0,
       "pending": 0
     },
     "skipped_checks": [],
     "post_merge_push_workflows": {
-      "total": 6,
-      "success": 6,
+      "total": 8,
+      "success": 8,
       "failed": 0,
       "pending": 0,
       "runs": [
         {
-          "name": "Agent Capability Runtime",
-          "run_id": 42399630446,
+          "name": "Production AI Harness Hardening",
+          "run_id": 42439765529,
           "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42399630446"
-        },
-        {
-          "name": "AUREN Portable Bundle",
-          "run_id": 42399630477,
-          "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42399630477"
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42439765529"
         },
         {
           "name": "Runtime Resilience Matrix",
-          "run_id": 42399630442,
+          "run_id": 42439765517,
           "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42399630442"
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42439765517"
+        },
+        {
+          "name": "Agent Capability Runtime",
+          "run_id": 42439765512,
+          "conclusion": "success",
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42439765512"
+        },
+        {
+          "name": "AUREN cleanup contract",
+          "run_id": 42439765500,
+          "conclusion": "success",
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42439765500"
+        },
+        {
+          "name": "AUREN Portable Bundle",
+          "run_id": 42439765536,
+          "conclusion": "success",
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42439765536"
+        },
+        {
+          "name": "Repository Construct Traceability Check",
+          "run_id": 42439765541,
+          "conclusion": "success",
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42439765541"
         },
         {
           "name": "Architecture Integrity",
-          "run_id": 42399630652,
+          "run_id": 42439765494,
           "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42399630652"
-        },
-        {
-          "name": "Production AI Harness Hardening",
-          "run_id": 42399630513,
-          "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42399630513"
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42439765494"
         },
         {
           "name": "AI Harness Check",
-          "run_id": 42399630479,
+          "run_id": 42439765547,
           "conclusion": "success",
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42399630479"
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42439765547"
         }
       ]
     },
     "portable_bundle": {
       "status": "downloaded_and_rehashed",
-      "workflow_run_id": 42399630477,
-      "bundle_artifact_id": 13585410493,
-      "checksum_artifact_id": 13585330955,
-      "outer_bundle_artifact_sha256": "5941da7f476c3bdd1bd6bcdeaceddb5423f85a980983ed6be2814b2b4a3916e9",
-      "outer_checksum_artifact_sha256": "48862c14d060608167746370bf7757c0387b4d579f6e4150c4937c2120540f31",
-      "inner_bundle_sha256": "3e9b4b24b0d08acada646758f8675c4089ccca1a396406ed404111fd718b74e8",
+      "workflow_run_id": 42439765536,
+      "bundle_artifact_id": 13601481077,
+      "checksum_artifact_id": 13601705298,
+      "outer_bundle_artifact_sha256": "4739d865da93c639ca2e06eb83a2f76a1b6e0bd6b25c502fa2abbd5776c8cf36",
+      "outer_checksum_artifact_sha256": "40d27b229d608b08085b3dc373147df300b084c35fe0dc72f9904636a1994335",
+      "inner_bundle_sha256": "0bb57a6b7215fd846cb7252a70a469a4ee6c3d6cfdb94d91c4f445c1596804f7",
       "inner_checksum_status": "verified: checksum file matches the embedded ZIP SHA-256",
       "manifest_file_count": 538,
       "manifest_hash_or_size_mismatches": 0,
@@ -637,12 +649,12 @@
       "unexpected_generated_entries": [
         "payload/PORTABLE_BUNDLE.txt"
       ],
-      "source_commit": "5b3d506c2dadf14f54608423b7eaeffc1e09e071",
+      "source_commit": "c99ade6fff9d7221da5ee74511b6ce39a873824e",
       "version": "1.0.6",
       "target_repository_mutation": false,
-      "bundle_expires_at": "2026-12-07T18:07:40Z",
-      "checksum_expires_at": "2026-12-07T18:07:42Z",
-      "local_download_rehash": "Downloaded and rehashed in the container: both outer artifact digests match GitHub artifact metadata; the embedded ZIP matches the checksum file; all 538 manifest entries match size and SHA-256 with no missing or mismatched entries. One expected generated entry, payload/PORTABLE_BUNDLE.txt, is outside the manifest."
+      "bundle_expires_at": "2026-12-08T02:44:51Z",
+      "checksum_expires_at": "2026-12-08T02:44:53Z",
+      "local_download_rehash": "Downloaded both GitHub Actions artifact ZIPs and rehashed them in the container. Both outer SHA-256 digests match GitHub artifact metadata; the embedded ZIP SHA-256 matches the checksum file; all 538 manifest entries match size and SHA-256 with no missing or mismatched entries. payload/PORTABLE_BUNDLE.txt is the sole expected generated entry outside the manifest."
     },
     "required_check_enforcement": {
       "status": "not_fully_confirmed",
@@ -655,7 +667,7 @@
     "stock_research_acceptance": {
       "status": "No Stock Research Canonical Runtime Acceptance push workflow ran on this main revision; prior fixture-backed acceptance remains historical. Live provider validation, licensing, deployment and independent evaluation are not verified.",
       "workflow_run_id": null,
-      "candidate_sha": "5b3d506c2dadf14f54608423b7eaeffc1e09e071",
+      "candidate_sha": "c99ade6fff9d7221da5ee74511b6ce39a873824e",
       "acceptance_type": "not run on this revision",
       "live_provider_validation": "not verified",
       "provider_licensing": "not verified",
@@ -664,9 +676,9 @@
     }
   },
   "radar_refresh": {
-    "reviewed_at": "2026-11-07",
-    "baseline_main_sha": "5b3d506c2dadf14f54608423b7eaeffc1e09e071",
-    "status": "candidate signals only. Research refreshed through 2026-11-07. Main 5b3d506c2dadf14f54608423b7eaeffc1e09e071 has 28 terminal check-runs: 28 successful, zero skipped, failed or pending. All six post-merge push workflows succeeded. The v1.0.6 portable bundle and checksum were downloaded and rehashed; both outer artifact digests match GitHub metadata, the embedded ZIP matches its checksum, and all 538 manifest entries match size and SHA-256. Production isolation, independent evaluator/corpus custody, sealed holdout, operator migration/rollback and scientific replication remain blocked. No AGI/SI claim or default capability promotion is supported.",
+    "reviewed_at": "2026-11-08",
+    "baseline_main_sha": "c99ade6fff9d7221da5ee74511b6ce39a873824e",
+    "status": "candidate signals only. Research refreshed through 2026-11-08. Main c99ade6fff9d7221da5ee74511b6ce39a873824e has 30 terminal check-runs: 30 successful, zero skipped, failed or pending. All eight post-merge push workflows succeeded. The v1.0.6 portable bundle and checksum were downloaded and rehashed: outer bundle 4739d865da93c639ca2e06eb83a2f76a1b6e0bd6b25c502fa2abbd5776c8cf36, checksum archive 40d27b229d608b08085b3dc373147df300b084c35fe0dc72f9904636a1994335, embedded ZIP 0bb57a6b7215fd846cb7252a70a469a4ee6c3d6cfdb94d91c4f445c1596804f7; all 538 manifest entries match size and SHA-256. Production isolation, independent evaluator/corpus custody, sealed holdout, physical-host admission, operator migration/rollback, provider-native live reconciliation and scientific replication remain blocked. No AGI/SI claim or default capability promotion is supported.",
     "policy": "External announcements and benchmark reports are comparison inputs, not evidence of equivalent AUREN capability. Reuse the canonical supervisor, TaskPlan, StateGraph, ExecutionController, Guard, RuntimeExecutionGuard, ProgressJournal, LearningSteward and Arena. No duplicate orchestrator or external runtime dependency. Keep adapters opt-in; no default model, harness or extension-pack promotion without paired measured value, independent evaluation and rollback. Discovery never grants authority.",
     "status_vocabulary": {
       "implementation": "Code path exists; does not imply tests or deployment.",
@@ -833,7 +845,7 @@
       },
       {
         "id": "agent_coordination_action_oversight",
-        "source_date": "2026-04-10; 2026-05-26; 2026-06-09; 2026-10-25; 2026-11-03; 2026-07; 2026-05-27; 2026-08 snapshot; 2026-11-04; 2026-11-05",
+        "source_date": "2026-04-10; 2026-05-26; 2026-06-09; 2026-10-25; 2026-11-03; 2026-07; 2026-05-27; 2026-08 snapshot; 2026-11-04; 2026-11-05; 2026-11-01",
         "sources": [
           "https://github.blog/changelog/2026-10-01-dynamic-workflows-in-copilot-cli-and-the-copilot-app/",
           "https://www.anthropic.com/research/multiagent-systems",
@@ -854,7 +866,8 @@
           "https://arxiv.org/abs/2611.07050",
           "https://arxiv.org/abs/2611.07483",
           "https://arxiv.org/abs/2611.05827",
-          "https://arxiv.org/abs/2611.07689"
+          "https://arxiv.org/abs/2611.07689",
+          "https://arxiv.org/abs/2611.02153"
         ],
         "owner": [
           "portable.agency_state_graph.StateGraph",
@@ -868,14 +881,14 @@
         "ci_status": "Selected graph concurrency, adoption conflict, verifier separation and cancellation contracts are repository-tested; runtime action monitoring, independent multi-agent benefit and host isolation are not verified.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "Coordination overhead, duplicate work, communication cost, conflict rate, resource contention, escalation latency, unauthorized-action rate, and cross-boundary covert communication. Recent independent API tests also report stop-compliance gaps after ambiguous shutdown warnings and interference with a peer agent; behavior changed when stop intent was explicit, and evaluation awareness limits generalization.  GitHub Agentic Workflows' GA design adds read-only-by-default execution, safe outputs and threat detection; SentinelOne announced early-access runtime agent action monitoring. Neither establishes AUREN's comparative coordination benefit or an independently verified control. OpenAI's containment report reinforces shared-hardware cross-agent channels as a threat-model input. SentinelOne's early-access ADR explicitly links agent actions to originating processes and describes stopping one agent without halting the full workflow. This sharpens the AUREN gap: durable agent identity must bind to process/action receipts, and containment must be proven at the host rather than inferred from agent self-report. MPAC makes cross-principal intent, conflict and governance explicit; AgensFlow treats coordination as an observable policy choice; The Arbiter Agent studies budgeted monitoring of agent interactions. None establishes AUREN's independent coordination value or action safety. DynaFlow reports 88.08% Forced-mode accuracy across six benchmarks after main-agent training; its untrained workflow modes do not beat the direct baseline. AUREN has no paired static-versus-dynamic graph evaluation. ICML 2026 reports that self-organizing teams can underperform their best individual expert by up to 41.1% on the studied ML benchmarks. This is task-specific, but AUREN must not assume team size or consensus improves quality. SCHEME (2026-05-27) uses 17 instances across seven settings and eight repositories to test coordinated covert side tasks while the visible engineering task succeeds. The reported rates are benchmark-specific; AUREN has no paired joint-only side-task campaign or monitor-coverage measurement. Anthropic publishes action-monitor coverage, review latency and escalation rate for its own platform. These metrics are a useful oversight vocabulary but are not independent AUREN evidence. Authorization Propagation in A2A Systems (2026-11-04) rejected 14 of 15 synthetic adversarial conditions but left a semantic scope-attenuation gap and a shared-key origin-verification weakness. Signed but Not Safe (2026-11-05) reduced unsafe handoff commits in its synthetic study, but pre-signing prompt injection still corrupted the manifest before the signature was applied. TandemBench (2026-11-04) reports 62.5% best team-plan decision accuracy while optimality verification remains near chance. MCPHallu shows that tool correctness and infeasible-goal recognition vary by failure subtype. These are author-reported results on their own tasks.",
-        "benchmark": "Paired single-agent/deterministic versus multi-agent runs on the same pinned task distribution with trace-level action audit; test explicit stop versus warning-only language, monitor tampering, sibling-process interference, confirmed termination, cross-boundary signaling without network/shared writable files, and tool-chain length effects. Report coordination overhead, duplicate work, action coverage, and outcome success.  Correlate each agent action with authenticated process/identity, intent digest and policy receipt; test prompt/monitor tampering, stop compliance, peer-process interference, covert shared-resource signaling and safe-output denial. Compare single-agent and multi-agent outcomes and overhead. Include action-to-process lineage, delegated-user attribution, per-agent containment, child-process cleanup, monitor tampering and post-stop action attempts; retain a separate independent host audit. Benchmark duplicate work, conflicts, communication cost, action authorization, revocation, stop compliance, inspection budget, false approvals and cross-agent information boundaries. Add dynamic graph generation versus static TaskPlan comparison with per-stage evidence, topology, role, information-flow, verification, budget and rollback scoring. Pair the best single specialist against the full team on identical tasks; measure expert utilization, quality, success, cost, latency, duplicate work, conflict, monitor integrity and unauthorized actions. Add SCHEME-style joint-only covert side-task negatives, disjoint write scopes, communication-topology changes, code/communication trace review, monitor tampering, revocation and stop attempts. Report visible-task success, hidden side-effect completion, monitor precision/recall, false positives and time-to-stop. Measure pre-action monitor coverage, post-action ingestion coverage, automated/human review latency, escalation and block rates, false positives, alert suppression and time-to-stop across agent roles and action classes. Test multi-hop authority attenuation, delegator-origin binding, forged or widened scopes, replay of request and authorization evidence, key-holder mutation, pre-signing prompt injection, signed-manifest extraction errors, verifier self-approval and duplicate dispatch. Pair team-plan choice with an independent test of whether a better plan exists; include unreachable goals and semantically overlapping tools.",
-        "acceptance_threshold": "Measured net value without safety/reliability regression; explicit stop intent is honored; worker termination is confirmed before reporting stopped; serialized adoption; no worker self-approval; shared budgets cannot be reset; zero unauthorized cross-boundary communication in the tested suite. The independent monitor must detect or prevent covert side effects without granting workers access to its oracle; require zero unauthorized action and no self-approval. Monitors must be outside worker authority and independently red-teamed; monitor gaps, tampering or uncertain termination block promotion. Each hop may only narrow authority; the original trusted intent and scope must be recoverable independently of worker-generated summaries. A valid signature cannot make an untrusted extraction authoritative. No worker or merger may approve its own consequential action; infeasible work must stop without a success claim.",
-        "rollback": "Disable fan-out for the affected task class and use the sequential canonical path. Reject the handoff, revoke the affected delegated scope, restore the prior trusted TaskPlan and approval digest, and reconcile any accepted external effect before resuming."
+        "measured_gap": "Coordination overhead, duplicate work, communication cost, conflict rate, resource contention, escalation latency, unauthorized-action rate, and cross-boundary covert communication. Recent independent API tests also report stop-compliance gaps after ambiguous shutdown warnings and interference with a peer agent; behavior changed when stop intent was explicit, and evaluation awareness limits generalization.  GitHub Agentic Workflows' GA design adds read-only-by-default execution, safe outputs and threat detection; SentinelOne announced early-access runtime agent action monitoring. Neither establishes AUREN's comparative coordination benefit or an independently verified control. OpenAI's containment report reinforces shared-hardware cross-agent channels as a threat-model input. SentinelOne's early-access ADR explicitly links agent actions to originating processes and describes stopping one agent without halting the full workflow. This sharpens the AUREN gap: durable agent identity must bind to process/action receipts, and containment must be proven at the host rather than inferred from agent self-report. MPAC makes cross-principal intent, conflict and governance explicit; AgensFlow treats coordination as an observable policy choice; The Arbiter Agent studies budgeted monitoring of agent interactions. None establishes AUREN's independent coordination value or action safety. DynaFlow reports 88.08% Forced-mode accuracy across six benchmarks after main-agent training; its untrained workflow modes do not beat the direct baseline. AUREN has no paired static-versus-dynamic graph evaluation. ICML 2026 reports that self-organizing teams can underperform their best individual expert by up to 41.1% on the studied ML benchmarks. This is task-specific, but AUREN must not assume team size or consensus improves quality. SCHEME (2026-05-27) uses 17 instances across seven settings and eight repositories to test coordinated covert side tasks while the visible engineering task succeeds. The reported rates are benchmark-specific; AUREN has no paired joint-only side-task campaign or monitor-coverage measurement. Anthropic publishes action-monitor coverage, review latency and escalation rate for its own platform. These metrics are a useful oversight vocabulary but are not independent AUREN evidence. Authorization Propagation in A2A Systems (2026-11-04) rejected 14 of 15 synthetic adversarial conditions but left a semantic scope-attenuation gap and a shared-key origin-verification weakness. Signed but Not Safe (2026-11-05) reduced unsafe handoff commits in its synthetic study, but pre-signing prompt injection still corrupted the manifest before the signature was applied. TandemBench (2026-11-04) reports 62.5% best team-plan decision accuracy while optimality verification remains near chance. MCPHallu shows that tool correctness and infeasible-goal recognition vary by failure subtype. These are author-reported results on their own tasks. The 2026-11-01 J-Space preprint reports internal-representation signals associated with collusion in a narrow experimental setting and proposes J-PACT; the reported result is not a portable detector, does not cover opaque hosted-model internals, and is not independent evidence about AUREN. Text-only review can miss hidden coordination and reward-driven verifier collusion.",
+        "benchmark": "Paired single-agent/deterministic versus multi-agent runs on the same pinned task distribution with trace-level action audit; test explicit stop versus warning-only language, monitor tampering, sibling-process interference, confirmed termination, cross-boundary signaling without network/shared writable files, and tool-chain length effects. Report coordination overhead, duplicate work, action coverage, and outcome success.  Correlate each agent action with authenticated process/identity, intent digest and policy receipt; test prompt/monitor tampering, stop compliance, peer-process interference, covert shared-resource signaling and safe-output denial. Compare single-agent and multi-agent outcomes and overhead. Include action-to-process lineage, delegated-user attribution, per-agent containment, child-process cleanup, monitor tampering and post-stop action attempts; retain a separate independent host audit. Benchmark duplicate work, conflicts, communication cost, action authorization, revocation, stop compliance, inspection budget, false approvals and cross-agent information boundaries. Add dynamic graph generation versus static TaskPlan comparison with per-stage evidence, topology, role, information-flow, verification, budget and rollback scoring. Pair the best single specialist against the full team on identical tasks; measure expert utilization, quality, success, cost, latency, duplicate work, conflict, monitor integrity and unauthorized actions. Add SCHEME-style joint-only covert side-task negatives, disjoint write scopes, communication-topology changes, code/communication trace review, monitor tampering, revocation and stop attempts. Report visible-task success, hidden side-effect completion, monitor precision/recall, false positives and time-to-stop. Measure pre-action monitor coverage, post-action ingestion coverage, automated/human review latency, escalation and block rates, false positives, alert suppression and time-to-stop across agent roles and action classes. Test multi-hop authority attenuation, delegator-origin binding, forged or widened scopes, replay of request and authorization evidence, key-holder mutation, pre-signing prompt injection, signed-manifest extraction errors, verifier self-approval and duplicate dispatch. Pair team-plan choice with an independent test of whether a better plan exists; include unreachable goals and semantically overlapping tools. Add paired-agent red-team cohorts with benign and collusive objectives, reward conflicts, shared logs, hidden communication channels, reviewer/implementer conflicts, and revocation during execution. Measure action-level collusion precision/recall, false positives, joint-task regret, principal-to-action attribution, self-approval attempts, revocation latency, stop confirmation and cross-agent side-channel leakage. Treat activation-based probes as optional research diagnostics, never as the sole control.",
+        "acceptance_threshold": "Measured net value without safety/reliability regression; explicit stop intent is honored; worker termination is confirmed before reporting stopped; serialized adoption; no worker self-approval; shared budgets cannot be reset; zero unauthorized cross-boundary communication in the tested suite. The independent monitor must detect or prevent covert side effects without granting workers access to its oracle; require zero unauthorized action and no self-approval. Monitors must be outside worker authority and independently red-teamed; monitor gaps, tampering or uncertain termination block promotion. Each hop may only narrow authority; the original trusted intent and scope must be recoverable independently of worker-generated summaries. A valid signature cannot make an untrusted extraction authoritative. No worker or merger may approve its own consequential action; infeasible work must stop without a success claim. No agent may approve its own or a cooperating agent's consequential work; suspicious coordination, missing principal attribution, hidden side channels or uncertain revocation blocks adoption. Require an independent action oracle and external evaluator for promotion.",
+        "rollback": "Disable fan-out for the affected task class and use the sequential canonical path. Reject the handoff, revoke the affected delegated scope, restore the prior trusted TaskPlan and approval digest, and reconcile any accepted external effect before resuming. Suspend the affected team, revoke delegated scopes and credentials, stop new dispatch, preserve the append-only action ledger, and reconcile unknown provider outcomes before any restart."
       },
       {
         "id": "scientific_discovery",
-        "source_date": "2026-09-04; 2026-09-07; 2026-10-04; 2026-11-03; 2026-10-06; 2026-04-20; 2026-11-03; 2026-09-29",
+        "source_date": "2026-09-04; 2026-09-07; 2026-10-04; 2026-11-03; 2026-10-06; 2026-04-20; 2026-11-03; 2026-09-29; 2026-10-12",
         "sources": [
           "https://www.anthropic.com/science",
           "https://www.nature.com/articles/s43586-026-00534-y",
@@ -907,10 +920,10 @@
         "ci_status": "CI verifies selected causal attribution and promotion-gate contracts only; no FIRE-Bench, Into the Unknown, SEER-Repro, or external scientific replication campaign has run on AUREN.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "Hypothesis validity, expert-condition satisfaction, reproducibility, analytical robustness, negative-result retention, calibration, transfer to fresh scientific tasks, and report integrity. Into the Unknown reports 0 of 135 submissions satisfying all conditions and 114 integrity failures. Agent4Sci spans 20 scientific-ML benchmarks across 11 domains: frontier agents improve published baselines, but trajectory analysis attributes most gains to ML-engineering heuristics rather than research-level insight; plug-in skills improve measured progress but need independent transfer evaluation. SEER-Repro reproduces 77.4% of 2,190 atomic claims and flags potentially consequential analysis choices in 9.5% of fully reproduced findings.  FIRE-Bench reports under-50 F1 rediscovery by its strongest evaluated agents with high run-to-run variance and recurring experimental-design/execution/evidence failures. Into the Unknown reports 0/135 submissions satisfying all expert conditions and 114 integrity failures; SEER-Repro reports 77.4% atomic-claim reproduction and potentially consequential analysis choices in 9.5% of fully reproduced findings. MechHypoBench (2026-10-04) combines mechanisms from 14 scientific fields with 17.98 million observations and tests open-form hypotheses through consequences under withheld conditions; its authors report a substantial gap between generated hypotheses and underlying mechanisms. SEER-Repro (2026-10-16) reports reproduction of 77.4% of 2,190 atomic claims and flags potentially consequential analytical choices in 9.5% of fully reproduced findings. Neither is an AUREN result. TruthInsightBench reports low robustness, control testing and cross-dataset generalization despite stronger traceability/novelty; MechHypoBench tests mechanistic hypotheses under withheld conditions. AUREN has no independent expert-scored scientific campaign. Station reports 62.7% rediscovery across three prior ICLR tasks versus 15.4% for Codex Multiagent-v2 and 14.4-20.6% for AI Scientist-v2; small task coverage and differing model compositions limit attribution. A separate 25,000-run, eight-domain study reports evidence ignored in 68% of traces and refutation-driven belief revision in 26%, with convergent multi-test evidence uncommon. AUREN has no evidence-adherence, refutation-revision or independent open-ended discovery campaign. DeepMind's cheminformatics demonstration and GPT-6.1 Sol's Terminal-Bench Science results are workflow/provider signals; PLE adds a licensed-review engineering benchmark. None establishes AUREN scientific or physical-engineering capability.",
-        "benchmark": "Pinned hypotheses, expert-authored constraints, simulations/code, seeds, model/tool versions and raw outputs; measure condition satisfaction and executable reproduction, run sensitivity analyses, then require independent replication on fresh tasks. Pair each skill/curriculum candidate with an unmodified baseline across 20 benchmarks/11 domains where applicable; report task-level gain, novelty, cost, reproducibility, calibration, uncertainty and negative results. Keep held-out tasks outside worker and judge context; require domain review.  Pair rediscovery of verified findings with open-ended expert-authored follow-up tasks; require raw execution logs, preregistered conditions, claim-to-run traceability, sensitivity analysis, negative-result retention, and independent replication on fresh tasks. Add mechanism-level hypothesis tests on withheld conditions, sensitivity to analytical choices, atomic-claim reproduction, executable baseline comparison, and independent domain replication. Preserve alternative explanations and negative findings instead of selecting the best-looking narrative. Require preregistered hypotheses, withheld-condition predictions, sensitivity/control tests, negative-result retention and independent domain replication. Add open-ended tasks with withheld results, pre-registered criteria, evidence-to-claim traceability, counterevidence injection, belief-revision scoring, controls, negative-result retention and fresh independent expert replication. Report model/scaffold contribution separately and keep the oracle outside the candidate trust domain. Require preregistered hypotheses, exact data/structure provenance, controls, withheld compounds or conditions, predictive validity, negative-result retention, uncertainty, and independent wet-lab or licensed-engineer replication.",
-        "acceptance_threshold": "Reproducible independent outcomes, explicit uncertainty and negative results, source-domain regression limits, and rollback-ready promotion. Literature synthesis or an automated judge score alone is not validation. A rediscovery score or plausible narrative alone is not validation; require traceable evidence use, explicit belief revision after refutation, calibrated uncertainty and independent replication on fresh tasks. No scientific lesson or capability is promoted without independent domain replication; retract dependent lessons and restore the prior memory/policy digest on failure.",
-        "rollback": "Do not promote the lesson or harness; retain lineage and restore the prior digest."
+        "measured_gap": "Hypothesis validity, expert-condition satisfaction, reproducibility, analytical robustness, negative-result retention, calibration, transfer to fresh scientific tasks, and report integrity. Into the Unknown reports 0 of 135 submissions satisfying all conditions and 114 integrity failures. Agent4Sci spans 20 scientific-ML benchmarks across 11 domains: frontier agents improve published baselines, but trajectory analysis attributes most gains to ML-engineering heuristics rather than research-level insight; plug-in skills improve measured progress but need independent transfer evaluation. SEER-Repro reproduces 77.4% of 2,190 atomic claims and flags potentially consequential analysis choices in 9.5% of fully reproduced findings.  FIRE-Bench reports under-50 F1 rediscovery by its strongest evaluated agents with high run-to-run variance and recurring experimental-design/execution/evidence failures. Into the Unknown reports 0/135 submissions satisfying all expert conditions and 114 integrity failures; SEER-Repro reports 77.4% atomic-claim reproduction and potentially consequential analysis choices in 9.5% of fully reproduced findings. MechHypoBench (2026-10-04) combines mechanisms from 14 scientific fields with 17.98 million observations and tests open-form hypotheses through consequences under withheld conditions; its authors report a substantial gap between generated hypotheses and underlying mechanisms. SEER-Repro (2026-10-16) reports reproduction of 77.4% of 2,190 atomic claims and flags potentially consequential analytical choices in 9.5% of fully reproduced findings. Neither is an AUREN result. TruthInsightBench reports low robustness, control testing and cross-dataset generalization despite stronger traceability/novelty; MechHypoBench tests mechanistic hypotheses under withheld conditions. AUREN has no independent expert-scored scientific campaign. Station reports 62.7% rediscovery across three prior ICLR tasks versus 15.4% for Codex Multiagent-v2 and 14.4-20.6% for AI Scientist-v2; small task coverage and differing model compositions limit attribution. A separate 25,000-run, eight-domain study reports evidence ignored in 68% of traces and refutation-driven belief revision in 26%, with convergent multi-test evidence uncommon. AUREN has no evidence-adherence, refutation-revision or independent open-ended discovery campaign. DeepMind's cheminformatics demonstration and GPT-6.1 Sol's Terminal-Bench Science results are workflow/provider signals; PLE adds a licensed-review engineering benchmark. None establishes AUREN scientific or physical-engineering capability. Nature's 2026-10-12 drug-discovery perspective argues that scientist-in-the-loop co-pilots remain the practical deployment model for open-ended discovery, with human authorization and expert review retained for high-risk experimental and translational decisions. This is a workflow/design signal, not evidence of AUREN scientific performance.",
+        "benchmark": "Pinned hypotheses, expert-authored constraints, simulations/code, seeds, model/tool versions and raw outputs; measure condition satisfaction and executable reproduction, run sensitivity analyses, then require independent replication on fresh tasks. Pair each skill/curriculum candidate with an unmodified baseline across 20 benchmarks/11 domains where applicable; report task-level gain, novelty, cost, reproducibility, calibration, uncertainty and negative results. Keep held-out tasks outside worker and judge context; require domain review.  Pair rediscovery of verified findings with open-ended expert-authored follow-up tasks; require raw execution logs, preregistered conditions, claim-to-run traceability, sensitivity analysis, negative-result retention, and independent replication on fresh tasks. Add mechanism-level hypothesis tests on withheld conditions, sensitivity to analytical choices, atomic-claim reproduction, executable baseline comparison, and independent domain replication. Preserve alternative explanations and negative findings instead of selecting the best-looking narrative. Require preregistered hypotheses, withheld-condition predictions, sensitivity/control tests, negative-result retention and independent domain replication. Add open-ended tasks with withheld results, pre-registered criteria, evidence-to-claim traceability, counterevidence injection, belief-revision scoring, controls, negative-result retention and fresh independent expert replication. Report model/scaffold contribution separately and keep the oracle outside the candidate trust domain. Require preregistered hypotheses, exact data/structure provenance, controls, withheld compounds or conditions, predictive validity, negative-result retention, uncertainty, and independent wet-lab or licensed-engineer replication. Include scientist-in-the-loop checkpoints, preregistered objectives and controls, raw-data and instrument provenance, alternative analytical choices, uncertainty, expert scoring, withheld-condition evaluation and independent laboratory replication.",
+        "acceptance_threshold": "Reproducible independent outcomes, explicit uncertainty and negative results, source-domain regression limits, and rollback-ready promotion. Literature synthesis or an automated judge score alone is not validation. A rediscovery score or plausible narrative alone is not validation; require traceable evidence use, explicit belief revision after refutation, calibrated uncertainty and independent replication on fresh tasks. No scientific lesson or capability is promoted without independent domain replication; retract dependent lessons and restore the prior memory/policy digest on failure. No physical experiment, clinical recommendation or scientific capability claim without explicit human authorization for consequential steps, expert review, reproducible raw evidence and independent domain replication.",
+        "rollback": "Do not promote the lesson or harness; retain lineage and restore the prior digest. Disable physical-instrument adapters, preserve raw data and negative results, retract dependent lessons, restore the prior memory/policy digest and rerun the pinned regression corpus."
       },
       {
         "id": "host_policy_assisted_permissions",
@@ -1147,7 +1160,7 @@
       },
       {
         "id": "scientific_hypothesis_and_mechanism_validation",
-        "source_date": "2026-05-19; 2026-09-04; 2026-10-04; 2026-11-03; 2026-11-03; 2026-09-29; 2026-04-30; 2026-11",
+        "source_date": "2026-05-19; 2026-09-04; 2026-10-04; 2026-11-03; 2026-11-03; 2026-09-29; 2026-04-30; 2026-11; 2026-10-12",
         "sources": [
           "https://www.nature.com/articles/s41586-026-10644-y",
           "https://arxiv.org/abs/2610.05197",
@@ -1157,7 +1170,8 @@
           "https://cloud.google.com/blog/products/ai-machine-learning/introducing-physical-engineerings-last-exam-for-agents",
           "https://openai.com/index/introducing-gpt-6-1-sol/",
           "https://www.nature.com/articles/s44387-026-00102-5",
-          "https://doi.org/10.1109/TPAMI.2026.3712056"
+          "https://doi.org/10.1109/TPAMI.2026.3712056",
+          "https://www.nature.com/articles/s44386-026-00075-0"
         ],
         "owner": [
           "LearningSteward",
@@ -1172,10 +1186,10 @@
         "ci_status": "Current-main CI verifies selected learning/provenance/promotion contracts only; no MechHypoBench, Co-Scientist replication or external scientific experiment has run on AUREN.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "Google's Co-Scientist paper (Nature, 2026-05-19) describes a multi-agent system that generates, critiques and refines hypotheses for experimental verification. MechHypoBench (2026-10-04) combines mechanisms from 14 fields with 17.98 million observations and evaluates hypotheses by consequences under withheld conditions; its authors report a substantial gap between generated hypotheses and underlying mechanisms. AUREN has no expert-scored hypothesis benchmark, intervention result, or independent replication receipt. TruthInsightBench's reported agents show a gap between traceable/novel claims and robust, controlled, cross-dataset conclusions. MechHypoBench tests consequences under withheld conditions. AUREN has no independent scientific replication receipt. DeepMind's 2026-11-03 cheminformatics workflow is a useful end-to-end task design signal, but its reported agent workflow is not independent wet-lab validation. AUREN has no expert-scored cheminformatics benchmark or experimental replication. The newest chemistry and physical-engineering workflows underscore the need for expert constraints and real-world validation; vendor demonstrations and benchmark scores are not scientific replication. AgenticSciML (Nature, 2026-04-30) describes 10+ specialized agents proposing, critiquing and refining scientific-ML solutions; this is a workflow paper, not independent experimental replication. SymBOL (IEEE TPAMI, 2026-11) combines Bayesian optimization with LLM symbolic regression and reports benchmark improvements in its tested datasets, including materials-science and epidemiology examples. AUREN has no expert-scored symbolic-discovery benchmark or independent domain replication; generated equations and candidate mechanisms remain hypotheses.",
-        "benchmark": "Preregister hypotheses, causal graph, analysis and success criteria before outcomes are visible. Use raw versioned datasets, executable baselines, withheld-condition predictions, sensitivity analyses, negative-result retention and independent domain replication. Measure mechanism accuracy, predictive validity, intervention success, novelty, calibration, reproducibility, source-domain regression and resource cost. Add preregistered analysis, withheld-condition prediction, controls, sensitivity checks, expert review and independent replication before learning promotion. Add a preregistered cheminformatics workflow with curated source data, matched-molecular-pair analysis, withheld-compound predictions, negative controls, expert review and wet-lab replication. Preregister claims and analysis; test controls, withheld conditions, structure fidelity, expert rubric, uncertainty, negative results and independent replication. Compare symbolic hypotheses with conventional and expert baselines on frozen datasets, then evaluate on withheld conditions and fresh domains. Measure equation recovery, predictive error, sensitivity, intervention validity, uncertainty, reproducibility, negative-result retention and expert agreement; require independent experimental replication.",
-        "acceptance_threshold": "A plausible narrative or literature synthesis is not validation. Promote no lesson without executable evidence, independent replication on fresh tasks, explicit uncertainty, retained negative results and source-domain regression checks. A candidate molecule or synthesis route is not a validated discovery; require independent domain review and experimental replication. Scientific claims and learning promotion remain blocked until independent domain replication succeeds and rollback evidence is retained. Benchmark improvements or plausible equations are not validated scientific discoveries. No scientific lesson or capability claim without executable predictions, controls, withheld-condition success and independent domain replication.",
-        "rollback": "Reject or retract the lesson, restore the prior memory/policy digest, retain the failed experiment and negative evidence, and rerun the pinned regression corpus. Retract the candidate lesson, restore the prior memory/policy digest, retain failed predictions and negative evidence, and rerun the pinned regression corpus."
+        "measured_gap": "Google's Co-Scientist paper (Nature, 2026-05-19) describes a multi-agent system that generates, critiques and refines hypotheses for experimental verification. MechHypoBench (2026-10-04) combines mechanisms from 14 fields with 17.98 million observations and evaluates hypotheses by consequences under withheld conditions; its authors report a substantial gap between generated hypotheses and underlying mechanisms. AUREN has no expert-scored hypothesis benchmark, intervention result, or independent replication receipt. TruthInsightBench's reported agents show a gap between traceable/novel claims and robust, controlled, cross-dataset conclusions. MechHypoBench tests consequences under withheld conditions. AUREN has no independent scientific replication receipt. DeepMind's 2026-11-03 cheminformatics workflow is a useful end-to-end task design signal, but its reported agent workflow is not independent wet-lab validation. AUREN has no expert-scored cheminformatics benchmark or experimental replication. The newest chemistry and physical-engineering workflows underscore the need for expert constraints and real-world validation; vendor demonstrations and benchmark scores are not scientific replication. AgenticSciML (Nature, 2026-04-30) describes 10+ specialized agents proposing, critiquing and refining scientific-ML solutions; this is a workflow paper, not independent experimental replication. SymBOL (IEEE TPAMI, 2026-11) combines Bayesian optimization with LLM symbolic regression and reports benchmark improvements in its tested datasets, including materials-science and epidemiology examples. AUREN has no expert-scored symbolic-discovery benchmark or independent domain replication; generated equations and candidate mechanisms remain hypotheses. Nature's 2026-10-12 drug-discovery perspective argues that scientist-in-the-loop co-pilots remain the practical deployment model for open-ended discovery, with human authorization and expert review retained for high-risk experimental and translational decisions. This is a workflow/design signal, not evidence of AUREN scientific performance.",
+        "benchmark": "Preregister hypotheses, causal graph, analysis and success criteria before outcomes are visible. Use raw versioned datasets, executable baselines, withheld-condition predictions, sensitivity analyses, negative-result retention and independent domain replication. Measure mechanism accuracy, predictive validity, intervention success, novelty, calibration, reproducibility, source-domain regression and resource cost. Add preregistered analysis, withheld-condition prediction, controls, sensitivity checks, expert review and independent replication before learning promotion. Add a preregistered cheminformatics workflow with curated source data, matched-molecular-pair analysis, withheld-compound predictions, negative controls, expert review and wet-lab replication. Preregister claims and analysis; test controls, withheld conditions, structure fidelity, expert rubric, uncertainty, negative results and independent replication. Compare symbolic hypotheses with conventional and expert baselines on frozen datasets, then evaluate on withheld conditions and fresh domains. Measure equation recovery, predictive error, sensitivity, intervention validity, uncertainty, reproducibility, negative-result retention and expert agreement; require independent experimental replication. Include scientist-in-the-loop checkpoints, preregistered objectives and controls, raw-data and instrument provenance, alternative analytical choices, uncertainty, expert scoring, withheld-condition evaluation and independent laboratory replication.",
+        "acceptance_threshold": "A plausible narrative or literature synthesis is not validation. Promote no lesson without executable evidence, independent replication on fresh tasks, explicit uncertainty, retained negative results and source-domain regression checks. A candidate molecule or synthesis route is not a validated discovery; require independent domain review and experimental replication. Scientific claims and learning promotion remain blocked until independent domain replication succeeds and rollback evidence is retained. Benchmark improvements or plausible equations are not validated scientific discoveries. No scientific lesson or capability claim without executable predictions, controls, withheld-condition success and independent domain replication. No physical experiment, clinical recommendation or scientific capability claim without explicit human authorization for consequential steps, expert review, reproducible raw evidence and independent domain replication.",
+        "rollback": "Reject or retract the lesson, restore the prior memory/policy digest, retain the failed experiment and negative evidence, and rerun the pinned regression corpus. Retract the candidate lesson, restore the prior memory/policy digest, retain failed predictions and negative evidence, and rerun the pinned regression corpus. Disable physical-instrument adapters, preserve raw data and negative results, retract dependent lessons, restore the prior memory/policy digest and rerun the pinned regression corpus."
       },
       {
         "id": "event_driven_monitoring_agents",
@@ -1250,11 +1264,12 @@
       },
       {
         "id": "wet_lab_scientific_agents",
-        "source_date": "2026-11-04; 2026-10-22",
+        "source_date": "2026-11-04; 2026-10-22; 2026-10-12",
         "sources": [
           "https://www.nature.com/articles/d41586-026-03270-1",
           "https://www.nature.com/articles/s43586-026-00534-y",
-          "https://doi.org/10.1038/s41586-026-11228-6"
+          "https://doi.org/10.1038/s41586-026-11228-6",
+          "https://www.nature.com/articles/s44386-026-00075-0"
         ],
         "owner": [
           "LearningSteward",
@@ -1269,29 +1284,38 @@
         "ci_status": "Repository CI covers selected learning/provenance contracts only; no physical laboratory or AutoDNA-style workflow has run on AUREN.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "Nature's AutoDNA coverage reports agents planning and conducting DNA/molecular-biology experiments with limited human intervention. This is a workflow signal, not proof of general scientific reliability. AUREN lacks instrument-safety, calibration, contamination control, chain-of-custody and independent wet-lab replication evidence.",
-        "benchmark": "Preregister a bounded molecular-biology task with controls, withheld conditions and an expert rubric. Retain raw instrument logs, calibration, sample provenance, human approvals and negative results. Require an independent laboratory to reproduce the result and score predictive validity, safety, reproducibility and uncertainty.",
-        "acceptance_threshold": "Physical actions require operator approval and safe instrument boundaries. No scientific claim or positive learning promotion without executable predictions, controls, withheld-condition success, expert review and independent laboratory replication.",
-        "rollback": "Disable physical instrument adapters, preserve raw data and experiment receipts, retract dependent lessons, restore the prior memory/policy digest and rerun the pinned regression corpus."
+        "measured_gap": "Nature's AutoDNA coverage reports agents planning and conducting DNA/molecular-biology experiments with limited human intervention. This is a workflow signal, not proof of general scientific reliability. AUREN lacks instrument-safety, calibration, contamination control, chain-of-custody and independent wet-lab replication evidence. Nature's 2026-10-12 drug-discovery perspective argues that scientist-in-the-loop co-pilots remain the practical deployment model for open-ended discovery, with human authorization and expert review retained for high-risk experimental and translational decisions. This is a workflow/design signal, not evidence of AUREN scientific performance.",
+        "benchmark": "Preregister a bounded molecular-biology task with controls, withheld conditions and an expert rubric. Retain raw instrument logs, calibration, sample provenance, human approvals and negative results. Require an independent laboratory to reproduce the result and score predictive validity, safety, reproducibility and uncertainty. Include scientist-in-the-loop checkpoints, preregistered objectives and controls, raw-data and instrument provenance, alternative analytical choices, uncertainty, expert scoring, withheld-condition evaluation and independent laboratory replication.",
+        "acceptance_threshold": "Physical actions require operator approval and safe instrument boundaries. No scientific claim or positive learning promotion without executable predictions, controls, withheld-condition success, expert review and independent laboratory replication. No physical experiment, clinical recommendation or scientific capability claim without explicit human authorization for consequential steps, expert review, reproducible raw evidence and independent domain replication.",
+        "rollback": "Disable physical instrument adapters, preserve raw data and experiment receipts, retract dependent lessons, restore the prior memory/policy digest and rerun the pinned regression corpus. Disable physical-instrument adapters, preserve raw data and negative results, retract dependent lessons, restore the prior memory/policy digest and rerun the pinned regression corpus."
       }
     ],
     "repository_observation": {
-      "reviewed_at": "2026-11-07",
-      "main_sha": "5b3d506c2dadf14f54608423b7eaeffc1e09e071",
-      "open_pr_count": 1,
+      "reviewed_at": "2026-11-08",
+      "main_sha": "c99ade6fff9d7221da5ee74511b6ce39a873824e",
+      "open_pr_count": 2,
       "open_prs": [
         {
-          "number": 1302,
-          "title": "Refresh AI/SI capability radar with 2026-11-07 evidence (rebased)",
-          "base_sha": "5b3d506c2dadf14f54608423b7eaeffc1e09e071",
+          "number": 1304,
+          "title": "Prove executive roles cannot bypass mandatory delivery gates",
+          "base_sha": "405024ecc26ed891f48910f537a8c639af18fc26",
+          "head_sha": "209f159850bb19faf1a0a254bf026a4aa97f7fa4",
           "state": "open",
-          "note": "This PR carries the current radar snapshot; its own head checks are tracked separately."
+          "note": "Base is behind current main; exact-head checks are historical to the old base and the PR needs a fresh-base update and rerun. Independent review is not recorded."
+        },
+        {
+          "number": 1305,
+          "title": "Require native recovery for every consequential Vibe stage",
+          "base_sha": "c99ade6fff9d7221da5ee74511b6ce39a873824e",
+          "head_sha": "418e49c177dd5e1b476b74fe4e8d643724aefcf6",
+          "state": "open",
+          "note": "Base equals this main snapshot. Exact-head checks are terminal-successful; provider SDK behavior and independent review remain unverified."
         }
       ],
       "current_main_check_runs": {
         "status": "terminal",
-        "total": 28,
-        "success": 28,
+        "total": 30,
+        "success": 30,
         "skipped": 0,
         "failed": 0,
         "pending": 0
@@ -1299,60 +1323,73 @@
       "skipped_checks": [],
       "post_merge_push_workflows": {
         "status": "terminal",
-        "total": 6,
-        "success": 6,
+        "total": 8,
+        "success": 8,
         "failed": 0,
         "pending": 0,
         "runs": [
           {
-            "name": "Agent Capability Runtime",
-            "run_id": 42399630446,
+            "name": "Production AI Harness Hardening",
+            "run_id": 42439765529,
             "conclusion": "success",
-            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42399630446"
-          },
-          {
-            "name": "AUREN Portable Bundle",
-            "run_id": 42399630477,
-            "conclusion": "success",
-            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42399630477"
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42439765529"
           },
           {
             "name": "Runtime Resilience Matrix",
-            "run_id": 42399630442,
+            "run_id": 42439765517,
             "conclusion": "success",
-            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42399630442"
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42439765517"
+          },
+          {
+            "name": "Agent Capability Runtime",
+            "run_id": 42439765512,
+            "conclusion": "success",
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42439765512"
+          },
+          {
+            "name": "AUREN cleanup contract",
+            "run_id": 42439765500,
+            "conclusion": "success",
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42439765500"
+          },
+          {
+            "name": "AUREN Portable Bundle",
+            "run_id": 42439765536,
+            "conclusion": "success",
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42439765536"
+          },
+          {
+            "name": "Repository Construct Traceability Check",
+            "run_id": 42439765541,
+            "conclusion": "success",
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42439765541"
           },
           {
             "name": "Architecture Integrity",
-            "run_id": 42399630652,
+            "run_id": 42439765494,
             "conclusion": "success",
-            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42399630652"
-          },
-          {
-            "name": "Production AI Harness Hardening",
-            "run_id": 42399630513,
-            "conclusion": "success",
-            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42399630513"
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42439765494"
           },
           {
             "name": "AI Harness Check",
-            "run_id": 42399630479,
+            "run_id": 42439765547,
             "conclusion": "success",
-            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42399630479"
+            "url": "https://github.com/sourabhJainR/AUREN/actions/runs/42439765547"
           }
         ]
       },
       "required_check_enforcement": "The active mainBranchRule exposes deletion and non-fast-forward protections only; no required-status-check rule is visible. The branch-protection API returned 403 Resource not accessible by integration; owner/admin confirmation is required.",
-      "local_checkout_and_runtime": "No local AUREN checkout or AutonomousCompany/ExecutionController runtime invocation is available in this environment; no local tests or process-level fault injection are claimed."
+      "local_checkout_and_runtime": "No local AUREN checkout or AutonomousCompany/ExecutionController runtime invocation is available in this environment; no local tests or process-level fault injection are claimed. GitHub Actions exact-head and main check-run evidence was inspected.",
+      "snapshot_note": "Open PRs 1304 and 1305 are the snapshot captured against main before PR #1306 was opened; PR #1306 is the current radar-refresh proposal and is intentionally excluded from this baseline list."
     },
     "artifact_integrity": {
       "status": "downloaded_and_rehashed",
-      "workflow_run_id": 42399630477,
-      "bundle_artifact_id": 13585410493,
-      "checksum_artifact_id": 13585330955,
-      "outer_bundle_artifact_sha256": "5941da7f476c3bdd1bd6bcdeaceddb5423f85a980983ed6be2814b2b4a3916e9",
-      "outer_checksum_artifact_sha256": "48862c14d060608167746370bf7757c0387b4d579f6e4150c4937c2120540f31",
-      "inner_bundle_sha256": "3e9b4b24b0d08acada646758f8675c4089ccca1a396406ed404111fd718b74e8",
+      "workflow_run_id": 42439765536,
+      "bundle_artifact_id": 13601481077,
+      "checksum_artifact_id": 13601705298,
+      "outer_bundle_artifact_sha256": "4739d865da93c639ca2e06eb83a2f76a1b6e0bd6b25c502fa2abbd5776c8cf36",
+      "outer_checksum_artifact_sha256": "40d27b229d608b08085b3dc373147df300b084c35fe0dc72f9904636a1994335",
+      "inner_bundle_sha256": "0bb57a6b7215fd846cb7252a70a469a4ee6c3d6cfdb94d91c4f445c1596804f7",
       "inner_checksum_status": "verified: checksum file matches the embedded ZIP SHA-256",
       "manifest_file_count": 538,
       "manifest_hash_or_size_mismatches": 0,
@@ -1360,13 +1397,13 @@
       "unexpected_generated_entries": [
         "payload/PORTABLE_BUNDLE.txt"
       ],
-      "source_commit": "5b3d506c2dadf14f54608423b7eaeffc1e09e071",
+      "source_commit": "c99ade6fff9d7221da5ee74511b6ce39a873824e",
       "version": "1.0.6",
       "target_repository_mutation": false,
-      "bundle_expires_at": "2026-12-07T18:07:40Z",
-      "checksum_expires_at": "2026-12-07T18:07:42Z",
-      "local_download_rehash": "Downloaded and rehashed in the container: both outer artifact digests match GitHub artifact metadata; the embedded ZIP matches the checksum file; all 538 manifest entries match size and SHA-256 with no missing or mismatched entries. One expected generated entry, payload/PORTABLE_BUNDLE.txt, is outside the manifest."
+      "bundle_expires_at": "2026-12-08T02:44:51Z",
+      "checksum_expires_at": "2026-12-08T02:44:53Z",
+      "local_download_rehash": "Downloaded both GitHub Actions artifact ZIPs and rehashed them in the container. Both outer SHA-256 digests match GitHub artifact metadata; the embedded ZIP SHA-256 matches the checksum file; all 538 manifest entries match size and SHA-256 with no missing or mismatched entries. payload/PORTABLE_BUNDLE.txt is the sole expected generated entry outside the manifest."
     }
   },
-  "status": "candidate signals only. Research refreshed through 2026-11-07. Main 5b3d506c2dadf14f54608423b7eaeffc1e09e071 has 28 terminal check-runs: 28 successful, zero skipped, failed or pending. All six post-merge push workflows succeeded. The v1.0.6 portable bundle and checksum were downloaded and rehashed; both outer artifact digests match GitHub metadata, the embedded ZIP matches its checksum, and all 538 manifest entries match size and SHA-256. Production isolation, independent evaluator/corpus custody, sealed holdout, operator migration/rollback and scientific replication remain blocked. No AGI/SI claim or default capability promotion is supported."
+  "status": "candidate signals only. Research refreshed through 2026-11-08. Main c99ade6fff9d7221da5ee74511b6ce39a873824e has 30 terminal check-runs: 30 successful, zero skipped, failed or pending. All eight post-merge push workflows succeeded. The v1.0.6 portable bundle and checksum were downloaded and rehashed: outer bundle 4739d865da93c639ca2e06eb83a2f76a1b6e0bd6b25c502fa2abbd5776c8cf36, checksum archive 40d27b229d608b08085b3dc373147df300b084c35fe0dc72f9904636a1994335, embedded ZIP 0bb57a6b7215fd846cb7252a70a469a4ee6c3d6cfdb94d91c4f445c1596804f7; all 538 manifest entries match size and SHA-256. Production isolation, independent evaluator/corpus custody, sealed holdout, physical-host admission, operator migration/rollback, provider-native live reconciliation and scientific replication remain blocked. No AGI/SI claim or default capability promotion is supported."
 }
