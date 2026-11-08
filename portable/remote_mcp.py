@@ -975,6 +975,12 @@ class AurenMCPService:
         notification = "id" not in request
         if not isinstance(method, str) or not method:
             raise MCPServiceError("JSON-RPC method is invalid", code=-32600, status=400)
+        if not notification and (
+            request_id is None or type(request_id) not in {str, int, float}
+        ):
+            raise MCPServiceError("JSON-RPC id must be a string or number", code=-32600, status=400)
+        if notification and method not in {"notifications/initialized", "ping"}:
+            raise MCPServiceError("this MCP method requires a JSON-RPC request id", code=-32600, status=400)
         params = request.get("params", {})
         if not isinstance(params, Mapping):
             raise MCPServiceError("JSON-RPC params must be an object", code=-32600, status=400)
@@ -1002,7 +1008,7 @@ class AurenMCPService:
         if method == "notifications/initialized":
             return None
         if method == "ping":
-            return {"jsonrpc": "2.0", "id": request_id, "result": {}}
+            return None if notification else {"jsonrpc": "2.0", "id": request_id, "result": {}}
         if method == "tools/list":
             return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": self.list_tools(principal)}}
         if method == "tools/call":
