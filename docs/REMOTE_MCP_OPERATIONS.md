@@ -43,7 +43,7 @@ Tool schemas are validated again by the server. Unknown arguments are rejected. 
 
 ### Cancellation and pause semantics
 
-- Pending trigger events can be cancelled with a durable status transition.
+- Pending or retryable unclaimed trigger events can be cancelled with a durable status transition.
 - Claimed adaptive-runtime work receives a cancellation signal through its live RuntimeExecutionGuard. The trigger remains nonterminal until the running supervisor records its outcome.
 - Controller tasks use the existing ExecutionController.request_cancellation path.
 - If a claimed task has no live guard, the service reports that cancellation was not accepted. It never reports an unconfirmed cancellation as complete.
