@@ -78,7 +78,7 @@ class ImpactPolicyTests(unittest.TestCase):
             "portable/adaptive_trigger.py": {"tests.test_adaptive_trigger", "tests.test_remote_mcp_service"},
             "portable/remote_mcp.py": {"tests.test_remote_mcp_service"},
             "portable/remote_mcp_server.py": {"tests.test_remote_mcp_service"},
-            "portable/trigger_runtime.py": {"tests.test_remote_mcp_service", "tests.test_adaptive_trigger"},
+            "portable/trigger_runtime.py": {"tests.test_remote_mcp_service"},
             "tests/test_remote_mcp_service.py": {"tests.test_remote_mcp_service"},
             "portable/canonical_evidence_ledger.py": {"tests.test_canonical_evidence_ledger", "tests.test_provider_operation_lifecycle"},
             "portable/agency_evolution_gates.py": {"tests.test_agency_evolution_gates", "tests.test_promotion_evidence_chain", "tests.test_evidence_freshness"},
