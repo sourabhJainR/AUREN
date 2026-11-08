@@ -207,6 +207,7 @@ class OAuthIntrospectionVerifier:
                     and isinstance(payload.get("sub"), str) and payload["sub"]
                     and isinstance(payload.get("iss"), str)
                     and payload["iss"].rstrip("/") == self.issuer
+                    and payload.get("cnf") is None
                     and (payload.get("nbf") is None or (
                         type(payload.get("nbf")) in {int, float} and payload["nbf"] <= time.time()
                     ))
