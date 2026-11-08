@@ -341,31 +341,35 @@ class VibeCodingAdapterTests(unittest.TestCase):
             self.assertEqual(["dispatching", "completed"], event_states)
 
 
-    def test_deployment_lookup_port_without_declared_native_capabilities_fails_closed(self):
-        with tempfile.TemporaryDirectory() as directory:
-            ledger = DurableSideEffectLedger(Path(directory) / "side-effects.sqlite3")
-            registry = VibeAdapterRegistry(max_risk="critical", side_effect_ledger=ledger)
-            stage = VibeStage.PREVIEW_DEPLOYMENT
-            calls = []
-            registry.register(AdapterRegistration(
-                "deployment-with-unproven-lookup", "1", (stage,),
-                frozenset(default_stage_capabilities()[stage.value]),
-                lambda request: calls.append(request) or output_for(stage, request["state"]),
-                risk=next(spec.risk for spec in STAGE_SPECS if spec.stage == stage),
-                external_side_effects=True,
-                lookup_operation=lambda operation_id, operation_key: {
-                    "status": "not_found", "operation_id": operation_id, "operation_key": operation_key,
-                },
-            ))
-            with self.assertRaisesRegex(AdapterUnavailable, "provider-native operation lookup"):
-                registry.invoke(stage, {
-                    "vibe_coding_workflow_id": "unproven-capability-workflow",
-                    "intent": "deploy preview",
-                    "risk": "high",
-                })
-            self.assertEqual([], calls)
-            key = "vibe-stage:unproven-capability-workflow:preview_deployment:deployment-with-unproven-lookup:1"
-            self.assertIsNone(ledger.get(key))
+    def test_lookup_port_without_declared_native_capabilities_fails_closed(self):
+        for stage in (VibeStage.DEVELOPMENT, VibeStage.PREVIEW_DEPLOYMENT, VibeStage.PRODUCTION_DEPLOY):
+            with self.subTest(stage=stage.value), tempfile.TemporaryDirectory() as directory:
+                ledger = DurableSideEffectLedger(Path(directory) / "side-effects.sqlite3")
+                registry = VibeAdapterRegistry(max_risk="critical", side_effect_ledger=ledger)
+                calls = []
+                adapter_id = "consequential-with-unproven-lookup"
+                registry.register(AdapterRegistration(
+                    adapter_id, "1", (stage,),
+                    frozenset(default_stage_capabilities()[stage.value]),
+                    lambda request: calls.append(request) or output_for(stage, request["state"]),
+                    risk=next(spec.risk for spec in STAGE_SPECS if spec.stage == stage),
+                    external_side_effects=True,
+                    lookup_operation=lambda operation_id, operation_key: {
+                        "status": "not_found", "operation_id": operation_id, "operation_key": operation_key,
+                    },
+                ))
+                with self.assertRaisesRegex(AdapterUnavailable, "provider-native operation lookup"):
+                    registry.invoke(stage, {
+                        "vibe_coding_workflow_id": "unproven-capability-workflow",
+                        "intent": f"run {stage.value}",
+                        "risk": "critical",
+                    })
+                self.assertEqual([], calls)
+                key = (
+                    f"vibe-stage:unproven-capability-workflow:{stage.value}:"
+                    f"{adapter_id}:1"
+                )
+                self.assertIsNone(ledger.get(key))
 
     def test_external_side_effect_requires_lookup_before_first_dispatch(self):
         for stage in (VibeStage.DEVELOPMENT, VibeStage.PREVIEW_DEPLOYMENT, VibeStage.PRODUCTION_DEPLOY):
