@@ -17,7 +17,7 @@ Before public deployment, review [REMOTE_MCP_PRIVACY.md](REMOTE_MCP_PRIVACY.md),
 - Liveness/readiness endpoints: /healthz and /readyz.
 - Operator control and rate-limit state are stored under canonical AUREN home on persistent local disk.
 
-The service does not implement an OAuth authorization server. An established identity provider must implement OAuth 2.1 authorization-code flow with PKCE S256, issuer discovery, DCR or CIMD client identification, refresh/revocation and the resource/audience parameter. The MCP resource server validates the resulting token through introspection on each request. The introspection response must include iss, sub, aud, exp and scope; roles and projects should also be included where those policies are used.
+The service does not implement an OAuth authorization server. An established identity provider must implement OAuth 2.1 authorization-code flow with PKCE S256, issuer discovery, DCR or CIMD client identification, refresh/revocation and the resource/audience parameter. The MCP resource server validates the resulting token through introspection on each request. The introspection response must include iss, sub, aud, exp and scope; roles and projects should also be included where those policies are used. Certificate-bound access tokens (cnf claims) are rejected because the ASGI service does not validate token-to-client-certificate binding.
 
 ## Operator tool surface
 
