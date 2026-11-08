@@ -4,6 +4,8 @@ This is the deployment and client integration guide for AUREN's authenticated re
 
 ## Current implementation
 
+Before public deployment, review [REMOTE_MCP_PRIVACY.md](REMOTE_MCP_PRIVACY.md), publish the deployment-specific privacy/retention terms, and configure the GitHub security reporting route.
+
 - ASGI Streamable HTTP endpoint: POST /mcp.
 - Protocol versions: 2025-11-25, 2025-06-18 and 2025-03-26.
 - Stateless transport with no MCP session affinity or server-side session ID.
