@@ -6,7 +6,6 @@ shell, arbitrary file, arbitrary URL-fetch or unrestricted provider passthrough 
 """
 from __future__ import annotations
 
-import asyncio
 import base64
 import hashlib
 import hmac
@@ -20,7 +19,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from contextlib import closing
-from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Protocol
@@ -184,12 +182,13 @@ class OAuthIntrospectionVerifier:
                     roles = payload.get("roles", payload.get("groups", []))
                     projects = payload.get("projects", [])
                     if (
-                        isinstance(scopes, list) and set(scopes).issubset(_ALL_SCOPES)
+                        isinstance(scopes, list) and all(isinstance(x, str) for x in scopes)
                         and isinstance(roles, list) and all(isinstance(x, str) for x in roles)
                         and isinstance(projects, list) and all(isinstance(x, str) for x in projects)
                     ):
                         principal = MCPPrincipal(
-                            payload["sub"], frozenset(scopes), tuple(roles), tuple(projects),
+                            payload["sub"], frozenset(set(scopes).intersection(_ALL_SCOPES)),
+                            tuple(roles), tuple(projects),
                         )
         except (OSError, urllib.error.URLError, TimeoutError, ValueError, TypeError, json.JSONDecodeError):
             principal = None
@@ -263,8 +262,6 @@ class AurenMCPService:
         self.rate_window_seconds = rate_window_seconds
         self.approval_store = approval_store or DurableApprovalStore(self.controller)
         self.trigger = AdaptiveTrigger.for_runtime(runtime)
-        self._rate: dict[str, tuple[int, float]] = {}
-        self._rate_lock = threading.Lock()
         self._stop = threading.Event()
         self._worker: threading.Thread | None = None
         self.dispatcher_poll_seconds = dispatcher_poll_seconds
@@ -284,19 +281,58 @@ class AurenMCPService:
                     reason_digest TEXT NOT NULL,
                     sequence INTEGER NOT NULL DEFAULT 0,
                     event_digest TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS service_control_events(
+                    sequence INTEGER PRIMARY KEY,
+                    event_json TEXT NOT NULL,
+                    previous_digest TEXT NOT NULL,
+                    event_digest TEXT NOT NULL UNIQUE
+                );
+                CREATE TABLE IF NOT EXISTS request_rate_buckets(
+                    subject TEXT NOT NULL,
+                    bucket INTEGER NOT NULL,
+                    request_count INTEGER NOT NULL,
+                    PRIMARY KEY(subject,bucket)
                 )
             """)
             row = db.execute("SELECT singleton FROM service_control WHERE singleton=1").fetchone()
             if row is None:
+                now = datetime.now(timezone.utc).isoformat()
+                event = {"sequence": 0, "type": "genesis", "timestamp": now}
+                encoded = _canonical_json(event)
+                digest = hashlib.sha256(("0" * 64 + encoded).encode("utf-8")).hexdigest()
                 db.execute(
                     "INSERT INTO service_control VALUES(1,0,?,?,?,?,?)",
-                    (datetime.now(timezone.utc).isoformat(), "system", "0" * 64, 0, "0" * 64),
+                    (now, "system", "0" * 64, 0, digest),
+                )
+                db.execute(
+                    "INSERT INTO service_control_events VALUES(0,?,?,?)",
+                    (encoded, "0" * 64, digest),
                 )
 
-    def _control(self) -> dict[str, Any]:
+    def verify_control_audit(self) -> bool:
+        previous = "0" * 64
+        with closing(sqlite3.connect(self.control_db, timeout=10)) as db:
+            rows = db.execute(
+                "SELECT sequence,event_json,previous_digest,event_digest "
+                "FROM service_control_events ORDER BY sequence"
+            ).fetchall()
+        for expected_sequence, row in enumerate(rows):
+            sequence, encoded, recorded_previous, recorded_digest = row
+            digest = hashlib.sha256((previous + encoded).encode("utf-8")).hexdigest()
+            if sequence != expected_sequence or recorded_previous != previous or recorded_digest != digest:
+                return False
+            previous = digest
+        control = self._control_row()
+        return bool(rows) and int(control["sequence"]) == len(rows) - 1 and control["event_digest"] == previous
+
+    def _control_row(self):
         with closing(sqlite3.connect(self.control_db, timeout=10)) as db:
             db.row_factory = sqlite3.Row
-            row = db.execute("SELECT * FROM service_control WHERE singleton=1").fetchone()
+            return db.execute("SELECT * FROM service_control WHERE singleton=1").fetchone()
+
+    def _control(self) -> dict[str, Any]:
+        row = self._control_row()
         if row is None:
             raise MCPServiceError("operator control state is unavailable", code=-32050, status=503)
         return {
@@ -304,6 +340,7 @@ class AurenMCPService:
             "updated_at": row["updated_at"], "updated_by": row["updated_by"],
             "reason_digest": row["reason_digest"], "sequence": int(row["sequence"]),
             "event_digest": row["event_digest"],
+            "audit_chain_valid": self.verify_control_audit(),
         }
 
     def _set_admissions(self, paused: bool, principal: MCPPrincipal, reason: str) -> dict[str, Any]:
@@ -321,7 +358,12 @@ class AurenMCPService:
                 "sequence": sequence, "paused": paused, "subject": principal.subject,
                 "reason_digest": reason_digest, "timestamp": now,
             }
-            digest = hashlib.sha256((str(row[1]) + _canonical_json(event)).encode("utf-8")).hexdigest()
+            encoded = _canonical_json(event)
+            digest = hashlib.sha256((str(row[1]) + encoded).encode("utf-8")).hexdigest()
+            db.execute(
+                "INSERT INTO service_control_events VALUES(?,?,?,?)",
+                (sequence, encoded, str(row[1]), digest),
+            )
             db.execute(
                 "UPDATE service_control SET admissions_paused=?,updated_at=?,updated_by=?,reason_digest=?,sequence=?,event_digest=? WHERE singleton=1",
                 (int(paused), now, principal.subject, reason_digest, sequence, digest),
@@ -603,17 +645,21 @@ class AurenMCPService:
         }
 
     def _check_rate(self, principal: MCPPrincipal) -> None:
-        now = time.monotonic()
-        with self._rate_lock:
-            count, started = self._rate.get(principal.subject, (0, now))
-            if now - started >= self.rate_window_seconds:
-                count, started = 0, now
-            if count >= self.rate_limit:
-                raise MCPServiceError("rate limit exceeded", code=-32029, status=429)
-            self._rate[principal.subject] = (count + 1, started)
-            if len(self._rate) > 4096:
-                self._rate = {key: value for key, value in self._rate.items()
-                              if now - value[1] < self.rate_window_seconds}
+        bucket = int(time.time() // self.rate_window_seconds)
+        with closing(sqlite3.connect(self.control_db, timeout=10)) as db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute(
+                "INSERT INTO request_rate_buckets(subject,bucket,request_count) VALUES(?,?,1) "
+                "ON CONFLICT(subject,bucket) DO UPDATE SET request_count=request_count+1",
+                (principal.subject, bucket),
+            )
+            count = db.execute(
+                "SELECT request_count FROM request_rate_buckets WHERE subject=? AND bucket=?",
+                (principal.subject, bucket),
+            ).fetchone()[0]
+            db.execute("DELETE FROM request_rate_buckets WHERE bucket<?", (bucket - 2,))
+        if int(count) > self.rate_limit:
+            raise MCPServiceError("rate limit exceeded", code=-32029, status=429)
 
     def authenticate(self, headers: Mapping[str, str]) -> MCPPrincipal:
         authorization = headers.get("authorization", "")
@@ -819,6 +865,15 @@ class AurenMCPASGI:
                 (b"access-control-allow-headers", b"Authorization, Content-Type, Accept, MCP-Protocol-Version, Mcp-Method, Mcp-Name"),
                 (b"access-control-allow-methods", b"POST, GET, OPTIONS"),
             ]
+        if not self._origin_allowed(origin):
+            await self._send(send, 403, b'{"error":"origin_forbidden"}')
+            return
+        if not self._host_allowed(headers.get("host")):
+            await self._send(send, 400, b'{"error":"host_not_allowed"}')
+            return
+        if self.service.require_https and scope.get("scheme") != "https":
+            await self._send(send, 400, b'{"error":"https_required"}')
+            return
         if path == "/.well-known/oauth-protected-resource":
             if method != "GET":
                 await self._send(send, 405, headers=[(b"allow", b"GET")])
@@ -834,15 +889,6 @@ class AurenMCPASGI:
             return
         if path != self.service.endpoint_path:
             await self._send(send, 404)
-            return
-        if not self._origin_allowed(origin):
-            await self._send(send, 403, b'{"error":"origin_forbidden"}')
-            return
-        if not self._host_allowed(headers.get("host")):
-            await self._send(send, 400, b'{"error":"host_not_allowed"}')
-            return
-        if self.service.require_https and scope.get("scheme") != "https":
-            await self._send(send, 400, b'{"error":"https_required"}')
             return
         if method == "OPTIONS":
             if origin is None or not self._origin_allowed(origin):
@@ -897,7 +943,8 @@ class AurenMCPASGI:
             body = _canonical_json({"error": _safe_text(exc, 500), "code": exc.code}).encode("utf-8")
             extra = cors + [(b"content-type", b"application/json; charset=utf-8")]
             if exc.status == 401:
-                metadata = self.service.resource_url + "/.well-known/oauth-protected-resource"
+                resource = urlsplit(self.service.resource_url)
+                metadata = f"{resource.scheme}://{resource.netloc}/.well-known/oauth-protected-resource"
                 extra.append((b"www-authenticate", f'Bearer resource_metadata="{metadata}"'.encode("latin1")))
             await self._send(send, exc.status, body, extra)
         except Exception as exc:
@@ -918,6 +965,8 @@ def service_from_environment(runtime: Any, *, project_root: str | Path) -> Auren
     if not resource_url:
         raise RuntimeError("AUREN_MCP_RESOURCE_URL must be configured")
     if introspection:
+        if not authorization_server:
+            raise RuntimeError("AUREN_MCP_AUTHORIZATION_SERVER is required with OAuth introspection")
         verifier: TokenVerifier = OAuthIntrospectionVerifier(
             endpoint=introspection,
             client_id=os.environ.get("AUREN_MCP_INTROSPECTION_CLIENT_ID", ""),
