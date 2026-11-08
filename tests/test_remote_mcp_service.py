@@ -357,6 +357,7 @@ class OAuthIntrospectionVerifierTests(unittest.TestCase):
             {"iss": "https://attacker.example", "aud": "https://mcp.example.test/mcp", "exp": time.time() + 300},
             {"iss": "https://identity.example.test", "aud": "https://other.example/mcp", "exp": time.time() + 300},
             {"iss": "https://identity.example.test", "aud": "https://mcp.example.test/mcp", "exp": time.time() - 1},
+            {"iss": "https://identity.example.test", "aud": "https://mcp.example.test/mcp", "exp": time.time() + 300, "cnf": {"x5t#S256": "thumbprint"}},
         ]
         for index, claims in enumerate(cases):
             with self.subTest(claims=claims):
