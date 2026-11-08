@@ -317,6 +317,45 @@ class DurableRoutineRegistryTests(unittest.TestCase):
         self.assertGreater(datetime.fromisoformat(next_run_at), later)
         self.assertEqual((), self.registry.dispatch_due(now=later, submit=self.submit))
 
+    def test_interval_submitted_occurrence_recovers_schedule_advance_after_restart(self):
+        spec = self.spec(
+            trigger="interval", event_type=None, interval_seconds=60,
+        )
+        self.registry.register(spec)
+        with closing(self.registry._connect()) as db:
+            cursor_text = db.execute(
+                "SELECT next_run_at FROM routines WHERE routine_id=?",
+                (spec.routine_id,),
+            ).fetchone()["next_run_at"]
+        cursor = datetime.fromisoformat(cursor_text)
+        trigger_key = f"{spec.routine_id}:v{spec.version}:{cursor.isoformat(timespec='microseconds')}"
+
+        submitted = self.registry._dispatch(
+            spec.routine_id, spec.trigger, trigger_key,
+            submit=self.submit, approval=None, reconcile=None,
+            scheduled_at=cursor, schedule_cursor=cursor,
+            expected_version=spec.version,
+        )
+        self.assertEqual("submitted", submitted.status)
+        self.assertEqual(1, len(self.submissions))
+
+        later = cursor + timedelta(minutes=20)
+        recovered = self.registry.dispatch_due(now=later, submit=self.submit)
+
+        self.assertEqual("duplicate", recovered[0].status)
+        self.assertEqual(submitted.occurrence_key, recovered[0].occurrence_key)
+        self.assertEqual(1, len(self.submissions))
+        occurrence = self.registry.occurrence(submitted.occurrence_key)
+        receipt = json.loads(occurrence["receipt_json"])
+        self.assertGreater(receipt["coalesced_missed_intervals"], 0)
+        self.assertTrue(receipt["coalesced_after_submission"])
+        with closing(self.registry._connect()) as db:
+            next_run_at = db.execute(
+                "SELECT next_run_at FROM routines WHERE routine_id=?",
+                (spec.routine_id,),
+            ).fetchone()["next_run_at"]
+        self.assertGreater(datetime.fromisoformat(next_run_at), later)
+
     def test_receipt_keeps_trigger_digest_after_submission_and_unknown_transition(self):
         spec = self.spec()
         self.registry.register(spec)
