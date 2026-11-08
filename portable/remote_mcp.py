@@ -542,9 +542,12 @@ class AurenMCPService:
 
     def _trigger_summary(self, event: Any) -> dict[str, Any]:
         runtime_task_id = "llm-chat:" + event.event_id
-        runtime_progress = self.controller.progress_journal.snapshot(
-            runtime_task_id, stale_after_seconds=120,
-        )
+        try:
+            runtime_progress = self.controller.progress_journal.snapshot(
+                runtime_task_id, stale_after_seconds=120,
+            )
+        except Exception as exc:
+            runtime_progress = {"status": "unavailable", "error_type": type(exc).__name__}
         execution_status = event.outcome.get("result_status") if isinstance(event.outcome, Mapping) else None
         reported_status = (
             execution_status if event.status == "success" and isinstance(execution_status, str)
@@ -569,7 +572,10 @@ class AurenMCPService:
         task = self.controller.task(task_id)
         if task is None:
             raise KeyError("task not found")
-        progress = self.controller.progress_journal.snapshot(task_id, stale_after_seconds=120)
+        try:
+            progress = self.controller.progress_journal.snapshot(task_id, stale_after_seconds=120)
+        except Exception as exc:
+            progress = {"status": "unavailable", "error_type": type(exc).__name__}
         return {
             "task_id": task.id, "state": task.state, "attempts": task.attempts,
             "work_unit_id": task.work_unit_id, "deadline_at": task.deadline_at,
@@ -747,10 +753,21 @@ class AurenMCPService:
                 findings = list(self.controller.health_findings())[:50]
             except Exception as exc:
                 findings = ["health_check_unavailable:" + type(exc).__name__]
-            control = self._control()
-            pending_mcp_tasks = self.trigger_runtime.count_events(
-                kind="adaptive_runtime", statuses=("pending", "claimed", "retryable"),
-            )
+            try:
+                control = self._control()
+            except Exception as exc:
+                control = {
+                    "admissions_paused": True, "audit_chain_valid": False,
+                    "updated_at": None, "updated_by": None, "reason_digest": None,
+                    "sequence": -1, "event_digest": None,
+                    "error_type": type(exc).__name__,
+                }
+            try:
+                pending_mcp_tasks = self.trigger_runtime.count_events(
+                    kind="adaptive_runtime", statuses=("pending", "claimed", "retryable"),
+                )
+            except Exception:
+                pending_mcp_tasks = self.max_pending_tasks
             dispatcher = {
                 "running": bool(self._worker and self._worker.is_alive()),
                 "last_run_at": self._dispatcher_last_run_at,
@@ -897,16 +914,26 @@ class AurenMCPService:
             event = self._event_for_principal(task_id.strip(), principal)
             if event is not None:
                 runtime_task_id = "llm-chat:" + event.event_id
+                try:
+                    snapshot = self.controller.progress_journal.snapshot(runtime_task_id)
+                    events = self.controller.progress_journal.events_for_task(runtime_task_id, limit=limit)
+                except Exception as exc:
+                    snapshot = {"status": "unavailable", "error_type": type(exc).__name__}
+                    events = []
                 return {
                     "task_id": task_id, "trigger": self._trigger_summary(event),
-                    "snapshot": _safe_value(self.controller.progress_journal.snapshot(runtime_task_id)),
-                    "events": self.controller.progress_journal.events_for_task(runtime_task_id, limit=limit),
+                    "snapshot": _safe_value(snapshot), "events": _safe_value(events),
                 }
-            events = self.controller.progress_journal.events_for_task(task_id.strip(), limit=limit)
+            try:
+                events = self.controller.progress_journal.events_for_task(task_id.strip(), limit=limit)
+                snapshot = self.controller.progress_journal.snapshot(task_id.strip())
+            except Exception as exc:
+                events = []
+                snapshot = {"status": "unavailable", "error_type": type(exc).__name__}
             return {
-                "task_id": task_id, "snapshot": _safe_value(self.controller.progress_journal.snapshot(task_id.strip())),
+                "task_id": task_id, "snapshot": _safe_value(snapshot),
                 "events": [{
-                    key: _safe_text(value, 1000) if isinstance(value, str) else value
+                    key: _safe_text(value, 1000) if isinstance(value, str) else _safe_value(value)
                     for key, value in row.items()
                     if key in {"timestamp", "event", "state", "stage", "message", "sequence",
                                "evidence_ref", "decision_required", "next_action",
