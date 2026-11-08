@@ -40,6 +40,8 @@ Terminal receipts are immutable. State transitions must be compare-and-set or tr
 
 ## Provider adapter contract
 
+The host Vibe adapter factory applies this contract to every consequential stage, including repository mutation during development, preview deployment, and production release. Each such stage must have a trusted provider-native lookup port, declared provider idempotency support, and authoritative not-found semantics before a new write or an explicitly authorized retry can be dispatched. A configured lookup alone is not enough: without an explicit capability declaration, the stage remains blocked before the side-effect ledger is claimed. The stage's stable operation ID and idempotency key are forwarded to the host capability tool; the tool must pass them to its provider and return the provider's own operation ID. A missing or ambiguous provider receipt remains blocked and is never treated as successful repository or deployment work.
+
 Provider adapters declare capabilities explicitly:
 - idempotency-key support and key scope/retention semantics;
 - operation-status lookup support and whether “not found” is authoritative;

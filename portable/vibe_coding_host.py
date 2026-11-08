@@ -23,7 +23,7 @@ import tempfile
 import threading
 import time
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import urlparse
@@ -2346,6 +2346,7 @@ class VibeHostConfig:
     preview_deployment_required: bool = False
     preview_deployment_rationale: str = "No preview environment is configured; this validation remains local-only"
     security_tool_required: bool = True
+    provider_capabilities: Mapping[str, Mapping[str, bool]] = field(default_factory=dict)
 
 
 def load_host_config(path: str | Path | None = None) -> VibeHostConfig:
@@ -2465,6 +2466,35 @@ def load_host_config(path: str | Path | None = None) -> VibeHostConfig:
         raise ValueError("security_tool_required must be a boolean")
     if security_required and "security" not in tools:
         raise ValueError("security_tool_required is true but no external security MCP tool is configured")
+    raw_provider_capabilities = raw.get("provider_capabilities", {})
+    if not isinstance(raw_provider_capabilities, dict):
+        raise ValueError("provider_capabilities must be an object keyed by consequential stage")
+    allowed_provider_stages = {"development", "preview_deployment", "production_deploy"}
+    provider_capabilities: dict[str, dict[str, bool]] = {}
+    for stage, values in raw_provider_capabilities.items():
+        if stage not in allowed_provider_stages or not isinstance(values, dict):
+            raise ValueError(f"invalid provider capability declaration for stage: {stage!r}")
+        unknown = set(values) - {"supports_provider_idempotency", "lookup_not_found_is_authoritative"}
+        if unknown:
+            raise ValueError(f"unknown provider capabilities for {stage}: {sorted(unknown)}")
+        normalized = {
+            "supports_provider_idempotency": values.get("supports_provider_idempotency", False),
+            "lookup_not_found_is_authoritative": values.get("lookup_not_found_is_authoritative", False),
+        }
+        if any(type(value) is not bool for value in normalized.values()):
+            raise ValueError(f"provider capabilities for {stage} must be booleans")
+        if normalized["lookup_not_found_is_authoritative"]:
+            lookup_capability = {
+                "development": "repository",
+                "preview_deployment": "deployment",
+                "production_deploy": "release",
+            }[stage]
+            if not isinstance(tools.get(lookup_capability, {}).get("operation_lookup"), Mapping):
+                raise ValueError(
+                    f"authoritative provider lookup for {stage} requires "
+                    f"mcp_tools.{lookup_capability}.operation_lookup"
+                )
+        provider_capabilities[stage] = normalized
     return VibeHostConfig(
         provider=raw.get("provider"),
         reviewer_provider=raw.get("reviewer_provider"),
@@ -2479,6 +2509,7 @@ def load_host_config(path: str | Path | None = None) -> VibeHostConfig:
         preview_deployment_required=preview_required,
         preview_deployment_rationale=preview_rationale,
         security_tool_required=security_required,
+        provider_capabilities=provider_capabilities,
     )
 
 
@@ -2535,6 +2566,9 @@ class LocalVibeCodingHost:
             "preview_deployment_required": self.config.preview_deployment_required,
             "preview_deployment_rationale": self.config.preview_deployment_rationale,
             "security_tool_required": self.config.security_tool_required,
+            "provider_capabilities": {
+                key: dict(value) for key, value in sorted(self.config.provider_capabilities.items())
+            },
         })
         project_tool = LocalProjectTool(workspace, lease.base_revision, allow_workspace_writes=self.config.allow_workspace_writes)
         test_tool = LocalTestExecutionTool(workspace, self.config.test_commands, timeout_seconds=self.config.test_timeout_seconds, env_allowlist=self.config.env_allowlist)
@@ -2666,6 +2700,7 @@ class LocalVibeCodingHost:
             side_effect_ledger=side_effect_ledger,
             side_effect_event_recorder=journal.record_provider_event,
             lookup_operations=lookup_operations,
+            provider_capabilities=self.config.provider_capabilities,
         )
         registry.attach_learning_store(learning_path)
         checkpoints = DurableVibeCheckpointStore(self.state_root / "checkpoints")
