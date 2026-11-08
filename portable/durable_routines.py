@@ -284,18 +284,41 @@ class DurableRoutineRegistry:
         results = []
         for row in rows:
             spec = RoutineSpec(**json.loads(row["spec_json"]))
-            scheduled = _utc(datetime.fromisoformat(row["next_run_at"]))
+            schedule_cursor = _utc(datetime.fromisoformat(row["next_run_at"]))
+            scheduled = schedule_cursor
             missed_intervals = 0
             if spec.trigger == "interval":
                 interval = spec.interval_seconds or 0
-                missed_intervals = max(0, int((instant - scheduled).total_seconds() // interval))
+                existing = self._scheduled_occurrence(
+                    spec.routine_id, spec.version, schedule_cursor,
+                )
+                if existing is not None:
+                    dispatched = self._recover_scheduled_occurrence(
+                        existing, now=instant, interval_seconds=interval,
+                        reconcile=reconcile,
+                    )
+                    results.append(dispatched)
+                    if dispatched.status in {"submitted", "duplicate"}:
+                        next_run = self._next_interval_after(
+                            schedule_cursor, instant, interval,
+                        )
+                        with closing(self._connect()) as db:
+                            db.execute(
+                                "UPDATE routines SET next_run_at=? WHERE routine_id=? AND version=? AND next_run_at=?",
+                                (_iso(next_run), spec.routine_id, spec.version, row["next_run_at"]),
+                            )
+                    continue
+                missed_intervals = max(
+                    0, int((instant - schedule_cursor).total_seconds() // interval)
+                )
                 # Coalesce downtime into one occurrence. Do not replay every missed
                 # interval after an outage or let a stale schedule create a backlog.
-                scheduled = scheduled + timedelta(seconds=missed_intervals * interval)
+                scheduled = schedule_cursor + timedelta(seconds=missed_intervals * interval)
             occurrence = f"{spec.routine_id}:v{spec.version}:{_iso(scheduled)}"
             dispatched = self._dispatch(
                 spec.routine_id, spec.trigger, occurrence, submit=submit,
                 approval=approval, reconcile=reconcile, scheduled_at=scheduled,
+                schedule_cursor=schedule_cursor if spec.trigger == "interval" else None,
                 expected_version=spec.version, missed_intervals=missed_intervals,
             )
             results.append(dispatched)
@@ -316,12 +339,90 @@ class DurableRoutineRegistry:
                     )
         return tuple(results)
 
+    def _scheduled_occurrence(
+        self, routine_id: str, version: int, schedule_cursor: datetime,
+    ) -> dict[str, Any] | None:
+        """Find an occurrence already claimed for the current durable schedule cursor."""
+        cursor = _iso(schedule_cursor)
+        with closing(self._connect()) as db:
+            rows = db.execute(
+                "SELECT occurrence_key,work_key,status,task_id,receipt_json "
+                "FROM routine_occurrences WHERE routine_id=? AND routine_version=? "
+                "AND trigger_kind='interval' ORDER BY created_at DESC",
+                (routine_id, version),
+            ).fetchall()
+        for row in rows:
+            receipt = json.loads(row["receipt_json"])
+            if receipt.get("schedule_cursor") == cursor:
+                return dict(row)
+        return None
+
+    @staticmethod
+    def _next_interval_after(cursor: datetime, now: datetime, interval_seconds: int) -> datetime:
+        elapsed = max(0, int((now - cursor).total_seconds() // interval_seconds))
+        return cursor + timedelta(seconds=(elapsed + 1) * interval_seconds)
+
+    def _recover_scheduled_occurrence(
+        self, occurrence: Mapping[str, Any], *, now: datetime,
+        interval_seconds: int, reconcile: Callable[[str], Any | None] | None,
+    ) -> RoutineDispatch:
+        """Reconcile an existing interval occurrence before any later slot is admitted."""
+        occurrence_key = str(occurrence["occurrence_key"])
+        work_key = str(occurrence["work_key"])
+        status = str(occurrence["status"])
+        if status == "submitted":
+            return RoutineDispatch(occurrence_key, work_key, "duplicate", occurrence.get("task_id"))
+        if status not in {"dispatching", "unknown"}:
+            return RoutineDispatch(occurrence_key, work_key, status)
+        if reconcile is None:
+            return RoutineDispatch(
+                occurrence_key, work_key, "unknown",
+                reason="scheduled submission outcome requires authoritative reconciliation; replay refused",
+            )
+        try:
+            recovered = reconcile(work_key)
+        except Exception as exc:
+            return RoutineDispatch(
+                occurrence_key, work_key, "unknown",
+                reason=f"reconciliation failed: {type(exc).__name__}",
+            )
+        if recovered is None:
+            return RoutineDispatch(
+                occurrence_key, work_key, "unknown",
+                reason="no authoritative task lookup result; replay refused",
+            )
+        task_id = getattr(recovered, "id", None) or (
+            recovered.get("id") if isinstance(recovered, Mapping) else None
+        )
+        if not isinstance(task_id, str) or not task_id:
+            return RoutineDispatch(
+                occurrence_key, work_key, "unknown",
+                reason="reconciliation returned no task identity",
+            )
+        receipt = json.loads(occurrence["receipt_json"])
+        coalesced = receipt.get("coalesced_missed_intervals", 0)
+        scheduled_at = receipt.get("scheduled_at")
+        if isinstance(scheduled_at, str):
+            try:
+                due_at = _utc(datetime.fromisoformat(scheduled_at))
+                coalesced += max(
+                    0, int((now - due_at).total_seconds() // interval_seconds)
+                )
+            except (TypeError, ValueError):
+                pass
+        self._mark_submitted(
+            occurrence_key, task_id,
+            {"reconciled": True, "coalesced_missed_intervals": coalesced},
+        )
+        return RoutineDispatch(occurrence_key, work_key, "submitted", task_id)
+
     def _dispatch(
         self, routine_id: str, trigger_kind: str, trigger_key: str, *,
         submit: Callable[..., Any], approval: Callable[[RoutineSpec], bool] | None,
         reconcile: Callable[[str], Any | None] | None,
         event_payload: Mapping[str, Any] | None = None,
         scheduled_at: datetime | None = None,
+        schedule_cursor: datetime | None = None,
         expected_version: int | None = None,
         missed_intervals: int = 0,
     ) -> RoutineDispatch:
@@ -338,9 +439,12 @@ class DurableRoutineRegistry:
             "trigger_kind": trigger_kind, "trigger_key": trigger_key,
         })
         work_key = f"routine:{routine_id}:v{expected_version}:{occurrence_key[:32]}"
+        if schedule_cursor is not None:
+            schedule_cursor = _utc(schedule_cursor)
         trigger_digest = _digest({
             "event_payload": dict(event_payload) if event_payload is not None else None,
             "scheduled_at": _iso(scheduled_at) if scheduled_at is not None else None,
+            "schedule_cursor": _iso(schedule_cursor) if schedule_cursor is not None else None,
         })
         now = _iso(datetime.now(timezone.utc))
         with self._lock, closing(self._connect()) as db:
@@ -399,6 +503,8 @@ class DurableRoutineRegistry:
             receipt = {
                 "state": "dispatching", "routine_digest": spec.digest,
                 "trigger_digest": trigger_digest,
+                "scheduled_at": _iso(scheduled_at) if scheduled_at is not None else None,
+                "schedule_cursor": _iso(schedule_cursor) if schedule_cursor is not None else None,
                 "coalesced_missed_intervals": missed_intervals,
             }
             db.execute(
