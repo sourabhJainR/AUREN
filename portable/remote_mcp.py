@@ -857,8 +857,17 @@ class AurenMCPService:
                 if event.payload.get("_auren_mcp_subject") == self._principal_key(principal)
                 or principal.allows(_SCOPE_ADMIN)
             ][:limit]
-            progress = self.controller.progress_journal.list_snapshots(stale_after_seconds=120)
-            return {"trigger_tasks": trigger_tasks, "controller_tasks": _safe_value(progress[-limit:][::-1])}
+            try:
+                progress = self.controller.progress_journal.list_snapshots(stale_after_seconds=120)
+                progress_status = "available"
+            except Exception as exc:
+                progress = []
+                progress_status = "unavailable:" + type(exc).__name__
+            return {
+                "trigger_tasks": trigger_tasks,
+                "controller_tasks": _safe_value(progress[-limit:][::-1]),
+                "controller_tasks_status": progress_status,
+            }
         if name == "auren.get_task":
             self._require(principal, _SCOPE_READ)
             task_id = arguments.get("task_id")
