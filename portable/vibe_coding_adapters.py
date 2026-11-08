@@ -356,8 +356,9 @@ class VibeAdapterRegistry:
             )
             existing_effect = self.side_effect_lifecycle.ledger.get(operation_key)
             # Completed receipts are safe to replay without a remote lookup.
-            # A new write or authorized retry needs a provider-native lookup port
-            # so an ambiguous remote outcome can be resolved without redispatch.
+            # Every consequential write, including repository mutation, needs
+            # provider-native lookup and idempotency before dispatch so an
+            # ambiguous remote outcome can be resolved without redispatch.
             if (
                 stage in _SIDE_EFFECT_STAGES
                 and (
@@ -368,7 +369,7 @@ class VibeAdapterRegistry:
                 and (existing_effect is None or existing_effect["state"] == "retry_authorized")
             ):
                 raise AdapterUnavailable(
-                    f"stage {stage.value} requires provider-native operation lookup plus idempotency support and authoritative lookup semantics before deployment dispatch"
+                    f"stage {stage.value} requires provider-native operation lookup plus idempotency support and authoritative lookup semantics before consequential dispatch"
                 )
         stats = self._stats[selected.adapter_id]
         stats.attempts += 1
