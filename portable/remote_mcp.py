@@ -69,6 +69,7 @@ class MCPPrincipal:
     scopes: frozenset[str]
     roles: tuple[str, ...] = ()
     projects: tuple[str, ...] = ()
+    issuer: str = "static"
 
     def allows(self, scope: str) -> bool:
         return scope in self.scopes or _SCOPE_ADMIN in self.scopes
@@ -101,7 +102,8 @@ class StaticBearerTokenVerifier:
                 raise ValueError("static MCP token projects are invalid")
             parsed.append((
                 hashlib.sha256(token.encode("utf-8")).hexdigest(),
-                MCPPrincipal(subject.strip(), frozenset(scopes), tuple(roles), tuple(projects)),
+                MCPPrincipal(subject.strip(), frozenset(scopes), tuple(roles), tuple(projects),
+                             str(record.get("issuer", "static"))),
             ))
         if not parsed:
             raise ValueError("at least one static MCP token is required")
@@ -197,7 +199,7 @@ class OAuthIntrospectionVerifier:
                     ):
                         principal = MCPPrincipal(
                             payload["sub"], frozenset(set(scopes).intersection(_ALL_SCOPES)),
-                            tuple(roles), tuple(projects),
+                            tuple(roles), tuple(projects), self.issuer,
                         )
         except (OSError, urllib.error.URLError, TimeoutError, ValueError, TypeError, json.JSONDecodeError):
             principal = None
@@ -377,7 +379,7 @@ class AurenMCPService:
                 raise MCPServiceError("operator control state is unavailable", code=-32050, status=503)
             sequence = int(row[0]) + 1
             event = {
-                "sequence": sequence, "paused": paused, "subject": principal.subject,
+                "sequence": sequence, "paused": paused, "subject": self._principal_key(principal),
                 "reason_digest": reason_digest, "timestamp": now,
             }
             encoded = _canonical_json(event)
@@ -388,12 +390,18 @@ class AurenMCPService:
             )
             db.execute(
                 "UPDATE service_control SET admissions_paused=?,updated_at=?,updated_by=?,reason_digest=?,sequence=?,event_digest=? WHERE singleton=1",
-                (int(paused), now, principal.subject, reason_digest, sequence, digest),
+                (int(paused), now, self._principal_key(principal), reason_digest, sequence, digest),
             )
         return self._control()
 
+    @staticmethod
+    def _principal_key(principal: MCPPrincipal) -> str:
+        return hashlib.sha256(
+            (principal.issuer.rstrip("/") + "\0" + principal.subject).encode("utf-8")
+        ).hexdigest()
+
     def _profile(self, principal: MCPPrincipal) -> dict[str, str]:
-        subject_digest = hashlib.sha256(principal.subject.encode("utf-8")).hexdigest()
+        subject_digest = self._principal_key(principal)
         with closing(sqlite3.connect(self.control_db, timeout=10)) as db, db:
             row = db.execute(
                 "SELECT profile_id FROM operator_profiles WHERE subject_digest=?",
@@ -425,7 +433,7 @@ class AurenMCPService:
         if event is None or event.kind != "adaptive_runtime":
             return None
         owner = event.payload.get("_auren_mcp_subject")
-        if owner != principal.subject and not principal.allows(_SCOPE_ADMIN):
+        if owner != self._principal_key(principal) and not principal.allows(_SCOPE_ADMIN):
             raise PermissionError("task is not visible to this principal")
         return event
 
@@ -663,7 +671,7 @@ class AurenMCPService:
                     (principal.subject + "\0" + idempotency).encode("utf-8")
                 ).hexdigest()[:40]
             task_context = dict(context)
-            task_context["_auren_mcp_subject"] = principal.subject
+            task_context["_auren_mcp_subject"] = self._principal_key(principal)
             receipt = self.trigger.trigger_adaptive_runtime(
                 task.strip(), self.project_root, task_context,
                 priority=priority, event_id=event_id, max_attempts=max_attempts,
@@ -679,7 +687,7 @@ class AurenMCPService:
             events = self.trigger_runtime.list_events(kind="adaptive_runtime", limit=limit * 4)
             trigger_tasks = [
                 self._trigger_summary(event) for event in events
-                if event.payload.get("_auren_mcp_subject") == principal.subject
+                if event.payload.get("_auren_mcp_subject") == self._principal_key(principal)
                 or principal.allows(_SCOPE_ADMIN)
             ][:limit]
             progress = self.controller.progress_journal.list_snapshots(stale_after_seconds=120)
@@ -822,16 +830,17 @@ class AurenMCPService:
 
     def _check_rate(self, principal: MCPPrincipal) -> None:
         bucket = int(time.time() // self.rate_window_seconds)
+        subject_key = self._principal_key(principal)
         with closing(sqlite3.connect(self.control_db, timeout=10)) as db:
             db.execute("BEGIN IMMEDIATE")
             db.execute(
                 "INSERT INTO request_rate_buckets(subject,bucket,request_count) VALUES(?,?,1) "
                 "ON CONFLICT(subject,bucket) DO UPDATE SET request_count=request_count+1",
-                (principal.subject, bucket),
+                (subject_key, bucket),
             )
             count = db.execute(
                 "SELECT request_count FROM request_rate_buckets WHERE subject=? AND bucket=?",
-                (principal.subject, bucket),
+                (subject_key, bucket),
             ).fetchone()[0]
             db.execute("DELETE FROM request_rate_buckets WHERE bucket<?", (bucket - 2,))
         if int(count) > self.rate_limit:
