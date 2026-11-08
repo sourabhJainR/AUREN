@@ -243,6 +243,53 @@ class TriggerRuntime:
                 ).fetchall()
         return tuple(self._event(row) for row in rows)
 
+    def get_event(self, event_id: str) -> TriggerEvent | None:
+        """Read the durable event envelope for trusted operator authorization checks."""
+        if not isinstance(event_id, str) or not event_id.strip():
+            raise ValueError("event_id is required")
+        with self._connect() as db:
+            row = db.execute(self._select_sql() + " WHERE event_id=?", (event_id.strip(),)).fetchone()
+        return self._event(row) if row else None
+
+    def list_events(
+        self, *, kind: str | None = None, limit: int = 100,
+    ) -> tuple[TriggerEvent, ...]:
+        """Return a bounded, newest-first event inventory for operator surfaces."""
+        if type(limit) is not int or not 1 <= limit <= 500:
+            raise ValueError("event list limit must be between 1 and 500")
+        if kind is not None and (not isinstance(kind, str) or not kind.strip()):
+            raise ValueError("kind must be non-empty text when supplied")
+        with self._connect() as db:
+            if kind is None:
+                rows = db.execute(
+                    self._select_sql() + " ORDER BY created_at DESC,event_id DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    self._select_sql() + " WHERE kind=? ORDER BY created_at DESC,event_id DESC LIMIT ?",
+                    (kind.strip(), limit),
+                ).fetchall()
+        return tuple(self._event(row) for row in rows)
+
+    def cancel_pending(self, event_id: str, *, reason: str) -> bool:
+        """Cancel only an unclaimed event; active work requires its own supervisor."""
+        if not isinstance(event_id, str) or not event_id.strip():
+            raise ValueError("event_id is required")
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > 1000:
+            raise ValueError("cancellation reason must be non-empty text of at most 1000 characters")
+        reason_digest = __import__("hashlib").sha256(reason.strip().encode("utf-8")).hexdigest()
+        now = _utc().isoformat()
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            changed = db.execute(
+                "UPDATE trigger_events SET status='cancelled',claim_id=NULL,claimed_at=NULL,"
+                "lease_until=NULL,completed_at=?,last_detail=? "
+                "WHERE event_id=? AND status='pending' AND claim_id IS NULL",
+                (now, "cancelled by operator; reason_digest=" + reason_digest, event_id.strip()),
+            ).rowcount
+        return changed == 1
+
     def claim(self, event_id: str, *, now: datetime | None = None) -> TriggerClaim | None:
         now = _aware(now) if now is not None else _utc()
         claim_id = uuid.uuid4().hex
