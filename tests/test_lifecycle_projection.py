@@ -12,7 +12,7 @@ def test_known_domains_have_stable_projection_and_unknown_states_fail_closed():
         "transfer_learning", "crew_handoff", "cognitive_phase",
         "controller_task", "trigger_task", "workspace_adoption", "ci_poll",
         "ci_repair", "goal_reconciliation", "team_member", "team_budget",
-        "admission_control", "task_memory_promotion",
+        "admission_control", "task_memory_promotion", "workbench_run", "workbench_packet",
     } <= set(lifecycle_domains())
 
     unknown = project_lifecycle("session", "future-state")
@@ -145,8 +145,28 @@ def test_projection_catalog_covers_authoritative_runtime_vocabularies():
         ("work_unit", ("open", "created", "running", "waiting_ci", "waiting_external", "resolved", "completed", "failed", "cancelled")),
         ("graph_worker", ("pending", "queued", "waiting", "working", "running", "adopting", "complete", "completed", "done", "failed", "cancelled", "blocked")),
         ("evidence_outbox", ("pending", "sending", "sent")),
+        ("workbench_run", ("completed", "failed")),
+        ("workbench_packet", ("completed", "failed", "timeout", "blocked")),
     )
     for domain, states in vocabularies:
         for state in states:
             projected = project_lifecycle(domain, state)
             assert projected["category"] != "unknown", (domain, state)
+
+
+def test_workbench_receipt_states_preserve_packet_and_run_terminality():
+    completed = project_lifecycle("workbench_packet", "completed")
+    timed_out = project_lifecycle("workbench_packet", "timeout")
+    blocked = project_lifecycle("workbench_packet", "blocked")
+    run_failed = project_lifecycle("workbench_run", "failed")
+
+    assert completed["category"] == "succeeded"
+    assert completed["terminal"] is True
+    assert timed_out["label"] == "Timed out"
+    assert timed_out["category"] == "failed"
+    assert timed_out["terminal"] is True
+    assert timed_out["resume_policy"] == "never"
+    assert blocked["category"] == "blocked"
+    assert blocked["terminal"] is True
+    assert run_failed["category"] == "failed"
+    assert run_failed["terminal"] is True
