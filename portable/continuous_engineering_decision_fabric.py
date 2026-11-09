@@ -113,7 +113,7 @@ class ContinuousEngineeringDecisionFabric:
         if not isinstance(memory,PersistentMemory): raise TypeError("memory must be PersistentMemory")
         if not project.strip(): raise ValueError("project is required")
         self.memory,self.project=memory,project.strip()
-        with memory._lock,memory._connect() as db:
+        with memory._lock,memory._connection() as db:
             db.executescript("""
             CREATE TABLE IF NOT EXISTS decision_observations(
               project TEXT NOT NULL,task_family TEXT NOT NULL,capability TEXT NOT NULL,
