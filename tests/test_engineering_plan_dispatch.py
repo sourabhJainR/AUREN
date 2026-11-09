@@ -421,21 +421,21 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
             self.assertEqual(first.id, resumed.id)
             self.assertEqual("pending", resumed.state)
 
-    def test_three_axis_entry_gate_persists_gap_and_blocks_queue_insertion(self):
+    def test_caller_cannot_supply_supervisor_owned_readiness_assessment(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             plan, run, packet, _, store, controller, bridge = prepared(tmp)
-            with self.assertRaises(EngineeringReadinessBlocked) as blocked:
+            with self.assertRaisesRegex(ValueError, "supervisor-owned"):
                 bridge.dispatch(
                     run_id=plan.run_id, task_id="implement",
-                    dispatch_key="dispatch-readiness-gap", handler="dispatch-test",
-                    packet=packet, payload={"engineering_readiness": {"technology": {"status": "gap"}}},
+                    dispatch_key="dispatch-readiness-forgery", handler="dispatch-test",
+                    packet=packet, payload={"engineering_readiness": {
+                        "technology": {"status": "ready", "evidence_refs": ["invented:proof"]},
+                        "intent": {"status": "ready", "evidence_refs": ["invented:proof"]},
+                        "cognitive": {"status": "ready", "evidence_refs": ["invented:proof"]},
+                    }},
                 )
-            self.assertTrue(blocked.exception.gap_ids)
             with sqlite3.connect(controller.db_path) as db:
                 self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
-            rows = controller.progress_journal._events()
-            self.assertTrue(any(row["event"] == "engineering_gap_recorded" for row in rows))
-            self.assertTrue(all(row.get("metadata") for row in rows if row["event"] == "engineering_gap_recorded"))
 
 
 
