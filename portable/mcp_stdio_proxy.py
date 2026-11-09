@@ -24,12 +24,12 @@ def validate_local_url(value: str) -> str:
     parsed = urllib.parse.urlsplit(value)
     if (
         parsed.scheme != "http"
-        or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}
+        or parsed.hostname != "127.0.0.1"
         or not parsed.port
         or parsed.username or parsed.password or parsed.query or parsed.fragment
         or parsed.path != "/mcp"
     ):
-        raise ValueError("stdio proxy URL must be a loopback HTTP /mcp endpoint with an explicit port")
+        raise ValueError("stdio proxy URL must be the IPv4 loopback HTTP /mcp endpoint with an explicit port")
     return value
 
 
