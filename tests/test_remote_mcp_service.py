@@ -616,6 +616,14 @@ class RemoteMCPASGITests(unittest.TestCase):
         self.assertEqual(400, status)
         self.assertEqual(-32020, json.loads(response)["error"]["code"])
 
+    def test_legacy_discovery_probe_is_a_method_not_found(self):
+        status, _, response = self.request(
+            body={"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {}},
+            extra_headers={"mcp-protocol-version": "2025-11-25"},
+        )
+        self.assertEqual(404, status)
+        self.assertEqual(-32601, json.loads(response)["error"]["code"])
+
     def test_modern_request_requires_matching_protocol_envelope(self):
         status, _, response = self.request(
             body={"jsonrpc": "2.0", "id": 1, "method": "tools/list",
