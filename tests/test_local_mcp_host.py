@@ -17,6 +17,7 @@ from portable.local_host import (
     load_or_create_local_token,
 )
 from portable.mcp_stdio_proxy import run_proxy, validate_local_url
+from portable.remote_mcp import AurenMCPService, StaticBearerTokenVerifier
 from portable.orchestration import Graph, Node, NodeKind
 from portable.dashboard_server import create_server
 
@@ -80,6 +81,28 @@ class LocalMCPHostTests(unittest.TestCase):
             self.assertEqual(frozenset({("127.0.0.1", 43127)}), service.allowed_hosts)
         finally:
             service.close()
+
+    def test_disabling_https_is_rejected_for_non_loopback_mcp_resources(self):
+        runtime = AdaptiveRuntime(
+            Graph([Node("local-mcp-url-test", NodeKind.DETERMINISTIC, lambda _state: "ready")]),
+            state_root=self.root / "url-runtime",
+        )
+        verifier = StaticBearerTokenVerifier([{
+            "token": "local-test-token-" + ("x" * 40),
+            "subject": "local-operator",
+            "scopes": ["auren:tasks:read"],
+            "projects": [str(self.project.resolve())],
+        }])
+        with self.assertRaisesRegex(ValueError, "loopback services"):
+            AurenMCPService(
+                runtime,
+                project_root=self.project,
+                token_verifier=verifier,
+                resource_url="https://mcp.example.test/mcp",
+                allowed_hosts=("mcp.example.test",),
+                require_https=False,
+                control_store_path=self.root / "remote-control.sqlite3",
+            )
 
     def test_dashboard_server_selects_an_available_loopback_port(self):
         server = create_server(self.project, "127.0.0.1", 0)
