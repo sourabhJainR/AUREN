@@ -33,25 +33,25 @@ python auren_cli.py local \
 
 Omit both port options for automatic selection. A port collision is reported at startup; AUREN does not silently bind to a different port when a fixed port was requested.
 
-## 2. Configure the project runtime once
+## Runtime profiles
 
-MCP tools operate on the configured AUREN runtime, not on a placeholder graph. The host requires a factory that returns an initialized runtime with:
+AUREN project profiles default to single-user local mode. This mode must use AUREN's built-in composition root and must not require or discover `auren_runtime_factory.py`. The current built-in composition root is still under implementation.
 
-- a non-empty, reviewed agent graph;
-- the canonical execution controller; and
-- the durable trigger runtime.
-
-The host automatically discovers `auren_runtime_factory.py:create_runtime` in the project root. The factory must accept `project_root` as a keyword argument. If your project uses another module or function, supply it explicitly:
+The existing factory-backed startup is an advanced managed-mode path. Opt in explicitly:
 
 ```bash
-python auren_cli.py local \
-  --project-root /absolute/path/to/your/project \
-  --runtime-factory my_package.auren_host:create_runtime
+python auren_cli.py mode --project-root /path/to/project --mode managed --runtime-factory my_package.auren_host:create_runtime --apply
+python auren_cli.py local --project-root /path/to/project --runtime-factory my_package.auren_host:create_runtime
 ```
 
-You can also set `AUREN_MCP_RUNTIME_FACTORY=my_package.auren_host:create_runtime` once in the host environment. Keep the factory and its provider credentials under your normal source-control and secret-management rules. Do not commit credentials.
+Return to the local profile with:
 
-AUREN deliberately refuses to create an empty graph or a pretend default runtime. This is the only project-specific setup step; ports, local token creation, HTTP binding, readiness checks and coordinated shutdown are automatic.
+```bash
+python auren_cli.py mode --project-root /path/to/project --mode single_user_local --apply
+```
+
+The profile change creates a backup and clears the managed factory reference when switching back to local. Do not run a factory-backed host from a single-user local profile. The mode selector is available now; the factory-free local composition root and its end-to-end acceptance remain open.
+
 
 ## 3. Local authentication and safety
 
