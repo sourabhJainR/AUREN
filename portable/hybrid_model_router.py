@@ -305,7 +305,11 @@ class HybridModelRouter:
                 {"before": before, "after": self.resource_reader()}, reason,
                 error="No eligible executor configured")
         remote_attempts = 0
-        for _ in range(max(0, attempts_limit - attempts_used)):
+        remote_attempt_limit = max(0, attempts_limit - attempts_used)
+        configured_remote_limit = getattr(self.remote_executor, "max_attempts", None)
+        if type(configured_remote_limit) is int and configured_remote_limit >= 0:
+            remote_attempt_limit = min(remote_attempt_limit, configured_remote_limit)
+        for _ in range(remote_attempt_limit):
             try:
                 guard.check()
                 remaining = min(timeout - (time.monotonic() - started), route_deadline - time.monotonic())
