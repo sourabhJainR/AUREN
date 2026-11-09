@@ -377,7 +377,7 @@ class MuxinSessionAdapter:
             elif raw.get("stale") or raw.get("state") == "stale":
                 source_state = "stale"
             else:
-                source_state = raw.get("canonical_state") or raw.get("state") or raw.get("reported_state")
+                source_state = raw.get("state") or raw.get("canonical_state") or raw.get("reported_state")
             row["lifecycle"] = project_lifecycle("progress_task", source_state)
             tasks.append(row)
         plan_fields = (
