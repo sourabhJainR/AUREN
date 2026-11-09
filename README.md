@@ -10,6 +10,10 @@ AUREN is a provider-neutral operating system for an AI engineering company. It c
 See [Software Team Operating Model](docs/SOFTWARE_TEAM_OPERATING_MODEL.md) for role boundaries, manager/leadership flow, and execution gates. Independent SI/AGI capability experiments are conducted in [AUREN Capability Lab](https://github.com/sourabhJainR/firstTestproj); the lab is not an AUREN runtime dependency.
 
 
+## Model and tool-provider integration
+
+AUREN can route public, non-sensitive inference through explicitly configured model APIs, including Anthropic, OpenAI, Gemini, Groq, xAI, OpenRouter, Together, Fireworks, DeepSeek, Mistral, Cerebras and Perplexity. Provider order and model IDs are user-configurable; private and restricted tasks never fall back to remote inference. See [Model Provider Integration](docs/MODEL_PROVIDER_INTEGRATION.md) and the [Platform Compatibility Matrix](docs/PLATFORM_COMPATIBILITY_MATRIX.md). The authenticated remote MCP operator service is under review in [PR #1313](https://github.com/sourabhJainR/AUREN/pull/1313); vendor-host live acceptance and production deployment remain separate release gates.
+
 AUREN separates **execution authority from learning**. Active runs operate under bounded, policy-gated execution; learning is recorded as evidence and can influence future runs only after independent evaluation, regression checks, and promotion/rollback decisions. The result is an engineering system designed to improve from observed outcomes while remaining auditable, reproducible, and fail-closed when evidence is insufficient.
 
 ## Project status (reviewed 2026-11-02)
