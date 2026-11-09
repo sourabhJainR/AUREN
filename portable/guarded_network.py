@@ -232,6 +232,8 @@ def guarded_loopback_http_get(
         raise NetworkPolicyDenied("timeout must be finite and positive")
     if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or not 1 <= max_bytes <= 1024 * 1024:
         raise NetworkPolicyDenied("response limit is outside the supported range")
+    if not isinstance(url, str) or not url.strip():
+        raise NetworkPolicyDenied("invalid local HTTP destination")
     try:
         parsed = urlparse(url)
         port = parsed.port
@@ -255,6 +257,8 @@ def guarded_loopback_http_get(
         if len(body) > max_bytes:
             raise NetworkPolicyDenied("local HTTP response exceeded the configured byte limit")
         return int(response.status), body
+    except NetworkPolicyDenied:
+        raise
     except (OSError, http.client.HTTPException) as exc:
         raise NetworkPolicyDenied("local HTTP readiness probe failed") from exc
     finally:
