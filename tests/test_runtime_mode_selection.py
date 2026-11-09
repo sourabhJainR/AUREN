@@ -58,6 +58,18 @@ def test_local_mode_rejects_runtime_factory_and_managed_mode_needs_opt_in(tmp_pa
         load_project_profile(tmp_path)
 
 
+def test_local_profile_with_stale_managed_factory_is_rejected(tmp_path: Path):
+    initialize_repository(tmp_path)
+    path = tmp_path / ".auren" / "project.json"
+    profile = json.loads(path.read_text(encoding="utf-8"))
+    profile["managed_runtime"] = {
+        "enabled": False, "runtime_factory": "stale.factory:create_runtime",
+    }
+    path.write_text(json.dumps(profile), encoding="utf-8")
+    with pytest.raises(OnboardingError, match="cannot enable or retain"):
+        load_project_profile(tmp_path)
+
+
 def test_invalid_mode_and_invalid_factory_are_rejected(tmp_path: Path):
     initialize_repository(tmp_path)
     with pytest.raises(OnboardingError, match="runtime mode"):
