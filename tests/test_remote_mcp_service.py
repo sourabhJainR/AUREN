@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sqlite3
 from contextlib import closing
 import tempfile
@@ -184,6 +185,15 @@ class RemoteMCPServiceTests(unittest.TestCase):
         )
         self.assertFalse(resumed["admissions_paused"])
         self.assertTrue(self.service.verify_control_audit())
+
+    @unittest.skipUnless(os.name == "nt", "Windows path matching is case-insensitive")
+    def test_workspace_authorization_accepts_case_variant_of_same_windows_path(self):
+        principal = MCPPrincipal(
+            self.principal.subject, self.principal.scopes, self.principal.roles,
+            projects=(str(self.root).swapcase(),), issuer=self.principal.issuer,
+        )
+        profile = self.service.call_tool("auren.get_profile", {}, principal)
+        self.assertEqual("AUREN", profile["name"])
 
     def test_operator_control_audit_tampering_blocks_new_admissions(self):
         with closing(sqlite3.connect(self.service.control_db)) as db, db:
