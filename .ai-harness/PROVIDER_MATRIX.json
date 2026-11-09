@@ -888,14 +888,14 @@
         "Remote Streamable HTTP MCP"
       ],
       "repository_artifacts": [
-        "portable/remote_mcp.py",
+        "docs/ORCHESTRATOR_INTEGRATIONS.md",
         "docs/MCP_HOST_COMPATIBILITY.md"
       ],
-      "current_gap": "AUREN local stdio exposes the chat-trigger capability and requires a trusted runtime factory; the remote service supports stateless Streamable HTTP but not SSE. No OpenHands host version has passed live AUREN acceptance.",
+      "current_gap": "OpenHands local supports SHTTP and stdio, but the documented SHTTP API-key setting has not been verified against AUREN's external OAuth flow. OpenHands Cloud does not expose this local MCP configuration path.",
       "next_steps": [
-        "Test the local stdio bridge against a pinned OpenHands release.",
-        "Add the full operator tool surface to local stdio if required by the host.",
-        "Keep remote HTTP support unverified until OAuth and task lifecycle acceptance pass."
+        "Pin OpenHands local release and verify supported OAuth/bearer credential injection.",
+        "Run live AUREN tool discovery and task lifecycle acceptance.",
+        "Keep Cloud support marked unavailable unless its managed MCP path is separately validated."
       ],
       "live_verified": false
     },
@@ -1058,85 +1058,97 @@
     },
     "crewai": {
       "kind": "orchestration_framework",
-      "support": "not_wired",
+      "support": "partial",
       "mechanisms": [
-        "No AUREN-specific connector verified"
+        "CrewAI Agent mcps field",
+        "Remote Streamable HTTP MCP",
+        "Per-agent tool filters"
       ],
       "repository_artifacts": [
-        "docs/ORCHESTRATOR_INTEGRATIONS.md"
+        "docs/ORCHESTRATOR_INTEGRATIONS.md",
+        "docs/MCP_HOST_COMPATIBILITY.md"
       ],
-      "current_gap": "AUREN has not verified a current CrewAI Streamable HTTP MCP client path or pinned a supported version.",
+      "current_gap": "CrewAI's MCP client is documented and a connection example is in the repository. AUREN OAuth, current package-version compatibility and task/approval acceptance have not been live-tested.",
       "next_steps": [
-        "Confirm the installed CrewAI MCP client and transport support from its official docs.",
-        "Add a version-pinned connection example and live acceptance before claiming support."
+        "Pin CrewAI and MCP dependency versions in the consuming application.",
+        "Verify bearer/OAuth header flow and per-agent tool filtering.",
+        "Run live task submit/status/cancel/evidence acceptance."
       ],
       "live_verified": false
     },
     "dify": {
       "kind": "orchestration_framework",
-      "support": "not_wired",
+      "support": "not_native",
       "mechanisms": [
-        "No AUREN-specific version-pinned connector verified"
+        "Dify plugin/API extension path; no verified native AUREN MCP client"
       ],
       "repository_artifacts": [
-        "docs/ORCHESTRATOR_INTEGRATIONS.md"
+        "docs/ORCHESTRATOR_INTEGRATIONS.md",
+        "docs/MCP_HOST_COMPATIBILITY.md"
       ],
-      "current_gap": "AUREN has not pinned and live-tested this framework's MCP client transport, OAuth behavior and task lifecycle against the remote operator service.",
+      "current_gap": "Dify is plugin/API-first in this integration pass. A native MCP client path and OAuth connector for AUREN are not verified.",
       "next_steps": [
-        "Confirm current official MCP client support and supported transport.",
-        "Add a version-pinned connection sample.",
-        "Run live OAuth, tool discovery, task status and approval-boundary acceptance."
+        "Build a dedicated Dify plugin that calls a narrow AUREN API facade.",
+        "Use Dify's credential vault, per-user identity and action confirmation.",
+        "Run Marketplace and end-to-end security acceptance before publishing."
       ],
       "live_verified": false
     },
     "flowise": {
       "kind": "orchestration_framework",
-      "support": "not_wired",
+      "support": "partial",
       "mechanisms": [
-        "No AUREN-specific version-pinned connector verified"
+        "Flowise Custom MCP client node",
+        "Remote MCP tools in Agentflow"
       ],
       "repository_artifacts": [
-        "docs/ORCHESTRATOR_INTEGRATIONS.md"
+        "docs/ORCHESTRATOR_INTEGRATIONS.md",
+        "docs/MCP_HOST_COMPATIBILITY.md"
       ],
-      "current_gap": "AUREN has not pinned and live-tested this framework's MCP client transport, OAuth behavior and task lifecycle against the remote operator service.",
+      "current_gap": "The repository documents the Custom MCP path. Flowise version-specific OAuth, credential vault wiring and AUREN tool approval behavior are not live-tested.",
       "next_steps": [
-        "Confirm current official MCP client support and supported transport.",
-        "Add a version-pinned connection sample.",
-        "Run live OAuth, tool discovery, task status and approval-boundary acceptance."
+        "Pin Flowise version and configure AUREN as a remote Streamable HTTP MCP server.",
+        "Store OAuth credentials in Flowise credential storage and verify token refresh.",
+        "Run read/write/approval/cancel/evidence acceptance."
       ],
       "live_verified": false
     },
     "semantic_kernel": {
       "kind": "orchestration_framework",
-      "support": "not_wired",
+      "support": "partial",
       "mechanisms": [
-        "No AUREN-specific version-pinned connector verified"
+        "Semantic Kernel MCPStreamableHttpPlugin",
+        "Microsoft Agent Framework MCPStreamableHTTPTool",
+        "Remote Streamable HTTP MCP"
       ],
       "repository_artifacts": [
-        "docs/ORCHESTRATOR_INTEGRATIONS.md"
+        "docs/ORCHESTRATOR_INTEGRATIONS.md",
+        "docs/MCP_HOST_COMPATIBILITY.md"
       ],
-      "current_gap": "AUREN has not pinned and live-tested this framework's MCP client transport, OAuth behavior and task lifecycle against the remote operator service.",
+      "current_gap": "A connection example is documented, but the Semantic Kernel successor transition, package pins, OAuth and live AUREN task lifecycle have not been validated.",
       "next_steps": [
-        "Confirm current official MCP client support and supported transport.",
-        "Add a version-pinned connection sample.",
-        "Run live OAuth, tool discovery, task status and approval-boundary acceptance."
+        "Pin the chosen Semantic Kernel or Microsoft Agent Framework package and MCP SDK versions.",
+        "Verify bearer/OAuth header flow and plugin lifecycle.",
+        "Run live tool discovery, task lifecycle and approval acceptance."
       ],
       "live_verified": false
     },
     "haystack": {
       "kind": "orchestration_framework",
-      "support": "not_wired",
+      "support": "partial",
       "mechanisms": [
-        "No AUREN-specific version-pinned connector verified"
+        "mcp-haystack MCPTool/MCPToolset",
+        "Remote Streamable HTTP MCP"
       ],
       "repository_artifacts": [
-        "docs/ORCHESTRATOR_INTEGRATIONS.md"
+        "docs/ORCHESTRATOR_INTEGRATIONS.md",
+        "docs/MCP_HOST_COMPATIBILITY.md"
       ],
-      "current_gap": "AUREN has not pinned and live-tested this framework's MCP client transport, OAuth behavior and task lifecycle against the remote operator service.",
+      "current_gap": "A connection example is documented. The exact installed mcp-haystack version's OAuth/header support and AUREN task lifecycle are not live-verified.",
       "next_steps": [
-        "Confirm current official MCP client support and supported transport.",
-        "Add a version-pinned connection sample.",
-        "Run live OAuth, tool discovery, task status and approval-boundary acceptance."
+        "Pin mcp-haystack and mcp SDK versions.",
+        "Verify secure bearer/OAuth header injection without putting credentials in pipeline data.",
+        "Run live tool discovery and task lifecycle acceptance."
       ],
       "live_verified": false
     },
@@ -1144,16 +1156,15 @@
       "kind": "orchestration_framework",
       "support": "not_wired",
       "mechanisms": [
-        "No AUREN-specific version-pinned connector verified"
+        "No verified OpenHands Cloud MCP connection path"
       ],
       "repository_artifacts": [
-        "docs/ORCHESTRATOR_INTEGRATIONS.md"
+        "docs/ORCHESTRATOR_INTEGRATIONS.md",
+        "docs/MCP_HOST_COMPATIBILITY.md"
       ],
-      "current_gap": "AUREN has not pinned and live-tested this framework's MCP client transport, OAuth behavior and task lifecycle against the remote operator service.",
+      "current_gap": "OpenHands documentation says MCP configuration is local-only and not available on OpenHands Cloud.",
       "next_steps": [
-        "Confirm current official MCP client support and supported transport.",
-        "Add a version-pinned connection sample.",
-        "Run live OAuth, tool discovery, task status and approval-boundary acceptance."
+        "Revisit only when OpenHands Cloud exposes a supported managed remote MCP client path."
       ],
       "live_verified": false
     }
