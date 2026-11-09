@@ -28,6 +28,8 @@ async function load(){
   if(refreshQueued&&document.visibilityState!=="hidden"){
    refreshQueued=false;
    load();
+  }else if(document.visibilityState==="hidden"){
+   refreshQueued=false;
   }
  }
 }
