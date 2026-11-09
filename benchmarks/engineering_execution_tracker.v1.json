@@ -1,0 +1,330 @@
+{
+  "schema_version": "1.0.0",
+  "title": "AUREN Basic Operating Mode implementation tracker",
+  "baseline_main_sha": "93f40ae42d691801de9b000b21fec42b888ede6c",
+  "stable_work_key": "AUREN:issue-696:continuous-engineering",
+  "status": "specification_created_implementation_not_started",
+  "default_mode": "basic",
+  "timebox_policy": {
+    "intake_minutes": 10,
+    "three_axis_gap_scan_minutes": 20,
+    "research_max_minutes": 45,
+    "poc_max_minutes": 90,
+    "evaluation_minutes": 25,
+    "total_default_minutes": 190,
+    "max_research_passes": 1,
+    "max_poc_runs": 1,
+    "max_poc_correction_iterations": 1,
+    "max_plan_revisions": 1,
+    "require_explicit_authorization_for_extension": true,
+    "split_over_budget_work_into_child_units": true
+  },
+  "dimensions": [
+    "TECH",
+    "INTENT",
+    "COGNITIVE"
+  ],
+  "gap_states": [
+    "detected",
+    "triaged",
+    "action_started",
+    "waiting",
+    "blocked",
+    "resolved",
+    "reopened"
+  ],
+  "work_states": [
+    "queued",
+    "running",
+    "waiting",
+    "blocked",
+    "failed",
+    "cancelled",
+    "termination_unknown",
+    "complete"
+  ],
+  "canonical_owners": {
+    "planning": [
+      "Goal System",
+      "TaskPlan",
+      "StateGraph"
+    ],
+    "execution": [
+      "AutonomousCompany",
+      "ExecutionController",
+      "RuntimeExecutionGuard"
+    ],
+    "durability": [
+      "ProgressJournal",
+      "recovery ledger",
+      "Evidence Envelope"
+    ],
+    "security": [
+      "Guard",
+      "ActionGovernance",
+      "ExecutionBoundary",
+      "DurableApprovalStore"
+    ],
+    "learning": [
+      "#692 learning pipeline",
+      "Evidence Graph",
+      "Arena"
+    ],
+    "delivery": [
+      "#694 GSD delivery",
+      "CI",
+      "portable bundle"
+    ],
+    "dashboard": [
+      "durable work-unit/plan/journal projection"
+    ]
+  },
+  "tasks": [
+    {
+      "id": "BOM-001",
+      "title": "Baseline canonical runtime and department ownership map",
+      "priority": "P0",
+      "owner": "Architecture + Runtime/Platform",
+      "estimate_hours": 3,
+      "timebox_minutes": 180,
+      "status": "queued",
+      "dependencies": [],
+      "acceptance": [
+        "Map existing TaskPlan, StateGraph, ExecutionController, RuntimeExecutionGuard, ProgressJournal, recovery ledger and Evidence Envelope owners",
+        "Identify duplicate state machines and existing dashboard projections",
+        "Record current-main file/test references and external gaps"
+      ],
+      "rollback": "Documentation-only; no runtime changes"
+    },
+    {
+      "id": "BOM-002",
+      "title": "Define versioned gap event and record contract",
+      "priority": "P0",
+      "owner": "Runtime/Platform + Data/Knowledge",
+      "estimate_hours": 4,
+      "timebox_minutes": 240,
+      "status": "queued",
+      "dependencies": [
+        "BOM-001"
+      ],
+      "acceptance": [
+        "TECH/INTENT/COGNITIVE records include stable identity, plan/intent digest, severity, evidence, owner, remediation, timebox and resolution evidence",
+        "Append-only events use existing ProgressJournal and Evidence Envelope",
+        "Cross-store reconciliation and schema compatibility tests pass"
+      ],
+      "rollback": "Disable gap event projection; preserve journal and prior schema"
+    },
+    {
+      "id": "BOM-003",
+      "title": "Implement three-axis readiness assessment before planning/dispatch",
+      "priority": "P0",
+      "owner": "Product/Intent + Architecture + Security + QA",
+      "estimate_hours": 6,
+      "timebox_minutes": 360,
+      "status": "queued",
+      "dependencies": [
+        "BOM-001",
+        "BOM-002"
+      ],
+      "acceptance": [
+        "Intent contract is explicit and testable",
+        "Technology readiness checks code, tools, provider contracts, permissions, versions and rollback",
+        "Cognitive readiness checks context freshness, assumptions, contradictions, uncertainty and verifier independence",
+        "Blocking gaps deny consequential dispatch"
+      ],
+      "rollback": "Feature-flag off assessment only; canonical safety guards remain active"
+    },
+    {
+      "id": "BOM-004",
+      "title": "Enforce bounded research and POC budgets in canonical supervisor",
+      "priority": "P0",
+      "owner": "Runtime/Platform + Research/Capability",
+      "estimate_hours": 6,
+      "timebox_minutes": 360,
+      "status": "queued",
+      "dependencies": [
+        "BOM-002",
+        "BOM-003"
+      ],
+      "acceptance": [
+        "Research <=45m and POC <=90m in basic mode",
+        "At most one research pass, one POC and one correction iteration",
+        "Budget persists across restart; no reset by retry/rename",
+        "Expiry emits decision, gap log and next safe action"
+      ],
+      "rollback": "Disable optional research/POC lane; retain supervisor attempt/deadline controls"
+    },
+    {
+      "id": "BOM-005",
+      "title": "Add department accountability and remediation paths to TaskPlan",
+      "priority": "P1",
+      "owner": "Architecture + Engineering",
+      "estimate_hours": 4,
+      "timebox_minutes": 240,
+      "status": "queued",
+      "dependencies": [
+        "BOM-002",
+        "BOM-003"
+      ],
+      "acceptance": [
+        "Every actionable gap has exactly one accountable owner",
+        "Dependencies, acceptance, due timebox, escalation and rollback owner are durable",
+        "Handoffs preserve policy, evidence, budget and unresolved gaps"
+      ],
+      "rollback": "Revert plan projection; preserve journaled gap events"
+    },
+    {
+      "id": "BOM-006",
+      "title": "Derive dashboard gap and status views from durable state",
+      "priority": "P1",
+      "owner": "Delivery + Runtime/Platform",
+      "estimate_hours": 5,
+      "timebox_minutes": 300,
+      "status": "queued",
+      "dependencies": [
+        "BOM-002",
+        "BOM-005"
+      ],
+      "acceptance": [
+        "Dashboard shows dimension, severity, owner, age, budget, blocker and next safe action",
+        "State derives from durable records, never worker prose",
+        "Stale/missing projection is visible and cannot imply completion"
+      ],
+      "rollback": "Return to existing durable status projection"
+    },
+    {
+      "id": "BOM-007",
+      "title": "Add end-to-end and fault-injection tests",
+      "priority": "P0",
+      "owner": "QA/Verification + Runtime/Platform + Security",
+      "estimate_hours": 8,
+      "timebox_minutes": 480,
+      "status": "queued",
+      "dependencies": [
+        "BOM-003",
+        "BOM-004",
+        "BOM-005",
+        "BOM-006"
+      ],
+      "acceptance": [
+        "Restart at every gap and research/POC boundary",
+        "Cancellation/deadline and termination uncertainty tests",
+        "Duplicate dispatch, stale intent/plan, split writes and conflicting adoption tests",
+        "Verifier self-approval, missing/stale/contradictory evidence tests",
+        "Dashboard matches durable state"
+      ],
+      "rollback": "No rollout until regression suite passes"
+    },
+    {
+      "id": "BOM-008",
+      "title": "Run paired basic-mode benchmark and tune false-blocker rate",
+      "priority": "P1",
+      "owner": "Research/Capability + Learning/Evaluation",
+      "estimate_hours": 6,
+      "timebox_minutes": 360,
+      "status": "queued",
+      "dependencies": [
+        "BOM-007"
+      ],
+      "acceptance": [
+        "Compare with baseline without three-axis scan",
+        "Measure detection recall, false blockers, missed blockers, time-to-first-safe-action, completion quality, cost and latency",
+        "Retain failed/negative outcomes and confidence intervals",
+        "No capability claim from internal CI alone"
+      ],
+      "rollback": "Keep feature flag disabled if regression or cost threshold is exceeded"
+    },
+    {
+      "id": "BOM-009",
+      "title": "Canary rollout, operator runbook and rollback rehearsal",
+      "priority": "P1",
+      "owner": "Operations/SRE + Delivery/Release + Security",
+      "estimate_hours": 5,
+      "timebox_minutes": 300,
+      "status": "blocked_external_evidence",
+      "dependencies": [
+        "BOM-008"
+      ],
+      "acceptance": [
+        "Operator-approved canary profile and deployment identity",
+        "Fresh-process resume and rollback receipts",
+        "Post-cutover reconciliation and independent evidence check"
+      ],
+      "rollback": "Restore prior profile and preserve all pre/post-cutover state"
+    },
+    {
+      "id": "BOM-010",
+      "title": "Publish evidence-backed completion matrix and close #696 slice",
+      "priority": "P1",
+      "owner": "Delivery/Release + QA/Verification",
+      "estimate_hours": 3,
+      "timebox_minutes": 180,
+      "status": "queued",
+      "dependencies": [
+        "BOM-009"
+      ],
+      "acceptance": [
+        "Each FR/NFR mapped to implementation and test evidence",
+        "Implementation, CI, deployment and independent verification statuses separated",
+        "Open gaps and next safe actions retained"
+      ],
+      "rollback": "Keep tracker open; do not close acceptance issues prematurely"
+    },
+    {
+      "id": "EXT-534",
+      "title": "Operator-controlled state migration, resume, rollback and reconciliation",
+      "priority": "P0",
+      "owner": "Operations/SRE + named operator",
+      "estimate_hours": null,
+      "timebox_minutes": null,
+      "status": "blocked_external_operator",
+      "dependencies": [],
+      "acceptance": [
+        "Signed operator identity and staging host",
+        "Dry-run/apply manifest and full SQLite integrity evidence",
+        "Fresh-process resume",
+        "Rollback to preserved root",
+        "Post-cutover write reconciliation"
+      ],
+      "rollback": "Keep both state roots preserved; no destructive cleanup"
+    },
+    {
+      "id": "EXT-1256",
+      "title": "Provider-native idempotency and authoritative lookup validation",
+      "priority": "P0",
+      "owner": "Runtime/Platform + provider owner + independent reviewer",
+      "estimate_hours": null,
+      "timebox_minutes": null,
+      "status": "blocked_external_provider",
+      "dependencies": [],
+      "acceptance": [
+        "Provider documentation/configuration and real operation IDs",
+        "Injected timeout/connection-loss after provider acceptance",
+        "Authoritative lookup proves applied/not-applied outcome",
+        "Independent review of retained receipts"
+      ],
+      "rollback": "Block new consequential dispatch when outcome is unknown"
+    },
+    {
+      "id": "EXT-404",
+      "title": "Independent evaluator and sealed holdout campaign",
+      "priority": "P0",
+      "owner": "Independent Arena operator",
+      "estimate_hours": null,
+      "timebox_minutes": null,
+      "status": "blocked_external_evaluator",
+      "dependencies": [],
+      "acceptance": [
+        "Evaluator and corpus custody outside candidate trust domain",
+        "External signing authority",
+        "Retained campaign results and reproducible manifests"
+      ],
+      "rollback": "No promotion; retain candidate as unverified"
+    }
+  ],
+  "non_claims": [
+    "This tracker is a specification, not evidence that runtime integration is complete.",
+    "No operator identity, provider outcome, production isolation, independent evaluator custody or rollback success is inferred.",
+    "No harness, extension, model or capability is promoted by default."
+  ]
+}
