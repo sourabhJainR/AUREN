@@ -13,6 +13,7 @@ import os
 import time
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
+from urllib.parse import urlsplit
 
 from .guarded_network import guarded_https_get
 
@@ -143,9 +144,18 @@ class OpenAICompatibleProvider:
     ):
         if not isinstance(spec, ProviderSpec):
             raise TypeError("spec must be a ProviderSpec")
-        registered_spec = PROVIDER_SPECS.get(spec.name)
-        if registered_spec is None or spec != registered_spec:
-            raise ValueError("provider endpoint and host must match the reviewed provider registry")
+        if spec.name == "custom":
+            parsed = urlsplit(spec.endpoint)
+            if (
+                parsed.scheme != "https" or parsed.hostname != spec.host
+                or parsed.port not in {None, 443} or parsed.username or parsed.password
+                or parsed.query or parsed.fragment or not parsed.path.rstrip("/").endswith("/chat/completions")
+            ):
+                raise ValueError("custom provider must use an allowlisted HTTPS Chat Completions endpoint")
+        else:
+            registered_spec = PROVIDER_SPECS.get(spec.name)
+            if registered_spec is None or spec != registered_spec:
+                raise ValueError("provider endpoint and host must match the reviewed provider registry")
         if not isinstance(api_key, str) or len(api_key) < 8 or len(api_key) > 4096:
             raise ValueError("provider API key is missing or invalid")
         if not isinstance(model, str) or not model.strip() or len(model) > 200:
@@ -160,9 +170,29 @@ class OpenAICompatibleProvider:
     @classmethod
     def from_environment(cls, name: str, *, environ: Mapping[str, str] | None = None, transport=guarded_https_get):
         env = os.environ if environ is None else environ
-        spec = PROVIDER_SPECS.get(name)
-        if spec is None:
-            raise ValueError(f"unsupported remote model provider: {name}")
+        if name == "custom":
+            endpoint = env.get("AUREN_CUSTOM_PROVIDER_URL", "").strip()
+            parsed = urlsplit(endpoint)
+            allowlist = {
+                item.strip().lower()
+                for item in env.get("AUREN_CUSTOM_PROVIDER_ALLOWED_HOSTS", "").split(",")
+                if item.strip()
+            }
+            if (
+                parsed.scheme != "https" or not parsed.hostname
+                or parsed.port not in {None, 443} or parsed.username or parsed.password
+                or parsed.query or parsed.fragment or not parsed.path.rstrip("/").endswith("/chat/completions")
+                or parsed.hostname.lower() not in allowlist
+            ):
+                raise ValueError("custom provider URL must be HTTPS and its hostname must be explicitly allowlisted")
+            spec = ProviderSpec(
+                "custom", endpoint, parsed.hostname.lower(),
+                "AUREN_CUSTOM_PROVIDER_API_KEY", "AUREN_CUSTOM_PROVIDER_MODEL",
+            )
+        else:
+            spec = PROVIDER_SPECS.get(name)
+            if spec is None:
+                raise ValueError(f"unsupported remote model provider: {name}")
         key = env.get(spec.api_key_env, "")
         model = env.get("AUREN_MODEL_" + name.upper(), env.get(spec.model_env, ""))
         if not key or not model:
@@ -286,11 +316,20 @@ class RemoteProviderPool:
         order = tuple(item.strip().lower() for item in configured.split(",") if item.strip()) if configured else DEFAULT_PROVIDER_ORDER
         if not order:
             return None
-        unknown = sorted(set(order) - set(PROVIDER_SPECS))
+        unknown = sorted(set(order) - (set(PROVIDER_SPECS) | {"custom"}))
         if unknown:
             raise ValueError("unsupported providers in AUREN_REMOTE_PROVIDER_ORDER: " + ", ".join(unknown))
         providers = []
         for name in order:
+            if name == "custom":
+                try:
+                    providers.append(OpenAICompatibleProvider.from_environment(
+                        name, environ=env, transport=transport,
+                    ))
+                except ValueError as exc:
+                    if env.get("AUREN_CUSTOM_PROVIDER_API_KEY") or env.get("AUREN_CUSTOM_PROVIDER_URL"):
+                        raise
+                continue
             spec = PROVIDER_SPECS[name]
             key = env.get(spec.api_key_env, "")
             model = env.get("AUREN_MODEL_" + name.upper(), env.get(spec.model_env, ""))
