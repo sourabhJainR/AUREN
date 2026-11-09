@@ -16,6 +16,7 @@ from .engineering_plan import EngineeringPlan, EngineeringPlanRun
 from .progress_journal import ProgressJournal, _journal_file_lock, _safe
 from .identity_compat import canonical_auren_home
 from .workflow_profile import WorkflowProfile
+from .lifecycle_projection import project_lifecycle
 
 def _utc() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -422,6 +423,8 @@ class EngineeringDashboard:
                     claimed = [item for item in items if item.get("_checkpoint_claimed")]
                     selected = max(claimed or items, key=lambda item: str(item.get("updated_at", "")))
             latest[run_id] = {key: value for key, value in selected.items() if not key.startswith("_")}
+        for row in latest.values():
+            row["lifecycle"] = project_lifecycle("plan_run", row.get("status"))
         return tuple(sorted(latest.values(), key=lambda row: str(row.get("updated_at", "")), reverse=True)[:50])
 
     def _executions(self, events: tuple[dict[str, Any], ...], dbs: Iterable[Path],
@@ -813,6 +816,7 @@ class EngineeringDashboard:
             row.setdefault("status_conflict", False)
             row.setdefault("status_category", self._progress_status_category(row.get("state")))
         for task_id, row in snapshots.items():
+            row["lifecycle"] = project_lifecycle("progress_task", row.get("state"))
             profile = profile_bindings.get(task_id)
             if profile is None:
                 row["workflow_profile_status"] = "legacy-or-unavailable"
