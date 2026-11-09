@@ -343,3 +343,37 @@ No second orchestrator, external runtime dependency, default model route, harnes
 **Current repository evidence:** main `f5739d5f809a76d0d52f2138422ea52124eda5e5` has 28/28 terminal-successful check-runs and six successful post-merge push workflows. The v1.0.6 portable bundle from [run 42493782068](https://github.com/sourabhJainR/AUREN/actions/runs/42493782068) was downloaded and rehashed: outer bundle `ec729395e71a193e45694a081b56bbb1e0243e02b5b0d97ec32eb2f115ffff98`, checksum archive `0a789bbba81b16df51217e504a01cd6fd290cb21835474dcbf3ecac5dc9a0248`, embedded ZIP `b96de0c00c654b3ceb796d88474a9a87b580de6fe4f8c996df0947ff457341e8`; all 538 manifest entries match size and SHA-256. PR [#1305](https://github.com/sourabhJainR/AUREN/pull/1305) is open on exact head `539ffa957b74a55573608b041253c64b2f017f9e`; its 28 check-runs and six PR workflows succeeded, but independent review and real provider-native failure-injection receipts are absent. Main's visible branch-protection metadata exposes no required status checks; effective enforcement needs owner/admin confirmation. No local checkout or AutonomousCompany/ExecutionController invocation is available, so no local tests are claimed.
 
 Deployment isolation, independent evaluator/corpus custody, sealed holdout, operator migration/rollback, provider-native live reconciliation and scientific replication remain blocked. No AGI/SI claim or default model, harness, extension or tool promotion is supported.
+
+
+## Living capability radar update — 2026-11-09: agent identity, policy gateways and long-horizon scoring
+
+### Agent identity and policy gateway
+
+[Snowflake's 2026-11-03 Expedition announcement](https://www.snowflake.com/en/news/press-releases/expedition-2026-business-ontology-ai-gateway/) describes Cortex AI Gateway as a common control point for agent connections across clouds, frameworks and providers, with policy, authentication, usage visibility and model-cost controls. Its [agent identity documentation](https://docs.snowflake.com/en/user-guide/agent-identity) distinguishes delegated agents acting for a person from autonomous agents using their own service identity; it describes agent-session attribution, access-history visibility and Restricted Session Scope as a privilege ceiling. Business Ontology is a separate governed-context signal: approved definitions can be shared across agent workflows.
+
+These are vendor product claims and documentation, not independent evidence that the controls resist bypass. Map the patterns to existing AUREN owners: `ExecutionController`, organization Guard, `ActionGovernance`, `ExecutionBoundary`, `DurableApprovalStore`, `RuntimeExecutionGuard`, provider/MCP adapters and the Evidence Envelope. Issues #1055, #909, #1193 and #404 own the role-scope, cross-host identity, deployment admission and independent-evaluation boundaries. Do not add a Snowflake dependency or another policy gateway.
+
+AUREN's measured gap is deployment proof that a real authenticated principal, delegator, role, scope ceiling, policy digest, approval and host identity remain bound to the durable task intent through restart and provider dispatch. Repository role/dispatch tests are not proof of an external identity provider, production enforcement or independent audit.
+
+Benchmark delegated and autonomous identities on the same pinned tasks. Include forged, expired and revoked identities; policy-version drift; privilege-ceiling widening; agent-to-agent delegation; approval revocation during execution; replay; audit gaps; and provider outcomes that become unknown after dispatch. Measure denial-before-side-effect, principal-to-action attribution coverage, scope-violation rate, revocation latency, stale-token replay, false approval rate, unknown-outcome reconciliation, cost and latency. Require the canonical supervisor to bind identity and policy before dispatch. Keep verifier identity separate from implementer and worker identities.
+
+**Gate and rollback:** deployment verification requires operator-controlled host and identity-provider receipts, with a separate auditor and exact runtime/intent/policy digests. If identity, scope or policy cannot be verified, block the action before dispatch; revoke the affected credentials/scopes, disable the candidate adapter, preserve the side-effect ledger and reconcile unknown outcomes before any retry. No capability or model is promoted by this comparison.
+
+### Long-horizon and computer-use benchmark update
+
+[Odysseys](https://arxiv.org/abs/2604.24964) evaluates 200 realistic long-horizon web tasks with an average of 6.1 graded rubrics per task. The paper reports a 44.5% best success rate and 1.15% trajectory efficiency in its evaluated setting. This complements [WeaveBench](https://arxiv.org/abs/2606.09426), which spans 114 hybrid GUI/CLI/code tasks across eight domains and reports a 41.2% best pass rate, and [AgentHorizon](https://arxiv.org/abs/2610.11050), which evaluates 1,373 computer-use instruction/trajectory pairs from 166 hours across three operating systems and reports 80.9% balanced accuracy for its best judge on the AH subset. These benchmark scores are not AUREN results and are not directly comparable across task sets.
+
+Map the gap to the existing `TaskPlan`, `StateGraph`, `ExecutionController`, `ProgressJournal`, `TriggerRuntime`, `AutomationScheduler`, EngineeringDashboard and Arena. AUREN still lacks an independently operated campaign that scores multi-hour web/GUI/CLI/code trajectories with intermediate constraints, action traces, side effects and event timing. Outcome-only completion is insufficient.
+
+Measure rubric-weighted completion, trajectory efficiency, false-green/false-negative rates, hidden side effects, evidence fabrication, missed/false event triggers, restart/resume continuity, cancellation, latency and cost. Use instruction-swapped near misses and a separately controlled oracle. Compare static TaskPlans with any bounded dynamic candidate on the same pinned tasks; compile proposals into the canonical graph rather than introducing a second planner.
+
+**Gate and rollback:** keep independent evaluator and holdout custody outside the candidate trust domain. Disable dynamic composition and event-trigger adapters on regression; return to the last-known-good static TaskPlan and bounded operator-managed polling, preserve traces and reconcile uncertain effects before retry.
+
+### Status boundary
+
+- **Implemented:** the canonical AUREN owners and selected role, recovery, evidence and dashboard contracts exist.
+- **CI-verified:** repository tests on exact main `93f40ae42d691801de9b000b21fec42b888ede6c` cover selected graph recovery, shared identity, action scope, and learning/delivery integration. This is not an independent benchmark result.
+- **Deployment-verified:** not verified for external identity-provider enforcement, production host isolation, live provider policy, long-horizon computer use or physical multi-host operation.
+- **Independently verified:** not verified; independent evaluator identity, sealed-holdout custody and external campaign receipts remain blocked.
+
+No AGI/SI claim, new orchestrator, external runtime dependency, default model route, or harness/extension promotion follows from these signals.
