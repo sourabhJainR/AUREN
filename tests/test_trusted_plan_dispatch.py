@@ -995,7 +995,9 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                 "SELECT deadline_seconds FROM tasks WHERE id=?", (task.id,),
             ).fetchone()[0]
         self.assertGreater(deadline_seconds, 0)
-        self.assertLessEqual(deadline_seconds, 60.0)
+        # Monotonic-clock subtraction can produce a few ULPs above the
+        # configured duration; allow only floating-point representation noise.
+        self.assertLessEqual(deadline_seconds, 60.0 + 1e-6)
 
 
     def test_worker_resume_requires_trusted_root_bootstrap(self):
