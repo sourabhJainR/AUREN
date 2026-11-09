@@ -240,16 +240,23 @@ class LocalMCPStdioProxyTests(unittest.TestCase):
             with self.subTest(url=url), self.assertRaises(ValueError):
                 validate_local_url(url)
 
-    def test_stdio_proxy_forwards_authorized_jsonrpc_and_returns_response(self):
-        seen = {}
+    def test_stdio_proxy_preserves_auth_and_negotiated_protocol_version(self):
+        seen = []
 
         class Handler(BaseHTTPRequestHandler):
             def do_POST(self):
-                seen["authorization"] = self.headers.get("Authorization")
-                seen["body"] = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                seen.append({
+                    "authorization": self.headers.get("Authorization"),
+                    "protocol": self.headers.get("MCP-Protocol-Version"),
+                    "request": request,
+                })
+                if request.get("method") == "initialize":
+                    result = {"protocolVersion": "2025-11-25", "capabilities": {}, "serverInfo": {"name": "test", "version": "1"}}
+                else:
+                    result = {"tools": [{"name": "auren.service_status"}]}
                 body = json.dumps({
-                    "jsonrpc": "2.0", "id": seen["body"].get("id"),
-                    "result": {"tools": [{"name": "auren.service_status"}]},
+                    "jsonrpc": "2.0", "id": request.get("id"), "result": result,
                 }).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -265,18 +272,28 @@ class LocalMCPStdioProxyTests(unittest.TestCase):
         thread.start()
         try:
             url = f"http://127.0.0.1:{server.server_address[1]}/mcp"
-            request = {"jsonrpc": "2.0", "id": 7, "method": "tools/list", "params": {}}
-            source = io.BytesIO((json.dumps(request) + "\n").encode("utf-8"))
+            initialize = {
+                "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {"protocolVersion": "2025-11-25", "capabilities": {},
+                           "clientInfo": {"name": "stdio-test", "version": "1"}},
+            }
+            tools_list = {"jsonrpc": "2.0", "id": 7, "method": "tools/list", "params": {}}
+            source = io.BytesIO(
+                (json.dumps(initialize) + "\n" + json.dumps(tools_list) + "\n").encode("utf-8")
+            )
             target = io.BytesIO()
             diagnostics = io.StringIO()
             result = run_proxy(
                 url, self.token_path, stdin=source, stdout=target, stderr=diagnostics,
             )
             self.assertEqual(0, result)
-            self.assertEqual("Bearer " + self.token_path.read_text(encoding="utf-8").strip(), seen["authorization"])
-            response = json.loads(target.getvalue().decode("utf-8"))
-            self.assertEqual(7, response["id"])
-            self.assertEqual("auren.service_status", response["result"]["tools"][0]["name"])
+            token = "Bearer " + self.token_path.read_text(encoding="utf-8").strip()
+            self.assertEqual([token, token], [item["authorization"] for item in seen])
+            self.assertIsNone(seen[0]["protocol"])
+            self.assertEqual("2025-11-25", seen[1]["protocol"])
+            responses = [json.loads(line) for line in target.getvalue().decode("utf-8").splitlines()]
+            self.assertEqual([1, 7], [item["id"] for item in responses])
+            self.assertEqual("auren.service_status", responses[1]["result"]["tools"][0]["name"])
             self.assertEqual("", diagnostics.getvalue())
         finally:
             server.shutdown()
