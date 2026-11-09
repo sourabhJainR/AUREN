@@ -181,6 +181,7 @@ def discover_clients(home: Path | None = None) -> list[dict[str, str]]:
         ("Gemini CLI", base / ".gemini/settings.json", "mcpServers"),
         ("Cursor", base / ".cursor/mcp.json", "mcpServers"),
         ("VS Code", base / ".config/Code/User/settings.json", "mcp.servers"),
+        ("VS Code", base / "Library/Application Support/Code/User/settings.json", "mcp.servers"),
         ("VS Code", base / "AppData/Roaming/Code/User/settings.json", "mcp.servers"),
         ("VS Code Insiders", base / "AppData/Roaming/Code - Insiders/User/settings.json", "mcp.servers"),
     ]
@@ -245,8 +246,8 @@ def configure_clients(
     """Preview or apply only the AUREN MCP server entry in supported JSON hosts."""
     if not mcp_url.startswith("http://127.0.0.1:") or not mcp_url.endswith("/mcp"):
         raise OnboardingError("local MCP URL must be an explicit 127.0.0.1 HTTP endpoint ending in /mcp")
-    token = Path(token_file).expanduser().resolve()
-    if not token.is_file() or token.is_symlink():
+    token = Path(token_file).expanduser()
+    if token.is_symlink() or not token.is_file():
         raise OnboardingError("local MCP credential is not present; start AUREN local services first")
     proxy = shutil.which("auren")
     if proxy:
