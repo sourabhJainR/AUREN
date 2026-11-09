@@ -48,7 +48,7 @@ class EngineeringReadinessTests(unittest.TestCase):
 
     def assess(self, axes=None, *, work_key="work:one", intent="a" * 64):
         return self.gate.assess(
-            task_id="plan-task:implement", work_key=work_key,
+            task_id="implement", work_key=work_key,
             intent_digest=intent, repository_snapshot_digest="b" * 64,
             axes=READY_AXES if axes is None else axes,
             context_plan_digest="c" * 64,
@@ -69,7 +69,7 @@ class EngineeringReadinessTests(unittest.TestCase):
             self.assertTrue(gap["owner_role_id"])
             self.assertTrue(gap["remediation"])
             self.assertTrue(gap["acceptance_criteria"])
-            self.assertEqual(64, len(gap["envelope_digest"]))
+            self.assertEqual(16, len(gap["envelope_digest"]))
 
     def test_ready_axis_requires_evidence_and_unknown_axis_is_rejected(self):
         axes = {key: dict(value) for key, value in READY_AXES.items()}
