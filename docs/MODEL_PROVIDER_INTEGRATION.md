@@ -55,10 +55,21 @@ Custom endpoints must use HTTPS, port 443, a `/chat/completions` path, no URL cr
 
 The router creates a remote provider pool only when `AUREN_REMOTE_PROVIDER_ORDER` is explicitly configured. Providers without both a key and model ID are skipped. Unknown provider names and duplicate configured providers fail closed.
 
-`AUREN_REMOTE_PROVIDER_ORDER` is currently a deployment-level provider preference, not a per-user setting. When a user connects ChatGPT, Claude, Codex, Gemini or another MCP host, that host's own model selector remains the user's model choice; AUREN does not import the host's private API credentials. Per-user direct-provider preferences and tenant-scoped provider credentials are not yet implemented.
+`AUREN_REMOTE_PROVIDER_ORDER` defines the deployment's configured provider pool. The routing API now supports a per-request ordered subset through `provider_order`; persisted per-user defaults and tenant-scoped provider credentials are not yet implemented. When a user connects ChatGPT, Claude, Codex, Gemini or another MCP host, that host's own model selector remains the user's model choice; AUREN does not import the host's private API credentials.
 
 The pool attempts providers in the exact configured order. One provider is attempted per supervisor-charged remote attempt. The existing shared execution guard remains authoritative: the provider pool cannot increase the task's attempt count or deadline. The route currently has a maximum of three attempts, and any local attempt consumes that same budget.
 
+## Per-request provider selection
+
+The local routing API exposes the configured provider catalog without exposing credentials:
+
+- `GET /api/providers` returns provider IDs and configured model IDs.
+- `POST /api/route` accepts an optional ordered `provider_order` array, for example `["groq", "openai"]`.
+- The request may select only providers that the host has configured. Unknown, duplicate or unavailable providers are rejected; AUREN does not silently substitute another provider.
+- The selected order is honored within the shared supervisor attempt and deadline budget. A shorter user-selected chain also has a shorter retry budget.
+- Private and restricted tasks remain local-only even when a remote provider order is supplied.
+
+The host administrator still controls which provider credentials and model IDs are available. End users can choose an ordered subset per routing request, but they cannot add credentials, arbitrary endpoints or unreviewed providers through the request.
 ## Privacy and authority
 
 - Remote inference is eligible only when the task privacy is explicitly `public` or `non_sensitive`.
