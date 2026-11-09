@@ -115,7 +115,7 @@ class LocalMCPHostTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "No AUREN runtime factory"):
             resolve_runtime_factory(self.project)
         (self.project / "auren_runtime_factory.py").write_text(
-            "def create_runtime(*, project_root):\\n    raise NotImplementedError\\n",
+            "def create_runtime(*, project_root):\n    raise NotImplementedError\n",
             encoding="utf-8",
         )
         self.assertEqual(
