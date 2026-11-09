@@ -15,3 +15,19 @@ These files are safe configuration templates. Replace `https://mcp.example.com/m
 ChatGPT web, ChatGPT desktop, Claude web/Desktop and Visual Studio have host UI or version-specific configuration paths; follow [MCP Host Compatibility](../../docs/MCP_HOST_COMPATIBILITY.md).
 
 Do not enable blanket auto-approval for AUREN operator tools. Keep approval enabled for consequential actions. The host's local configuration does not replace AUREN's server-side authorization and approval checks.
+
+## Orchestration frameworks
+
+For OpenAI Agents SDK, AutoGen, Pydantic AI, LangChain/LangGraph and n8n examples, see [Orchestrator Integrations](../../docs/ORCHESTRATOR_INTEGRATIONS.md).
+
+## Local stdio runtime
+
+The local stdio bridge is `portable/chat_capability.py`. It now fails closed unless `AUREN_MCP_RUNTIME_FACTORY` points to a trusted `module:function` factory that returns a configured runtime with a non-empty reviewed agent graph. Set `AUREN_PROJECT_ROOT` to the workspace bound to that process. Do not use an empty placeholder graph in a real host.
+
+Example environment (supply the actual factory from your deployment package):
+
+```bash
+export AUREN_MCP_RUNTIME_FACTORY="my_auren_runtime:create_runtime"
+export AUREN_PROJECT_ROOT="/absolute/path/to/workspace"
+python /absolute/path/to/AUREN/portable/chat_capability.py
+```
