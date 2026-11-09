@@ -63,20 +63,20 @@ def run_acceptance(
         "accept": "application/json",
         "authorization": "Bearer " + token,
     }
-    _, health_raw = transport(
+    health_status, health_raw = transport(
         origin + "/healthz", allowed_hosts=host_allowlist,
         method="GET", headers=headers, timeout=10, max_bytes=16 * 1024,
     )
-    health = _json_response(200, health_raw, "health check")
+    health = _json_response(health_status, health_raw, "health check")
     if health.get("status") != "ok":
         raise AcceptanceFailure("health check did not report status=ok")
 
     metadata_url = origin + "/.well-known/oauth-protected-resource/mcp"
-    _, metadata_raw = transport(
+    metadata_status, metadata_raw = transport(
         metadata_url, allowed_hosts=host_allowlist,
         method="GET", headers=headers, timeout=10, max_bytes=64 * 1024,
     )
-    metadata = _json_response(200, metadata_raw, "protected-resource metadata")
+    metadata = _json_response(metadata_status, metadata_raw, "protected-resource metadata")
     if metadata.get("resource") != endpoint:
         raise AcceptanceFailure("protected-resource metadata does not match the configured endpoint")
     auth_servers = metadata.get("authorization_servers", [])
