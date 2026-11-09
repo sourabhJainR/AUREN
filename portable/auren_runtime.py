@@ -203,6 +203,11 @@ def iter_source_files(root: Path) -> list[Path]:
     if not resolver.is_file():
         raise SystemExit(f"required source file is missing: {resolver}")
     files.append(resolver)
+    local_mcp_requirements = root / "requirements-local-mcp.txt"
+    _reject_source_symlink(local_mcp_requirements)
+    if not local_mcp_requirements.is_file():
+        raise SystemExit(f"required local MCP dependency file is missing: {local_mcp_requirements}")
+    files.append(local_mcp_requirements)
     return sorted(set(files), key=lambda p: p.relative_to(root).as_posix())
 
 def sha256_file(path: Path) -> str:
