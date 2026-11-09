@@ -8,7 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -51,7 +51,7 @@ class DurableSideEffectLedger:
         self._retry_authorizer = retry_authorizer
         self._reconciliation_verifier = reconciliation_verifier
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute(
                 """CREATE TABLE IF NOT EXISTS durable_side_effects (
                     idempotency_key TEXT PRIMARY KEY,
@@ -123,7 +123,7 @@ class DurableSideEffectLedger:
         if not isinstance(payload, Mapping):
             raise ValueError("payload must be a mapping")
         digest = self._digest(payload)
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 "SELECT * FROM durable_side_effects WHERE idempotency_key=?", (key,)
@@ -166,7 +166,7 @@ class DurableSideEffectLedger:
         if not isinstance(receipt, Mapping):
             raise ValueError("receipt must be a mapping")
         encoded = self._encode(receipt)
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 "SELECT * FROM durable_side_effects WHERE idempotency_key=?", (idempotency_key,)
@@ -197,7 +197,7 @@ class DurableSideEffectLedger:
     def require_reconciliation(self, idempotency_key: str, reason: str) -> None:
         if not isinstance(reason, str) or not reason.strip():
             raise ValueError("a non-empty reconciliation reason is required")
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 "SELECT state FROM durable_side_effects WHERE idempotency_key=?", (idempotency_key,)
@@ -238,7 +238,7 @@ class DurableSideEffectLedger:
         if verified is not True:
             raise PermissionError("provider reconciliation evidence was rejected; verifier must return literal True")
         encoded = self._encode(receipt)
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 "SELECT * FROM durable_side_effects WHERE idempotency_key=?",
@@ -297,7 +297,7 @@ class DurableSideEffectLedger:
             "operator_id": operator_id.strip(),
             "evidence_ref": evidence_ref.strip(),
         }, sort_keys=True, separators=(",", ":"))
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 "SELECT state FROM durable_side_effects WHERE idempotency_key=?", (idempotency_key,)
@@ -329,7 +329,7 @@ class DurableSideEffectLedger:
             db.commit()
     def retry_authorizations(self, idempotency_key: str) -> tuple[Mapping[str, Any], ...]:
         """Return immutable operator/evidence audit records for a retry key."""
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             rows = db.execute(
                 "SELECT idempotency_key,operator_id,evidence_ref,operator_reason,authorization_digest,created_at "
                 "FROM durable_side_effect_retry_authorizations WHERE idempotency_key=? ORDER BY id",
@@ -349,7 +349,7 @@ class DurableSideEffectLedger:
         return results
 
     def get(self, idempotency_key: str) -> Mapping[str, Any] | None:
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             row = db.execute(
                 "SELECT * FROM durable_side_effects WHERE idempotency_key=?", (idempotency_key,)
             ).fetchone()
