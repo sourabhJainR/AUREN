@@ -123,24 +123,23 @@ Add regression coverage and verify the result.
 Do not change unrelated behavior.
 ~~~
 
-## 5. Claude Desktop / MCP
+## 5. Claude Desktop and Claude web
 
-If the host supports local MCP servers, register AUREN's stdio MCP server:
-
-~~~json
-{
-  "mcpServers": {
-    "auren": {
-      "command": "python",
-      "args": ["/absolute/path/to/.auren/current/portable/chat_capability.py"]
-    }
-  }
-}
-~~~
-
-Use the MCP configuration mechanism provided by the installed Claude Desktop version. Do not copy this JSON into an unrelated host configuration file.
+Use the product's remote MCP connector/custom connector UI and authenticate through the configured external OAuth provider. This gives Claude remote AUREN operator tools; it does not give Claude Desktop local filesystem access. Repository execution remains on the AUREN host.
 
 MCP is an integration surface, not the source of AUREN's planning, verification or learning authority.
+
+## 5.1 Local stdio MCP clients
+
+For a local MCP host that supports stdio, use `portable/chat_capability.py` with a deployment-owned runtime factory. The server fails closed if the factory is missing or returns an empty graph.
+
+Set these environment values in the MCP host's process configuration:
+
+- `AUREN_MCP_RUNTIME_FACTORY=trusted_module:create_runtime`
+- `AUREN_PROJECT_ROOT=/absolute/path/to/workspace`
+
+The factory must accept `project_root` and return a configured AdaptiveRuntime-compatible host with a non-empty reviewed graph, execution controller and durable trigger runtime. The tool's project path must match the configured workspace.
+
 
 ## 6. Codex CLI and ChatGPT Work
 
@@ -196,7 +195,7 @@ If you use the workspace scope, use the scope option supported by your installed
 Gemini can also connect to an AUREN MCP server where MCP is enabled:
 
 ~~~bash
-gemini mcp add auren python /absolute/path/to/.auren/current/portable/chat_capability.py --scope user
+gemini mcp add --transport http auren https://mcp.example.com/mcp
 ~~~
 
 ## 9. Grok, Kimi and other released LLM hosts
