@@ -75,8 +75,8 @@ def test_session_snapshot_combines_checkpoints_and_safe_journal_projection(tmp_p
     adapter = MuxinSessionAdapter(tmp_path, session_store=store, dashboard=_Dashboard())
     payload = adapter.session_snapshot()
     assert payload["counts"] == {
-        "sessions": 4, "active": 1, "completed": 1, "blocked": 1, "stale": 1,
-        "unverified": 0, "tasks": 1, "plan_runs": 1,
+        "sessions": 4, "active": 1, "completed": 1, "blocked": 1, "failed": 0,
+        "cancelled": 0, "stale": 1, "unverified": 0, "tasks": 1, "plan_runs": 1,
     }
     assert {row["session_id"] for row in payload["sessions"]} == {
         "active-session", "completed-session", "blocked-session", "stale-session",
@@ -374,3 +374,55 @@ class WorkspaceInventoryTests(unittest.TestCase):
         self.assertIn('id="workspace-count"', html)
         self.assertIn("renderWorkspaces(data)", script)
         self.assertIn("No workspace state is inferred", script)
+
+
+
+def test_session_lifecycle_keeps_failed_cancelled_and_blocked_distinct(tmp_path):
+    store = SessionStore(tmp_path / "sessions")
+    project_key = store.project_key(tmp_path)
+    for session_id, stage, last_error in (
+        ("failed-session", "failed", None),
+        ("cancelled-session", "cancelled", None),
+        ("blocked-session", "blocked", None),
+    ):
+        store.save(SessionCheckpoint(
+            session_id=session_id,
+            task_id=session_id.replace("-session", "-task"),
+            project_key=project_key,
+            stage=stage,
+            project_root=str(tmp_path),
+            last_error=last_error,
+        ))
+
+    adapter = MuxinSessionAdapter(tmp_path, session_store=store, dashboard=_Dashboard())
+    all_rows = {row["session_id"]: row for row in adapter.session_snapshot()["sessions"]}
+    assert all_rows["failed-session"]["status"] == "failed"
+    assert all_rows["failed-session"]["lifecycle"]["category"] == "failed"
+    assert all_rows["failed-session"]["lifecycle"]["terminal"] is True
+    assert all_rows["cancelled-session"]["status"] == "cancelled"
+    assert all_rows["cancelled-session"]["lifecycle"]["category"] == "cancelled"
+    assert all_rows["blocked-session"]["status"] == "blocked"
+    assert all_rows["blocked-session"]["lifecycle"]["category"] == "blocked"
+    assert all_rows["blocked-session"]["lifecycle"]["terminal"] is False
+
+    assert adapter.session_snapshot(status="failed")["pagination"]["total"] == 1
+    assert adapter.session_snapshot(status="cancelled")["pagination"]["total"] == 1
+    assert adapter.session_snapshot(status="blocked")["pagination"]["total"] == 1
+    counts = adapter.session_snapshot()["counts"]
+    assert counts["failed"] == 1
+    assert counts["cancelled"] == 1
+    assert counts["blocked"] == 1
+
+
+def test_session_status_projection_marks_derived_state_source(tmp_path):
+    checkpoint = SessionCheckpoint(
+        session_id="unknown-stage",
+        task_id="unknown-task",
+        project_key=SessionStore.project_key(tmp_path),
+        stage="future-stage",
+        project_root=str(tmp_path),
+    )
+    row = MuxinSessionAdapter._session_record(checkpoint)
+    assert row["status"] == "unverified"
+    assert row["lifecycle"]["category"] == "unknown"
+    assert row["status_source"] == "checkpoint_stage_error_and_heartbeat_projection"
