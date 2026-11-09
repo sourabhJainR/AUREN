@@ -26,6 +26,9 @@ class Task:
     parallel_group: str = ""
     checkpoint: str = ""
     verification_strategy: list[str] = field(default_factory=list)
+    department: str | None = None
+    owner_role_id: str | None = None
+    remediation_steps: list[str] = field(default_factory=list)
 
     def validate(self) -> None:
         if not self.id or not self.title:
@@ -34,6 +37,12 @@ class Task:
             raise ValueError(f"invalid task status: {self.status}")
         if self.priority not in PRIORITIES:
             raise ValueError(f"invalid task priority: {self.priority}")
+        if self.department is not None and (not isinstance(self.department, str) or not self.department.strip()):
+            raise ValueError("task department must be a non-empty string when supplied")
+        if self.owner_role_id is not None and (not isinstance(self.owner_role_id, str) or not self.owner_role_id.strip()):
+            raise ValueError("task owner_role_id must be a non-empty string when supplied")
+        if any(not isinstance(item, str) or not item.strip() for item in self.remediation_steps):
+            raise ValueError("task remediation steps must be non-empty strings")
 
 class TaskPlan:
     def __init__(self, tasks: Iterable[Task] = ()) -> None:
