@@ -57,10 +57,16 @@ class MCPHostAcceptanceContractTests(unittest.TestCase):
                 self.assertTrue(host.get("current_gap"))
 
     def test_other_mcp_hosts_are_explicitly_partial(self):
-        for name in OTHER_MCP_HOSTS:
+        # Discover IDE MCP hosts from the matrix so adding a host cannot leave
+        # this contract test silently stale or reference an undefined list.
+        known_hosts = set(CODING_HOSTS) | set(IDE_MCP_HOSTS)
+        other_hosts = tuple(
+            name for name, host in self.hosts.items()
+            if host.get("kind") == "ide_mcp_host" and name not in known_hosts
+        )
+        for name in other_hosts:
             with self.subTest(host=name):
                 host = self.hosts[name]
-                self.assertEqual("ide_mcp_host", host["kind"])
                 self.assertIn(host["support"], {"partial", "repository_configured"})
                 self.assertIs(host["live_verified"], False)
                 self.assertTrue(host.get("current_gap"))
