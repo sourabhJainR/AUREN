@@ -3359,12 +3359,13 @@ class ExecutionController:
         binding_digest = hashlib.sha256(
             json.dumps(binding, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
         ).hexdigest()
-        if (
-            payload_digest != metadata.get("payload_digest")
-            or binding_digest != metadata.get("binding_digest")
-        ):
+        if payload_digest != metadata.get("payload_digest"):
             raise EngineeringPlanCheckpointMismatch(
-                "queued dispatch payload or binding digest is invalid"
+                "queued dispatch caller-intent payload digest is invalid"
+            )
+        if binding_digest != metadata.get("binding_digest"):
+            raise EngineeringPlanCheckpointMismatch(
+                "queued dispatch immutable binding digest is invalid"
             )
 
         # Validate the canonical checkpoint, intent, and immutable payload before
