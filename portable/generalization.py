@@ -67,7 +67,7 @@ class GeneralizationEngine:
             raise TypeError("memory must be a PersistentMemory instance")
         self.memory = memory
         self.project = _clean(project, "project")
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS generalization_abstractions(
                 project TEXT NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL,
                 principle TEXT NOT NULL, structure TEXT NOT NULL, evidence_ids TEXT NOT NULL,
@@ -85,7 +85,7 @@ class GeneralizationEngine:
             raise ValueError("abstraction requires source evidence")
         if not abstraction.structure:
             raise ValueError("abstraction requires structural features")
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             existing = db.execute(
                 "SELECT name,principle,structure,evidence_ids,confidence,negative_conditions FROM generalization_abstractions WHERE project=? AND id=?",
                 (self.project, abstraction.id),
@@ -118,7 +118,7 @@ class GeneralizationEngine:
             raise ValueError("min_similarity must be between 0 and 1")
         if limit < 1:
             raise ValueError("limit must be positive")
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             rows = db.execute(
                 "SELECT id,name,principle,structure,evidence_ids,confidence,negative_conditions FROM generalization_abstractions WHERE project=?",
                 (self.project,),
@@ -141,7 +141,7 @@ class GeneralizationEngine:
         ids = tuple(sorted({_clean(item, "evidence_id") for item in evidence_ids}))
         if not ids or set(ids) & set(candidate.evidence_ids):
             return False
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             row = db.execute(
                 "SELECT 1 FROM generalization_abstractions WHERE project=? AND id=?",
                 (self.project, candidate.abstraction_id),
