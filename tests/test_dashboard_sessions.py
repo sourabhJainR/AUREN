@@ -493,14 +493,15 @@ def test_session_status_projection_marks_derived_state_source(tmp_path):
     assert row["status_source"] == "checkpoint_stage_error_and_heartbeat_projection"
 
 
-def test_legacy_progress_api_fallback_adds_read_only_lifecycle_without_mutating_source():
-    source = [{"task_id": "fallback-task", "state": "blocked", "stage": "approval"}]
+class TestLegacyProgressLifecycleFallback(unittest.TestCase):
+    def test_adds_read_only_lifecycle_without_mutating_source(self):
+        source = [{"task_id": "fallback-task", "state": "blocked", "stage": "approval"}]
 
-    projected = _progress_rows_with_lifecycle(source)
+        projected = _progress_rows_with_lifecycle(source)
 
-    assert projected[0]["task_id"] == "fallback-task"
-    assert projected[0]["state"] == "blocked"
-    assert projected[0]["lifecycle"]["domain"] == "progress_task"
-    assert projected[0]["lifecycle"]["category"] == "blocked"
-    assert projected[0]["lifecycle"]["attention_required"] is True
-    assert "lifecycle" not in source[0]
+        self.assertEqual(projected[0]["task_id"], "fallback-task")
+        self.assertEqual(projected[0]["state"], "blocked")
+        self.assertEqual(projected[0]["lifecycle"]["domain"], "progress_task")
+        self.assertEqual(projected[0]["lifecycle"]["category"], "blocked")
+        self.assertIs(projected[0]["lifecycle"]["attention_required"], True)
+        self.assertNotIn("lifecycle", source[0])
