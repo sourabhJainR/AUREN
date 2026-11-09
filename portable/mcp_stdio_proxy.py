@@ -46,6 +46,60 @@ def _rpc_error(request_id, code: int, message: str) -> bytes:
     ).encode("utf-8")
 
 
+def _decode_sse_messages(body: bytes) -> bytes:
+    """Convert Streamable HTTP SSE data events into newline-delimited JSON-RPC."""
+    try:
+        text = body.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise RuntimeError("local MCP endpoint returned invalid UTF-8 SSE data") from exc
+    messages: list[bytes] = []
+    data_lines: list[str] = []
+
+    def flush_event() -> None:
+        if not data_lines:
+            return
+        data = "\n".join(data_lines)
+        data_lines.clear()
+        if data == "[DONE]":
+            return
+        try:
+            parsed = json.loads(data)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("local MCP endpoint returned malformed SSE JSON") from exc
+        if not isinstance(parsed, dict) or parsed.get("jsonrpc") != "2.0":
+            raise RuntimeError("local MCP SSE event is not a JSON-RPC message")
+        messages.append(json.dumps(parsed, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+
+    for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        if not line:
+            flush_event()
+            continue
+        if line.startswith(":"):
+            continue
+        field, separator, value = line.partition(":")
+        if field == "data":
+            data_lines.append(value[1:] if separator and value.startswith(" ") else value)
+    flush_event()
+    if not messages:
+        raise RuntimeError("local MCP endpoint returned an SSE stream without JSON-RPC messages")
+    return b"\n".join(messages)
+
+
+def _decode_http_response(body: bytes, content_type: str) -> bytes:
+    media_type = content_type.split(";", 1)[0].strip().lower()
+    if media_type == "text/event-stream":
+        return _decode_sse_messages(body)
+    if media_type not in {"application/json", "application/json-rpc"}:
+        raise RuntimeError("local MCP endpoint returned an unsupported content type")
+    try:
+        parsed = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("local MCP endpoint returned malformed JSON") from exc
+    if not isinstance(parsed, dict) or parsed.get("jsonrpc") != "2.0":
+        raise RuntimeError("local MCP endpoint response is not a JSON-RPC message")
+    return json.dumps(parsed, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
 def post_message(
     url: str, token: str, payload: bytes, *,
     protocol_version: str | None = None, timeout_seconds: float = 60.0,
@@ -57,30 +111,27 @@ def post_message(
     }
     if protocol_version:
         headers["MCP-Protocol-Version"] = protocol_version
-    request = urllib.request.Request(
-        url, data=payload, method="POST", headers=headers,
-    )
+    request = urllib.request.Request(url, data=payload, method="POST", headers=headers)
     opener = urllib.request.build_opener(_NoRedirect())
     try:
         with opener.open(request, timeout=timeout_seconds) as response:
             if response.status == 202:
                 return None
             body = response.read(_MAX_RESPONSE_BYTES + 1)
+            content_type = response.headers.get("Content-Type", "")
     except urllib.error.HTTPError as exc:
         body = exc.read(_MAX_RESPONSE_BYTES + 1)
         if len(body) <= _MAX_RESPONSE_BYTES:
             try:
-                parsed = json.loads(body.decode("utf-8"))
-                if isinstance(parsed, dict) and parsed.get("jsonrpc") == "2.0":
-                    return body
-            except (UnicodeDecodeError, json.JSONDecodeError):
+                return _decode_http_response(body, exc.headers.get("Content-Type", "application/json"))
+            except RuntimeError:
                 pass
         raise RuntimeError("local MCP endpoint rejected the request") from None
     except (OSError, TimeoutError, urllib.error.URLError):
         raise RuntimeError("local AUREN MCP service is unavailable; start 'auren_cli.py local' first") from None
     if len(body) > _MAX_RESPONSE_BYTES:
         raise RuntimeError("local MCP response exceeded the configured byte limit")
-    return body or None
+    return _decode_http_response(body, content_type) if body else None
 
 
 def run_proxy(
@@ -117,15 +168,18 @@ def run_proxy(
                 protocol_version=negotiated_protocol if payload.get("method") != "initialize" else None,
             )
             if response is not None:
-                try:
-                    decoded = json.loads(response.decode("utf-8"))
+                for response_line in response.splitlines():
+                    if not response_line:
+                        continue
+                    try:
+                        decoded = json.loads(response_line.decode("utf-8"))
+                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        raise RuntimeError("local MCP response could not be decoded as JSON-RPC")
                     result = decoded.get("result") if isinstance(decoded, dict) else None
                     version = result.get("protocolVersion") if isinstance(result, dict) else None
                     if payload.get("method") == "initialize" and isinstance(version, str):
                         negotiated_protocol = version
-                except (UnicodeDecodeError, json.JSONDecodeError):
-                    pass
-                target.write(response.rstrip(b"\r\n") + b"\n")
+                    target.write(response_line + b"\\n")
                 target.flush()
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
             target.write(_rpc_error(request_id, -32700, str(exc)) + b"\n")
