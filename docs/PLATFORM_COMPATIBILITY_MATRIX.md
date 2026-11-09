@@ -38,7 +38,7 @@ The main gap is not the engineering workflow. It is the last-mile product integr
 | Claude Code CLI | Repository configured | `CLAUDE.md`, skill, plugin, hooks, MCP, guarded CLI bridge | Live provider and permission-mode checks |
 | Claude Desktop | Repository configured | Claude Code Code tab, plugin and MCP | Desktop-specific install/test not recorded |
 | Claude Code for VS Code | Repository configured | `CLAUDE.md`, skill, plugin and MCP | VS Code extension smoke test not in CI |
-| Microsoft Visual Studio IDE | Not native | External AUREN CLI or MCP host | No dedicated Visual Studio extension |
+| Microsoft Visual Studio IDE | Partial | GitHub Copilot MCP host with AUREN remote Streamable HTTP | No AUREN-specific Visual Studio extension or live acceptance test |
 | Gemini CLI | Repository configured | `GEMINI.md`, `AGENTS.md`, skill, MCP, headless mode | Corrected MCP command needs host smoke test |
 | Gemini Code Assist in VS Code | Partial | Repository instructions; Gemini CLI companion as a separate path | No dedicated Code Assist package or test |
 | Cursor | Partial | `AGENTS.md`, `.agents/skills`, MCP | Cursor rule and setup were missing; Cloud Agent behavior needs separate validation |
@@ -47,8 +47,16 @@ The main gap is not the engineering workflow. It is the last-mile product integr
 | xAI API / Grok API | Partial | Native AUREN adapter for xAI Chat Completions; guarded provider failover | Live credentials, current model IDs and xAI-specific tool/approval semantics remain unverified |
 | Grok Build CLI | Partial | Remote MCP is available upstream | No AUREN-specific local CLI/skill package |
 | GitHub Copilot | Repository configured | `AGENTS.md`, `.github/copilot-instructions.md`, skills, MCP | Copilot Agent-mode acceptance not in CI |
+| Cline IDE / CLI | Partial | Remote Streamable HTTP MCP and OAuth | No AUREN live host acceptance |
+| Roo Code | Partial | Project/global MCP configuration | No AUREN live host acceptance |
+| Continue | Partial | MCP in Agent mode; remote Streamable HTTP | No AUREN live host acceptance |
+| Zed Agent | Partial | Remote MCP and OAuth; ACP external agents | No AUREN live host acceptance |
+| OpenHands local | Partial | Local Streamable HTTP MCP | Cloud support must not be assumed; no AUREN acceptance |
+| Windsurf / Devin Local | Partial | Version-specific MCP configuration | Product rebrand/configuration changed; no AUREN acceptance |
 
 The machine-readable declarations live in `.ai-harness/PROVIDER_MATRIX.json`. The values there distinguish product integration from model-provider support.
+
+Host-specific connection examples and acceptance criteria are in [MCP Host Compatibility](MCP_HOST_COMPATIBILITY.md). These are configuration paths, not vendor acceptance claims.
 
 ## Direct model API adapters
 
