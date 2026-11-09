@@ -6,6 +6,7 @@ import argparse
 import math
 import os
 import queue
+import signal
 import subprocess
 import sys
 import tempfile
@@ -168,6 +169,18 @@ def _bounded_process_output(command: list[str], *, cwd: Path, env: dict[str, str
     elif os.name == "nt":
         kwargs["creationflags"] = getattr(subprocess, "CREATE_SUSPENDED", 0x00000004)
     process = subprocess.Popen(command, **kwargs)
+    previous_sigterm_handler = None
+    if os.name == "posix" and threading.current_thread() is threading.main_thread():
+        previous_sigterm_handler = signal.getsignal(signal.SIGTERM)
+
+        def forward_supervisor_termination(signum, frame) -> None:
+            # This provider runs in a separate session so normal cleanup can
+            # target only its descendants. Forward the supervisor's graceful
+            # stop before the outer process group escalates to SIGKILL.
+            SubprocessProviderInvoker._kill(process)
+            raise SystemExit(128 + signum)
+
+        signal.signal(signal.SIGTERM, forward_supervisor_termination)
     if os.name == "nt":
         _windows_job(process)
     chunks: queue.Queue = queue.Queue(maxsize=8)
@@ -235,6 +248,8 @@ def _bounded_process_output(command: list[str], *, cwd: Path, env: dict[str, str
                 pass
         raise
     finally:
+        if previous_sigterm_handler is not None:
+            signal.signal(signal.SIGTERM, previous_sigterm_handler)
         # Drain bounded queued chunks after termination so the reader can exit.
         if reader.is_alive():
             drain_deadline = time.monotonic() + 2
