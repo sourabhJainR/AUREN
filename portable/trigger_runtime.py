@@ -124,7 +124,7 @@ class TriggerRuntime:
         return connection
 
     def _initialize(self) -> None:
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute(
                 """CREATE TABLE IF NOT EXISTS trigger_events(
                     event_id TEXT PRIMARY KEY,
@@ -214,7 +214,7 @@ class TriggerRuntime:
         now = _utc()
         available = _aware(not_before) if not_before is not None else now
         payload_json = json.dumps(clean_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(self._select_sql() + " WHERE event_id=?", (event_id,)).fetchone()
             if row:
@@ -265,7 +265,7 @@ class TriggerRuntime:
         if limit < 1:
             return ()
         now = _aware(now) if now is not None else _utc()
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             if kind is None:
                 rows = db.execute(
                     self._select_sql() + " WHERE status='pending' AND available_at<=? ORDER BY priority,available_at,event_id LIMIT ?",
@@ -283,7 +283,7 @@ class TriggerRuntime:
         """Read the durable event envelope for trusted operator authorization checks."""
         if not isinstance(event_id, str) or not event_id.strip():
             raise ValueError("event_id is required")
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             row = db.execute(self._select_sql() + " WHERE event_id=?", (event_id.strip(),)).fetchone()
         return self._event(row) if row else None
 
@@ -315,7 +315,7 @@ class TriggerRuntime:
             raise ValueError("event list limit must be between 1 and 500")
         if kind is not None and (not isinstance(kind, str) or not kind.strip()):
             raise ValueError("kind must be non-empty text when supplied")
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             if kind is None:
                 rows = db.execute(
                     self._select_sql() + " ORDER BY created_at DESC,event_id DESC LIMIT ?",
@@ -400,7 +400,7 @@ class TriggerRuntime:
         now = _aware(now) if now is not None else _utc()
         claim_id = uuid.uuid4().hex
         lease_until = now + timedelta(seconds=self.claim_lease_seconds)
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(self._select_sql() + " WHERE event_id=?", (event_id,)).fetchone()
             if not row:
@@ -431,7 +431,7 @@ class TriggerRuntime:
         return TriggerClaim(self._event(claimed), claim_id)
 
     def get(self, event_id: str) -> TriggerStatus | None:
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             row = db.execute(self._select_sql() + " WHERE event_id=?", (event_id,)).fetchone()
         if row is None:
             return None
@@ -466,7 +466,7 @@ class TriggerRuntime:
         now = _aware(now) if now is not None else _utc()
         clean_outcome = _bounded_outcome(outcome)
         outcome_json = json.dumps(clean_outcome, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT attempts,max_attempts,status,claim_id FROM trigger_events WHERE event_id=?", (event_id,)).fetchone()
             if not row or row[2] != "claimed" or row[3] != claim_id:
