@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -43,6 +44,7 @@ def test_init_dry_run_does_not_create_repository_state(tmp_path: Path):
     assert not (tmp_path / ".auren").exists()
 
 
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation may require elevated Windows privileges")
 def test_init_refuses_symlinked_auren_directory(tmp_path: Path):
     outside = tmp_path / "outside"
     outside.mkdir()
@@ -83,6 +85,7 @@ def test_connect_preview_and_apply_preserve_other_mcp_entries(tmp_path: Path):
     assert result["mcpServers"]["auren"]["args"][-1] == str(token)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation may require elevated Windows privileges")
 def test_connect_refuses_duplicate_keys_and_symlinked_token(tmp_path: Path):
     config = tmp_path / "client.json"
     config.write_text('{"mcpServers": {}, "mcpServers": {}}', encoding="utf-8")
