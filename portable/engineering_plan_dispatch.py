@@ -14,6 +14,12 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 from uuid import uuid4
+from types import SimpleNamespace
+
+from .engineering_readiness import (
+    EngineeringBudgetLedger, EngineeringReadinessBlocked,
+    EngineeringReadinessGate, department_for_role, infer_engineering_phase,
+)
 
 from .engineering_context_packet import EngineeringContextPacket
 from .engineering_plan import EngineeringPlan, EngineeringPlanRun
@@ -367,6 +373,33 @@ class EngineeringPlanDispatch:
             return self._replay_or_conflict(existing, binding, handler_name, encoded_payload)
 
         plan, run = self._verified_state(run_id, task_id, packet)
+        if any(name in safe_payload for name in (
+            "_auren_engineering_readiness", "_auren_engineering_readiness_digest",
+            "_auren_engineering_phase", "_auren_engineering_department",
+        )):
+            raise ValueError("engineering readiness fields are supervisor-owned")
+        explicit_axes = safe_payload.pop("engineering_readiness", None)
+        plan_task = next(item for item in plan.tasks if item.task_id == task_id)
+        readiness = self.readiness_gate.assess_packet(
+            work_key=key, plan=plan, task=plan_task, packet=packet,
+            explicit_axes=explicit_axes if isinstance(explicit_axes, Mapping) else None,
+        )
+        if not readiness.ready:
+            raise EngineeringReadinessBlocked(readiness)
+        phase = infer_engineering_phase(handler_name, goal or "", plan_task.title)
+        safe_payload.update({
+            "work_key": key,
+            "_auren_engineering_task": True,
+            "_auren_engineering_readiness": readiness.to_dict(),
+            "_auren_engineering_readiness_digest": readiness.assessment_digest,
+            "_auren_engineering_phase": phase,
+            "_auren_engineering_department": str(
+                getattr(plan_task, "department", None) or department_for_role(
+                    getattr(plan_task, "owner_role_id", None)
+                )
+            ),
+            "_auren_engineering_remediation": list(getattr(plan_task, "remediation_steps", ()) or ()),
+        })
         execution_class = self.controller._handler_execution_class(handler_name)
         if execution_class not in {"read_only", "ci_gated", "consequential"}:
             raise ValueError("dispatch handler must have an explicit executable class")
