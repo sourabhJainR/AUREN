@@ -65,6 +65,35 @@ class ProviderConformanceTests(unittest.TestCase):
         self.assertIn("[mcp_servers.auren]", codex)
         self.assertIn("https://mcp.example.com/mcp", codex)
 
+    def test_orchestration_frameworks_have_first_party_connection_guides(self):
+        matrix = json.loads(MATRIX.read_text(encoding="utf-8"))
+        integrations = matrix.get("platform_integrations", {})
+        required = {"openai_agents_sdk", "autogen", "pydantic_ai", "langchain_langgraph", "n8n"}
+        self.assertTrue(required.issubset(integrations))
+        for name in required:
+            with self.subTest(framework=name):
+                entry = integrations[name]
+                self.assertEqual("orchestration_framework", entry["kind"])
+                self.assertFalse(entry.get("live_verified", False))
+                self.assertTrue(entry["repository_artifacts"])
+                self.assertTrue(entry["next_steps"])
+        guide = (ROOT / "docs" / "ORCHESTRATOR_INTEGRATIONS.md").read_text(encoding="utf-8")
+        for name in ("OpenAI Agents SDK", "AutoGen", "Pydantic AI", "LangChain and LangGraph", "n8n"):
+            with self.subTest(guide=name):
+                self.assertIn(name, guide)
+
+    def test_machine_provider_catalog_matches_direct_adapter_registry(self):
+        matrix = json.loads(MATRIX.read_text(encoding="utf-8"))
+        adapters = matrix["llm_provider_adapters"]["direct_http_api_adapters"]
+        expected = {
+            "openai_responses", "anthropic_messages", "gemini_openai_compatible",
+            "groq_chat_completions", "xai_responses", "openrouter", "together",
+            "fireworks", "deepseek", "mistral", "cerebras", "perplexity",
+            "custom_openai_compatible",
+        }
+        self.assertTrue(expected.issubset(set(adapters)))
+        self.assertNotIn("no_groq_or_xai_provider_adapter", matrix["remote_mcp"]["known_limits"])
+
     def test_custom_provider_is_allowlisted_and_documented(self):
         matrix = json.loads(MATRIX.read_text(encoding="utf-8"))
         entry = matrix["platform_integrations"]["custom_openai_compatible_api"]
