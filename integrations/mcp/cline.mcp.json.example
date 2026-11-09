@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "auren": {
+      "type": "streamableHttp",
+      "url": "https://mcp.example.com/mcp",
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}
