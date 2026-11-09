@@ -155,7 +155,10 @@ The PR integration guard is a bootstrap dependency of the CI conflict gate; it
 validates HTTPS URLs against `api.github.com` and refuses cross-host redirects,
 but still uses the standard library transport and is **not DNS-pinned**. This
 exception is explicit so a transport failure cannot silently disable the
-merge-safety gate.
+merge-safety gate. The local observation/MCP host also performs bounded readiness
+GETs to its own literal `127.0.0.1` listeners. Those probes carry no credentials,
+accept no caller-supplied URL, and reject redirects; they do not establish
+remote-host or DNS-pinning assurance.
 
 The portable updater's archive download and the optional local-LLM endpoint
 still have direct network callsites. Updater metadata requests now use the pinned
