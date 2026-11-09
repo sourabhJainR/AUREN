@@ -128,13 +128,13 @@
     el("auren-ops-traces").textContent = number(traceTotal);
     renderRows("auren-ops-task-list", taskRows,
       row => row.task_id || "Task",
-      row => [row.state || row.reported_state, row.stage, row.next_action].filter(Boolean).join(" · "));
+      row => [row.lifecycle?.label || row.state || row.reported_state, row.stage, row.next_action || row.lifecycle?.next_action, row.status_conflict ? "reconciliation required" : null].filter(Boolean).join(" · "));
     renderRows("auren-ops-session-list", sessionRows,
       row => row.session_id || row.task_id || "Session",
-      row => [row.status, row.stage, row.seconds_since_update == null ? null : number(row.seconds_since_update) + "s ago"].filter(Boolean).join(" · "));
+      row => [row.lifecycle?.label || row.status, row.stage, row.lifecycle?.attention_required ? "attention required" : null, row.seconds_since_update == null ? null : number(row.seconds_since_update) + "s ago"].filter(Boolean).join(" · "));
     renderRows("auren-ops-plan-list", planRows,
       row => "Plan " + (row.run_id || "run"),
-      row => [row.status, row.task_counts ? JSON.stringify(row.task_counts) : null, row.evidence_count == null ? null : number(row.evidence_count) + " evidence items"].filter(Boolean).join(" · "));
+      row => [row.lifecycle?.label || row.status, row.lifecycle?.next_action, row.task_counts ? JSON.stringify(row.task_counts) : null, row.evidence_count == null ? null : number(row.evidence_count) + " evidence items"].filter(Boolean).join(" · "));
     const delivery = sessions.delivery_metrics || {};
     const capacity = delivery.capacity || {};
     const shared = delivery.shared_capacity || {};
