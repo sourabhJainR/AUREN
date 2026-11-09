@@ -41,7 +41,7 @@ def await_receiver_acknowledgement(payload: Mapping[str, Any]) -> dict[str, Any]
         work_key = payload.get("work_key")
         if not isinstance(db_path, str) or not isinstance(work_key, str):
             raise ValueError("response delivery supervisor binding is incomplete")
-        with sqlite3.connect(db_path) as db:
+        with closing(sqlite3.connect(db_path)) as db, db:
             row = db.execute("SELECT id FROM tasks WHERE work_key=?", (work_key,)).fetchone()
         task_id = str(row[0]) if row else None
     response_id = payload.get("response_id")
@@ -63,7 +63,7 @@ def await_receiver_acknowledgement(payload: Mapping[str, Any]) -> dict[str, Any]
 
     journal = ProgressJournal(Path(journal_path))
     db_path = payload.get("controller_db_path")
-    with sqlite3.connect(db_path) as db:
+    with closing(sqlite3.connect(db_path)) as db, db:
         lease_row = db.execute(
             "SELECT state,lease_generation,lease_token FROM tasks WHERE id=?", (task_id,)
         ).fetchone()
@@ -72,7 +72,7 @@ def await_receiver_acknowledgement(payload: Mapping[str, Any]) -> dict[str, Any]
     owned_generation, owned_token = int(lease_row[1]), str(lease_row[2])
     cancel_event = payload.get("auren_cancel_event")
     while True:
-        with sqlite3.connect(db_path) as db:
+        with closing(sqlite3.connect(db_path)) as db, db:
             current = db.execute(
                 "SELECT state,lease_generation,lease_token,cancel_requested FROM tasks WHERE id=?", (task_id,)
             ).fetchone()
@@ -172,7 +172,7 @@ class ResponseDeliverySupervisor:
             or any(ch not in "0123456789abcdef" for ch in artifact_digest)
         ):
             raise ValueError("artifact_digest must be a lowercase SHA-256 digest")
-        with sqlite3.connect(self.registry_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.registry_path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 "SELECT task_id,response_sha256,artifact_sha256,budget_id FROM deliveries WHERE response_id=? AND delivery_id=?",
@@ -312,7 +312,7 @@ class ResponseDeliverySupervisor:
 
     def consume_delivery_bytes(self, task_id: str, amount: int, *, operation_key: str) -> bool:
         """Charge a response chunk to the durable shared crew budget before sending it."""
-        with self._budget_lock, sqlite3.connect(self.registry_path, timeout=10) as db:
+        with self._budget_lock, closing(sqlite3.connect(self.registry_path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 "SELECT budget_id FROM deliveries WHERE task_id=?", (task_id,),
@@ -358,7 +358,7 @@ class ResponseDeliverySupervisor:
             return charged
 
     def delivery_budget_snapshot(self, task_id: str) -> dict[str, Any]:
-        with sqlite3.connect(self.registry_path) as db:
+        with closing(sqlite3.connect(self.registry_path)) as db, db:
             row = db.execute(
                 "SELECT b.snapshot_json FROM deliveries d JOIN delivery_budgets b ON b.budget_id=d.budget_id WHERE d.task_id=?",
                 (task_id,),
@@ -368,7 +368,7 @@ class ResponseDeliverySupervisor:
         return json.loads(row[0])
 
     def task_id(self, response_id: str, delivery_id: str) -> str:
-        with sqlite3.connect(self.registry_path) as db:
+        with closing(sqlite3.connect(self.registry_path)) as db, db:
             row = db.execute(
                 "SELECT task_id,response_sha256 FROM deliveries WHERE response_id=? AND delivery_id=?",
                 (response_id, delivery_id),
@@ -389,7 +389,7 @@ class ResponseDeliverySupervisor:
         now_text = now.isoformat(timespec="microseconds")
         lease_until = (now + timedelta(seconds=WORKER_SLOT_LEASE_SECONDS)).isoformat(timespec="microseconds")
         owner_token = f"{uuid.uuid4().hex}:{task_id}"
-        with sqlite3.connect(self.registry_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.registry_path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             db.execute("DELETE FROM delivery_worker_slots WHERE lease_until<=?", (now_text,))
             existing = db.execute(
@@ -411,7 +411,7 @@ class ResponseDeliverySupervisor:
                     capacity=MAX_ACTIVE_DELIVERY_WORKERS, lease_seconds=WORKER_SLOT_LEASE_SECONDS,
                 )
                 if lease is None:
-                    with sqlite3.connect(self.registry_path, timeout=10) as db:
+                    with closing(sqlite3.connect(self.registry_path, timeout=10)) as db, db:
                         db.execute(
                             "DELETE FROM delivery_worker_slots WHERE task_id=? AND owner_token=?",
                             (task_id, owner_token),
@@ -421,7 +421,7 @@ class ResponseDeliverySupervisor:
             except Exception:
                 # A failed shared authority must not leave a local reservation
                 # that could be mistaken for successful deployment admission.
-                with sqlite3.connect(self.registry_path, timeout=10) as db:
+                with closing(sqlite3.connect(self.registry_path, timeout=10)) as db, db:
                     db.execute(
                         "DELETE FROM delivery_worker_slots WHERE task_id=? AND owner_token=?",
                         (task_id, owner_token),
@@ -436,7 +436,7 @@ class ResponseDeliverySupervisor:
                 return False
         now = self._utc_now()
         lease_until = (now + timedelta(seconds=WORKER_SLOT_LEASE_SECONDS)).isoformat(timespec="microseconds")
-        with sqlite3.connect(self.registry_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.registry_path, timeout=10)) as db, db:
             cursor = db.execute(
                 "UPDATE delivery_worker_slots SET lease_until=?,updated_at=CURRENT_TIMESTAMP "
                 "WHERE task_id=? AND owner_token=?",
@@ -453,7 +453,7 @@ class ResponseDeliverySupervisor:
         finally:
             # Always free this process's local slot. If the shared release is
             # uncertain, its bounded lease expires and remains fail-closed.
-            with sqlite3.connect(self.registry_path, timeout=10) as db:
+            with closing(sqlite3.connect(self.registry_path, timeout=10)) as db, db:
                 db.execute(
                     "DELETE FROM delivery_worker_slots WHERE task_id=? AND owner_token=?",
                     (task_id, owner_token),
@@ -461,7 +461,7 @@ class ResponseDeliverySupervisor:
 
     def shared_capacity_snapshot(self) -> dict[str, int | bool]:
         now_text = self._utc_now().isoformat(timespec="microseconds")
-        with sqlite3.connect(self.registry_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.registry_path, timeout=10)) as db, db:
             db.execute("DELETE FROM delivery_worker_slots WHERE lease_until<=?", (now_text,))
             active = int(db.execute("SELECT COUNT(*) FROM delivery_worker_slots").fetchone()[0])
         return {
@@ -487,7 +487,7 @@ class ResponseDeliverySupervisor:
     def metrics_snapshot(self) -> dict[str, Any]:
         """Expose delivery queue, integrity and lifecycle metrics from durable state."""
         states: dict[str, int] = {}
-        with sqlite3.connect(self.controller.db_path) as db:
+        with closing(sqlite3.connect(self.controller.db_path)) as db, db:
             rows = db.execute(
                 "SELECT state,COUNT(*) FROM tasks WHERE work_key LIKE 'dashboard-response:%' GROUP BY state"
             ).fetchall()
@@ -543,7 +543,7 @@ class ResponseDeliverySupervisor:
         if task.state == "running":
             # Reclaim only after both the lease and heartbeat are stale and the
             # host has reloaded and verified the immutable response artifact.
-            with sqlite3.connect(self.controller.db_path) as db:
+            with closing(sqlite3.connect(self.controller.db_path)) as db, db:
                 row = db.execute("SELECT lease_until FROM tasks WHERE id=?", (task_id,)).fetchone()
             if row and row[0]:
                 from datetime import datetime, timezone
@@ -686,7 +686,7 @@ class ResponseDeliverySupervisor:
 
     def shutdown(self, *, wait_seconds: float = 2.0) -> None:
         """Request cancellation of this host's active delivery tasks and join workers."""
-        with sqlite3.connect(self.controller.db_path) as db:
+        with closing(sqlite3.connect(self.controller.db_path)) as db, db:
             rows = db.execute(
                 "SELECT id FROM tasks WHERE work_key LIKE 'dashboard-response:%' AND state IN ('pending','running')"
             ).fetchall()
