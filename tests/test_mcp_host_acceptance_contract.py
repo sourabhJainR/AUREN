@@ -17,8 +17,9 @@ CODING_HOSTS = (
 ORCHESTRATION_FRAMEWORKS = (
     "openai_agents_sdk", "autogen", "pydantic_ai", "langchain_langgraph",
     "n8n", "crewai", "semantic_kernel", "haystack", "flowise",
-    "openhands_local",
 )
+
+IDE_MCP_HOSTS = ("openhands_local",)
 
 
 class MCPHostAcceptanceContractTests(unittest.TestCase):
@@ -43,6 +44,15 @@ class MCPHostAcceptanceContractTests(unittest.TestCase):
                 host = self.hosts[name]
                 self.assertEqual("orchestration_framework", host["kind"])
                 self.assertIn(host["support"], {"partial", "not_native", "not_wired"})
+                self.assertIs(host["live_verified"], False)
+                self.assertTrue(host.get("current_gap"))
+
+    def test_local_ide_hosts_remain_explicitly_partial(self):
+        for name in IDE_MCP_HOSTS:
+            with self.subTest(host=name):
+                host = self.hosts[name]
+                self.assertEqual("ide_mcp_host", host["kind"])
+                self.assertEqual("partial", host["support"])
                 self.assertIs(host["live_verified"], False)
                 self.assertTrue(host.get("current_gap"))
 
