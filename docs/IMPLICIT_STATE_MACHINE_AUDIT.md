@@ -81,6 +81,7 @@ These states must remain distinct even when they share a visual category:
 - `blocked` is recoverable in some domains and terminal in others.
 - `failed` is retryable for an engineering plan task, but terminal in the progress journal and approval operation.
 - `completed` in a delivery journal is not the same as a plan whose every task passed with evidence.
+- A cancelled plan run is terminal for that run identity; replanning must create a new run rather than reopen cancelled tasks.
 - `approved` authorizes a bounded operation; it does not prove that the operation ran or succeeded.
 - `dispatching` or `executing` does not prove an external side effect completed.
 - `outcome_unknown` and `reconcile_required` must never be displayed as ordinary failure or retried automatically.
