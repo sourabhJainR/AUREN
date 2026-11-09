@@ -439,6 +439,9 @@ class WorkspaceInventoryTests(unittest.TestCase):
         self.assertIn('id="workspace-count"', html)
         self.assertIn("renderWorkspaces(data)", script)
         self.assertIn("No workspace state is inferred", script)
+        self.assertIn("lifecycleGuidance(row)", script)
+        self.assertIn('reconcile_first: "Reconcile before resume"', script)
+        self.assertIn("row.lifecycle.next_action", script)
 
 
 
