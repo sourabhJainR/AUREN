@@ -20,8 +20,13 @@ AUREN separates **execution authority from learning**. Active runs operate under
 
 AUREN is designed to run locally first. A normal workstation installation should own one managed AUREN runtime shared by the CLI, dashboard and local MCP endpoint. Remote MCP is an explicit deployment option, not a prerequisite for local development. OAuth is optional for local use and required for a properly secured remote deployment.
 
-The first-run experience is being delivered in phases. The repository onboarding and client configuration commands are available in this branch; the managed runtime is not yet factory-free. Run `auren doctor` to see current blockers. The local MCP host still requires an explicitly trusted runtime factory until the built-in composition root is complete.
+The first-run experience is being delivered in phases. Repository onboarding and client configuration are available in this branch. `auren init` now selects **single-user local mode** by default; the managed runtime composition root is still under implementation. Run `auren doctor` to see the current blockers.
 
+Runtime profiles are explicit:
+- **Single-user local (default):** no external runtime factory, OAuth server, remote MCP or administrator-managed identity. AUREN owns local state and the execution boundary.
+- **Managed (opt-in):** an advanced user or administrator can enable a trusted host runtime factory and later shared/deployment services. Use `auren mode --mode managed --runtime-factory module:function --apply` to opt in; use `auren mode --mode single_user_local --apply` to opt out. Mode changes are backed up.
+
+The mode selector is implemented, but the factory-free local composition root is not complete yet. The current local MCP host still runs only with an explicitly trusted factory in managed mode; it must not silently load a project factory while the profile is single-user local.
 The intended first-run experience is:
 
 1. Install AUREN once for the current user.
