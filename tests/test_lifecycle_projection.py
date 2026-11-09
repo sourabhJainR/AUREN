@@ -34,6 +34,7 @@ def test_terminality_is_domain_specific_and_does_not_flatten_recoverable_states(
     plan_failed = project_lifecycle("plan_task", "failed")
     approval_failed = project_lifecycle("approval", "failed")
     provider_unknown = project_lifecycle("provider_operation", "reconcile_required")
+    cancelled_plan = project_lifecycle("plan_run", "cancelled")
 
     assert progress_blocked["category"] == "blocked"
     assert progress_blocked["terminal"] is False
@@ -43,6 +44,8 @@ def test_terminality_is_domain_specific_and_does_not_flatten_recoverable_states(
     assert provider_unknown["category"] == "uncertain"
     assert provider_unknown["resume_policy"] == "reconcile_first"
     assert provider_unknown["next_action"] == "lookup_and_reconcile_before_retry"
+    assert cancelled_plan["terminal"] is True
+    assert cancelled_plan["resume_policy"] == "never"
 
 
 def test_success_and_failure_are_never_inferred_from_missing_or_unknown_states():
