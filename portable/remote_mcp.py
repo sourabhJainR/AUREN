@@ -829,7 +829,7 @@ class AurenMCPService:
                     "status": trigger_queue_status,
                 },
                 "health_findings": [_safe_text(x, 300) for x in findings],
-                "mcp_protocol_versions": list(SUPPORTED_PROTOCOL_VERSIONS),
+                "mcp_protocol_versions": list(SUPPORTED_MCP_PROTOCOL_VERSIONS),
             }
         if name == "auren.submit_task":
             self._require(principal, _SCOPE_WRITE)
@@ -1194,7 +1194,7 @@ class AurenMCPService:
                     "tools": {"listChanged": False},
                     "resources": {"subscribe": False, "listChanged": False},
                 },
-                "serverInfo": {"name": "auren-operator-mcp", "version": "1.0.0"},
+                "serverInfo": dict(_SERVER_INFO),
                 "instructions": (
                     "AUREN is the execution and policy authority. Task acceptance is not task completion. "
                     "Use task status and evidence tools to verify outcomes. Consequential actions remain approval-gated."
