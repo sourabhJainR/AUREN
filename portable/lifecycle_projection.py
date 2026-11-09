@@ -261,8 +261,7 @@ _DOMAIN_STATES: dict[str, dict[str, _Semantics]] = {
         "creating": _s("active", "Creating", action="monitor_worktree_creation"),
         "active": _s("active", "Active", action="verify_task_intent_budget_and_owned_path_binding"),
         "creation_failed": _s("failed", "Creation failed", attention=True, action="inspect_worktree_creation_failure"),
-        "removing": _s("recovering", "Removing", attention=True, action="verify_worktree_removal_receipt"),
-        "removed": _s("cancelled", "Removed", terminal=True, resume="never", action="preserve_worktree_removal_receipt"),
+        "cleaned": _s("cancelled", "Cleaned", terminal=True, resume="never", action="preserve_worktree_cleanup_receipt"),
     },
     "remediation": {
         "pending": _s("not_started", "Pending", action="prioritize_remediation_with_evidence"),
