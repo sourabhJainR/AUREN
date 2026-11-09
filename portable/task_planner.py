@@ -66,11 +66,42 @@ class TaskPlan:
         for task_id in self.tasks:
             visit(task_id)
 
+    def bind_engineering_readiness(self, task_id: str, assessment: object) -> None:
+        """Bind a supervisor-produced readiness receipt before an engineering task is schedulable."""
+        if task_id not in self.tasks:
+            raise KeyError(task_id)
+        to_dict = getattr(assessment, "to_dict", None)
+        if not callable(to_dict):
+            raise TypeError("engineering readiness assessment must expose to_dict()")
+        receipt = to_dict()
+        if not isinstance(receipt, dict) or receipt.get("schema_version") != "auren-engineering-readiness-v1":
+            raise ValueError("unsupported engineering readiness receipt")
+        if receipt.get("task_id") != task_id:
+            raise ValueError("engineering readiness receipt is bound to a different task")
+        if receipt.get("status") != "ready" or not receipt.get("assessment_digest") or not receipt.get("envelope_digest"):
+            raise ValueError("engineering task cannot be scheduled without a ready, evidence-bound receipt")
+        self.tasks[task_id].metadata["engineering_readiness"] = {
+            "schema_version": receipt["schema_version"],
+            "assessment_digest": receipt["assessment_digest"],
+            "envelope_digest": receipt["envelope_digest"],
+            "status": receipt["status"],
+        }
+
     def ready(self, tag: str | None = None) -> list[Task]:
         result = []
         for task in self.tasks.values():
             if task.status != "pending" or (tag and tag not in task.tags):
                 continue
+            if "engineering" in task.tags:
+                readiness = task.metadata.get("engineering_readiness")
+                if (
+                    not isinstance(readiness, dict)
+                    or readiness.get("schema_version") != "auren-engineering-readiness-v1"
+                    or readiness.get("status") != "ready"
+                    or not readiness.get("assessment_digest")
+                    or not readiness.get("envelope_digest")
+                ):
+                    continue
             if all(self.tasks[d].status == "done" for d in task.dependencies):
                 result.append(task)
         priority = {"high": 0, "medium": 1, "low": 2}
