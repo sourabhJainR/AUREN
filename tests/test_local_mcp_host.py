@@ -79,6 +79,11 @@ class LocalMCPHostTests(unittest.TestCase):
             self.assertFalse(service.require_https)
             self.assertEqual("http://127.0.0.1:43127/mcp", service.resource_url)
             self.assertEqual(frozenset({("127.0.0.1", 43127)}), service.allowed_hosts)
+            tools = {item["name"]: item for item in service.list_tools(principal)}
+            self.assertEqual(
+                [{"type": "http", "scheme": "bearer"}],
+                tools["auren.submit_task"]["_meta"]["securitySchemes"],
+            )
         finally:
             service.close()
 
