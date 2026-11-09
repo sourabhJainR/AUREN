@@ -38,6 +38,8 @@ def _progress_rows_with_lifecycle(rows):
 MAX_API_RESPONSE_BYTES = 4_000_000
 MAX_CHUNKED_RESPONSE_BYTES = 16_000_000
 MAX_DELIVERY_CHUNK_BYTES = 12_000
+MAX_REJECT_BODY_DRAIN_BYTES = 65_536
+REJECT_BODY_DRAIN_TIMEOUT_SECONDS = 0.25
 CHUNKED_RESPONSE_ACCEPT = "application/vnd.auren.chunked+json"
 
 
@@ -155,16 +157,54 @@ class _Handler(BaseHTTPRequestHandler):
             and not parsed.fragment
         )
 
+    def _reject_untrusted_request(self, body):
+        # Close rejected connections explicitly. For bounded POST bodies, drain
+        # only after flushing the 403 so Windows does not reset the connection
+        # while unread request bytes remain in the socket receive buffer.
+        self.close_connection = True
+        self._send(
+            403, body, "application/json; charset=utf-8",
+            extra_headers={"Connection": "close"},
+        )
+        try:
+            self.wfile.flush()
+        except OSError:
+            return
+        if self.command != "POST":
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except (TypeError, ValueError):
+            return
+        if length < 1 or length > MAX_REJECT_BODY_DRAIN_BYTES:
+            return
+        previous_timeout = self.connection.gettimeout()
+        try:
+            self.connection.settimeout(REJECT_BODY_DRAIN_TIMEOUT_SECONDS)
+            remaining = length
+            while remaining:
+                chunk = self.rfile.read(min(remaining, 8192))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+        except (OSError, TimeoutError):
+            pass
+        finally:
+            try:
+                self.connection.settimeout(previous_timeout)
+            except OSError:
+                pass
+
     def _guard_api_origin(self, path):
         # Host validation prevents DNS-rebinding requests from reaching a
         # loopback-only service through an attacker-controlled hostname.
         if not self._host_is_local():
-            self._send(403, b'{"error":"untrusted host"}', "application/json; charset=utf-8")
+            self._reject_untrusted_request(b'{"error":"untrusted host"}')
             return False
         if path.startswith("/api/"):
             fetch_site = self.headers.get("Sec-Fetch-Site", "").lower()
             if fetch_site == "cross-site" or not self._origin_is_local():
-                self._send(403, b'{"error":"untrusted request origin"}', "application/json; charset=utf-8")
+                self._reject_untrusted_request(b'{"error":"untrusted request origin"}')
                 return False
         return True
 
