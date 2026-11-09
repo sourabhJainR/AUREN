@@ -837,6 +837,20 @@ def create_server(
     })
     server = ThreadingHTTPServer((host, port), handler)
     server.daemon_threads = True
+    close_http_server = server.server_close
+    closed = False
+
+    def close_server() -> None:
+        nonlocal closed
+        if closed:
+            return
+        closed = True
+        try:
+            delivery_supervisor.shutdown(wait_seconds=5.0)
+        finally:
+            close_http_server()
+
+    server.server_close = close_server
     return server
 
 
