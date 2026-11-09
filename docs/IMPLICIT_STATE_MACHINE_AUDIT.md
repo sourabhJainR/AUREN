@@ -31,7 +31,8 @@ The following inventory distinguishes an authoritative state owner from a projec
 | Session checkpoints | Stage, attempt, provider, completed/remaining batches and heartbeat | `portable/session_state.py` | Checkpoints do not contain a separate canonical session status; the adapter derives one. |
 | Session projection | Running, waiting, complete, blocked, stale or unverified | `portable/muxin_session_adapter.py` | Stage/error/age inference is useful for display but must be marked as derived. |
 | Supervisor progress | Queued, running, blocked, recovering, completed, failed and cancelled | `portable/progress_journal.py` | Append-only progress authority. Blocked and recovering are not terminal; completed, failed and cancelled are terminal. |
-| Durable task execution | Admission, claim/lease, dispatch, running, quota wait, approval wait, cancellation, recovery and terminal receipt | `portable/execution_controller.py` | The execution authority. Its state is coordinated across task rows, leases, progress events, approval and side-effect receipts. Do not duplicate its transition authority. |
+| Durable task execution | Pending, queued, running, quota wait/block, approval wait/block, reconciliation block, recovering and terminal receipt | `portable/execution_controller.py` | The execution authority. Its state is coordinated across task rows, leases, progress events, approval and side-effect receipts. Do not duplicate its transition authority. |
+| Trigger queue | Pending, claimed, retryable, success, failed and cancelled | `portable/trigger_runtime.py` | Queue/lease state is distinct from the execution result in the runtime progress journal. A trigger success may mean dispatch accepted, not task completion. |
 | Engineering plan task | Pending, ready, running, verifying, passed, blocked, failed and cancelled | `portable/engineering_plan.py` | Explicit transition graph. Failed and blocked tasks can return to ready; passed and cancelled are terminal. |
 | Engineering plan run | Planned, ready, running, completed, failed, blocked, cancelled or unknown | `portable/engineering_dashboard.py` plus persisted plan/run and checkpoint | A digest-checked dashboard projection. It must not override the persisted plan/run or checkpoint. |
 | StateGraph execution | Node routing, evaluator, repair, retries, checkpoints and crew dispatch | `portable/state_graph.py`, `portable/agency_state_graph.py` | Graph topology and node execution form a state machine. Keep graph transitions inside the graph/supervisor contract. |
@@ -104,6 +105,7 @@ The first integration is additive:
 
 - Existing raw `status`, `state` and stage fields remain available.
 - Session, task, plan and workspace API records gain a `lifecycle` object.
+- Remote MCP task summaries expose controller/trigger lifecycle and separate runtime-progress lifecycle so agents can distinguish accepted, dispatched, running and completed work.
 - Session failure and cancellation are now distinct from blocked.
 - Session filters and badges use the same normalized category.
 - Failed and cancelled counts and filters are exposed separately.
@@ -135,6 +137,6 @@ The dashboard may recommend a next action but cannot perform it. Agents may read
 
 ## Rollout boundary
 
-The shared projection is now used by the sessions API for session, progress-task, plan-run and workspace records. The registry also describes engineering gates, crew handoffs, cognitive phases, worktrees, remediation, goals, learning, delivery, approvals, providers and release. The remaining state machines retain their existing domain-specific runtime and API contracts until each surface is integrated with contract tests. Extend the projection to those surfaces incrementally with contract tests; do not mass-rewrite state storage or transition logic.
+The shared projection is now used by the sessions API for session, progress-task, plan-run and workspace records, and by remote MCP task summaries for controller, trigger and runtime-progress lifecycles. The registry also describes engineering gates, crew handoffs, cognitive phases, worktrees, remediation, goals, learning, delivery, approvals, providers and release. The remaining state machines retain their existing domain-specific runtime and API contracts until each surface is integrated with contract tests. Extend the projection to those surfaces incrementally with contract tests; do not mass-rewrite state storage or transition logic.
 
 This is the safest path to consistent UX, DX and AX without breaking durable state, existing integrations or execution authority.
