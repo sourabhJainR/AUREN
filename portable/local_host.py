@@ -170,6 +170,19 @@ def resolve_runtime_factory(project_root: Path | str, requested: str | None = No
     )
 
 
+class _NoRedirect:
+    """Reject redirects from local readiness probes; never follow a local response elsewhere."""
+
+    def __call__(self):
+        from urllib.request import HTTPRedirectHandler
+
+        class Handler(HTTPRedirectHandler):
+            def redirect_request(self, request, fp, code, message, headers, new_url):
+                return None
+
+        return Handler()
+
+
 def _bound_loopback_socket(port: int) -> socket.socket:
     if type(port) is not int or not 0 <= port <= 65535:
         raise ValueError("port must be between 0 and 65535; use 0 for automatic selection")
@@ -290,8 +303,9 @@ def serve_local(
 
         def endpoint_ready(url: str) -> bool:
             try:
-                from urllib.request import urlopen
-                with urlopen(url, timeout=0.5) as response:
+                from urllib.request import build_opener
+                opener = build_opener(_NoRedirect()())
+                with opener.open(url, timeout=0.5) as response:
                     if response.status != 200:
                         return False
                     if url == dashboard_health_url:
