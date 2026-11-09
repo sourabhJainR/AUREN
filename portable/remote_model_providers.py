@@ -143,6 +143,9 @@ class OpenAICompatibleProvider:
     ):
         if not isinstance(spec, ProviderSpec):
             raise TypeError("spec must be a ProviderSpec")
+        registered_spec = PROVIDER_SPECS.get(spec.name)
+        if registered_spec is None or spec != registered_spec:
+            raise ValueError("provider endpoint and host must match the reviewed provider registry")
         if not isinstance(api_key, str) or len(api_key) < 8 or len(api_key) > 4096:
             raise ValueError("provider API key is missing or invalid")
         if not isinstance(model, str) or not model.strip() or len(model) > 200:
