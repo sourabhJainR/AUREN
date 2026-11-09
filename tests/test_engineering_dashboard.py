@@ -19,7 +19,7 @@ def test_dashboard_snapshot_uses_repository_and_test_evidence():
         assert snapshot["tests"]["cases"]==1
         assert snapshot["usage"]["runs"]==1
         assert snapshot["usage"]["average_task_duration_ms"]==480
-        assert snapshot["executions"]==()
+        assert snapshot["executions"]==[]
 
 
 
@@ -185,6 +185,7 @@ def test_canonical_terminal_plan_status_suppresses_stale_running_event():
                 current = bridge.transition_task(
                     plan.run_id, task_id, status,
                     reason=f"test canonical transition to {status}",
+                    evidence_refs=(f"test-evidence:{task_id}:passed",) if status == "passed" else (),
                 )
 
         # Simulate an event projection that missed the terminal transition.
