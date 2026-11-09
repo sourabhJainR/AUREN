@@ -32,7 +32,7 @@ The main gap is not the engineering workflow. It is the last-mile product integr
 | Product surface | Status | Available AUREN path | Main gap |
 |---|---|---|---|
 | ChatGPT web | Partial | Remote Streamable HTTP MCP, OAuth tool metadata, profile identity | External OAuth 2.1 authorization server, ChatGPT app setup and live acceptance |
-| ChatGPT desktop | Unverified | No confirmed native custom-MCP setup path | Use the documented ChatGPT web connection; do not reuse Codex app configuration |
+| ChatGPT desktop app | Repository configured | Settings → MCP servers; remote Streamable HTTP or stdio; OAuth; shared Codex host configuration | Live AUREN OAuth, tool discovery and long-running task acceptance remain unverified |
 | Codex app / IDE extension | Partial | Shared Codex MCP configuration, `AGENTS.md`, Agent Skills, remote MCP | Live OAuth and tool acceptance not recorded |
 | Codex CLI | Repository configured | `AGENTS.md`, skills, remote MCP, `codex exec` | Live OAuth and tool acceptance not recorded |
 | Codex app | Repository configured | Shared Codex MCP configuration and skills | App-specific live acceptance not recorded |
@@ -100,7 +100,7 @@ MCP host connectivity and direct model inference are separate integration layers
 
 ### ChatGPT web is not Codex CLI
 
-ChatGPT web can use custom MCP apps when the workspace, plan and admin permissions allow it. It connects to a remote MCP endpoint; it cannot directly launch AUREN's local stdio process. Full MCP write/modify support is currently limited to Business and Enterprise/Edu workspaces. Pro access is limited to read/fetch actions; Free does not provide this custom MCP write path. Do not treat plan access as equivalent across tiers.
+ChatGPT web uses remote MCP tools through installed MCP-backed plugins; package and publish AUREN through Plugin Creator/Sites before users can install it. It connects to a remote MCP endpoint and cannot launch AUREN's local stdio process. Full MCP write/modify support depends on workspace, plan and admin permissions; verify current eligibility at deployment time. ChatGPT desktop has a separate Settings → MCP servers flow and shares the Codex host configuration with Codex CLI and the IDE extension. Do not treat web plugin installation and desktop/Codex MCP registration as the same setup path.
 
 **Required AUREN work:**
 - Deploy a remote Streamable HTTP MCP service or a supported Secure MCP Tunnel bridge.
