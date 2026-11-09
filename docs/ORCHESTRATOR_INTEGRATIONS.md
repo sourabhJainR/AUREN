@@ -208,6 +208,8 @@ AUREN's direct inference adapters currently cover OpenAI Responses, Anthropic Me
 
 Configure provider priority with `AUREN_REMOTE_PROVIDER_ORDER` and each provider's API key/model through secret injection. Each remote attempt is charged to the supervisor budget. Private and restricted tasks remain local-only. The current adapter slice does not implement streaming, model-catalog discovery, automatic price calculation, arbitrary vendor tool execution, or every vendor-specific auth protocol.
 
+**Important runtime boundary:** these direct API adapters are used by AUREN's `HybridModelRouter` (including the dashboard model-routing surface). The main graph-team crew adapters still use host-registered provider invokers and per-crew read-only tool scopes from the trusted bootstrap. The new MCP host connectors do not automatically transfer the host's model credentials into AUREN. A production deployment must configure those crew invokers explicitly; there is no silent provider substitution.
+
 The following need dedicated adapter/conformance work before they can be called first-class direct API providers: Azure OpenAI deployment-specific auth/versioning, AWS Bedrock SigV4, Google Vertex AI OAuth/service accounts, Cohere's native API, and any provider whose OpenAI-compatible endpoint diverges in tool/schema semantics.
 
 ## Acceptance gates before calling an integration production-ready
