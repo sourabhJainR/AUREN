@@ -7,12 +7,14 @@ These files are safe configuration templates. Replace `https://mcp.example.com/m
 - Gemini CLI: `gemini.settings.json.example`
 - Cursor: `cursor.mcp.json.example`
 - VS Code Copilot: `vscode.mcp.json.example`
+- GitHub Copilot CLI: `copilot-cli.mcp-config.json.example`
+- Visual Studio 2022 17.14+ / 2026: `visual-studio.mcp.json.example`
 - Cline: `cline.mcp.json.example`
 - Roo Code: `roo.mcp.json.example`
 - Continue: `continue.mcp.yaml.example`
 - Zed: `zed.settings.json.example`
 
-ChatGPT web, ChatGPT desktop, Claude web/Desktop and Visual Studio have host UI or version-specific configuration paths; follow [MCP Host Compatibility](../../docs/MCP_HOST_COMPATIBILITY.md).
+ChatGPT web and Claude web/Desktop use hosted plugin/connector setup. ChatGPT desktop uses Settings → MCP servers and shares the Codex host configuration. Follow [MCP Host Compatibility](../../docs/MCP_HOST_COMPATIBILITY.md) for each host's exact setup and current limitations.
 
 Do not enable blanket auto-approval for AUREN operator tools. Keep approval enabled for consequential actions. The host's local configuration does not replace AUREN's server-side authorization and approval checks.
 
