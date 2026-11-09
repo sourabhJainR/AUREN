@@ -215,7 +215,7 @@ class OAuthIntrospectionVerifier:
                 if (
                     isinstance(audiences, list) and self.audience in audiences
                     and type(expiry) in {int, float}
-                    and 0 < expiry <= 253402300799 and math.isfinite(expiry)
+                    and 0 < expiry <= 253402300799 and math.isfinite(expiry) and expiry > time.time()
                     and isinstance(payload.get("sub"), str) and payload["sub"].strip()
                     and isinstance(payload.get("iss"), str)
                     and payload["iss"].rstrip("/") == self.issuer
