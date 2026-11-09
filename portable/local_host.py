@@ -197,8 +197,32 @@ def serve_local(
     root = Path(project_root).expanduser().resolve()
     if not root.is_dir():
         raise SystemExit("AUREN project root must be an existing directory")
+    from .onboarding import OnboardingError, load_project_profile
     try:
-        factory_path = resolve_runtime_factory(root, runtime_factory)
+        _profile_path, profile = load_project_profile(root)
+    except OnboardingError as exc:
+        raise SystemExit(f"AUREN project profile is required; run 'auren init' first. {exc}") from exc
+    runtime_mode = profile.get("runtime_mode", "single_user_local")
+    if runtime_mode == "single_user_local":
+        if runtime_factory:
+            raise SystemExit(
+                "A runtime factory is not part of single-user local setup. "
+                "The built-in factory-free composition root is not available in this release."
+            )
+        raise SystemExit(
+            "Single-user local mode is selected. The built-in factory-free runtime composition "
+            "is not available in this release yet; run 'auren doctor' for readiness. "
+            "To use an advanced factory-backed host, explicitly opt into managed mode with "
+            "'auren mode --mode managed --runtime-factory module:function --apply'."
+        )
+    if runtime_mode != "managed" or profile.get("managed_runtime", {}).get("enabled") is not True:
+        raise SystemExit("AUREN runtime profile is invalid; refusing to start.")
+    configured_factory = profile.get("managed_runtime", {}).get("runtime_factory")
+    if runtime_factory and configured_factory and runtime_factory != configured_factory:
+        raise SystemExit("CLI runtime factory does not match the project profile's managed factory.")
+    requested_factory = runtime_factory or configured_factory
+    try:
+        factory_path = resolve_runtime_factory(root, requested_factory)
     except RuntimeError as exc:
         raise SystemExit(str(exc)) from exc
     try:
