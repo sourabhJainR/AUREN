@@ -24,6 +24,20 @@
     stale: "stale", unverified: "unknown", unknown: "unknown"
   }[String(row.status || row.state || "unknown").toLowerCase()] || "unknown");
   const lifecycleLabel = row => row.lifecycle?.label || row.status || row.state || "Unknown";
+  const actionLabel = value => String(value || "").replaceAll("_", " ").replace(/\b\w/g, character => character.toUpperCase());
+  const resumeLabel = value => ({
+    never: "Do not resume",
+    reconcile_first: "Reconcile before resume",
+    controller_decides: "Controller decides"
+  }[value] || "Controller decides");
+  const lifecycleGuidance = (row, nextAction = null) => {
+    if (!row.lifecycle) return "";
+    const next = nextAction || row.lifecycle.next_action;
+    const parts = [];
+    if (next) parts.push("Next: " + (nextAction || actionLabel(next)));
+    if (row.lifecycle.resume_policy) parts.push("Resume: " + resumeLabel(row.lifecycle.resume_policy));
+    return parts.join(" · ");
+  };
   const active = row => ["ready", "active", "waiting", "recovering"].includes(lifecycleCategory(row));
   const matches = row => {
     const haystack = [row.session_id,row.task_id,row.active_provider,row.stage,row.status,row.state]
@@ -109,6 +123,7 @@
   function sessionCard(row) {
     const category = lifecycleCategory(row);
     const status = lifecycleLabel(row);
+    const guidance = lifecycleGuidance(row);
     const completed = (row.completed_batches || []).length;
     const remaining = (row.remaining_batches || []).length;
     const percent = Math.max(0, Math.min(100, Number(row.progress) || 0));
@@ -128,6 +143,7 @@
       '</div></div><span class="status ' + statusClass(category) + '">' + safe(status) + '</span></div>' +
       '<div class="session-progress"><span style="width:' + percent + '%"></span></div>' +
       '<div class="session-meta">' + percent + '% stage progress · ' + safe(row.stage || "unknown stage") + '</div>' +
+      (guidance ? '<div class="session-meta">' + safe(guidance) + '</div>' : "") +
       '<div class="session-detail">' + detailHtml + '</div>' + batchText +
       (row.error_present ? '<div class="notice">A prior error is recorded. Error content is hidden; inspect the durable recovery record.</div>' : "") +
       '<details><summary>Checkpoint details</summary><div class="session-meta">Completed batches: ' +
@@ -137,11 +153,12 @@
   function taskCard(row) {
     const category = lifecycleCategory(row);
     const status = row.lifecycle?.label || row.status_category || row.state || "Unknown";
+    const guidance = lifecycleGuidance(row, row.next_action);
     const progress = row.progress_percent;
     const label = progress === null || progress === undefined ? "Progress not measured" : Number(progress) + "%";
     return '<article class="session-task"><div><strong>' + safe(row.task_id || "Unidentified task") +
       '</strong><div class="muted">' + safe(row.stage || "unknown stage") + '</div></div><div>' +
-      '<div class="muted">' + safe(row.next_action || "No recovery action recorded") + '</div><div class="muted">Updated ' +
+      '<div class="muted">' + safe(guidance || "No recovery action recorded") + '</div><div class="muted">Updated ' +
       safe(time(row.last_update)) + ' · ' + safe(age(row.seconds_since_update)) + '</div></div><div><span class="status ' +
       statusClass(category) + '">' + safe(status) + '</span><div class="muted">' + safe(label) + '</div></div></article>';
   }
@@ -150,14 +167,17 @@
     const tasks = Object.entries(counts).map(([key,value]) => safe(key) + ": " + safe(value)).join(" · ") || "Task counts unavailable";
     const category = lifecycleCategory(row);
     const status = row.lifecycle?.label || row.status || "Unknown";
+    const guidance = lifecycleGuidance(row);
     return '<article class="session-task"><div><strong>' + safe(row.run_id || "Unidentified plan") +
-      '</strong><div class="muted">Revision ' + safe(row.revision ?? "—") + '</div></div><div class="muted">' +
+      '</strong><div class="muted">Revision ' + safe(row.revision ?? "—") + '</div>' +
+      (guidance ? '<div class="muted">' + safe(guidance) + '</div>' : "") + '</div><div class="muted">' +
       tasks + '</div><div><span class="status ' + statusClass(category) + '">' + safe(status) +
       '</span><div class="muted">' + safe(row.evidence_count ?? "—") + ' evidence records</div></div></article>';
   }
   function workspaceCard(row) {
     const category = lifecycleCategory(row);
     const status = lifecycleLabel(row);
+    const guidance = lifecycleGuidance(row);
     const fields = [
       ["Workspace", row.workspace_id], ["Worker", row.worker_id], ["Task", row.task_id],
       ["Sandbox", row.sandbox_id], ["Base", row.base_revision ? String(row.base_revision).slice(0, 12) : null],
@@ -175,7 +195,9 @@
       '</strong><div class="muted">' + safe(row.worker_id || "No worker identity") + ' · ' +
       safe(row.task_id || "No task binding") + '</div></div><div><span class="status ' +
       statusClass(category) + '">' + safe(status) + '</span><div class="muted">' +
-      safe(row.branch || "No branch metadata") + '</div></div><div class="workspace-details">' +
+      safe(row.branch || "No branch metadata") + '</div>' +
+      (guidance ? '<div class="muted">' + safe(guidance) + '</div>' : "") +
+      '</div><div class="workspace-details">' +
       detailHtml + '</div><div>' + list("Changed", changed) + list("Owned", owned) +
       list("Evidence", evidence) + (row.lists_truncated ? '<div class="muted">Workspace detail lists are truncated.</div>' : "") +
       '</div></article>';
