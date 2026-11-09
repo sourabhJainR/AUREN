@@ -40,17 +40,44 @@ The main gap is not the engineering workflow. It is the last-mile product integr
 | Claude Code CLI | Repository configured | `CLAUDE.md`, skill, plugin, hooks, remote MCP | Live provider and permission-mode checks |
 | Claude Desktop | Partial | Remote MCP Connectors and Claude Code Code tab | Connector/OAuth acceptance not recorded; remote tools execute on AUREN host |
 | Claude Code for VS Code | Repository configured | `CLAUDE.md`, skill, plugin and remote MCP | VS Code extension smoke test not in CI |
-| Microsoft Visual Studio IDE | Not native | External AUREN CLI or MCP host | No dedicated Visual Studio extension |
+| Microsoft Visual Studio IDE | Partial | GitHub Copilot MCP host with AUREN remote Streamable HTTP | No AUREN-specific Visual Studio extension or live acceptance test |
 | Gemini CLI | Repository configured | `GEMINI.md`, `AGENTS.md`, skill, remote HTTP MCP, headless mode | OAuth and host smoke test not recorded; some consumer plans have moved to Antigravity |
 | Gemini Code Assist in VS Code | Partial | Agent mode can use MCP through Gemini CLI settings | AUREN connection not tested; product/plan-specific migration applies |
 | Cursor | Partial | `AGENTS.md`, skills, `.cursor/rules/auren.mdc`, remote MCP | OAuth and local/cloud/SSH acceptance still open |
-| Groq API | Not wired | OpenAI-compatible API and remote MCP are available upstream | No AUREN API provider adapter |
+| Groq API | Partial | Native AUREN Groq Chat Completions adapter with supervised failover | Live credentials, current model IDs and cost/latency conformance remain unverified |
 | Grok chat web | Chat only | Supplied context only | No AUREN repository execution surface |
-| xAI API / Grok API | Not wired | OpenAI-compatible Responses API and remote MCP are available upstream | No AUREN API provider adapter |
+| xAI API / Grok API | Partial | Native AUREN xAI Chat Completions adapter with supervised failover | Live credentials, current model IDs and xAI-specific feature conformance remain unverified |
 | Grok Build CLI | Partial | Remote MCP is available upstream | No AUREN-specific local CLI/skill package |
 | GitHub Copilot | Repository configured | `AGENTS.md`, `.github/copilot-instructions.md`, skills, MCP | Copilot Agent-mode acceptance not in CI |
+| OpenAI API | Partial | Native Chat Completions adapter; supervised failover | Live credentials and model-ID acceptance remain unverified |
+| Anthropic API | Partial | Native Messages API adapter; supervised failover | Live credentials and model-ID acceptance remain unverified |
+| Gemini API | Partial | OpenAI-compatible Chat Completions adapter | Live credentials and Google-specific feature conformance remain unverified |
+| OpenRouter API | Partial | Native OpenAI-compatible adapter | Live credentials, provider routing and pricing remain unverified |
+| Together API | Partial | Native OpenAI-compatible adapter | Live credentials and model-ID acceptance remain unverified |
+| Fireworks API | Partial | Native OpenAI-compatible adapter | Live credentials and model-ID acceptance remain unverified |
+| DeepSeek API | Partial | Native OpenAI-compatible adapter | Live credentials and model-ID acceptance remain unverified |
+| Mistral API | Partial | Native OpenAI-compatible adapter | Live credentials and model-ID acceptance remain unverified |
+| Cerebras API | Partial | Native OpenAI-compatible adapter | Live credentials and model-ID acceptance remain unverified |
+| Perplexity API | Partial | Native OpenAI-compatible adapter | Live credentials and model-ID acceptance remain unverified |
+| Cline IDE / CLI | Partial | Remote Streamable HTTP MCP and OAuth | No AUREN live host acceptance |
+| Roo Code | Partial | Project/global MCP configuration | No AUREN live host acceptance |
+| Continue | Partial | MCP in Agent mode; remote Streamable HTTP | No AUREN live host acceptance |
+| Zed Agent | Partial | Remote MCP and OAuth; ACP external agents | No AUREN live host acceptance |
+| OpenHands local | Partial | Local Streamable HTTP MCP | Cloud support must not be assumed; no AUREN acceptance |
+| Windsurf / Devin Local | Partial | Version-specific MCP configuration | Product configuration changed; no AUREN acceptance |
 
 The machine-readable declarations live in `.ai-harness/PROVIDER_MATRIX.json`. The values there distinguish product integration from model-provider support.
+
+See [MCP Host Compatibility](MCP_HOST_COMPATIBILITY.md) for host-specific setup examples and a per-client acceptance checklist. See [Model Provider Integration](MODEL_PROVIDER_INTEGRATION.md) for direct API configuration and privacy boundaries.
+
+## Direct model API adapters
+
+AUREN includes fixed-host, bounded API adapters for Anthropic Messages and OpenAI-compatible Chat Completions providers: OpenAI, Gemini, Groq, xAI, OpenRouter, Together, Fireworks, DeepSeek, Mistral, Cerebras and Perplexity. They use guarded HTTPS, explicit model IDs, per-provider credentials and ordered failover charged against the existing supervisor budget.
+
+Configure `AUREN_REMOTE_PROVIDER_ORDER` to choose provider order, and set each selected provider's API key and model ID through the deployment secret/environment configuration. The adapter does not stream, discover model catalogs, calculate current prices, or execute model-returned tool calls. Live vendor credential acceptance remains unverified. Remote inference is opt-in and only eligible for tasks classified as public or non-sensitive; private and restricted tasks remain local-only.
+
+MCP host connectivity and direct model inference are separate integration layers. A ChatGPT, Claude, Gemini or IDE client connecting to AUREN over MCP does not give AUREN access to that host's model credentials or inference API.
+
 
 ## Important product distinctions
 
