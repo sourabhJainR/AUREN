@@ -131,7 +131,7 @@ Ordinary Claude chat (web or desktop chat) is not the same product surface as Cl
 Gemini CLI has native support for Agent Skills, MCP and headless JSON/JSONL output. AUREN has a Gemini instruction file, shared skill and a provider command. Gemini CLI's IDE companion is distinct from Gemini Code Assist; configuration for one must not be assumed to work in the other.
 
 **Required AUREN work:**
-- Use `python /absolute/path/to/.auren/current/portable/chat_capability.py` as the local stdio MCP command.
+- Use `portable/chat_capability.py` only with `AUREN_MCP_RUNTIME_FACTORY=trusted_module:create_runtime` and `AUREN_PROJECT_ROOT=/absolute/workspace`; the bridge rejects missing factories and empty graphs.
 - Verify `/skills list`, `/mcp list`, and a headless JSONL request.
 - Add a Gemini-specific parser for structured output and failure/turn-limit exit codes.
 - Test Gemini Code Assist separately before listing it as fully supported.
@@ -142,7 +142,7 @@ Cursor supports `AGENTS.md`, project rules, Agent Skills and MCP. AUREN's shared
 
 **Required AUREN work:**
 - Use the new `.cursor/rules/auren.mdc` rule as a short pointer to `AGENTS.md` and the AUREN skill.
-- Add the local MCP server through Cursor's MCP settings or project config using `portable/chat_capability.py`.
+- Add the local MCP server through Cursor's MCP settings or project config using `portable/chat_capability.py`, with a trusted runtime factory and bound `AUREN_PROJECT_ROOT` in the process environment.
 - Validate local Agent, Cloud Agent, remote SSH and self-hosted worker paths independently.
 
 ### Groq, xAI/Grok and other model APIs
@@ -174,7 +174,7 @@ AUREN can serve as the MCP execution layer for multiple model hosts and can rout
 
 ## Current MCP boundary
 
-The local stdio server remains `portable/chat_capability.py` and is intended for local MCP hosts. The remote operator service implementation in this review branch is:
+The local stdio server remains `portable/chat_capability.py` and requires a trusted runtime factory and a bound workspace. It is intended for local MCP hosts. The remote operator service implementation in this review branch is:
 
 - `portable/remote_mcp.py` — Streamable HTTP ASGI transport, OAuth resource-server validation, scoped tool catalog, task/evidence/approval operations, durable operator admission state and readiness.
 - `portable/remote_mcp_server.py` — ASGI runner with a trusted runtime-factory requirement.
