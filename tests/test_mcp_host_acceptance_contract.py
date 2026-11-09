@@ -56,6 +56,15 @@ class MCPHostAcceptanceContractTests(unittest.TestCase):
                 self.assertIs(host["live_verified"], False)
                 self.assertTrue(host.get("current_gap"))
 
+    def test_other_mcp_hosts_are_explicitly_partial(self):
+        for name in OTHER_MCP_HOSTS:
+            with self.subTest(host=name):
+                host = self.hosts[name]
+                self.assertEqual("ide_mcp_host", host["kind"])
+                self.assertIn(host["support"], {"partial", "repository_configured"})
+                self.assertIs(host["live_verified"], False)
+                self.assertTrue(host.get("current_gap"))
+
     def test_no_untested_host_can_claim_live_acceptance(self):
         for name, host in self.hosts.items():
             if host.get("live_verified") is True:
