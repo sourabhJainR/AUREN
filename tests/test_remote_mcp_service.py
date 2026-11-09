@@ -235,6 +235,52 @@ class RemoteMCPServiceTests(unittest.TestCase):
         self.assertTrue(guard.cancellation_event.is_set())
         self.assertTrue(self.runtime.trigger_runtime.is_cancel_requested(active["task_id"]))
 
+    def test_non_admin_principal_cannot_read_or_mutate_internal_controller_tasks(self):
+        self.service.controller.register_handler(
+            "mcp.private-test", lambda _payload: "ok", execution_class="read_only",
+        )
+        task = self.service.controller.submit("mcp.private-test", {"safe": "fixture"})
+        reader = MCPPrincipal(
+            "reader-2",
+            frozenset({"auren:tasks:read", "auren:tasks:cancel", "auren:tasks:resume", "auren:evidence:read"}),
+            roles=("engineer",), projects=(str(self.root),), issuer=self.principal.issuer,
+        )
+        inventory = self.service.call_tool("auren.list_tasks", {"limit": 10}, reader)
+        self.assertEqual([], inventory["controller_tasks"])
+        self.assertEqual("restricted_to_admin_scope", inventory["controller_tasks_status"])
+        for name, arguments in (
+            ("auren.get_task", {"task_id": task.id}),
+            ("auren.get_evidence", {"task_id": task.id}),
+            ("auren.cancel_task", {"task_id": task.id, "reason": "not authorized"}),
+            ("auren.resume_provider_task", {
+                "task_id": task.id, "clarification_id": "clarification-123",
+                "reason": "not authorized",
+            }),
+        ):
+            with self.subTest(tool=name):
+                with self.assertRaises(PermissionError):
+                    self.service.call_tool(name, arguments, reader)
+
+    def test_trigger_task_is_visible_only_to_its_authenticated_owner(self):
+        with patch.object(self.service.trigger, "trigger_adaptive_runtime", side_effect=self._enqueue):
+            receipt = self.service.call_tool(
+                "auren.submit_task",
+                {"task": "private task", "idempotency_key": "private-task-owner-0001"},
+                self.principal,
+            )
+        reader = MCPPrincipal(
+            "reader-3", frozenset({"auren:tasks:read", "auren:tasks:cancel", "auren:evidence:read"}),
+            roles=("engineer",), projects=(str(self.root),), issuer=self.principal.issuer,
+        )
+        for name, arguments in (
+            ("auren.get_task", {"task_id": receipt["task_id"]}),
+            ("auren.get_evidence", {"task_id": receipt["task_id"]}),
+            ("auren.cancel_task", {"task_id": receipt["task_id"], "reason": "not authorized"}),
+        ):
+            with self.subTest(tool=name):
+                with self.assertRaisesRegex(PermissionError, "not visible"):
+                    self.service.call_tool(name, arguments, reader)
+
     def test_profile_identity_is_stable_across_calls(self):
         first = self.service.call_tool("auren.get_profile", {}, self.principal)
         second = self.service.call_tool("auren.get_profile", {}, self.principal)
