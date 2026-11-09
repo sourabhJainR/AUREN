@@ -383,19 +383,22 @@
     },
     "groq_api": {
       "kind": "model_api",
-      "support": "not_wired",
+      "support": "partial",
       "mechanisms": [
-        "OpenAI-compatible API",
-        "Responses / tool calling",
-        "remote MCP"
+        "Groq OpenAI-compatible API",
+        "AUREN supervised provider failover"
       ],
-      "repository_artifacts": [],
-      "current_gap": "No Groq provider adapter, model catalog, GROQ_API_KEY allowlist, timeout/retry contract, or live model conformance test exists. OpenAI-compatible does not mean every API feature is identical.",
+      "repository_artifacts": [
+        "portable/remote_model_providers.py",
+        "portable/hybrid_model_router.py",
+        "tests/test_remote_model_providers.py"
+      ],
+      "current_gap": "A bounded native adapter is present. Live credential acceptance, current model-ID validation, vendor-specific feature conformance, pricing, latency and outage tests remain outstanding; no provider is marked live verified.",
       "next_steps": [
-        "Add a dedicated API provider adapter using https://api.groq.com/openai/v1.",
-        "Allow only the required secret through the secret broker/environment policy.",
-        "Implement capability/model discovery, structured tool-call normalization, usage/cost capture, retry budgets and unsupported-feature handling.",
-        "Run paired quality, latency, cost and safety tests before enabling routing."
+        "Set the provider API key and an explicit model ID in the deployment secret/environment configuration.",
+        "Select the provider and failover order with AUREN_REMOTE_PROVIDER_ORDER.",
+        "Run the read-only live provider conformance probe with deployment-owned credentials.",
+        "Measure cost, latency, output quality, rate limits and outage behavior before enabling production routing."
       ],
       "live_verified": false
     },
@@ -415,17 +418,22 @@
     },
     "xai_api": {
       "kind": "model_api",
-      "support": "not_wired",
+      "support": "partial",
       "mechanisms": [
-        "OpenAI-compatible Responses API",
-        "remote MCP"
+        "xAI Chat Completions API",
+        "AUREN supervised provider failover"
       ],
-      "repository_artifacts": [],
-      "current_gap": "No xAI API adapter, XAI_API_KEY allowlist, model catalog, response/tool-call normalizer, or live provider test exists.",
+      "repository_artifacts": [
+        "portable/remote_model_providers.py",
+        "portable/hybrid_model_router.py",
+        "tests/test_remote_model_providers.py"
+      ],
+      "current_gap": "A bounded native adapter is present. Live credential acceptance, current model-ID validation, vendor-specific feature conformance, pricing, latency and outage tests remain outstanding; no provider is marked live verified.",
       "next_steps": [
-        "Add a dedicated xAI Responses adapter using https://api.x.ai/v1.",
-        "Implement remote MCP allowlists, approval handling, model capability declarations and cost/usage capture.",
-        "Test API-specific behavior; do not assume OpenAI feature parity or MCP approval parity."
+        "Set the provider API key and an explicit model ID in the deployment secret/environment configuration.",
+        "Select the provider and failover order with AUREN_REMOTE_PROVIDER_ORDER.",
+        "Run the read-only live provider conformance probe with deployment-owned credentials.",
+        "Measure cost, latency, output quality, rate limits and outage behavior before enabling production routing."
       ],
       "live_verified": false
     },
@@ -464,6 +472,216 @@
         "Verify .github/copilot-instructions.md and AGENTS.md are loaded in the intended Copilot mode.",
         "Register the AUREN MCP server using the supported VS Code MCP configuration.",
         "Run a read-only task and a guarded write task with evidence and CI checks."
+      ],
+      "live_verified": false
+    },
+    "openai_api": {
+      "kind": "model_api",
+      "support": "partial",
+      "mechanisms": [
+        "OpenAI Chat Completions API",
+        "AUREN supervised provider failover"
+      ],
+      "repository_artifacts": [
+        "portable/remote_model_providers.py",
+        "portable/hybrid_model_router.py",
+        "tests/test_remote_model_providers.py"
+      ],
+      "current_gap": "A bounded native adapter is present. Live credential acceptance, current model-ID validation, vendor-specific feature conformance, pricing, latency and outage tests remain outstanding; no provider is marked live verified.",
+      "next_steps": [
+        "Set the provider API key and an explicit model ID in the deployment secret/environment configuration.",
+        "Select the provider and failover order with AUREN_REMOTE_PROVIDER_ORDER.",
+        "Run the read-only live provider conformance probe with deployment-owned credentials.",
+        "Measure cost, latency, output quality, rate limits and outage behavior before enabling production routing."
+      ],
+      "live_verified": false
+    },
+    "anthropic_api": {
+      "kind": "model_api",
+      "support": "partial",
+      "mechanisms": [
+        "Anthropic Messages API",
+        "AUREN supervised provider failover"
+      ],
+      "repository_artifacts": [
+        "portable/remote_model_providers.py",
+        "portable/hybrid_model_router.py",
+        "tests/test_remote_model_providers.py"
+      ],
+      "current_gap": "A bounded native adapter is present. Live credential acceptance, current model-ID validation, vendor-specific feature conformance, pricing, latency and outage tests remain outstanding; no provider is marked live verified.",
+      "next_steps": [
+        "Set the provider API key and an explicit model ID in the deployment secret/environment configuration.",
+        "Select the provider and failover order with AUREN_REMOTE_PROVIDER_ORDER.",
+        "Run the read-only live provider conformance probe with deployment-owned credentials.",
+        "Measure cost, latency, output quality, rate limits and outage behavior before enabling production routing."
+      ],
+      "live_verified": false
+    },
+    "gemini_api": {
+      "kind": "model_api",
+      "support": "partial",
+      "mechanisms": [
+        "Gemini OpenAI-compatible API",
+        "AUREN supervised provider failover"
+      ],
+      "repository_artifacts": [
+        "portable/remote_model_providers.py",
+        "portable/hybrid_model_router.py",
+        "tests/test_remote_model_providers.py"
+      ],
+      "current_gap": "A bounded native adapter is present. Live credential acceptance, current model-ID validation, vendor-specific feature conformance, pricing, latency and outage tests remain outstanding; no provider is marked live verified.",
+      "next_steps": [
+        "Set the provider API key and an explicit model ID in the deployment secret/environment configuration.",
+        "Select the provider and failover order with AUREN_REMOTE_PROVIDER_ORDER.",
+        "Run the read-only live provider conformance probe with deployment-owned credentials.",
+        "Measure cost, latency, output quality, rate limits and outage behavior before enabling production routing."
+      ],
+      "live_verified": false
+    },
+    "openrouter_api": {
+      "kind": "model_api",
+      "support": "partial",
+      "mechanisms": [
+        "OpenRouter Chat Completions API",
+        "AUREN supervised provider failover"
+      ],
+      "repository_artifacts": [
+        "portable/remote_model_providers.py",
+        "portable/hybrid_model_router.py",
+        "tests/test_remote_model_providers.py"
+      ],
+      "current_gap": "A bounded native adapter is present. Live credential acceptance, current model-ID validation, vendor-specific feature conformance, pricing, latency and outage tests remain outstanding; no provider is marked live verified.",
+      "next_steps": [
+        "Set the provider API key and an explicit model ID in the deployment secret/environment configuration.",
+        "Select the provider and failover order with AUREN_REMOTE_PROVIDER_ORDER.",
+        "Run the read-only live provider conformance probe with deployment-owned credentials.",
+        "Measure cost, latency, output quality, rate limits and outage behavior before enabling production routing."
+      ],
+      "live_verified": false
+    },
+    "together_api": {
+      "kind": "model_api",
+      "support": "partial",
+      "mechanisms": [
+        "Together Chat Completions API",
+        "AUREN supervised provider failover"
+      ],
+      "repository_artifacts": [
+        "portable/remote_model_providers.py",
+        "portable/hybrid_model_router.py",
+        "tests/test_remote_model_providers.py"
+      ],
+      "current_gap": "A bounded native adapter is present. Live credential acceptance, current model-ID validation, vendor-specific feature conformance, pricing, latency and outage tests remain outstanding; no provider is marked live verified.",
+      "next_steps": [
+        "Set the provider API key and an explicit model ID in the deployment secret/environment configuration.",
+        "Select the provider and failover order with AUREN_REMOTE_PROVIDER_ORDER.",
+        "Run the read-only live provider conformance probe with deployment-owned credentials.",
+        "Measure cost, latency, output quality, rate limits and outage behavior before enabling production routing."
+      ],
+      "live_verified": false
+    },
+    "fireworks_api": {
+      "kind": "model_api",
+      "support": "partial",
+      "mechanisms": [
+        "Fireworks Chat Completions API",
+        "AUREN supervised provider failover"
+      ],
+      "repository_artifacts": [
+        "portable/remote_model_providers.py",
+        "portable/hybrid_model_router.py",
+        "tests/test_remote_model_providers.py"
+      ],
+      "current_gap": "A bounded native adapter is present. Live credential acceptance, current model-ID validation, vendor-specific feature conformance, pricing, latency and outage tests remain outstanding; no provider is marked live verified.",
+      "next_steps": [
+        "Set the provider API key and an explicit model ID in the deployment secret/environment configuration.",
+        "Select the provider and failover order with AUREN_REMOTE_PROVIDER_ORDER.",
+        "Run the read-only live provider conformance probe with deployment-owned credentials.",
+        "Measure cost, latency, output quality, rate limits and outage behavior before enabling production routing."
+      ],
+      "live_verified": false
+    },
+    "deepseek_api": {
+      "kind": "model_api",
+      "support": "partial",
+      "mechanisms": [
+        "DeepSeek Chat Completions API",
+        "AUREN supervised provider failover"
+      ],
+      "repository_artifacts": [
+        "portable/remote_model_providers.py",
+        "portable/hybrid_model_router.py",
+        "tests/test_remote_model_providers.py"
+      ],
+      "current_gap": "A bounded native adapter is present. Live credential acceptance, current model-ID validation, vendor-specific feature conformance, pricing, latency and outage tests remain outstanding; no provider is marked live verified.",
+      "next_steps": [
+        "Set the provider API key and an explicit model ID in the deployment secret/environment configuration.",
+        "Select the provider and failover order with AUREN_REMOTE_PROVIDER_ORDER.",
+        "Run the read-only live provider conformance probe with deployment-owned credentials.",
+        "Measure cost, latency, output quality, rate limits and outage behavior before enabling production routing."
+      ],
+      "live_verified": false
+    },
+    "mistral_api": {
+      "kind": "model_api",
+      "support": "partial",
+      "mechanisms": [
+        "Mistral Chat Completions API",
+        "AUREN supervised provider failover"
+      ],
+      "repository_artifacts": [
+        "portable/remote_model_providers.py",
+        "portable/hybrid_model_router.py",
+        "tests/test_remote_model_providers.py"
+      ],
+      "current_gap": "A bounded native adapter is present. Live credential acceptance, current model-ID validation, vendor-specific feature conformance, pricing, latency and outage tests remain outstanding; no provider is marked live verified.",
+      "next_steps": [
+        "Set the provider API key and an explicit model ID in the deployment secret/environment configuration.",
+        "Select the provider and failover order with AUREN_REMOTE_PROVIDER_ORDER.",
+        "Run the read-only live provider conformance probe with deployment-owned credentials.",
+        "Measure cost, latency, output quality, rate limits and outage behavior before enabling production routing."
+      ],
+      "live_verified": false
+    },
+    "cerebras_api": {
+      "kind": "model_api",
+      "support": "partial",
+      "mechanisms": [
+        "Cerebras Chat Completions API",
+        "AUREN supervised provider failover"
+      ],
+      "repository_artifacts": [
+        "portable/remote_model_providers.py",
+        "portable/hybrid_model_router.py",
+        "tests/test_remote_model_providers.py"
+      ],
+      "current_gap": "A bounded native adapter is present. Live credential acceptance, current model-ID validation, vendor-specific feature conformance, pricing, latency and outage tests remain outstanding; no provider is marked live verified.",
+      "next_steps": [
+        "Set the provider API key and an explicit model ID in the deployment secret/environment configuration.",
+        "Select the provider and failover order with AUREN_REMOTE_PROVIDER_ORDER.",
+        "Run the read-only live provider conformance probe with deployment-owned credentials.",
+        "Measure cost, latency, output quality, rate limits and outage behavior before enabling production routing."
+      ],
+      "live_verified": false
+    },
+    "perplexity_api": {
+      "kind": "model_api",
+      "support": "partial",
+      "mechanisms": [
+        "Perplexity Chat Completions API",
+        "AUREN supervised provider failover"
+      ],
+      "repository_artifacts": [
+        "portable/remote_model_providers.py",
+        "portable/hybrid_model_router.py",
+        "tests/test_remote_model_providers.py"
+      ],
+      "current_gap": "A bounded native adapter is present. Live credential acceptance, current model-ID validation, vendor-specific feature conformance, pricing, latency and outage tests remain outstanding; no provider is marked live verified.",
+      "next_steps": [
+        "Set the provider API key and an explicit model ID in the deployment secret/environment configuration.",
+        "Select the provider and failover order with AUREN_REMOTE_PROVIDER_ORDER.",
+        "Run the read-only live provider conformance probe with deployment-owned credentials.",
+        "Measure cost, latency, output quality, rate limits and outage behavior before enabling production routing."
       ],
       "live_verified": false
     }
