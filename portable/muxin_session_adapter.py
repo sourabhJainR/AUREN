@@ -372,7 +372,12 @@ class MuxinSessionAdapter:
         tasks = []
         for raw in dashboard.get("tasks", {}).get("progress", []):
             row = {key: raw.get(key) for key in task_fields if key in raw}
-            source_state = raw.get("canonical_state") or raw.get("state") or raw.get("reported_state")
+            if raw.get("status_conflict") or raw.get("state") == "unknown":
+                source_state = "unknown"
+            elif raw.get("stale") or raw.get("state") == "stale":
+                source_state = "stale"
+            else:
+                source_state = raw.get("canonical_state") or raw.get("state") or raw.get("reported_state")
             row["lifecycle"] = project_lifecycle("progress_task", source_state)
             tasks.append(row)
         plan_fields = (
