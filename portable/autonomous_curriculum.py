@@ -52,7 +52,7 @@ class AutonomousCurriculumDiscovery:
             raise TypeError("memory must be a PersistentMemory instance")
         self.memory = memory
         self.project = _clean(project, "project")
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute(
                 """CREATE TABLE IF NOT EXISTS autonomous_curriculum_observations(
                     project TEXT NOT NULL, capability TEXT NOT NULL,
@@ -87,14 +87,14 @@ class AutonomousCurriculumDiscovery:
         if not 0 <= score <= 1:
             raise ValueError("score must be between 0 and 1")
         now = datetime.now(timezone.utc).isoformat()
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute(
                 "INSERT INTO autonomous_curriculum_observations VALUES(?,?,?,?,?,?,?)",
                 (self.project, capability, task_family, condition, score, int(bool(verified)), now),
             )
 
     def _history(self, capability: str, task_family: str, condition: str) -> tuple[int, float, float]:
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             row = db.execute(
                 "SELECT COUNT(*), COALESCE(AVG(score),0), "
                 "COALESCE(AVG(CASE WHEN score < 0.70 THEN 1.0 ELSE 0.0 END),0) "
@@ -171,7 +171,7 @@ class AutonomousCurriculumDiscovery:
         decision_id = f"curriculum-{digest}"
         evidence_id = f"curriculum-evidence-{digest}"
         now = datetime.now(timezone.utc).isoformat()
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute(
                 "INSERT OR REPLACE INTO autonomous_curriculum_decisions VALUES(?,?,?,?,?,?)",
                 (self.project, decision_id, capability,
