@@ -70,7 +70,7 @@ Do not block the repository implementation merge on these external inputs. Do no
 - [x] Add a combined repository regression slice for selected cross-store boundaries over task state, plan/run revision, recovery checkpoint, progress journal, executive receipt, evidence index, learning checkpoint, and dashboard projection. Tests require blocked/unknown state on disagreement and no handler replay (PRs #1034, #1037, #1042).
 - [ ] Complete the remaining crash matrix across every provider-side-effect boundary and deployed store combination; repository fixtures do not prove real provider behavior or production recovery.
 - [x] Verify selected dashboard projections use durable plan/run checkpoints, ignore stale progress events, and remain blocked on split-write disagreement; CLI worker-state tests preserve blocked state after reconciliation.
-- [ ] Complete full dashboard/API/CLI parity for blocked, cancelled, timed-out, unknown, stale, and unscored states across deployed multi-session restart and partial-write scenarios.
+- [ ] Complete deployed multi-session restart and partial-write acceptance for dashboard/API/CLI lifecycle parity. The dashboard/session API, `auren progress --json`, and `auren continuous status` now expose the shared read-only projection; the remaining gate is parity under real deployed restart, partial-write, and cross-store disagreement scenarios.
 - [ ] Verify shared memory search across agents and branches with project scope, access control, provenance, freshness, and retraction tests.
 
 **Exit evidence:** crash/restart matrix, source-of-truth map, API/UI parity assertions, and searchable evidence references tied to exact revisions.
