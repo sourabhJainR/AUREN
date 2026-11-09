@@ -7,10 +7,12 @@ def test_known_domains_have_stable_projection_and_unknown_states_fail_closed():
         "approval", "side_effect", "provider_operation", "agent_turn",
         "agency_execution", "learning_hypothesis", "feedback_loop", "goal",
         "legacy_task", "capability", "invention", "experiment", "work_unit",
-        "evidence_outbox", "graph_worker", "continuous_execution", "release",
+        "evidence_outbox", "graph_worker", "continuous_execution", "release_action",
         "engineering_gate", "worktree", "remediation", "goal_planning",
         "transfer_learning", "crew_handoff", "cognitive_phase",
-        "controller_task", "trigger_task",
+        "controller_task", "trigger_task", "workspace_adoption", "ci_poll",
+        "ci_repair", "goal_reconciliation", "team_member", "team_budget",
+        "admission_control",
     } <= set(lifecycle_domains())
 
     unknown = project_lifecycle("session", "future-state")
