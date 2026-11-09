@@ -155,26 +155,24 @@
       "live_verified": false
     },
     "chatgpt_desktop_codex": {
-      "kind": "coding_host",
+      "kind": "codex_desktop_host",
       "support": "partial",
       "mechanisms": [
-        "Codex desktop surface",
-        "AGENTS.md",
-        "Agent Skills",
+        "Codex app/desktop",
+        "Shared Codex MCP configuration",
         "Remote Streamable HTTP MCP",
         "OAuth"
       ],
       "repository_artifacts": [
         "AGENTS.md",
         ".agents/skills/ai-coding-orchestrator/SKILL.md",
-        "portable/remote_mcp.py",
         "docs/REMOTE_MCP_OPERATIONS.md"
       ],
-      "current_gap": "Codex remote MCP setup is documented and the shared remote service is implemented. No live Codex app/desktop registration, ChatGPT OAuth linking or desktop acceptance run is recorded.",
+      "current_gap": "This compatibility alias refers to the Codex app, not ChatGPT desktop. Use codex_app as the canonical matrix entry. No live AUREN endpoint acceptance is recorded.",
       "next_steps": [
-        "Register the remote MCP endpoint in Codex app/CLI and verify the authenticated tool catalog.",
-        "Run a read-only task and a sandboxed task through AUREN; verify cancellation, evidence and exact-head gates.",
-        "Complete ChatGPT app/connector packaging if ChatGPT Chat/Work distribution is required."
+        "Use the Codex app's MCP settings or shared ~/.codex/config.toml.",
+        "Verify OAuth, scope-filtered tool discovery and read-only task lifecycle.",
+        "Retain ChatGPT desktop as a separate unverified host."
       ],
       "live_verified": false
     },
@@ -566,14 +564,13 @@
       "kind": "chat_host",
       "support": "partial",
       "mechanisms": [
-        "ChatGPT desktop app",
-        "Custom MCP app if the desktop host exposes the same connector capability"
+        "ChatGPT desktop native MCP connector path not confirmed"
       ],
       "repository_artifacts": [
         "portable/remote_mcp.py",
         "docs/REMOTE_MCP_OPERATIONS.md"
       ],
-      "current_gap": "The current official custom MCP connection instructions are documented for ChatGPT web. Native ChatGPT desktop connector setup and OAuth linking have not been verified; use ChatGPT web for initial app registration and acceptance.",
+      "current_gap": "The custom MCP connection flow is documented for ChatGPT web; mobile custom MCP is not supported. A native ChatGPT desktop MCP setup path has not been confirmed or tested. Do not reuse Codex configuration.",
       "next_steps": [
         "Create and test the custom MCP app in ChatGPT web using the external OAuth provider.",
         "Verify whether the installed ChatGPT desktop client exposes the same app/connector.",
