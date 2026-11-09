@@ -18,7 +18,7 @@ def test_dashboard_snapshot_uses_repository_and_test_evidence():
         assert snapshot["tests"]["files"]==1
         assert snapshot["tests"]["cases"]==1
         assert snapshot["usage"]["runs"]==1
-        assert snapshot["usage"]["average_task_duration_ms"]==300
+        assert snapshot["usage"]["average_task_duration_ms"]==480
         assert snapshot["executions"]==()
 
 
@@ -181,7 +181,7 @@ def test_canonical_terminal_plan_status_suppresses_stale_running_event():
         plan, run, store, bridge = _create_plan_run(root, "plan-run-terminal")
         current = run
         for task_id in ("inspect", "implement"):
-            for status in ("ready", "running", "passed"):
+            for status in ("ready", "running", "verifying", "passed"):
                 current = bridge.transition_task(
                     plan.run_id, task_id, status,
                     reason=f"test canonical transition to {status}",
