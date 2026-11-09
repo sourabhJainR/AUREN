@@ -43,7 +43,8 @@ pre{overflow:auto;background:#050b14;border:1px solid var(--line);border-radius:
 <h2>Local first. Ready in minutes.</h2>
 <p class="lead">AUREN should install as one managed workstation runtime. The CLI, dashboard and local MCP endpoint share the same supervisor, durable state and security boundary. Remote MCP is optional and disabled by default.</p>
 <div class="grid">
-<div class="card"><h3>One managed runtime</h3><p>No project-authored runtime factory for standard use. AUREN owns the reviewed graph, execution controller, durable trigger runtime, workspace binding and provider lifecycle. Missing dependencies are reported; empty or placeholder graphs are rejected.</p></div>
+<div class="card"><h3>Single-user local by default</h3><p>Install for one developer without a project runtime factory, OAuth server or remote service. AUREN owns the local state and security boundary. The built-in factory-free composition root is still being completed.</p></div>
+<div class="card"><h3>Managed mode is optional</h3><p>Advanced users or administrators can opt in to a trusted host factory and shared deployment controls. Switching back to local mode clears the managed factory reference.</p></div>
 <div class="card"><h3>Local MCP without mandatory OAuth</h3><p>Loopback-only by default, with a private per-user credential or supported OS identity. OAuth can be enabled for local use if preferred. Authorization, workspace scope, approval checks and budgets always remain enforced.</p></div>
 <div class="card"><h3>Safe repository onboarding</h3><p>Inspect new or existing repositories before changing them. Preserve existing instructions, Git state, CI and client settings. Show configuration diffs, back up changed files and verify every connection.</p></div>
 </div>
@@ -53,8 +54,8 @@ auren init
 auren doctor
 auren connect
 auren connect --apply</code></pre>
-<p class="small">To start the current local MCP host, a trusted runtime factory is still required: <code>auren local --project-root . --runtime-factory module:function</code>. The built-in factory-free start command is part of the remaining runtime work.</p>
-<p class="small">Repository initialization, diagnostics and client configuration are available in the current initiative branch. Factory-free managed runtime startup is not yet implemented; local MCP still requires an explicitly trusted runtime factory. See the <a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/LOCAL_FIRST_RUNTIME_AND_ONBOARDING.md">implementation and acceptance status</a>.</p>
+<p class="small">The project profile defaults to single-user local mode. Use <code>auren mode --mode managed --runtime-factory module:function --apply</code> only to opt into the advanced factory-backed path; use <code>auren mode --mode single_user_local --apply</code> to opt out. The factory-free local runtime is still under implementation.</p>
+<p class="small">Repository initialization, diagnostics and client configuration are available in the current initiative branch. The factory-free single-user runtime is not yet implemented. The current factory-backed host is an advanced managed-mode path only. See the <a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/LOCAL_FIRST_RUNTIME_AND_ONBOARDING.md">implementation and acceptance status</a>.</p>
 <h3>Choose how AUREN gets model capability</h3>
 <p>Use a supported local agent CLI, a local model, or configure direct API providers. Host login credentials do not automatically transfer to AUREN. Provider selection remains explicit and privacy-aware; private work cannot silently fall back to remote inference. Hosted ChatGPT and Claude web clients need the separately enabled remote MCP endpoint because cloud services cannot reach workstation loopback.</p>
 <p>Read the <a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/LOCAL_SELF_HOSTED_MCP.md">local MCP guide</a>, <a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/MCP_HOST_COMPATIBILITY.md">host compatibility matrix</a> and <a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/MODEL_PROVIDER_INTEGRATION.md">provider setup guide</a>.</p>
