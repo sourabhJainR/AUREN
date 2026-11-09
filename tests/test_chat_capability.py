@@ -6,7 +6,7 @@ from pathlib import Path
 from portable.adaptive_runtime import AdaptiveRuntime
 from portable.agent_capabilities import AutomationScheduler
 from portable.chat_capability import CAPABILITY_NAME, descriptor, invoke
-from portable.orchestration import Graph
+from portable.orchestration import Graph, Node, NodeKind
 
 
 class ChatCapabilityTests(unittest.TestCase):
@@ -22,7 +22,7 @@ class ChatCapabilityTests(unittest.TestCase):
     def test_invoke_returns_durable_receipt_without_waiting_for_execution(self):
         with tempfile.TemporaryDirectory() as directory:
             scheduler = AutomationScheduler(Path(directory) / "runtime.sqlite")
-            runtime = AdaptiveRuntime(Graph([]), automation_scheduler=scheduler)
+            runtime = AdaptiveRuntime(Graph([Node("chat-noop", NodeKind.DETERMINISTIC, lambda _state: "ok")]), automation_scheduler=scheduler)
             receipt = invoke(
                 runtime,
                 {
@@ -42,10 +42,40 @@ class ChatCapabilityTests(unittest.TestCase):
             self.assertIn(status.status, {"pending", "claimed"})
             scheduler.close()
 
-    def test_invalid_arguments_fail_closed(self):
+    def test_invoke_rejects_empty_runtime_graph(self):
         with tempfile.TemporaryDirectory() as directory:
             scheduler = AutomationScheduler(Path(directory) / "runtime.sqlite")
             runtime = AdaptiveRuntime(Graph([]), automation_scheduler=scheduler)
+            with self.assertRaisesRegex(ValueError, "non-empty reviewed agent graph"):
+                invoke(runtime, {"task": "do not enqueue", "project_root": directory})
+            scheduler.close()
+
+    def test_stdio_server_default_requires_trusted_runtime_factory(self):
+        from unittest.mock import patch
+        from portable.chat_capability import _default_runtime
+        with patch.dict("os.environ", {"AUREN_MCP_RUNTIME_FACTORY": ""}):
+            with self.assertRaisesRegex(RuntimeError, "trusted module:function"):
+                _default_runtime()
+
+    def test_stdio_server_binds_task_to_configured_workspace(self):
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as other:
+            scheduler = AutomationScheduler(Path(directory) / "runtime.sqlite")
+            runtime = AdaptiveRuntime(
+                Graph([Node("chat-noop", NodeKind.DETERMINISTIC, lambda _state: "ok")]),
+                automation_scheduler=scheduler,
+            )
+            with self.assertRaisesRegex(PermissionError, "server-configured workspace"):
+                invoke(
+                    runtime,
+                    {"task": "outside workspace", "project_root": other, "event_id": "chat-outside-0001"},
+                    allowed_project_root=directory,
+                )
+            scheduler.close()
+
+    def test_invalid_arguments_fail_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            scheduler = AutomationScheduler(Path(directory) / "runtime.sqlite")
+            runtime = AdaptiveRuntime(Graph([Node("chat-noop", NodeKind.DETERMINISTIC, lambda _state: "ok")]), automation_scheduler=scheduler)
             with self.assertRaisesRegex(ValueError, "priority"):
                 invoke(runtime, {"task": "x", "project_root": directory, "priority": "urgent"})
             with self.assertRaisesRegex(ValueError, "max_attempts"):
