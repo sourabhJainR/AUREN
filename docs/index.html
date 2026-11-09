@@ -54,7 +54,7 @@ auren init
 auren doctor
 auren connect
 auren start</code></pre>
-<p class="small">These commands describe the target onboarding experience. Check the current CLI help and the <a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/LOCAL_FIRST_RUNTIME_AND_ONBOARDING.md">implementation and acceptance status</a> before assuming every command is available in a published release.</p>
+<p class="small">Repository initialization, diagnostics and client configuration are available in the current initiative branch. Factory-free managed runtime startup is not yet implemented; local MCP still requires an explicitly trusted runtime factory. See the <a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/LOCAL_FIRST_RUNTIME_AND_ONBOARDING.md">implementation and acceptance status</a>.</p>
 <h3>Choose how AUREN gets model capability</h3>
 <p>Use a supported local agent CLI, a local model, or configure direct API providers. Host login credentials do not automatically transfer to AUREN. Provider selection remains explicit and privacy-aware; private work cannot silently fall back to remote inference. Hosted ChatGPT and Claude web clients need the separately enabled remote MCP endpoint because cloud services cannot reach workstation loopback.</p>
 <p>Read the <a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/LOCAL_SELF_HOSTED_MCP.md">local MCP guide</a>, <a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/MCP_HOST_COMPATIBILITY.md">host compatibility matrix</a> and <a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/MODEL_PROVIDER_INTEGRATION.md">provider setup guide</a>.</p>
