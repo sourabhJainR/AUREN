@@ -10,6 +10,8 @@ AUREN does not have one hidden state machine. It has multiple legitimate, domain
 
 The risk is not that there are many state machines. The risk is that the same work item can be described differently by its checkpoint, progress journal, controller task row, plan run, dashboard projection and browser filter. Those representations must not become competing authorities.
 
+The shared read-only catalog currently covers **38 lifecycle domains**. The inventory below also records UI polling and operational state that is not a persisted domain FSM.
+
 The most concrete UX inconsistency found in this audit was in session tracking:
 
 - `MuxinSessionAdapter._session_record()` inferred status from checkpoint stage, last error and heartbeat age.
