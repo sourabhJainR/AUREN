@@ -201,6 +201,7 @@ class OAuthIntrospectionVerifier:
             },
         )
         principal = None
+        principal_expiry: float | None = None
         try:
             with self._opener.open(request, timeout=self.timeout_seconds) as response:
                 if response.status != 200:
@@ -239,12 +240,21 @@ class OAuthIntrospectionVerifier:
                             payload["sub"], frozenset(set(scopes).intersection(_ALL_SCOPES)),
                             tuple(roles), tuple(projects), self.issuer,
                         )
+                        principal_expiry = float(expiry)
         except (OSError, urllib.error.URLError, TimeoutError, ValueError, TypeError, json.JSONDecodeError):
             principal = None
+        cache_now = time.monotonic()
+        cache_ttl = float(self.cache_seconds)
+        if principal is not None and principal_expiry is not None:
+            remaining_lifetime = principal_expiry - time.time()
+            if remaining_lifetime <= 0:
+                principal = None
+            else:
+                cache_ttl = min(cache_ttl, remaining_lifetime)
         with self._lock:
-            self._cache[digest] = (now + self.cache_seconds, principal)
+            self._cache[digest] = (cache_now + cache_ttl, principal)
             if len(self._cache) > 4096:
-                self._cache = {key: item for key, item in self._cache.items() if item[0] > now}
+                self._cache = {key: item for key, item in self._cache.items() if item[0] > cache_now}
         return principal
 
 
