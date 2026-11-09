@@ -211,6 +211,8 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
                 run_id=plan.run_id, task_id="implement", dispatch_key="dispatch-budget-deadline",
                 handler="dispatch-test", packet=packet, payload={"change": "bounded"},
             )
+            # The test host supplies the same in-process capability marker as its trusted root.
+            controller._trusted_plan_dispatch_token = object()
             controller.run_once(task.id)
             completed = controller.task(task.id)
             self.assertEqual("completed", completed.state)
