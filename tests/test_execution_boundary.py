@@ -534,7 +534,6 @@ class DirectNetworkCallInventoryTests(unittest.TestCase):
         "portable/auren_runtime.py::_download_source": "portable updater archive download; migration requires bounded streaming and explicit redirect-host chain",
         "portable/guarded_network.py::guarded_loopback_http_get": "bounded local readiness transport pinned to IPv4 loopback; rejects remote hosts and never follows redirects",
         "scripts/pr_integration_guard.py::api_json": "CI bootstrap exception; fixed api.github.com allowlist and same-host-only redirects, not DNS-pinned",
-        "portable/local_host.py::serve_local::endpoint_ready": "in-process readiness GETs to fixed 127.0.0.1 dashboard/MCP ports; no credentials or caller-controlled URL; redirects rejected",
         "scripts/verify_openshell_isolation.py::_host_can_reach": "host-side reachability precondition for an isolation probe; never treated as sandbox policy enforcement",
         "scripts/verify_docker_isolation.py::_host_network_precondition": "host-side reachability precondition for the actual Docker isolation probe; never treated as sandbox policy enforcement",
     }
