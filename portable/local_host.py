@@ -200,6 +200,8 @@ def serve_local(
             except BaseException as exc:
                 failures.append(("dashboard", exc))
             finally:
+                if not shutdown_requested.is_set() and not failures:
+                    failures.append(("dashboard", RuntimeError("dashboard server stopped without a shutdown request")))
                 stop.set()
 
         def run_mcp() -> None:
@@ -208,6 +210,8 @@ def serve_local(
             except BaseException as exc:
                 failures.append(("MCP", exc))
             finally:
+                if not shutdown_requested.is_set() and not failures:
+                    failures.append(("MCP", RuntimeError("MCP server stopped without a shutdown request")))
                 stop.set()
 
         dashboard_thread = threading.Thread(
