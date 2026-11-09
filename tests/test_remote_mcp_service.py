@@ -432,6 +432,33 @@ class OAuthIntrospectionVerifierTests(unittest.TestCase):
         )
         self.assertEqual(("engineer",), principal.roles)
 
+    def test_positive_cache_never_outlives_access_token_expiry(self):
+        wall_clock = [1000.0]
+        monotonic_clock = [10.0]
+        payload = {
+            "active": True, "iss": "https://identity.example.test",
+            "sub": "user-123", "aud": "https://mcp.example.test/mcp",
+            "exp": 1005.0, "scope": "auren:tasks:read",
+        }
+        calls = []
+
+        def introspect(*_args, **_kwargs):
+            calls.append(True)
+            response_payload = payload if len(calls) == 1 else {"active": False}
+            return self.Response(response_payload)
+
+        with (
+            patch("portable.remote_mcp.time.time", side_effect=lambda: wall_clock[0]),
+            patch("portable.remote_mcp.time.monotonic", side_effect=lambda: monotonic_clock[0]),
+            patch.object(self.verifier._opener, "open", side_effect=introspect),
+        ):
+            self.assertIsNotNone(self.verifier.verify("short-lived-access-token"))
+            wall_clock[0] = 1006.0
+            monotonic_clock[0] = 16.0
+            self.assertIsNone(self.verifier.verify("short-lived-access-token"))
+
+        self.assertEqual(2, len(calls))
+
     def test_wrong_issuer_audience_or_expiry_is_rejected(self):
         cases = [
             {"iss": "https://attacker.example", "aud": "https://mcp.example.test/mcp", "exp": time.time() + 300},
