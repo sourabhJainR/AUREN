@@ -182,6 +182,11 @@ def _install_parent_termination_forwarder(process: subprocess.Popen[bytes]):
         # The provider has its own session so the caller can terminate its full
         # process tree without signalling unrelated work in the supervisor.
         SubprocessProviderInvoker._kill(process)
+        if callable(previous):
+            previous(signum, frame)
+            return
+        if previous == signal.SIG_IGN:
+            return
         raise SystemExit(128 + signum)
 
     signal.signal(signal.SIGTERM, forward)
