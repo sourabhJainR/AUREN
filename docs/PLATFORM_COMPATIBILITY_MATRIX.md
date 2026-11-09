@@ -24,7 +24,7 @@ The main gap is not the engineering workflow. It is the last-mile product integr
 3. Codex, Claude, Gemini, Cursor and VS Code remote MCP setup paths are documented. Client-specific OAuth and desktop/IDE acceptance remains open.
 4. Claude web and Claude Desktop support remote MCP connectors; this does not give those chat surfaces local filesystem access. AUREN executes tasks on its configured host.
 5. Cursor now has a project rule and remote MCP setup guide. Antigravity CLI/IDE and Visual Studio 2022 17.14+/2026 are also documented as remote MCP hosts; none has passed live AUREN acceptance yet.
-6. Groq and xAI/Grok remain separate model-provider integrations. The remote MCP service does not add their inference adapters.
+6. Direct inference adapters now cover Anthropic, OpenAI, Gemini, Groq, xAI, OpenRouter, Together, Fireworks, DeepSeek, Mistral, Cerebras, Perplexity and allowlisted custom OpenAI-compatible endpoints. Live vendor acceptance remains open.
 7. The compatibility harness is static by default. Live checks for installed vendor clients and desktop/IDE workflows remain opt-in or manual.
 
 ## Compatibility matrix
@@ -129,36 +129,36 @@ Cursor supports `AGENTS.md`, project rules, Agent Skills and MCP. AUREN's shared
 - Add the local MCP server through Cursor's MCP settings or project config using `portable/chat_capability.py`.
 - Validate local Agent, Cloud Agent, remote SSH and self-hosted worker paths independently.
 
-### Groq and xAI/Grok
+### Groq, xAI/Grok and other model APIs
 
-Groq and xAI expose model APIs and MCP-related capabilities. They are inference backends, not substitutes for Claude Code, Codex or Cursor as repository execution hosts.
+These are inference backends, not repository execution hosts. AUREN now has native API adapters for Groq and xAI alongside Anthropic, OpenAI, Gemini, OpenRouter, Together, Fireworks, DeepSeek, Mistral, Cerebras and Perplexity. A custom OpenAI-compatible endpoint can be added only with an explicit HTTPS hostname allowlist.
 
-AUREN's current guarded CLI bridge only recognizes Claude, Codex and Gemini executables. The API provider layer does not yet register Groq or xAI, and the environment allowlist does not permit `GROQ_API_KEY` or `XAI_API_KEY`. Do not add these keys to a broad environment pass-through or simply add provider names to the CLI allowlist.
+The adapters:
+- Use guarded HTTPS with exact host allowlists for built-in vendors and explicit host allowlisting for custom endpoints.
+- Read credentials from provider-specific process environment variables; keys are not forwarded through a broad child-process environment.
+- Require explicit model IDs and provider order through `AUREN_REMOTE_PROVIDER_ORDER`.
+- Charge each provider attempt against the existing supervisor budget.
+- Keep private and restricted tasks local-only.
+- Normalize usage and tool-call metadata without executing model-returned tool calls.
 
-**Required AUREN work for each API provider:**
-1. Implement a dedicated provider adapter with a fixed base URL, bounded request/response sizes, timeouts, retry budget and cancellation.
-2. Add a secret-broker path for the provider key; never persist the key in task payloads, logs or evidence.
-3. Normalize tool calls, streaming, usage, errors and model capabilities into AUREN's provider contract.
-4. Record model ID, provider version, token usage, latency, cost and request digest.
-5. Test tool-call replay, malformed responses, rate limits, timeout-after-acceptance and provider outage.
-6. Run paired quality, cost, latency and safety evaluations before allowing automatic routing.
+The remaining work is live vendor conformance, model-version checks, rate-limit/outage tests, price and latency measurement, provider retention/residency review and paired quality/safety evaluation. Streaming, automatic model discovery and cost-price calculation are not implemented in this adapter slice.
 
-OpenAI API compatibility is partial compatibility, not proof that all request fields, streaming events, tool semantics or approval features match. In particular, xAI's remote MCP implementation does not currently support the Responses API `require_approval` and `connector_id` parameters, so AUREN must enforce its own approval boundary and tool allowlist.
+OpenAI-compatible endpoints do not share identical semantics. Provider-specific tool calling, structured output, reasoning fields, streaming and approval behavior must be validated separately. AUREN's own Guard and approval checks remain authoritative; provider-side MCP approval flags never replace them.
 
 ## MCP hosts versus model providers
 
 These are two separate compatibility layers.
 
 - **MCP host compatibility:** ChatGPT, Codex, Claude, Gemini/Antigravity, Cursor, VS Code Copilot and Visual Studio can connect through the remote MCP endpoint when their installed version supports Streamable HTTP and the configured OAuth flow.
-- **Model-provider compatibility:** AUREN's ProviderFabric currently discovers Claude, Codex, Gemini and Copilot CLI hosts. Local fallback uses an Ollama-compatible loopback endpoint. This is not the same as having direct HTTP API adapters for every model vendor.
-- **Not wired as direct API providers:** Groq, xAI/Grok, OpenAI Chat Completions, OpenRouter, Together, Fireworks, DeepSeek and Mistral do not have native AUREN HTTP provider adapters in this implementation.
-- **Privacy boundary:** The hybrid router forbids remote fallback for private tasks. Any future remote API adapter must preserve that rule, enforce endpoint allowlists, keep credentials outside task context, normalize tool calls without executing them, and use finite request/time budgets.
+- **Model-provider compatibility:** ProviderFabric discovers Claude, Codex, Gemini and Copilot CLI hosts. HybridModelRouter can also use the direct HTTP provider pool when an explicit provider order is configured. Local fallback uses an Ollama-compatible loopback endpoint.
+- **Direct API boundary:** Built-in and custom adapters cover a broad set of hosted APIs, but they do not implement every vendor-specific feature, streaming or cost catalog. Live credential validation is not yet recorded.
+- **Privacy boundary:** The hybrid router forbids remote fallback for private and restricted tasks. Provider keys stay in process environment/secret injection, endpoints are allowlisted, tool calls are normalized but not executed, and each provider attempt consumes the finite supervisor budget.
 
-AUREN can therefore be used as the MCP execution layer from multiple model hosts today, but it cannot yet route inference directly through every vendor's API. Do not describe those two capabilities as equivalent.
+AUREN can serve as the MCP execution layer for multiple model hosts and can route eligible inference tasks through a configured provider chain. Those are separate integration layers with separate acceptance evidence.
 
 ## Current MCP boundary
 
-The local stdio server remains `portable/chat_capability.py` and is intended for local MCP hosts. The remote operator service is now implemented in:
+The local stdio server remains `portable/chat_capability.py` and is intended for local MCP hosts. The remote operator service implementation in this review branch is:
 
 - `portable/remote_mcp.py` — Streamable HTTP ASGI transport, OAuth resource-server validation, scoped tool catalog, task/evidence/approval operations, durable operator admission state and readiness.
 - `portable/remote_mcp_server.py` — ASGI runner with a trusted runtime-factory requirement.
@@ -185,8 +185,9 @@ The service currently uses AUREN's SQLite-backed durable stores and is a single-
 | P1 | Add Codex app and CLI acceptance matrix | Read-only and guarded-write smoke tests, exact-head CI evidence |
 | P1 | Add Claude CLI/Desktop/VS Code host acceptance | Plugin, hook, skill, MCP and permission-mode test receipts |
 | P1 | Add Gemini headless and IDE acceptance | JSONL parser tests, MCP and skill discovery receipts |
-| P2 | Add Groq API adapter | Provider contract, key isolation, tool-call and fault-injection tests |
-| P2 | Add xAI API adapter | Provider contract, remote MCP policy, tool-call and fault-injection tests |
+| P1 | Run live provider acceptance for configured API vendors | Short-lived credentials, exact model IDs, auth/rate-limit/timeout/failover receipts |
+| P1 | Add provider cost and latency accounting | Price-source version, usage-to-cost reconciliation, benchmark results |
+| P2 | Add streaming and provider-specific tool/structured-output conformance | Versioned contract tests for each provider and model family |
 | P2 | Add GitHub Copilot and Gemini Code Assist host acceptance | Product-specific smoke tests; no inference from shared file support |
 | P2 | Add CI environment with vendor CLI installations where licensing permits | Version-pinned, non-mutating provider probes and published evidence |
 
