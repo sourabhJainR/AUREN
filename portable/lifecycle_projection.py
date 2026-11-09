@@ -247,6 +247,42 @@ _DOMAIN_STATES: dict[str, dict[str, _Semantics]] = {
         "rolled_back": _s("recovering", "Rolled back", attention=True, action="verify_previous_artifact_and_runtime_health"),
         "blocked": _s("blocked", "Blocked", attention=True, action="resolve_release_gate_before_promotion"),
     },
+
+    "engineering_gate": {
+        "pending": _s("not_started", "Pending", action="wait_for_gate_dependencies"),
+        "ready": _s("ready", "Ready", action="dispatch_required_gate_crews"),
+        "in_progress": _s("active", "In progress", action="collect_gate_exit_evidence"),
+        "passed": _s("succeeded", "Passed", terminal=True, resume="never", action="retain_gate_evidence"),
+        "blocked": _s("blocked", "Blocked", attention=True, action="resolve_gate_dependency_or_external_evidence"),
+        "failed": _s("failed", "Failed", attention=True, action="inspect_gate_failure_before_replan"),
+        "cancelled": _s("cancelled", "Cancelled", terminal=True, resume="never", action="preserve_gate_cancellation"),
+    },
+    "worktree": {
+        "creating": _s("active", "Creating", action="monitor_worktree_creation"),
+        "active": _s("active", "Active", action="verify_task_intent_budget_and_owned_path_binding"),
+        "creation_failed": _s("failed", "Creation failed", attention=True, action="inspect_worktree_creation_failure"),
+        "removing": _s("recovering", "Removing", attention=True, action="verify_worktree_removal_receipt"),
+        "removed": _s("cancelled", "Removed", terminal=True, resume="never", action="preserve_worktree_removal_receipt"),
+    },
+    "remediation": {
+        "pending": _s("not_started", "Pending", action="prioritize_remediation_with_evidence"),
+        "in_progress": _s("active", "In progress", action="monitor_remediation_and_acceptance"),
+        "blocked": _s("blocked", "Blocked", attention=True, action="resolve_remediation_blocker"),
+        "resolved": _s("verifying", "Resolved", action="verify_resolution_evidence"),
+        "accepted": _s("succeeded", "Accepted", terminal=True, resume="never", action="retain_accepted_resolution"),
+        "deferred": _s("waiting", "Deferred", action="retain_deferral_reason_and_revisit_condition"),
+    },
+    "goal_planning": {
+        "open": _s("not_started", "Open", action="check_goal_dependencies_and_priority"),
+        "active": _s("active", "Active", action="monitor_goal_progress"),
+        "blocked": _s("blocked", "Blocked", attention=True, action="resolve_goal_dependency"),
+        "complete": _s("succeeded", "Complete", terminal=True, resume="never", action="retain_goal_completion_evidence"),
+        "abandoned": _s("cancelled", "Abandoned", terminal=True, resume="never", action="preserve_goal_abandonment"),
+    },
+    "transfer_learning": {
+        "promoted": _s("succeeded", "Promoted", terminal=True, resume="never", action="retain_independent_transfer_promotion_receipt"),
+        "rolled_back": _s("recovering", "Rolled back", attention=True, action="verify_prior_version_and_retest"),
+    },
     "legacy_task": {
         "pending": _s("not_started", "Pending", action="check_dependencies_before_dispatch"),
         "in-progress": _s("active", "In progress", action="monitor_task_progress"),
