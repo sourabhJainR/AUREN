@@ -34,6 +34,9 @@ from .trigger_runtime import TriggerQueueCapacityError
 
 
 SUPPORTED_PROTOCOL_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26")
+MODERN_PROTOCOL_VERSION = "2026-07-28"
+SUPPORTED_MCP_PROTOCOL_VERSIONS = (MODERN_PROTOCOL_VERSION, *SUPPORTED_PROTOCOL_VERSIONS)
+_SERVER_INFO = {"name": "auren-operator-mcp", "version": "1.1.0"}
 DEFAULT_ENDPOINT_PATH = "/mcp"
 DEFAULT_MAX_BODY_BYTES = 64 * 1024
 DEFAULT_MAX_RESPONSE_BYTES = 2_097_152
@@ -1151,7 +1154,32 @@ class AurenMCPService:
         params = request.get("params", {})
         if not isinstance(params, Mapping):
             raise MCPServiceError("JSON-RPC params must be an object", code=-32600, status=400)
+        request_meta = params.get("_meta", {})
+        modern_request = (
+            isinstance(request_meta, Mapping)
+            and request_meta.get("io.modelcontextprotocol/protocolVersion") == MODERN_PROTOCOL_VERSION
+        )
+        if method == "server/discover":
+            if notification:
+                raise MCPServiceError("server/discover requires a JSON-RPC request id", code=-32600, status=400)
+            return {"jsonrpc": "2.0", "id": request_id, "result": {
+                "resultType": "complete",
+                "supportedVersions": list(SUPPORTED_MCP_PROTOCOL_VERSIONS),
+                "capabilities": {
+                    "tools": {"listChanged": False},
+                    "resources": {"listChanged": False},
+                },
+                "instructions": (
+                    "AUREN is the execution and policy authority. Task acceptance is not task completion. "
+                    "Use task status and evidence tools to verify outcomes. Consequential actions remain approval-gated."
+                ),
+                "ttlMs": 0,
+                "cacheScope": "private",
+                "_meta": {"io.modelcontextprotocol/serverInfo": dict(_SERVER_INFO)},
+            }}
         if method == "initialize":
+            if modern_request:
+                raise MCPServiceError("initialize is not available in the stateless MCP protocol", code=-32601, status=404)
             if notification or request_id is None:
                 raise MCPServiceError("initialize must be a JSON-RPC request with an id", code=-32600, status=400)
             version = params.get("protocolVersion", "2025-03-26")
@@ -1177,7 +1205,11 @@ class AurenMCPService:
         if method == "ping":
             return None if notification else {"jsonrpc": "2.0", "id": request_id, "result": {}}
         if method == "tools/list":
-            return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": self.list_tools(principal)}}
+            result = {"tools": self.list_tools(principal)}
+            if modern_request:
+                result.update({"resultType": "complete", "ttlMs": 0, "cacheScope": "private",
+                               "_meta": {"io.modelcontextprotocol/serverInfo": dict(_SERVER_INFO)}})
+            return {"jsonrpc": "2.0", "id": request_id, "result": result}
         if method == "tools/call":
             name = params.get("name")
             arguments = params.get("arguments", {})
@@ -1185,45 +1217,67 @@ class AurenMCPService:
                 raise MCPServiceError("tools/call requires a name and object arguments", code=-32602, status=400)
             try:
                 result = self.call_tool(name, arguments, principal)
-                return {"jsonrpc": "2.0", "id": request_id, "result": {
+                tool_result = {
                     "content": [{"type": "text", "text": _canonical_json(result)}],
                     "structuredContent": result,
-                }}
+                }
+                if modern_request:
+                    tool_result.update({"resultType": "complete",
+                                        "_meta": {"io.modelcontextprotocol/serverInfo": dict(_SERVER_INFO)}})
+                return {"jsonrpc": "2.0", "id": request_id, "result": tool_result}
             except PermissionError as exc:
                 challenge = self.authentication_challenge(
                     error="invalid_token" if principal is None else "insufficient_scope",
                     description="Authenticate and grant the required AUREN permission.",
                 )
-                return {"jsonrpc": "2.0", "id": request_id, "result": {
+                tool_error = {
                     "isError": True,
                     "content": [{"type": "text", "text": _safe_text(exc, 500)}],
                     "_meta": {"mcp/www_authenticate": [challenge]},
-                }}
+                }
+                if modern_request:
+                    tool_error.update({"resultType": "complete"})
+                    tool_error["_meta"]["io.modelcontextprotocol/serverInfo"] = dict(_SERVER_INFO)
+                return {"jsonrpc": "2.0", "id": request_id, "result": tool_error}
             except (KeyError, TypeError, ValueError, MCPServiceError) as exc:
-                return {"jsonrpc": "2.0", "id": request_id, "result": {
-                    "isError": True, "content": [{"type": "text", "text": _safe_text(exc, 500)}],
-                }}
+                tool_error = {"isError": True, "content": [{"type": "text", "text": _safe_text(exc, 500)}]}
+                if modern_request:
+                    tool_error.update({"resultType": "complete", "ttlMs": 0, "cacheScope": "private",
+                                       "_meta": {"io.modelcontextprotocol/serverInfo": dict(_SERVER_INFO)}})
+                return {"jsonrpc": "2.0", "id": request_id, "result": tool_error}
             except Exception as exc:
-                return {"jsonrpc": "2.0", "id": request_id, "result": {
+                tool_error = {
                     "isError": True,
                     "content": [{"type": "text", "text": "AUREN operator operation failed closed (" + type(exc).__name__ + ")."}],
-                }}
+                }
+                if modern_request:
+                    tool_error.update({"resultType": "complete",
+                                       "_meta": {"io.modelcontextprotocol/serverInfo": dict(_SERVER_INFO)}})
+                return {"jsonrpc": "2.0", "id": request_id, "result": tool_error}
         if method == "resources/list":
             self._require(principal, _SCOPE_READ)
-            return {"jsonrpc": "2.0", "id": request_id, "result": {"resources": [
+            result = {"resources": [
                 {"uri": "auren://service/status", "name": "AUREN service status",
                  "description": "Read-only service health and operator admission state.",
                  "mimeType": "application/json"},
-            ]}}
+            ]}
+            if modern_request:
+                result.update({"resultType": "complete", "ttlMs": 0, "cacheScope": "private",
+                               "_meta": {"io.modelcontextprotocol/serverInfo": dict(_SERVER_INFO)}})
+            return {"jsonrpc": "2.0", "id": request_id, "result": result}
         if method == "resources/read":
             uri = params.get("uri")
             if uri != "auren://service/status":
                 raise MCPServiceError("unknown AUREN resource", code=-32602, status=404)
             self._require(principal, _SCOPE_READ)
             result = self.call_tool("auren.service_status", {}, principal)
-            return {"jsonrpc": "2.0", "id": request_id, "result": {
+            read_result = {
                 "contents": [{"uri": uri, "mimeType": "application/json", "text": _canonical_json(result)}],
-            }}
+            }
+            if modern_request:
+                read_result.update({"resultType": "complete", "ttlMs": 0, "cacheScope": "private",
+                                    "_meta": {"io.modelcontextprotocol/serverInfo": dict(_SERVER_INFO)}})
+            return {"jsonrpc": "2.0", "id": request_id, "result": read_result}
         if notification:
             return None
         raise MCPServiceError("method not found: " + method, code=-32601, status=404)
