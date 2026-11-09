@@ -557,12 +557,24 @@ class _Handler(BaseHTTPRequestHandler):
             payload = self._read_json_request(max_bytes=65536)
             if not isinstance(payload.get("task"), str) or not payload["task"].strip():
                 raise ValueError("task must be a non-empty string")
+            raw_provider_order = payload.get("provider_order")
+            if raw_provider_order is not None and (
+                not isinstance(raw_provider_order, list)
+                or not 1 <= len(raw_provider_order) <= 12
+                or not all(isinstance(name, str) and name.strip() for name in raw_provider_order)
+            ):
+                raise ValueError("provider_order must be a list of 1..12 provider names")
+            provider_order = (
+                tuple(name.strip().lower() for name in raw_provider_order)
+                if raw_provider_order is not None else None
+            )
             request = TaskRouteRequest(
                 task=payload["task"][:60000],
                 capability=str(payload.get("capability", "general"))[:80],
                 privacy=str(payload.get("privacy", "private"))[:40],
                 max_attempts=min(3, max(1, int(payload.get("max_attempts", 2)))),
                 timeout_seconds=min(120.0, max(0.1, float(payload.get("timeout_seconds", 30.0)))),
+                provider_order=provider_order,
             )
             result = HybridModelRouter().route(request)
             response_payload = {
@@ -629,6 +641,23 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path.startswith("/api/delivery/"):
             self._handle_delivery_get(path)
+            return
+        if path == "/api/providers":
+            try:
+                router = HybridModelRouter()
+                pool = router.remote_executor
+                providers = [
+                    {"id": item.spec.name, "model": item.model}
+                    for item in getattr(pool, "providers", ())
+                ]
+                self._send_api_json(200, {
+                    "providers": providers,
+                    "selection": "per-request ordered provider_order",
+                    "private_tasks": "local_only",
+                    "remote_enabled": bool(providers),
+                })
+            except Exception:
+                self._send(503, b'{"error":"configured provider catalog unavailable"}', "application/json; charset=utf-8")
             return
         if path == "/api/sessions":
             try:
