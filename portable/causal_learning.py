@@ -41,7 +41,7 @@ class CausalLearner:
         self.memory = causal.graph.memory
         self.project = causal.graph.project
         self.max_outcomes = max_outcomes
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS causal_interventions(
                 project TEXT NOT NULL, intervention_id TEXT NOT NULL, cause_id TEXT NOT NULL,
                 value TEXT NOT NULL, expected_effect TEXT NOT NULL, created_at TEXT NOT NULL,
@@ -54,7 +54,7 @@ class CausalLearner:
     def propose(self, intervention: Intervention) -> None:
         if not intervention.intervention_id or not intervention.cause_id or not intervention.expected_effect:
             raise ValueError("intervention fields are required")
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             existing = db.execute(
                 "SELECT cause_id,value,expected_effect FROM causal_interventions WHERE project=? AND intervention_id=?",
                 (self.project, intervention.intervention_id),
@@ -73,7 +73,7 @@ class CausalLearner:
             raise TypeError("outcome must be an InterventionOutcome")
         if not 0 <= outcome.confidence <= 1 or not outcome.evidence_id or not outcome.effect_id:
             raise ValueError("invalid intervention outcome")
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             row = db.execute("SELECT cause_id,expected_effect FROM causal_interventions WHERE project=? AND intervention_id=?",
                              (self.project, outcome.intervention_id)).fetchone()
             if row is None:
