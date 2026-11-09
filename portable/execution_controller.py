@@ -3713,8 +3713,32 @@ class ExecutionController:
                 deadlines = [engineering_budget_receipt.cycle_deadline_epoch]
                 if engineering_budget_receipt.phase_deadline_epoch is not None:
                     deadlines.append(engineering_budget_receipt.phase_deadline_epoch)
-                task.payload["auren_engineering_deadline_epoch"] = min(deadlines)
+                budget_deadline_epoch = min(deadlines)
+                task.payload["auren_engineering_deadline_epoch"] = budget_deadline_epoch
                 task.payload["auren_engineering_budget_phase"] = phase
+                budget_deadline_at = datetime.fromtimestamp(
+                    budget_deadline_epoch, timezone.utc,
+                ).isoformat()
+                effective_deadline_at = budget_deadline_at
+                if task.deadline_at is not None:
+                    current_deadline = datetime.fromisoformat(task.deadline_at)
+                    if current_deadline.tzinfo is None:
+                        raise TaskDeadlineExceeded("existing task deadline is not timezone-aware")
+                    if current_deadline.astimezone(timezone.utc) <= datetime.fromisoformat(budget_deadline_at):
+                        effective_deadline_at = task.deadline_at
+                with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
+                    cursor = db.execute(
+                        "UPDATE tasks SET deadline_at=? WHERE id=? AND state='running' "
+                        "AND lease_token=? AND lease_generation=?",
+                        (effective_deadline_at, task.id, task.lease_token, task.lease_generation),
+                    )
+                    if cursor.rowcount != 1:
+                        raise LeaseLostError("task lease changed while applying engineering budget deadline")
+                task = DurableTask(
+                    task.id, task.handler, task.payload, task.state, task.attempts,
+                    task.work_unit_id, lease_generation=task.lease_generation,
+                    lease_token=task.lease_token, deadline_at=effective_deadline_at,
+                )
             self._verify_engineering_plan_dispatch_checkpoint(task)
             self._verify_workflow_profile_binding(task)
             gates_passed, gate_detail, gate_evidence = self._preflight_gates(task)
