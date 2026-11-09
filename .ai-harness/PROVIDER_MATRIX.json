@@ -925,6 +925,137 @@
         "Review retention, data residency, rate limits and pricing before production use."
       ],
       "live_verified": false
+    },
+    "openai_agents_sdk": {
+      "kind": "orchestration_framework",
+      "support": "partial",
+      "mechanisms": [
+        "MCPServerStreamableHttp and hosted MCP",
+        "Remote Streamable HTTP MCP",
+        "External OAuth bearer token",
+        "Per-user scopes",
+        "AUREN operator tools"
+      ],
+      "repository_artifacts": [
+        "portable/remote_mcp.py",
+        "portable/remote_mcp_server.py",
+        "docs/ORCHESTRATOR_INTEGRATIONS.md"
+      ],
+      "current_gap": "The connection example is documented, but no live framework instance has connected to a deployed AUREN endpoint. AUREN's external OAuth authorization server and host-specific credential exchange remain deployment responsibilities.",
+      "next_steps": [
+        "Configure the framework's MCP client against the deployed /mcp endpoint.",
+        "Use per-user OAuth credentials and least-privilege scopes.",
+        "Run submit/status/cancel/evidence and approval-boundary acceptance against a disposable project."
+      ],
+      "live_verified": false
+    },
+    "autogen": {
+      "kind": "orchestration_framework",
+      "support": "partial",
+      "mechanisms": [
+        "StreamableHttpServerParams and mcp_server_tools",
+        "Remote Streamable HTTP MCP",
+        "External OAuth bearer token",
+        "Per-user scopes",
+        "AUREN operator tools"
+      ],
+      "repository_artifacts": [
+        "portable/remote_mcp.py",
+        "portable/remote_mcp_server.py",
+        "docs/ORCHESTRATOR_INTEGRATIONS.md"
+      ],
+      "current_gap": "The connection example is documented, but no live framework instance has connected to a deployed AUREN endpoint. AUREN's external OAuth authorization server and host-specific credential exchange remain deployment responsibilities.",
+      "next_steps": [
+        "Configure the framework's MCP client against the deployed /mcp endpoint.",
+        "Use per-user OAuth credentials and least-privilege scopes.",
+        "Run submit/status/cancel/evidence and approval-boundary acceptance against a disposable project."
+      ],
+      "live_verified": false
+    },
+    "pydantic_ai": {
+      "kind": "orchestration_framework",
+      "support": "partial",
+      "mechanisms": [
+        "MCPToolset with per-run auth",
+        "Remote Streamable HTTP MCP",
+        "External OAuth bearer token",
+        "Per-user scopes",
+        "AUREN operator tools"
+      ],
+      "repository_artifacts": [
+        "portable/remote_mcp.py",
+        "portable/remote_mcp_server.py",
+        "docs/ORCHESTRATOR_INTEGRATIONS.md"
+      ],
+      "current_gap": "The connection example is documented, but no live framework instance has connected to a deployed AUREN endpoint. AUREN's external OAuth authorization server and host-specific credential exchange remain deployment responsibilities.",
+      "next_steps": [
+        "Configure the framework's MCP client against the deployed /mcp endpoint.",
+        "Use per-user OAuth credentials and least-privilege scopes.",
+        "Run submit/status/cancel/evidence and approval-boundary acceptance against a disposable project."
+      ],
+      "live_verified": false
+    },
+    "langchain_langgraph": {
+      "kind": "orchestration_framework",
+      "support": "partial",
+      "mechanisms": [
+        "langchain-mcp-adapters",
+        "Remote Streamable HTTP MCP",
+        "External OAuth bearer token",
+        "Per-user scopes",
+        "AUREN operator tools"
+      ],
+      "repository_artifacts": [
+        "portable/remote_mcp.py",
+        "portable/remote_mcp_server.py",
+        "docs/ORCHESTRATOR_INTEGRATIONS.md"
+      ],
+      "current_gap": "The connection example is documented, but no live framework instance has connected to a deployed AUREN endpoint. AUREN's external OAuth authorization server and host-specific credential exchange remain deployment responsibilities.",
+      "next_steps": [
+        "Configure the framework's MCP client against the deployed /mcp endpoint.",
+        "Use per-user OAuth credentials and least-privilege scopes.",
+        "Run submit/status/cancel/evidence and approval-boundary acceptance against a disposable project."
+      ],
+      "live_verified": false
+    },
+    "n8n": {
+      "kind": "orchestration_framework",
+      "support": "partial",
+      "mechanisms": [
+        "MCP Client Tool node",
+        "Remote Streamable HTTP MCP",
+        "External OAuth bearer token",
+        "Per-user scopes",
+        "AUREN operator tools"
+      ],
+      "repository_artifacts": [
+        "portable/remote_mcp.py",
+        "portable/remote_mcp_server.py",
+        "docs/ORCHESTRATOR_INTEGRATIONS.md"
+      ],
+      "current_gap": "The connection example is documented, but no live framework instance has connected to a deployed AUREN endpoint. AUREN's external OAuth authorization server and host-specific credential exchange remain deployment responsibilities.",
+      "next_steps": [
+        "Configure the framework's MCP client against the deployed /mcp endpoint.",
+        "Use per-user OAuth credentials and least-privilege scopes.",
+        "Run submit/status/cancel/evidence and approval-boundary acceptance against a disposable project."
+      ],
+      "live_verified": false
+    },
+    "crewai": {
+      "kind": "orchestration_framework",
+      "support": "not_wired",
+      "mechanisms": [
+        "No AUREN-specific connector verified"
+      ],
+      "repository_artifacts": [
+        "docs/ORCHESTRATOR_INTEGRATIONS.md"
+      ],
+      "current_gap": "AUREN has not verified a current CrewAI Streamable HTTP MCP client path or pinned a supported version.",
+      "next_steps": [
+        "Confirm the installed CrewAI MCP client and transport support from its official docs.",
+        "Add a version-pinned connection example and live acceptance before claiming support."
+      ],
+      "live_verified": false
     }
   },
   "remote_mcp": {
@@ -968,18 +1099,23 @@
       "caller_and_issuer_scoped_required_idempotency_keys",
       "durable_workspace_queue_admission_cap",
       "bounded_request_and_response_sizes",
-      "cross_instance_persistent_rate_limits"
+      "cross_instance_persistent_rate_limits",
+      "host_port_allowlists",
+      "credential_like_task_input_rejection",
+      "certificate_bound_access_tokens_rejected_without_mtls_validation",
+      "windows_case_insensitive_workspace_authorization",
+      "atomic_pending_queue_admission"
     ],
     "known_limits": [
       "external_oauth_authorization_server_not_included",
       "single_host_sqlite_state_only",
       "no_live_vendor_client_acceptance",
-      "no_groq_or_xai_provider_adapter",
       "no_sse_or_mcp_session_affinity",
       "MCP Tasks extension and server-sent event streaming are not implemented; long-running AUREN work uses explicit submit/status/evidence/cancel tools.",
       "External OAuth provider must support the host-specific client registration and PKCE flow; no authorization server is bundled."
     ],
-    "live_verified": false
+    "live_verified": false,
+    "local_stdio_runtime_factory_required": true
   },
   "llm_provider_adapters": {
     "status": "partial",
@@ -993,22 +1129,34 @@
       "ollama_compatible_loopback"
     ],
     "mcp_client_host_independent": true,
-    "direct_http_api_adapters": [],
-    "not_wired": [
-      "groq",
-      "xai_grok",
-      "openai_chat_completions",
+    "direct_http_api_adapters": [
+      "openai_responses",
+      "anthropic_messages",
+      "gemini_openai_compatible",
+      "groq_chat_completions",
+      "xai_responses",
       "openrouter",
       "together",
       "fireworks",
       "deepseek",
-      "mistral"
+      "mistral",
+      "cerebras",
+      "perplexity",
+      "custom_openai_compatible"
     ],
-    "current_gap": "The remote MCP service is model-host neutral: a supported MCP client can call AUREN regardless of which model generated the request. Direct inference routing is separate. ProviderFabric discovers the Claude, Codex, Gemini and Copilot CLIs; local fallback uses an Ollama-compatible loopback endpoint. Native direct HTTP adapters for Groq, xAI/Grok and other OpenAI-compatible APIs are not implemented.",
+    "not_wired": [
+      "azure_openai_native_auth_and_deployment_versioning",
+      "aws_bedrock_sigv4",
+      "google_vertex_ai_oauth_service_accounts",
+      "cohere_native_api",
+      "huggingface_native_inference"
+    ],
+    "current_gap": "Direct adapters cover OpenAI Responses, Anthropic Messages, Gemini, Groq, xAI, OpenRouter, Together, Fireworks, DeepSeek, Mistral, Cerebras and Perplexity. Custom OpenAI-compatible HTTPS endpoints are supported with explicit hostname allowlisting. Live vendor credentials, model IDs, pricing, latency, streaming and provider-specific tool/schema behavior are not yet conformance-verified. Azure OpenAI native auth/deployment versioning, AWS Bedrock SigV4, Vertex AI OAuth/service accounts, Cohere native API and Hugging Face native inference require dedicated adapters.",
     "next_steps": [
-      "Keep MCP host compatibility separate from model-provider routing.",
-      "Add a governed OpenAI-compatible HTTP adapter with explicit HTTPS host allowlists, secret isolation, tool-call normalization, privacy routing and bounded budgets.",
-      "Add provider-specific conformance and live canary tests for Groq, xAI/Grok and any additional API provider before declaring support."
+      "Run opt-in read-only live canaries for each configured provider and store provider/model/build evidence.",
+      "Add native adapters for Azure OpenAI, AWS Bedrock, Vertex AI, Cohere and Hugging Face where the OpenAI-compatible adapter is insufficient.",
+      "Add streaming, model catalog, price/latency observations and per-provider retention/residency metadata.",
+      "Keep private and restricted task routing local-only and keep every remote provider attempt within the supervisor budget."
     ],
     "live_verified": false
   }
