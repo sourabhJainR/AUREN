@@ -532,6 +532,101 @@ class RemoteMCPASGITests(unittest.TestCase):
             discovered["auren.list_tasks"]["_meta"]["securitySchemes"],
         )
 
+    def test_modern_discovery_and_tool_list_are_stateless_and_cache_safe(self):
+        modern_meta = {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": {"name": "modern-test", "version": "1"},
+            "io.modelcontextprotocol/clientCapabilities": {},
+        }
+        status, headers, body = self.request(
+            body={"jsonrpc": "2.0", "id": "discover", "method": "server/discover",
+                  "params": {"_meta": modern_meta}},
+            extra_headers={
+                "mcp-protocol-version": "2026-07-28",
+                "mcp-method": "server/discover",
+            },
+        )
+        self.assertEqual(200, status)
+        self.assertEqual(b"2026-07-28", headers[b"mcp-protocol-version"])
+        discovery = json.loads(body)["result"]
+        self.assertEqual("complete", discovery["resultType"])
+        self.assertIn("2026-07-28", discovery["supportedVersions"])
+        self.assertIn("2025-11-25", discovery["supportedVersions"])
+        self.assertEqual(0, discovery["ttlMs"])
+        self.assertEqual("private", discovery["cacheScope"])
+        self.assertEqual(
+            "auren-operator-mcp",
+            discovery["_meta"]["io.modelcontextprotocol/serverInfo"]["name"],
+        )
+
+        status, _, body = self.request(
+            body={"jsonrpc": "2.0", "id": "list", "method": "tools/list",
+                  "params": {"_meta": modern_meta}},
+            extra_headers={
+                "mcp-protocol-version": "2026-07-28",
+                "mcp-method": "tools/list",
+            },
+        )
+        self.assertEqual(200, status)
+        result = json.loads(body)["result"]
+        self.assertEqual("complete", result["resultType"])
+        self.assertEqual(0, result["ttlMs"])
+        self.assertEqual("private", result["cacheScope"])
+        self.assertIn("auren.service_status", {tool["name"] for tool in result["tools"]})
+
+    def test_modern_tool_call_requires_matching_name_and_method_headers(self):
+        meta = {"io.modelcontextprotocol/protocolVersion": "2026-07-28"}
+        body = {
+            "jsonrpc": "2.0", "id": "call", "method": "tools/call",
+            "params": {"name": "auren.service_status", "arguments": {}, "_meta": meta},
+        }
+        status, _, response = self.request(
+            body=body,
+            extra_headers={
+                "mcp-protocol-version": "2026-07-28",
+                "mcp-method": "tools/call",
+                "mcp-name": "auren.service_status",
+            },
+        )
+        self.assertEqual(200, status)
+        result = json.loads(response)["result"]
+        self.assertEqual("complete", result["resultType"])
+        self.assertTrue(result["structuredContent"]["ready"])
+
+        status, _, response = self.request(
+            body=body,
+            extra_headers={
+                "mcp-protocol-version": "2026-07-28",
+                "mcp-method": "tools/list",
+                "mcp-name": "auren.service_status",
+            },
+        )
+        self.assertEqual(400, status)
+        self.assertEqual(-32020, json.loads(response)["error"]["code"])
+
+        status, _, response = self.request(
+            body=body,
+            extra_headers={
+                "mcp-protocol-version": "2026-07-28",
+                "mcp-method": "tools/call",
+                "mcp-name": "auren.list_tasks",
+            },
+        )
+        self.assertEqual(400, status)
+        self.assertEqual(-32020, json.loads(response)["error"]["code"])
+
+    def test_modern_request_requires_matching_protocol_envelope(self):
+        status, _, response = self.request(
+            body={"jsonrpc": "2.0", "id": 1, "method": "tools/list",
+                  "params": {"_meta": {"io.modelcontextprotocol/protocolVersion": "2025-11-25"}}},
+            extra_headers={
+                "mcp-protocol-version": "2026-07-28",
+                "mcp-method": "tools/list",
+            },
+        )
+        self.assertEqual(400, status)
+        self.assertEqual(-32020, json.loads(response)["error"]["code"])
+
     def test_invalid_origin_and_host_are_rejected(self):
         status, _, _ = self.request(
             body={"jsonrpc": "2.0", "id": 1, "method": "ping", "params": {}},
