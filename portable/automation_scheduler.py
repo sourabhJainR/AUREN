@@ -8,6 +8,7 @@ from __future__ import annotations
 import calendar
 import json
 import sqlite3
+from contextlib import closing
 from datetime import date, datetime, time, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -21,7 +22,7 @@ class AutomationScheduler(_AutomationScheduler):
             claim = schedule_or_claim
             status = claim_or_status
             resolved_detail = status_or_detail
-            with sqlite3.connect(self.path) as db:
+            with closing(sqlite3.connect(self.path)) as db, db:
                 row = db.execute("SELECT schedule_id FROM runs WHERE id=?", (claim,)).fetchone()
                 if row:
                     schedule_id = row[0]
@@ -40,7 +41,7 @@ class AutomationScheduler(_AutomationScheduler):
         return super().finish(schedule_or_claim, claim_or_status, status_or_detail, detail, now=now)
 
     def _schedule_by_id(self, schedule_id: str, claim: str | None = None) -> Schedule:
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             query = (
                 "SELECT id,task,interval_seconds,max_attempts,next_run,enabled,attempts "
                 "FROM schedules WHERE id=?" + (" AND claim=?" if claim is not None else "")
@@ -52,7 +53,7 @@ class AutomationScheduler(_AutomationScheduler):
 
     def find_task(self, task: str) -> Schedule | None:
         """Return an exact schedule, migrating the legacy learning task once."""
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             row = db.execute(
                 "SELECT id,task,interval_seconds,max_attempts,next_run,enabled,attempts "
                 "FROM schedules WHERE task=? ORDER BY id LIMIT 1",
@@ -83,7 +84,7 @@ class AutomationScheduler(_AutomationScheduler):
 
     def disable_task(self, task: str) -> int:
         """Disable all exact-match schedules without deleting their history."""
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             updated = db.execute("UPDATE schedules SET enabled=0,claim=NULL WHERE task=?", (task,)).rowcount
         return int(updated)
 
@@ -176,11 +177,11 @@ class AutomationScheduler(_AutomationScheduler):
         if status == "success" and self.calendar_spec(schedule) is not None:
             next_run = self.next_calendar_run(schedule, now=finished_at)
             if next_run is not None:
-                with sqlite3.connect(self.path) as db:
+                with closing(sqlite3.connect(self.path)) as db, db:
                     db.execute("UPDATE schedules SET next_run=?,enabled=1,attempts=0 WHERE id=?", (next_run.isoformat(), schedule_id))
 
     def recent_runs(self, schedule_id: str, limit: int = 20) -> list[dict[str, str | None]]:
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             rows = db.execute(
                 "SELECT id,schedule_id,started_at,finished_at,status,detail FROM runs WHERE schedule_id=? ORDER BY finished_at DESC LIMIT ?",
                 (schedule_id, limit),
