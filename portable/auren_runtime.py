@@ -203,11 +203,6 @@ def iter_source_files(root: Path) -> list[Path]:
     if not resolver.is_file():
         raise SystemExit(f"required source file is missing: {resolver}")
     files.append(resolver)
-    local_mcp_requirements = root / "requirements-local-mcp.txt"
-    _reject_source_symlink(local_mcp_requirements)
-    if not local_mcp_requirements.is_file():
-        raise SystemExit(f"required local MCP dependency file is missing: {local_mcp_requirements}")
-    files.append(local_mcp_requirements)
     return sorted(set(files), key=lambda p: p.relative_to(root).as_posix())
 
 def sha256_file(path: Path) -> str:
@@ -348,7 +343,7 @@ def _manifest_record_path(root: Path, record_path: str) -> Path:
     relative = PurePosixPath(record_path)
     if record_path == LAUNCHER_PATH:
         return root / LAUNCHER_PATH
-    if record_path in {"auren_env_compat.py", "requirements-local-mcp.txt"}:
+    if record_path == "auren_env_compat.py":
         return root / PAYLOAD_ROOT / record_path
     if not any(record_path == prefix or record_path.startswith(f"{prefix}/") for prefix in REQUIRED_PATHS):
         raise SystemExit(f"unexpected manifest path: {record_path}")
