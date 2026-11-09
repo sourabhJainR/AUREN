@@ -230,6 +230,12 @@ class LocalMCPHostProcessTests(unittest.TestCase):
             root = Path(directory)
             project = root / "workspace"
             project.mkdir()
+            conflicting_package = project / "portable"
+            conflicting_package.mkdir()
+            (conflicting_package / "__init__.py").write_text(
+                "raise RuntimeError('workspace package must not shadow AUREN')\\n",
+                encoding="utf-8",
+            )
             state_home = root / "auren-home"
             factory = project / "auren_runtime_factory.py"
             factory.write_text(
