@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import math
 import sqlite3
+from contextlib import closing
 import threading
 import time
 import uuid
@@ -110,7 +111,7 @@ class ResponseDeliverySupervisor:
         self.registry_path.parent.mkdir(parents=True, exist_ok=True)
         self._budget_lock = threading.RLock()
         self._execution_guards: dict[str, RuntimeExecutionGuard] = {}
-        with sqlite3.connect(self.registry_path) as db:
+        with closing(sqlite3.connect(self.registry_path)) as db, db:
             db.execute(
                 "CREATE TABLE IF NOT EXISTS deliveries ("
                 "response_id TEXT NOT NULL, delivery_id TEXT NOT NULL, task_id TEXT NOT NULL UNIQUE, "
