@@ -382,13 +382,41 @@ class RemoteProviderPool:
                 providers.append(OpenAICompatibleProvider(spec, api_key=key, model=model, transport=transport))
         return cls(providers) if providers else None
 
+    def _providers_for(self, request: Any) -> tuple[OpenAICompatibleProvider, ...]:
+        requested = getattr(request, "provider_order", None)
+        if requested is None:
+            return self.providers
+        if (
+            not isinstance(requested, (tuple, list))
+            or not 1 <= len(requested) <= len(self.providers)
+            or not all(isinstance(name, str) and name.strip() for name in requested)
+        ):
+            raise RemoteProviderError("provider-pool", "per-request provider order is invalid", retryable=False)
+        names = tuple(name.strip().lower() for name in requested)
+        if len(names) != len(set(names)):
+            raise RemoteProviderError("provider-pool", "per-request provider order contains duplicates", retryable=False)
+        configured = {provider.spec.name: provider for provider in self.providers}
+        missing = [name for name in names if name not in configured]
+        if missing:
+            raise RemoteProviderError(
+                "provider-pool",
+                "requested provider is not configured: " + ", ".join(missing),
+                retryable=False,
+            )
+        return tuple(configured[name] for name in names)
+
+    def max_attempts_for(self, request: Any) -> int:
+        """Return the available retry count for the caller-selected configured chain."""
+        return len(self._providers_for(request))
+
     def __call__(self, request: Any) -> RemoteModelResponse:
         index = getattr(request, "provider_attempt", 0)
         if type(index) is not int or index < 0:
             raise ValueError("provider_attempt must be a non-negative integer")
-        if index >= len(self.providers):
+        providers = self._providers_for(request)
+        if index >= len(providers):
             raise RemoteProviderError("provider-pool", "configured provider chain is exhausted", retryable=False)
-        provider = self.providers[index]
+        provider = providers[index]
         return provider.complete(request.task, timeout_seconds=request.timeout_seconds)
 
 
