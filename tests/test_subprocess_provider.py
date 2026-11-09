@@ -273,6 +273,7 @@ class SubprocessProviderInvokerTests(unittest.TestCase):
 
             bounded = self.invoker(
                 "print('0123456789abcdefghijklmnopqrstuvwxyz')",
+                max_memory_bytes=512 * 1024 * 1024,
                 is_extension=True,
                 extension_metadata={**metadata, "requires_approval": False},
                 extension_trust_granted=True,
@@ -282,6 +283,34 @@ class SubprocessProviderInvokerTests(unittest.TestCase):
             )
             result = bounded("request", 2)
             self.assertLessEqual(len(result), 12)
+
+
+    def test_extension_provider_requires_explicit_memory_limit_before_launch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "provider-launched.txt"
+            command = f"import pathlib; pathlib.Path({str(marker)!r}).write_text('launched')"
+            metadata = {
+                "available": True,
+                "manifest_valid": True,
+                "trust_class": "trusted",
+                "requires_approval": False,
+                "permissions": ["provider:invoke"],
+                "provider_ids": ["provider-test"],
+                "artifact_fresh": True,
+                "output_limit_chars": 100,
+            }
+            provider = self.invoker(
+                command,
+                is_extension=True,
+                extension_metadata=metadata,
+                extension_trust_granted=True,
+                extension_permissions=("provider:invoke",),
+                extension_artifact_fresh=True,
+                extension_provider_id="provider-test",
+            )
+            with self.assertRaisesRegex(PermissionError, "extension_resource_memory_limit_required"):
+                provider("request", 2)
+            self.assertFalse(marker.exists())
 
     def test_extension_provider_scope_mismatch_denies_before_launch(self):
         with tempfile.TemporaryDirectory() as directory:
