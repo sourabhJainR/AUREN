@@ -80,6 +80,18 @@ class TaskPlannerTests(unittest.TestCase):
             plan.bind_engineering_readiness("implement", SimpleNamespace(to_dict=lambda: receipt))
 
 
+    def test_task_plan_retains_department_owner_and_remediation(self) -> None:
+        task = Task(
+            "implement", "Implement feature", tags=["engineering"],
+            department="Platform Engineering", owner_role_id="ENG-02",
+            remediation_steps=["Add missing deployment evidence", "Re-run acceptance"],
+        )
+        plan = TaskPlan([task])
+        self.assertEqual("Platform Engineering", plan.tasks["implement"].department)
+        self.assertEqual("ENG-02", plan.tasks["implement"].owner_role_id)
+        self.assertEqual(["Add missing deployment evidence", "Re-run acceptance"], plan.tasks["implement"].remediation_steps)
+
+
 
 if __name__ == "__main__":
     unittest.main()
