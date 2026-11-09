@@ -19,7 +19,7 @@ AUREN already has a strong cross-host foundation: `AGENTS.md`, `CLAUDE.md`, `GEM
 
 The main gap is not the engineering workflow. It is the last-mile product integration:
 
-1. AUREN now has an authenticated remote Streamable HTTP MCP service and a broader operator tool surface. It is implemented in the repository but not yet deployed or live-tested with vendor clients.
+1. AUREN now has an authenticated remote Streamable HTTP MCP service and a broader operator tool surface. It advertises MCP 2026-07-28 stateless mode and retains the 2025 handshake for older hosts. It is implemented in the repository but not yet deployed or live-tested with vendor clients.
 2. The service uses an external OAuth authorization server for hosted-client login. AUREN validates issuer, audience, expiry and scopes through token introspection; it does not implement the authorization server, PKCE, DCR or CIMD itself.
 3. Codex, Claude, Gemini, Cursor and VS Code remote MCP setup paths are documented. Client-specific OAuth and desktop/IDE acceptance remains open.
 4. Claude web and Claude Desktop support remote MCP connectors; this does not give those chat surfaces local filesystem access. AUREN executes tasks on its configured host.
@@ -40,7 +40,7 @@ The main gap is not the engineering workflow. It is the last-mile product integr
 | Claude Code CLI | Repository configured | `CLAUDE.md`, skill, plugin, hooks, remote MCP | Live provider and permission-mode checks |
 | Claude Desktop | Partial | Remote MCP Connectors and Claude Code Code tab | Connector/OAuth acceptance not recorded; remote tools execute on AUREN host |
 | Claude Code for VS Code | Repository configured | `CLAUDE.md`, skill, plugin and remote MCP | VS Code extension smoke test not in CI |
-| Microsoft Visual Studio IDE | Partial | GitHub Copilot MCP host with AUREN remote Streamable HTTP | No AUREN-specific Visual Studio extension or live acceptance test |
+| Microsoft Visual Studio IDE | Repository configured | Visual Studio 2022 17.14+/2026 `.mcp.json`, GitHub Copilot MCP host, remote Streamable HTTP | Live AUREN OAuth, tool approval and task lifecycle acceptance remain open |
 | Gemini CLI | Repository configured | `GEMINI.md`, `AGENTS.md`, skill, remote HTTP MCP, headless mode | OAuth and host smoke test not recorded; some consumer plans have moved to Antigravity |
 | Gemini Code Assist in VS Code | Partial | Agent mode can use MCP through Gemini CLI settings | AUREN connection not tested; product/plan-specific migration applies |
 | Cursor | Partial | `AGENTS.md`, skills, `.cursor/rules/auren.mdc`, remote MCP | OAuth and local/cloud/SSH acceptance still open |
@@ -69,7 +69,7 @@ The main gap is not the engineering workflow. It is the last-mile product integr
 
 The machine-readable declarations live in `.ai-harness/PROVIDER_MATRIX.json`. The values there distinguish product integration from model-provider support.
 
-See [MCP Host Compatibility](MCP_HOST_COMPATIBILITY.md) for host-specific setup examples and a per-client acceptance checklist, [Orchestrator Integrations](ORCHESTRATOR_INTEGRATIONS.md) for OpenAI Agents SDK, AutoGen, Pydantic AI, LangChain/LangGraph and n8n, and [Model Provider Integration](MODEL_PROVIDER_INTEGRATION.md) for direct API configuration and privacy boundaries.
+See [MCP Host Compatibility](MCP_HOST_COMPATIBILITY.md) for host-specific setup examples and a per-client acceptance checklist, [Orchestrator Integrations](ORCHESTRATOR_INTEGRATIONS.md) for OpenAI Agents SDK, AutoGen, Pydantic AI, LangChain/LangGraph, n8n, CrewAI, Semantic Kernel, Haystack, Flowise and OpenHands, and [Model Provider Integration](MODEL_PROVIDER_INTEGRATION.md) for direct API configuration, per-request provider choice and privacy boundaries.
 
 ## Agent orchestration connectors
 
@@ -82,8 +82,13 @@ AUREN's remote Streamable HTTP MCP endpoint is the common integration contract f
 | Pydantic AI | `MCPToolset` with per-run auth | Example documented | Live per-user session and tool acceptance |
 | LangChain / LangGraph | `langchain-mcp-adapters` | Adapter path documented | Version-pinned sample and live graph acceptance |
 | n8n | MCP Client Tool node | Setup documented | Live workflow acceptance and credential-scope validation |
+| Semantic Kernel / Microsoft Agent Framework | Remote MCP plugin/tool integration | Example documented | Pin package line and validate OAuth, lifecycle and permissions |
+| Haystack | `mcp-haystack` Streamable HTTP toolset | Example documented | Verify bearer/OAuth support in pinned integration version |
+| Flowise | Custom MCP client node / Agentflow | Setup documented | Validate OAuth credential storage and approval handling |
+| OpenHands local | Local or remote SHTTP MCP | Partial | Verify AUREN OAuth; OpenHands Cloud path is not assumed |
+| Dify | Plugin/API extension, not verified native MCP client | Not native | Dedicated Dify plugin and tenant credential/approval validation |
 | OpenHands local | Local MCP configuration | Partial | Version-specific configuration and acceptance |
-| CrewAI | No AUREN-specific adapter verified | Not verified | Confirm current MCP client support, then add a version-pinned example and test |
+| CrewAI | Remote Streamable HTTP `MCPServerHTTP` agent integration | Example documented | Pin SDK and validate AUREN OAuth, tool filtering and task lifecycle |
 
 The framework examples use AUREN's remote endpoint, not a separate framework-specific execution engine. The authenticated principal, workspace binding, idempotency, approval and evidence contracts remain on the AUREN side. A framework's model provider remains independently selectable.
 
