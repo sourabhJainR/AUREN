@@ -608,7 +608,7 @@ class AurenMCPService:
             "lifecycle": project_lifecycle("trigger_task", reported_status),
             "runtime_lifecycle": project_lifecycle(
                 "progress_task",
-                runtime_progress.get("reported_state") or runtime_progress.get("state"),
+                runtime_progress.get("state") or runtime_progress.get("reported_state"),
             ),
             "execution_status": execution_status,
             "completion_verified": str(execution_status).lower() in {"completed", "complete", "success"},
@@ -634,7 +634,7 @@ class AurenMCPService:
             "lifecycle": project_lifecycle("controller_task", task.state),
             "progress_lifecycle": project_lifecycle(
                 "progress_task",
-                progress.get("reported_state") or progress.get("state"),
+                progress.get("state") or progress.get("reported_state"),
             ),
             "attempts": task.attempts,
             "work_unit_id": task.work_unit_id, "deadline_at": task.deadline_at,
@@ -938,7 +938,7 @@ class AurenMCPService:
             for raw in progress[-limit:][::-1]:
                 item = dict(raw)
                 item["lifecycle"] = project_lifecycle(
-                    "progress_task", item.get("reported_state") or item.get("state"),
+                    "progress_task", item.get("state") or item.get("reported_state"),
                 )
                 controller_tasks.append(_safe_value(item))
             return {
