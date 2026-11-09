@@ -189,13 +189,22 @@ def load_project_profile(project_root: str | Path) -> tuple[Path, dict[str, Any]
     if profile.get("schema_version") != "auren-project-profile-v1":
         raise OnboardingError("unsupported AUREN project profile schema")
     mode = profile.get("runtime_mode", "single_user_local")
-    if mode not in _RUNTIME_MODES:
+    if not isinstance(mode, str) or mode not in _RUNTIME_MODES:
         raise OnboardingError("project profile has an unsupported runtime_mode")
     managed = profile.get("managed_runtime", {"enabled": mode == "managed", "runtime_factory": None})
     if not isinstance(managed, dict) or type(managed.get("enabled")) is not bool:
         raise OnboardingError("managed_runtime configuration is invalid")
-    if mode == "single_user_local" and managed.get("enabled") is not False:
-        raise OnboardingError("single-user local mode cannot enable managed runtime components")
+    factory = managed.get("runtime_factory")
+    if factory is not None and (
+        not isinstance(factory, str) or ":" not in factory
+        or any(not part.strip() for part in factory.split(":", 1))
+        or any(ch.isspace() for ch in factory)
+    ):
+        raise OnboardingError("managed_runtime.runtime_factory must use module.path:function")
+    if mode == "single_user_local" and (
+        managed.get("enabled") is not False or factory is not None
+    ):
+        raise OnboardingError("single-user local mode cannot enable or retain managed runtime components")
     if mode == "managed" and managed.get("enabled") is not True:
         raise OnboardingError("managed mode requires explicit managed_runtime.enabled=true")
     return profile_path, profile
@@ -210,7 +219,7 @@ def set_runtime_mode(
     Single-user local is the default and never accepts a runtime factory.
     Managed mode is an explicit opt-in and may name an advanced trusted factory.
     """
-    if mode not in _RUNTIME_MODES:
+    if not isinstance(mode, str) or mode not in _RUNTIME_MODES:
         raise OnboardingError(f"runtime mode must be one of: {', '.join(sorted(_RUNTIME_MODES))}")
     if mode == "single_user_local" and runtime_factory:
         raise OnboardingError("runtime factories are not part of single-user local setup")
