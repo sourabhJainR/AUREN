@@ -224,6 +224,11 @@ class AdaptiveTrigger:
             futures = tuple(self._futures)
         if wait_for_background and futures:
             wait(futures)
+        with self._lock:
+            self._futures.clear()
+            # Break the runtime/service reference chain after graceful shutdown.
+            # A closed adapter is recreated by for_runtime() if the runtime is reused.
+            self.runner = None
 
 
 def trigger_adaptive_runtime(
