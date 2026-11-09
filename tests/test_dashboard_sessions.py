@@ -374,6 +374,41 @@ class WorkspaceInventoryTests(unittest.TestCase):
         })
         self.assertNotIn("/private", json.dumps(rows))
 
+    def test_workspace_registry_reader_states_keep_adoption_and_shutdown_distinct(self):
+        registry = self.root / "workspace-lifecycle.sqlite3"
+        connection = sqlite3.connect(registry)
+        connection.execute(
+            """CREATE TABLE graph_workspace_registry (
+                worker_id TEXT PRIMARY KEY, task_id TEXT, base_revision TEXT NOT NULL,
+                owned_paths TEXT NOT NULL, workspace_path TEXT NOT NULL,
+                state TEXT NOT NULL, artifact_path TEXT, artifact_digest TEXT,
+                proposal_paths TEXT, cancellation_reason TEXT, termination_evidence TEXT
+            )"""
+        )
+        for index, state in enumerate(("adopted", "cleaned", "stopped", "cancel_requested")):
+            connection.execute(
+                """INSERT INTO graph_workspace_registry
+                   (worker_id,task_id,base_revision,owned_paths,workspace_path,state,proposal_paths)
+                   VALUES(?,?,?,?,?,?,?)""",
+                (f"worker-{index}", f"task-{index}", "a" * 40, "[]",
+                 f"/private/worktree/{index}", state, "[]"),
+            )
+        connection.commit()
+        connection.close()
+
+        inventory = self.adapter(workspace_registry_reader(registry)).session_snapshot()["workspaces"]
+        projected = {row["status"]: row["lifecycle"] for row in inventory["records"]}
+        self.assertEqual(projected["adopted"]["category"], "succeeded")
+        self.assertTrue(projected["adopted"]["terminal"])
+        self.assertEqual(projected["cleaned"]["category"], "succeeded")
+        self.assertTrue(projected["cleaned"]["terminal"])
+        self.assertEqual(projected["stopped"]["category"], "cancelled")
+        self.assertTrue(projected["stopped"]["terminal"])
+        self.assertEqual(projected["cancel_requested"]["category"], "waiting")
+        self.assertFalse(projected["cancel_requested"]["terminal"])
+        self.assertTrue(projected["cancel_requested"]["attention_required"])
+
+
     def test_workspace_registry_reader_requires_absolute_existing_non_symlink_path(self):
         relative_reader = workspace_registry_reader("relative/workspace-registry.sqlite3")
         with self.assertRaisesRegex(ValueError, "must be absolute"):
