@@ -99,8 +99,9 @@ Do not block the repository implementation merge on these external inputs. Do no
 ### P1 — Extensions and provider adapters
 
 - [x] Data-only extension manifest validates names, semantic versions, capabilities, trust labels, permissions, output limits, and timeouts.
-- [x] Command-backed provider invocation uses an absolute executable, explicit working directory, no shell, a minimal environment, a timeout, and a response byte check. This does not sandbox arbitrary extension code or strictly bound output memory before process exit.
-- [ ] Add an adapter host that executes untrusted extensions in a bounded process with explicit IPC, no inherited secrets, restricted filesystem/network access, and forced termination.
+- [x] Command-backed provider invocation uses an absolute executable, explicit working directory, no shell, a minimal environment, bounded streaming output, timeout, and process-tree cleanup. Extension invocations fail closed unless an explicit OS memory ceiling is configured. This is resource control, not filesystem/network isolation.
+- [x] Forward supervisor SIGTERM into the nested provider process group; a regression test verifies that nested descendants do not survive wrapper cancellation.
+- [ ] Add a complete adapter host for untrusted extensions with explicit IPC, restricted filesystem/network access, credential isolation, and independently verified forced termination. The local subprocess boundary is not a hostile-code sandbox.
 - [ ] Add compatibility negotiation, permission grants, capability revocation, health/circuit-breaker behavior, bounded output, and pinned provider identity.
 - [ ] Test malformed manifests, downgrade attempts, timeout, crash, oversized output, permission escalation, duplicate registration, and rollback.
 
