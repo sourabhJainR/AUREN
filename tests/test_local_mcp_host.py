@@ -4,10 +4,16 @@ import asyncio
 import io
 import json
 import os
+import queue
+import signal
 import stat
+import subprocess
+import sys
 import tempfile
 import threading
+import time
 import unittest
+import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from unittest.mock import patch
@@ -211,6 +217,106 @@ class LocalMCPHostTests(unittest.TestCase):
             self.assertGreater(server.server_address[1], 0)
         finally:
             server.server_close()
+
+
+@unittest.skipUnless(
+    os.name != "nt" and __import__("importlib.util").util.find_spec("uvicorn"),
+    "live local host acceptance requires POSIX signal handling and optional uvicorn",
+)
+class LocalMCPHostProcessTests(unittest.TestCase):
+    def test_local_command_starts_both_services_and_shuts_them_down(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project = root / "workspace"
+            project.mkdir()
+            state_home = root / "auren-home"
+            factory = project / "auren_runtime_factory.py"
+            factory.write_text(
+                "from pathlib import Path\n"
+                "from portable.adaptive_runtime import AdaptiveRuntime\n"
+                "from portable.orchestration import Graph, Node, NodeKind\n"
+                "def create_runtime(*, project_root):\n"
+                "    root = Path(project_root)\n"
+                "    graph = Graph([Node('local-smoke', NodeKind.DETERMINISTIC, lambda _state: 'ready')])\n"
+                "    return AdaptiveRuntime(graph, state_root=root / '.auren-runtime')\n",
+                encoding="utf-8",
+            )
+            repo_root = Path(__file__).resolve().parents[1]
+            env = os.environ.copy()
+            env["AUREN_HOME"] = str(state_home)
+            env.pop("AUREN_MCP_RUNTIME_FACTORY", None)
+            process = subprocess.Popen(
+                [
+                    sys.executable, str(repo_root / "auren_cli.py"), "local",
+                    "--project-root", str(project),
+                    "--runtime-factory", "auren_runtime_factory:create_runtime",
+                ],
+                cwd=repo_root, env=env, stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT, text=True, bufsize=1,
+            )
+            lines: queue.Queue[str] = queue.Queue()
+
+            def collect_output():
+                assert process.stdout is not None
+                for line in process.stdout:
+                    lines.put(line.rstrip("\\r\\n"))
+
+            reader = threading.Thread(target=collect_output, daemon=True)
+            reader.start()
+            output = []
+            try:
+                deadline = time.monotonic() + 30
+                while time.monotonic() < deadline:
+                    if process.poll() is not None and lines.empty():
+                        break
+                    try:
+                        line = lines.get(timeout=0.2)
+                    except queue.Empty:
+                        continue
+                    output.append(line)
+                    if line == "AUREN local services are ready.":
+                        break
+                self.assertIn("AUREN local services are ready.", output, "\\n".join(output))
+                dashboard_line = next(line for line in output if line.startswith("Observation console: "))
+                mcp_line = next(line for line in output if line.startswith("MCP endpoint: "))
+                dashboard_url = dashboard_line.split(": ", 1)[1]
+                mcp_url = mcp_line.split(": ", 1)[1]
+                with urllib.request.urlopen(dashboard_url.rsplit("/", 1)[0] + "/api/health", timeout=3) as response:
+                    dashboard_health = json.loads(response.read().decode("utf-8"))
+                self.assertEqual("ready", dashboard_health["readiness"])
+                with urllib.request.urlopen(mcp_url.rsplit("/", 1)[0] + "/readyz", timeout=3) as response:
+                    self.assertEqual(200, response.status)
+
+                token = (state_home / "mcp" / "local-operator.token").read_text(encoding="utf-8").strip()
+                request_body = json.dumps({
+                    "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-11-25", "capabilities": {},
+                        "clientInfo": {"name": "local-process-test", "version": "1"},
+                    },
+                }).encode("utf-8")
+                request = urllib.request.Request(
+                    mcp_url, data=request_body, method="POST",
+                    headers={
+                        "Authorization": "Bearer " + token,
+                        "Content-Type": "application/json",
+                        "Accept": "application/json, text/event-stream",
+                    },
+                )
+                with urllib.request.urlopen(request, timeout=5) as response:
+                    initialized = json.loads(response.read().decode("utf-8"))
+                    self.assertEqual(200, response.status)
+                    self.assertEqual("2025-11-25", initialized["result"]["protocolVersion"])
+            finally:
+                if process.poll() is None:
+                    process.send_signal(signal.SIGTERM)
+                    try:
+                        process.wait(timeout=20)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait(timeout=5)
+                reader.join(timeout=2)
+            self.assertEqual(0, process.returncode, "\\n".join(output))
 
 
 class LocalMCPStdioProxyTests(unittest.TestCase):
