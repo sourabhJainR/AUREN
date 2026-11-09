@@ -42,13 +42,48 @@ The main gap is not the engineering workflow. It is the last-mile product integr
 | Gemini CLI | Repository configured | `GEMINI.md`, `AGENTS.md`, skill, MCP, headless mode | Corrected MCP command needs host smoke test |
 | Gemini Code Assist in VS Code | Partial | Repository instructions; Gemini CLI companion as a separate path | No dedicated Code Assist package or test |
 | Cursor | Partial | `AGENTS.md`, `.agents/skills`, MCP | Cursor rule and setup were missing; Cloud Agent behavior needs separate validation |
-| Groq API | Not wired | OpenAI-compatible API and remote MCP are available upstream | No AUREN API provider adapter |
+| Groq API | Partial | Native AUREN adapter for Groq Chat Completions; guarded provider failover | Live credentials, current model IDs, cost/latency and rate-limit conformance remain unverified |
 | Grok chat web | Chat only | Supplied context only | No AUREN repository execution surface |
-| xAI API / Grok API | Not wired | OpenAI-compatible Responses API and remote MCP are available upstream | No AUREN API provider adapter |
+| xAI API / Grok API | Partial | Native AUREN adapter for xAI Chat Completions; guarded provider failover | Live credentials, current model IDs and xAI-specific tool/approval semantics remain unverified |
 | Grok Build CLI | Partial | Remote MCP is available upstream | No AUREN-specific local CLI/skill package |
 | GitHub Copilot | Repository configured | `AGENTS.md`, `.github/copilot-instructions.md`, skills, MCP | Copilot Agent-mode acceptance not in CI |
 
 The machine-readable declarations live in `.ai-harness/PROVIDER_MATRIX.json`. The values there distinguish product integration from model-provider support.
+
+## Direct model API adapters
+
+AUREN now includes a common bounded API adapter and ordered provider pool in `portable/remote_model_providers.py`, integrated with `HybridModelRouter`. The adapter set includes:
+
+- Anthropic Messages API
+- OpenAI Chat Completions API
+- Google Gemini through its OpenAI-compatible endpoint
+- Groq
+- xAI / Grok
+- OpenRouter
+- Together AI
+- Fireworks
+- DeepSeek
+- Mistral
+- Cerebras
+- Perplexity
+
+These are **repository-configured adapters, not live-verified vendor integrations**. They use fixed HTTPS provider endpoints, DNS-pinned guarded transport, bounded request/response sizes, per-provider credentials, explicit model IDs and normalized response/usage metadata. Provider tool calls are normalized for inspection only; AUREN does not execute them. Streaming, model-catalog discovery, provider-specific advanced features, cost-price tables and live credential acceptance are not included in this adapter slice.
+
+Configure only the providers you want to use. Keep API keys in the deployment secret manager or process environment, never in repository files or task context. For example:
+
+```bash
+export AUREN_REMOTE_PROVIDER_ORDER=groq,openai,xai
+export GROQ_API_KEY="<secret-from-secret-manager>"
+export GROQ_MODEL="<current-groq-model-id>"
+export OPENAI_API_KEY="<secret-from-secret-manager>"
+export OPENAI_MODEL="<current-openai-model-id>"
+export XAI_API_KEY="<secret-from-secret-manager>"
+export XAI_MODEL="<current-xai-model-id>"
+```
+
+The router attempts configured providers in the requested order. Each provider attempt consumes the existing shared execution budget; the provider chain cannot extend the task's retry or deadline budget. Remote inference is permitted only for tasks explicitly marked `public` or `non_sensitive`. Private and restricted tasks never fall back to remote providers. If no explicit `AUREN_REMOTE_PROVIDER_ORDER` is set, automatic remote API routing remains disabled.
+
+A provider being listed here does not mean its MCP host, IDE plugin, or desktop app is supported by the same adapter. Model APIs and MCP client integrations are separate compatibility layers.
 
 ## Important product distinctions
 
