@@ -327,12 +327,20 @@ class AurenMCPService:
         if not self.project_root.is_dir():
             raise ValueError("configured AUREN project_root must be an existing directory")
         parsed_resource = urlsplit(resource_url)
+        loopback_resource = parsed_resource.hostname in {"127.0.0.1", "localhost", "::1"}
+        local_http_resource = (
+            parsed_resource.scheme == "http" and loopback_resource and not require_https
+        )
         if (
-            parsed_resource.scheme != "https" or not parsed_resource.netloc
+            (parsed_resource.scheme != "https" and not local_http_resource)
+            or (not require_https and not loopback_resource)
+            or not parsed_resource.netloc
             or parsed_resource.username or parsed_resource.password
             or parsed_resource.query or parsed_resource.fragment
         ):
-            raise ValueError("MCP resource URL must be an absolute HTTPS URL without query or fragment")
+            raise ValueError(
+                "MCP resource URL must use HTTPS; disabling HTTPS is allowed only for loopback services"
+            )
         if authorization_server_url is not None:
             auth_url = urlsplit(authorization_server_url)
             if (
@@ -708,7 +716,13 @@ class AurenMCPService:
                     "destructiveHint": consequential,
                     "openWorldHint": consequential,
                 },
-                "_meta": {"securitySchemes": [{"type": "oauth2", "scopes": [scope]}]},
+                "_meta": {
+                    "securitySchemes": (
+                        [{"type": "oauth2", "scopes": [scope]}]
+                        if self.authorization_server_url
+                        else [{"type": "http", "scheme": "bearer"}]
+                    ),
+                },
             }
             if name == "auren.get_profile":
                 tool["outputSchema"] = {
