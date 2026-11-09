@@ -71,7 +71,7 @@ class EpisodeSkillReplayCorpus:
         self.project = project.strip()
         if not self.project:
             raise ValueError("project is required")
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS skill_replay_cases(
                 project TEXT NOT NULL, case_id TEXT NOT NULL, task_family TEXT NOT NULL,
                 task_id TEXT NOT NULL, source TEXT NOT NULL, expected_outcome TEXT NOT NULL,
@@ -86,7 +86,7 @@ class EpisodeSkillReplayCorpus:
                 replay_digest TEXT NOT NULL, promotion_evidence TEXT NOT NULL, promoted_at TEXT NOT NULL)""")
 
     def register(self, case: ReplayCase) -> None:
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute(
                 "INSERT OR REPLACE INTO skill_replay_cases VALUES(?,?,?,?,?,?,?)",
                 (self.project, case.case_id, case.task_family, case.task_id, case.source,
@@ -115,7 +115,7 @@ class EpisodeSkillReplayCorpus:
         placeholders = ",".join("?" for _ in excluded)
         clause = f" AND task_id NOT IN ({placeholders})" if excluded else ""
         args = [self.project, task_family, *excluded, limit]
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             rows = db.execute(
                 f"""SELECT case_id FROM skill_replay_cases
                     WHERE project=? AND task_family=?{clause}
@@ -132,7 +132,7 @@ class EpisodeSkillReplayCorpus:
         self.register(case)
         return case
     def case_ids(self, *, task_family: str | None = None, limit: int = 100) -> tuple[str, ...]:
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             if task_family:
                 rows = db.execute(
                     "SELECT case_id FROM skill_replay_cases WHERE project=? AND task_family=? ORDER BY case_id LIMIT ?",
@@ -146,7 +146,7 @@ class EpisodeSkillReplayCorpus:
         return tuple(row[0] for row in rows)
 
     def regression_case_ids(self, *, task_family: str | None = None, limit: int = 100) -> tuple[str, ...]:
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             if task_family:
                 rows = db.execute(
                     "SELECT case_id FROM skill_replay_cases WHERE project=? AND task_family=? AND source='regression_corpus' ORDER BY case_id LIMIT ?",
@@ -190,7 +190,7 @@ class EpisodeSkillReplayCorpus:
     def stage(self, *, episode: EngineeringEpisode, task_family: str, current_skill: str,
               candidate_skill: str, holdout_ids: Sequence[str], replay: ReplayResult,
               epoch_id: str) -> None:
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute(
                 "INSERT OR REPLACE INTO skill_evolution_staging VALUES(?,?,?,?,?,?,?,?,?,?)",
                 (self.project, epoch_id, episode.episode_id, task_family, current_skill,
@@ -205,7 +205,7 @@ class EpisodeSkillReplayCorpus:
             raise ValueError("promotion requires independent evidence")
         if not replay.passed or not independent_gate(replay):
             raise ValueError("independent replay gate did not pass")
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             row = db.execute(
                 "SELECT skill,candidate_skill,replay_digest,status FROM skill_evolution_staging WHERE project=? AND epoch_id=?",
                 (self.project, epoch_id),
@@ -225,7 +225,7 @@ class EpisodeSkillReplayCorpus:
         return row[1]
 
     def active_skill(self) -> str | None:
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             row = db.execute("SELECT skill FROM skill_evolution_active WHERE project=?", (self.project,)).fetchone()
         return row[0] if row else None
 
@@ -277,7 +277,7 @@ class EpisodeSkillEvolution:
         return tuple(ids)
 
     def failure_memory_rules(self, *, limit: int = 8) -> tuple[str, ...]:
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             rows = db.execute(
                 "SELECT text FROM memory WHERE project=? AND category='failure-dont' AND verified=1 ORDER BY confidence DESC,created_at DESC LIMIT ?",
                 (self.project, limit),
