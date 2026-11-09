@@ -70,6 +70,44 @@ def _safe(value: str, limit: int = 500) -> str:
         value = pattern.sub(r"\1[REDACTED]", value)
     return value
 
+
+def _safe_metadata(value: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """Validate and bound optional structured event metadata without a second store."""
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise ValueError("progress metadata must be a mapping")
+    try:
+        raw_encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("progress metadata must contain finite JSON-compatible values") from exc
+    if len(raw_encoded.encode("utf-8")) > 16_384:
+        raise ValueError("progress metadata exceeds the 16 KiB event limit")
+    hidden = {"authorization", "token", "access_token", "refresh_token", "password", "secret", "api_key"}
+    def sanitize(item: Any, depth: int = 0) -> Any:
+        if depth > 8:
+            raise ValueError("progress metadata nesting exceeds the configured limit")
+        if isinstance(item, Mapping):
+            return {
+                str(key): ("[REDACTED]" if str(key).lower() in hidden else sanitize(child, depth + 1))
+                for key, child in item.items()
+            }
+        if isinstance(item, (list, tuple)):
+            return [sanitize(child, depth + 1) for child in item]
+        if isinstance(item, str):
+            return _safe(item, 16_000)
+        if item is None or type(item) in {bool, int, float}:
+            return item
+        raise ValueError("progress metadata must contain only JSON-compatible values")
+    result = sanitize(value)
+    try:
+        encoded = json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("progress metadata must contain finite JSON-compatible values") from exc
+    if len(encoded.encode("utf-8")) > 16_384:
+        raise ValueError("progress metadata exceeds the 16 KiB event limit")
+    return result
+
 @dataclass(frozen=True)
 class ProgressEvent:
     sequence: int
@@ -85,6 +123,7 @@ class ProgressEvent:
     priority: int = 0
     parent_task_id: str | None = None
     decision_required: bool = False
+    metadata: dict[str, Any] | None = None
 
 class ProgressJournalCorruption(RuntimeError):
     """The append-only progress journal contains data that cannot be trusted."""
@@ -146,6 +185,17 @@ class ProgressJournal:
                         raise ProgressJournalCorruption(
                             f"progress journal has invalid field values at line {line_number}; writes and snapshots are blocked"
                         )
+                    if "metadata" in row and (not isinstance(row["metadata"], dict)):
+                        raise ProgressJournalCorruption(
+                            f"progress journal has invalid metadata at line {line_number}; writes and snapshots are blocked"
+                        )
+                    if "metadata" in row:
+                        try:
+                            _safe_metadata(row["metadata"])
+                        except (TypeError, ValueError) as exc:
+                            raise ProgressJournalCorruption(
+                                f"progress journal has invalid metadata at line {line_number}; writes and snapshots are blocked"
+                            ) from exc
                     rows.append(row)
         except UnicodeDecodeError as exc:
             raise ProgressJournalCorruption(
@@ -159,13 +209,14 @@ class ProgressJournal:
                evidence_ref: str | None = None, timestamp: str | None = None,
                priority: int | None = None, parent_task_id: str | None = None,
                decision_required: bool | None = None,
-               expected_sequence: int | None = None) -> ProgressEvent:
+               expected_sequence: int | None = None,
+               metadata: Mapping[str, Any] | None = None) -> ProgressEvent:
         return self._record(
             task_id, event, state=state, stage=stage, message=message,
             completed_units=completed_units, total_units=total_units,
             evidence_ref=evidence_ref, timestamp=timestamp, priority=priority,
             parent_task_id=parent_task_id, decision_required=decision_required,
-            expected_sequence=expected_sequence,
+            expected_sequence=expected_sequence, metadata=metadata,
             allow_terminal_correction=False,
         )
 
@@ -210,6 +261,7 @@ class ProgressJournal:
                 evidence_ref: str | None = None, timestamp: str | None = None,
                 priority: int | None = None, parent_task_id: str | None = None,
                 decision_required: bool | None = None, expected_sequence: int | None = None,
+                metadata: Mapping[str, Any] | None = None,
                 allow_terminal_correction: bool = False) -> ProgressEvent:
         if not task_id or not task_id.strip():
             raise ValueError("task_id must be non-empty")
@@ -256,10 +308,14 @@ class ProgressJournal:
                     total_units=total_units, evidence_ref=_safe(evidence_ref, 1000) if evidence_ref else None,
                     priority=effective_priority, parent_task_id=_safe(effective_parent, 200) if effective_parent else None,
                     decision_required=effective_decision,
+                    metadata=_safe_metadata(metadata),
                 )
                 self.path.parent.mkdir(parents=True, exist_ok=True)
                 with self.path.open("a", encoding="utf-8") as stream:
-                    stream.write(json.dumps(asdict(row), sort_keys=True, separators=(",", ":")) + "\n")
+                    payload = asdict(row)
+                    if payload.get("metadata") is None:
+                        payload.pop("metadata", None)
+                    stream.write(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n")
                     stream.flush()
                     os.fsync(stream.fileno())
                 return row

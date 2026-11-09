@@ -2396,6 +2396,42 @@ class ExecutionController:
         else:
             delegation_policy = None
         goal_text = goal or f"execute durable handler: {handler}"
+        if payload_copy.get("engineering_task") is True:
+            if stable_work_key is None:
+                raise ValueError("engineering tasks require a stable work_key for readiness and budget records")
+            from .engineering_readiness import (
+                EngineeringBudgetLedger, EngineeringReadinessBlocked,
+                EngineeringReadinessGate, infer_engineering_phase,
+            )
+            if any(name in payload_copy for name in (
+                "_auren_engineering_readiness", "_auren_engineering_readiness_digest",
+                "_auren_engineering_phase", "_auren_engineering_department",
+            )):
+                raise ValueError("engineering readiness fields are supervisor-owned")
+            axes = payload_copy.pop("engineering_readiness", None)
+            readiness_intent = hashlib.sha256(json.dumps(
+                {"handler": handler, "goal": goal_text, "payload": payload_copy},
+                sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
+            ).encode("utf-8")).hexdigest()
+            repository_identity = _git_repository_identity(self.root)
+            snapshot_digest = (
+                repository_identity[1] if repository_identity is not None
+                else hashlib.sha256(str(self.root).encode("utf-8")).hexdigest()
+            )
+            readiness = EngineeringReadinessGate(self.progress_journal).assess(
+                task_id=stable_work_key, work_key=stable_work_key,
+                intent_digest=readiness_intent,
+                repository_snapshot_digest=snapshot_digest,
+                axes=axes if isinstance(axes, Mapping) else {},
+            )
+            if not readiness.ready:
+                raise EngineeringReadinessBlocked(readiness)
+            phase = payload_copy.pop("engineering_phase", None) or infer_engineering_phase(handler, goal_text)
+            payload_copy["work_key"] = stable_work_key
+            payload_copy["_auren_engineering_task"] = True
+            payload_copy["_auren_engineering_readiness"] = readiness.to_dict()
+            payload_copy["_auren_engineering_readiness_digest"] = readiness.assessment_digest
+            payload_copy["_auren_engineering_phase"] = phase
         try:
             payload_json = json.dumps(
                 payload_copy, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
@@ -3213,6 +3249,14 @@ class ExecutionController:
             )
         safe_payload = dict(task.payload)
         safe_payload.pop("auren_dispatch", None)
+        for readiness_field in (
+            "_auren_engineering_task", "_auren_engineering_readiness",
+            "_auren_engineering_readiness_digest", "_auren_engineering_phase",
+            "_auren_engineering_department", "_auren_engineering_remediation",
+            "engineering_readiness", "auren_engineering_deadline_epoch",
+            "auren_engineering_budget_phase",
+        ):
+            safe_payload.pop(readiness_field, None)
         payload_digest = hashlib.sha256(
             json.dumps(safe_payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
         ).hexdigest()
@@ -3231,12 +3275,17 @@ class ExecutionController:
         # dispatch is not rejected before its handler starts. Preserve the historical
         # digest shape for older intents that predate these optional fields.
         extension_fields = {
-            "deadline_policy_seconds", "shared_budget_binding", "approval_evidence", "assignment_evidence",
+            "deadline_policy_seconds", "shared_budget_binding", "approval_evidence",
         }
         present_extension_fields = extension_fields.intersection(metadata)
+        has_assignment_evidence = "assignment_evidence" in metadata
         if present_extension_fields and present_extension_fields != extension_fields:
             raise EngineeringPlanCheckpointMismatch(
                 "queued dispatch has an incomplete budget/approval binding"
+            )
+        if has_assignment_evidence and not present_extension_fields:
+            raise EngineeringPlanCheckpointMismatch(
+                "queued dispatch has assignment evidence without its immutable budget binding"
             )
         if present_extension_fields:
             deadline_policy_seconds = metadata.get("deadline_policy_seconds")
@@ -3263,34 +3312,45 @@ class ExecutionController:
                 raise EngineeringPlanCheckpointMismatch(
                     "queued dispatch budget or approval binding is invalid"
                 ) from exc
-            assignment_evidence = metadata.get("assignment_evidence")
-            recorded_assignment = task.payload.get("_auren_agent_assignment")
-            if not isinstance(assignment_evidence, Mapping) or dict(assignment_evidence) != recorded_assignment:
+            binding.update({
+                "deadline_policy_seconds": deadline_policy_seconds,
+                "shared_budget_binding": shared_budget_binding,
+                "approval_evidence": approval_evidence,
+            })
+            if has_assignment_evidence:
+                assignment_evidence = metadata.get("assignment_evidence")
+                recorded_assignment = task.payload.get("_auren_agent_assignment")
+                if not isinstance(assignment_evidence, Mapping) or dict(assignment_evidence) != recorded_assignment:
+                    raise EngineeringPlanCheckpointMismatch(
+                        "queued task assignment envelope differs from its immutable dispatch binding"
+                    )
+                resolver = getattr(self, "_trusted_plan_assignment_resolver", None)
+                if not callable(resolver):
+                    raise EngineeringPlanCheckpointMismatch(
+                        "trusted assignment authority is not configured in this worker; refusing task execution"
+                    )
+                assignment_payload = dict(safe_payload)
+                assignment_payload.pop("_auren_agent_assignment", None)
+                try:
+                    refreshed_assignment = resolver({
+                        "run_id": run_id, "task_id": plan_task_id, "handler": task.handler,
+                        "dispatch_key": dispatch_key,
+                        "deadline_seconds": deadline_policy_seconds,
+                        "assignment_deadline_seconds": recorded_assignment.get("deadline_seconds"),
+                        "payload": assignment_payload, "recorded_assignment": dict(recorded_assignment),
+                    })
+                except Exception as exc:
+                    raise EngineeringPlanCheckpointMismatch(
+                        "queued specialist assignment is revoked or no longer authorized"
+                    ) from exc
+                if refreshed_assignment != dict(recorded_assignment):
+                    raise EngineeringPlanCheckpointMismatch(
+                        "queued specialist assignment changed after dispatch"
+                    )
+                binding["assignment_evidence"] = dict(assignment_evidence)
+            elif task.payload.get("_auren_agent_assignment") is not None:
                 raise EngineeringPlanCheckpointMismatch(
-                    "queued task assignment envelope differs from its immutable dispatch binding"
-                )
-            resolver = getattr(self, "_trusted_plan_assignment_resolver", None)
-            if not callable(resolver):
-                raise EngineeringPlanCheckpointMismatch(
-                    "trusted assignment authority is not configured in this worker; refusing task execution"
-                )
-            assignment_payload = dict(safe_payload)
-            assignment_payload.pop("_auren_agent_assignment", None)
-            try:
-                refreshed_assignment = resolver({
-                    "run_id": run_id, "task_id": plan_task_id, "handler": task.handler,
-                    "dispatch_key": dispatch_key,
-                    "deadline_seconds": deadline_policy_seconds,
-                    "assignment_deadline_seconds": recorded_assignment.get("deadline_seconds"),
-                    "payload": assignment_payload, "recorded_assignment": dict(recorded_assignment),
-                })
-            except Exception as exc:
-                raise EngineeringPlanCheckpointMismatch(
-                    "queued specialist assignment is revoked or no longer authorized"
-                ) from exc
-            if refreshed_assignment != dict(recorded_assignment):
-                raise EngineeringPlanCheckpointMismatch(
-                    "queued specialist assignment changed after dispatch"
+                    "queued specialist task is missing its immutable assignment evidence"
                 )
             if approval_evidence is not None:
                 approval_verifier = getattr(self, "_trusted_plan_approval_verifier", None)
@@ -3308,21 +3368,16 @@ class ExecutionController:
                     raise EngineeringPlanCheckpointMismatch(
                         "queued approval is revoked, expired, or no longer authorized"
                     )
-            binding.update({
-                "deadline_policy_seconds": deadline_policy_seconds,
-                "shared_budget_binding": shared_budget_binding,
-                "approval_evidence": approval_evidence,
-                "assignment_evidence": dict(assignment_evidence),
-            })
         binding_digest = hashlib.sha256(
             json.dumps(binding, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
         ).hexdigest()
-        if (
-            payload_digest != metadata.get("payload_digest")
-            or binding_digest != metadata.get("binding_digest")
-        ):
+        if payload_digest != metadata.get("payload_digest"):
             raise EngineeringPlanCheckpointMismatch(
-                "queued dispatch payload or binding digest is invalid"
+                "queued dispatch caller-intent payload digest is invalid"
+            )
+        if binding_digest != metadata.get("binding_digest"):
+            raise EngineeringPlanCheckpointMismatch(
+                "queued dispatch immutable binding digest is invalid"
             )
 
         # Validate the canonical checkpoint, intent, and immutable payload before
@@ -3629,6 +3684,17 @@ class ExecutionController:
             task.id, "preflight_started", state="running", stage="preflight",
             message="Checking dispatch policy, revision binding, and required evidence.",
         )
+        engineering_budget_receipt = None
+        engineering_budget_ledger = None
+        def complete_engineering_budget(outcome: str) -> None:
+            if engineering_budget_receipt is not None and engineering_budget_ledger is not None:
+                evidence_refs = tuple(
+                    str(item) for item in task.payload.get("evidence", ())
+                    if isinstance(item, str) and item.strip()
+                )
+                engineering_budget_ledger.complete(
+                    engineering_budget_receipt, outcome=outcome, evidence_refs=evidence_refs,
+                )
         try:
             if self._cancellation_requested(task.id):
                 raise TaskCancellationRequested("task cancellation requested before preflight")
@@ -3640,10 +3706,54 @@ class ExecutionController:
                 if deadline.tzinfo is None or datetime.now(timezone.utc) >= deadline.astimezone(timezone.utc):
                     raise TaskDeadlineExceeded("task deadline expired before preflight")
             self.heartbeat(task)
+            engineering_budget_receipt = None
+            if task.payload.get("_auren_engineering_task") is True:
+                from .engineering_readiness import (
+                    EngineeringBudgetLedger, EngineeringReadinessGate,
+                )
+                readiness = EngineeringReadinessGate(self.progress_journal).verify_payload(task.payload)
+                if not readiness.ready:
+                    raise RuntimeError("engineering readiness receipt is blocked")
+                work_key_value = task.payload.get("work_key")
+                if not isinstance(work_key_value, str) or not work_key_value.strip():
+                    raise ValueError("engineering task lost its stable work_key")
+                phase = str(task.payload.get("_auren_engineering_phase", "implementation"))
+                engineering_budget_ledger = EngineeringBudgetLedger(self.progress_journal)
+                engineering_budget_receipt = engineering_budget_ledger.begin(work_key_value, phase)
+                deadlines = [engineering_budget_receipt.cycle_deadline_epoch]
+                if engineering_budget_receipt.phase_deadline_epoch is not None:
+                    deadlines.append(engineering_budget_receipt.phase_deadline_epoch)
+                budget_deadline_epoch = min(deadlines)
+                task.payload["auren_engineering_deadline_epoch"] = budget_deadline_epoch
+                task.payload["auren_engineering_budget_phase"] = phase
+                budget_deadline_at = datetime.fromtimestamp(
+                    budget_deadline_epoch, timezone.utc,
+                ).isoformat()
+                effective_deadline_at = budget_deadline_at
+                if task.deadline_at is not None:
+                    current_deadline = datetime.fromisoformat(task.deadline_at)
+                    if current_deadline.tzinfo is None:
+                        raise TaskDeadlineExceeded("existing task deadline is not timezone-aware")
+                    if current_deadline.astimezone(timezone.utc) <= datetime.fromisoformat(budget_deadline_at):
+                        effective_deadline_at = task.deadline_at
+                with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
+                    cursor = db.execute(
+                        "UPDATE tasks SET deadline_at=? WHERE id=? AND state='running' "
+                        "AND lease_token=? AND lease_generation=?",
+                        (effective_deadline_at, task.id, task.lease_token, task.lease_generation),
+                    )
+                    if cursor.rowcount != 1:
+                        raise LeaseLostError("task lease changed while applying engineering budget deadline")
+                task = DurableTask(
+                    task.id, task.handler, task.payload, task.state, task.attempts,
+                    task.work_unit_id, lease_generation=task.lease_generation,
+                    lease_token=task.lease_token, deadline_at=effective_deadline_at,
+                )
             self._verify_engineering_plan_dispatch_checkpoint(task)
             self._verify_workflow_profile_binding(task)
             gates_passed, gate_detail, gate_evidence = self._preflight_gates(task)
             if not gates_passed:
+                complete_engineering_budget("failed")
                 if not self._finalize_claim(task, "failed"):
                     raise LeaseLostError("stale worker cannot finalize rejected task")
                 evidence = [f"handler:{task.handler}", *gate_evidence]
@@ -3721,6 +3831,7 @@ class ExecutionController:
             self._pause_for_approval(task, exc)
             return None
         except TaskDeadlineExceeded as exc:
+            complete_engineering_budget("failed")
             if not self._finalize_claim(task, "failed"):
                 raise LeaseLostError("task lease was lost; stale worker cannot finalize deadline failure") from exc
             detail = "Task deadline exceeded; handler result was not accepted."
@@ -3734,6 +3845,7 @@ class ExecutionController:
             self._record_progress(task.id, "task_terminal", state="failed", stage="terminal", message=detail)
             return None
         except TaskCancellationRequested as exc:
+            complete_engineering_budget("cancelled")
             if not self._finalize_claim(task, "cancelled"):
                 raise LeaseLostError(
                     "task lease was lost; stale worker cannot finalize cancellation"
@@ -3754,6 +3866,7 @@ class ExecutionController:
             )
             return None
         except ProviderOutcomeBlocked as exc:
+            complete_engineering_budget("blocked")
             if not self._finalize_claim(task, "blocked_reconciliation"):
                 raise LeaseLostError(
                     "task lease was lost; stale worker cannot finalize an ambiguous provider outcome"
@@ -3781,6 +3894,7 @@ class ExecutionController:
         except Exception as exc:
             if self._pause_for_quota(task, exc):
                 return None
+            complete_engineering_budget("failed")
             if not self._finalize_claim(task, "failed"):
                 raise LeaseLostError(
                     "task lease was lost; stale worker cannot overwrite the current task outcome"
@@ -3812,6 +3926,7 @@ class ExecutionController:
             success, detail = True, "handler completed"
 
         state = "completed" if success else "failed"
+        complete_engineering_budget("passed" if success else "failed")
         if not self._finalize_claim(task, state):
             raise LeaseLostError("task lease was lost; stale worker cannot finalize task outcome")
         self.company.record(task.work_unit_id, "execution", state, detail, evidence)

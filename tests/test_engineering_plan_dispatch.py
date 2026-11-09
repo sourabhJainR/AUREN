@@ -14,6 +14,7 @@ from portable.engineering_plan_store import EngineeringPlanStore
 from portable.engineering_plan_recovery import EngineeringPlanRecoveryBridge, EngineeringPlanCheckpointMismatch
 from portable.engineering_recovery import EngineeringRecoveryLedger
 from portable.execution_controller import ExecutionController
+from portable.engineering_readiness import EngineeringReadinessBlocked
 
 
 DISPATCH_HANDLER_CALLS = []
@@ -201,6 +202,28 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
             )
             self.assertEqual("pending", task.state)
             self.assertEqual(plan.digest, task.payload["auren_dispatch"]["plan_digest"])
+
+    def test_engineering_cycle_budget_becomes_supervisor_enforced_task_deadline(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            plan, run, packet, _, store, controller, bridge = prepared(tmp)
+            DISPATCH_HANDLER_CALLS.clear()
+            task = bridge.dispatch(
+                run_id=plan.run_id, task_id="implement", dispatch_key="dispatch-budget-deadline",
+                handler="dispatch-test", packet=packet, payload={"change": "bounded"},
+            )
+            # The test host supplies the same in-process capability marker as its trusted root.
+            controller._trusted_plan_dispatch_token = object()
+            controller.run_once(task.id)
+            completed = controller.task(task.id)
+            self.assertEqual("completed", completed.state)
+            self.assertIsNotNone(completed.deadline_at)
+            self.assertEqual(1, len(DISPATCH_HANDLER_CALLS))
+            self.assertIn("auren_deadline_epoch", DISPATCH_HANDLER_CALLS[0])
+            with sqlite3.connect(controller.db_path) as db:
+                deadline_at = db.execute(
+                    "SELECT deadline_at FROM tasks WHERE id=?", (task.id,),
+                ).fetchone()[0]
+            self.assertEqual(completed.deadline_at, deadline_at)
 
     def test_worker_revalidates_checkpoint_before_running_queued_handler(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
@@ -419,6 +442,23 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
             )
             self.assertEqual(first.id, resumed.id)
             self.assertEqual("pending", resumed.state)
+
+    def test_caller_cannot_supply_supervisor_owned_readiness_assessment(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            plan, run, packet, _, store, controller, bridge = prepared(tmp)
+            with self.assertRaisesRegex(ValueError, "supervisor-owned"):
+                bridge.dispatch(
+                    run_id=plan.run_id, task_id="implement",
+                    dispatch_key="dispatch-readiness-forgery", handler="dispatch-test",
+                    packet=packet, payload={"engineering_readiness": {
+                        "technology": {"status": "ready", "evidence_refs": ["invented:proof"]},
+                        "intent": {"status": "ready", "evidence_refs": ["invented:proof"]},
+                        "cognitive": {"status": "ready", "evidence_refs": ["invented:proof"]},
+                    }},
+                )
+            with sqlite3.connect(controller.db_path) as db:
+                self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
+
 
 
 if __name__ == "__main__":

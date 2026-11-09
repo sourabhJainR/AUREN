@@ -14,12 +14,32 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 from uuid import uuid4
+from types import SimpleNamespace
+
+from .engineering_readiness import (
+    EngineeringBudgetLedger, EngineeringReadinessBlocked,
+    EngineeringReadinessGate, department_for_role, infer_engineering_phase,
+)
 
 from .engineering_context_packet import EngineeringContextPacket
 from .engineering_plan import EngineeringPlan, EngineeringPlanRun
 from .engineering_plan_store import EngineeringPlanStore
 from .workflow_profile import resolve_profile
 from .workflow_profile_store import load_profile
+
+
+def _dispatch_payload_digest_json(payload: Mapping[str, Any]) -> str:
+    """Bind caller intent independently from the supervisor-owned readiness receipt."""
+    normalized = dict(payload)
+    for name in (
+        "_auren_engineering_task", "_auren_engineering_readiness",
+        "_auren_engineering_readiness_digest", "_auren_engineering_phase",
+        "_auren_engineering_department", "_auren_engineering_remediation",
+        "auren_engineering_deadline_epoch", "auren_engineering_budget_phase",
+    ):
+        normalized.pop(name, None)
+    normalized.pop("engineering_readiness", None)
+    return json.dumps(normalized, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
 class DispatchConflict(RuntimeError):
@@ -44,6 +64,11 @@ class EngineeringPlanDispatch:
         self.store = store
         self.controller = controller
         self.recovery_bridge = recovery_bridge
+        from .engineering_readiness import (
+            EngineeringBudgetLedger, EngineeringReadinessGate,
+        )
+        self.readiness_gate = EngineeringReadinessGate(controller.progress_journal)
+        self.budget_ledger = EngineeringBudgetLedger(controller.progress_journal)
         registry = getattr(controller, "_engineering_plan_recovery_bridges", None)
         if registry is None:
             registry = {}
@@ -332,7 +357,7 @@ class EngineeringPlanDispatch:
                 raise PermissionError("durable task work_key must equal the trusted dispatch identity")
         self._bind_workflow_profile(safe_payload)
         self._validate_payload_keys(safe_payload)
-        encoded_payload = json.dumps(safe_payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        encoded_payload = _dispatch_payload_digest_json(safe_payload)
         with sqlite3.connect(self.database_path, timeout=10) as db:
             db.row_factory = sqlite3.Row
             existing = db.execute(
@@ -340,6 +365,25 @@ class EngineeringPlanDispatch:
             ).fetchone()
         if existing is not None:
             plan, _current_run = self._load_plan_state(run_id)
+            prior_task = self.controller.task(str(existing["task_id"]))
+            if prior_task is None:
+                raise DispatchConflict("existing readiness dispatch points to a missing durable task")
+            prior_payload = dict(prior_task.payload)
+            # Reconstruct the same stable caller identity that was bound at enqueue.
+            safe_payload["work_key"] = key
+            safe_payload.pop("engineering_readiness", None)
+            for reserved_name in (
+                "_auren_engineering_task", "_auren_engineering_readiness",
+                "_auren_engineering_readiness_digest", "_auren_engineering_phase",
+                "_auren_engineering_department", "_auren_engineering_remediation",
+            ):
+                if reserved_name in prior_payload:
+                    safe_payload[reserved_name] = prior_payload[reserved_name]
+            if safe_payload.get("_auren_engineering_task") is True:
+                self.readiness_gate.verify_payload({
+                    **safe_payload, "work_key": key,
+                })
+            encoded_payload = _dispatch_payload_digest_json(safe_payload)
             if (
                 existing["run_id"] != run_id
                 or existing["plan_task_id"] != task_id
@@ -367,6 +411,35 @@ class EngineeringPlanDispatch:
             return self._replay_or_conflict(existing, binding, handler_name, encoded_payload)
 
         plan, run = self._verified_state(run_id, task_id, packet)
+        if any(name in safe_payload for name in (
+            "_auren_engineering_task", "_auren_engineering_readiness",
+            "_auren_engineering_readiness_digest", "_auren_engineering_phase",
+            "_auren_engineering_department", "_auren_engineering_remediation",
+            "engineering_readiness", "auren_engineering_deadline_epoch",
+            "auren_engineering_budget_phase",
+        )):
+            raise ValueError("engineering readiness and budget fields are supervisor-owned")
+        plan_task = next(item for item in plan.tasks if item.task_id == task_id)
+        readiness = self.readiness_gate.assess_packet(
+            work_key=key, plan=plan, task=plan_task, packet=packet,
+        )
+        if not readiness.ready:
+            raise EngineeringReadinessBlocked(readiness)
+        phase = infer_engineering_phase(handler_name, goal or "", plan_task.title)
+        safe_payload.update({
+            "work_key": key,
+            "_auren_engineering_task": True,
+            "_auren_engineering_readiness": readiness.to_dict(),
+            "_auren_engineering_readiness_digest": readiness.assessment_digest,
+            "_auren_engineering_phase": phase,
+            "_auren_engineering_department": str(
+                getattr(plan_task, "department", None) or department_for_role(
+                    getattr(plan_task, "owner_role_id", None)
+                )
+            ),
+            "_auren_engineering_remediation": list(getattr(plan_task, "remediation_steps", ()) or ()),
+        })
+        encoded_payload = _dispatch_payload_digest_json(safe_payload)
         execution_class = self.controller._handler_execution_class(handler_name)
         if execution_class not in {"read_only", "ci_gated", "consequential"}:
             raise ValueError("dispatch handler must have an explicit executable class")
