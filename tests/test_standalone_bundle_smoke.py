@@ -69,6 +69,9 @@ class StandaloneBundleSmokeTests(unittest.TestCase):
                 "def get_auren_env(suffix, default=None):\n    return default\n",
                 encoding="utf-8",
             )
+            (root / "requirements-local-mcp.txt").write_text(
+                "uvicorn[standard]>=0.35,<1\n", encoding="utf-8",
+            )
 
             state = root / ".ai-harness" / "learning"
             state.mkdir(parents=True, exist_ok=True)
