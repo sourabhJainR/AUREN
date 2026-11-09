@@ -283,7 +283,7 @@ Use the custom MCP app/connector setup in the ChatGPT workspace and point it at 
 
 The ChatGPT OAuth authorization server must support authorization-code flow with PKCE S256, the resource parameter and either Client ID Metadata Documents (CIMD) or Dynamic Client Registration (DCR). ChatGPT does not use machine-to-machine client-credentials grants or customer-supplied API keys for this flow. AUREN publishes protected-resource metadata and validates access tokens, but it does not implement the authorization server or client registration. ChatGPT also presents an OpenAI-managed client certificate; if client identity verification is required, enforce the current OpenAI certificate chain/SAN policy at the TLS ingress. Do not assume a public endpoint alone proves the caller is ChatGPT.
 
-Full MCP write/modify access is currently limited to eligible Business, Enterprise and Edu workspaces. Pro users can connect custom MCP servers with read/fetch permissions, while Free does not have the full custom MCP write path. ChatGPT desktop, Codex CLI and the IDE extension share MCP host configuration. The remote server still requires a live OAuth/client acceptance run for each product surface.
+Full MCP write/modify access is currently limited to eligible Business, Enterprise and Edu workspaces. Pro users can connect custom MCP servers with read/fetch permissions, while Free does not have the full custom MCP write path. Codex app, CLI and IDE extension share MCP host configuration. ChatGPT desktop is a separate product surface and is not covered by Codex settings; treat it as unverified until a dedicated connection path is tested. ChatGPT web's custom MCP flow is documented; mobile custom MCP is not supported.
 
 ### Groq, xAI/Grok and other model APIs
 
