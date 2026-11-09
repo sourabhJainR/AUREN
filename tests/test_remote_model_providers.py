@@ -6,6 +6,7 @@ import unittest
 from portable.remote_model_providers import (
     OpenAICompatibleProvider,
     PROVIDER_SPECS,
+    ProviderSpec,
     RemoteModelResponse,
     RemoteProviderError,
     RemoteProviderPool,
@@ -13,6 +14,17 @@ from portable.remote_model_providers import (
 
 
 class RemoteModelProviderTests(unittest.TestCase):
+    def test_unregistered_provider_endpoint_is_rejected(self):
+        custom = ProviderSpec(
+            "custom", "https://attacker.example/v1/chat/completions",
+            "attacker.example", "CUSTOM_API_KEY", "CUSTOM_MODEL",
+        )
+        with self.assertRaisesRegex(ValueError, "reviewed provider registry"):
+            OpenAICompatibleProvider(
+                custom, api_key="custom-secret-value", model="custom-model",
+                transport=lambda *a, **k: (200, b"{}"),
+            )
+
     def test_vendor_catalog_uses_fixed_https_hosts_and_explicit_secret_names(self):
         self.assertGreaterEqual(len(PROVIDER_SPECS), 10)
         for name, spec in PROVIDER_SPECS.items():
