@@ -33,6 +33,21 @@ Safe configuration templates for the CLI and IDE hosts are under [`integrations/
 
 "Documented" means a setup path is provided, not that a vendor application was installed and tested. All entries remain `live_verified=false` until a real acceptance receipt is attached.
 
+## Agent orchestration frameworks
+
+The same remote endpoint is available to frameworks that implement MCP clients. Version-pinned examples and auth guidance are maintained in [Orchestrator Integrations](ORCHESTRATOR_INTEGRATIONS.md).
+
+| Framework | MCP client implementation | Status |
+|---|---|---|
+| OpenAI Agents SDK | `MCPServerStreamableHttp` / hosted MCP | Example documented; live acceptance pending |
+| AutoGen | `StreamableHttpServerParams` / `mcp_server_tools` | Example documented; live acceptance pending |
+| Pydantic AI | `MCPToolset` | Example documented; live per-user auth acceptance pending |
+| LangChain / LangGraph | `langchain-mcp-adapters` | Adapter documented; pinned sample acceptance pending |
+| n8n | MCP Client Tool node | Workflow setup documented; live acceptance pending |
+| CrewAI | No AUREN-specific connector verified | Not yet verified; do not claim native support |
+
+These frameworks supply the agent loop and model selection. AUREN supplies governed engineering execution and its own authorization, approvals, idempotency and evidence. A model's tool-use capability does not grant additional AUREN permissions.
+
 ## OpenAI: ChatGPT, Codex and desktop
 
 ### Codex CLI, app and IDE extension
