@@ -121,11 +121,11 @@ return path from turning an unconfirmed side effect into a false success.
 For external-side-effect Vibe stages, the adapter must return a non-empty top-level `provider_operation_id` from the provider response. AUREN's local stable operation ID is not accepted as a substitute. If the provider-side ID is missing or malformed, the lifecycle remains `reconcile_required`; it does not mark the stage complete or redispatch on a later invocation. The provider ID is removed from the stage output before normal output validation and delivery.
 
 
-## Optional provider subprocess resource budgets
+## Provider subprocess resource budgets
 
-Command-backed providers using portable.subprocess_provider.SubprocessProviderInvoker may opt into max_memory_bytes and max_processes. POSIX applies RLIMIT_AS and RLIMIT_NPROC before execution; Windows configures Job Object memory and active-process limits before resuming the suspended child. Failure to configure requested limits fails the invocation rather than silently dropping the requested limit.
+Command-backed providers using portable.subprocess_provider.SubprocessProviderInvoker may opt into max_memory_bytes and max_processes. POSIX applies RLIMIT_AS and RLIMIT_NPROC before execution; Windows configures Job Object memory and active-process limits before resuming the suspended child. Failure to configure requested limits fails the invocation rather than silently dropping the requested limit. Calls marked is_extension=True must provide max_memory_bytes; an extension without an explicit memory ceiling is denied before process launch.
 
-POSIX RLIMIT_NPROC is per-user, not an isolated process-tree quota, and may behave differently for privileged users. These options are resource controls, not a hostile-code sandbox. Use the container-backed Arena or a separately administered VM/container for workloads requiring enforceable network, filesystem, and aggregate resource isolation.
+POSIX RLIMIT_AS limits each process's virtual address space and is inherited by descendants; it is not an aggregate process-tree memory quota. POSIX RLIMIT_NPROC is per-user, not an isolated process-tree quota, and may behave differently for privileged users. Windows Job Object memory and active-process limits apply to the contained job. These controls do not provide filesystem or network isolation and are not a hostile-code sandbox. Use a separately administered container/VM for enforceable aggregate resource, filesystem, and network isolation.
 
 
 ## Rollback

@@ -172,6 +172,32 @@ def _close_windows_job(process: subprocess.Popen[bytes]) -> None:
         setattr(process, "_auren_job_handle", None)
 
 
+def _install_parent_termination_forwarder(process: subprocess.Popen[bytes]):
+    """Forward a supervisor SIGTERM into this adapter's isolated POSIX process group."""
+    if os.name != "posix" or threading.current_thread() is not threading.main_thread():
+        return None
+    previous = signal.getsignal(signal.SIGTERM)
+
+    def forward(signum, frame) -> None:
+        # The provider has its own session so the caller can terminate its full
+        # process tree without signalling unrelated work in the supervisor.
+        SubprocessProviderInvoker._kill(process)
+        if callable(previous):
+            previous(signum, frame)
+            return
+        if previous == signal.SIG_IGN:
+            return
+        raise SystemExit(128 + signum)
+
+    signal.signal(signal.SIGTERM, forward)
+    return previous
+
+
+def _restore_parent_termination_handler(previous) -> None:
+    if previous is not None and os.name == "posix" and threading.current_thread() is threading.main_thread():
+        signal.signal(signal.SIGTERM, previous)
+
+
 class SubprocessProviderInvoker:
     """Invoke a provider in a bounded child process with explicit permissions."""
 
@@ -315,6 +341,8 @@ class SubprocessProviderInvoker:
             )
             if not extension_decision["allowed"]:
                 raise ExtensionInvocationDenied(";".join(extension_decision["reasons"]))
+            if self.max_memory_bytes is None:
+                raise ExtensionInvocationDenied("extension_resource_memory_limit_required")
         if not isinstance(prompt, str):
             raise TypeError("provider prompt must be text")
         if cancel_event is not None and not isinstance(cancel_event, threading.Event):
@@ -375,108 +403,112 @@ class SubprocessProviderInvoker:
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             shell=False, bufsize=0, **kwargs,
         )
-        _windows_job(process, max_memory_bytes=self.max_memory_bytes, max_processes=self.max_processes)
-        output = bytearray()
-        overflow = threading.Event()
-        read_error: list[BaseException] = []
-
-        def read_stdout() -> None:
-            assert process.stdout is not None
-            try:
-                while True:
-                    chunk = process.stdout.read(8192)
-                    if not chunk:
-                        return
-                    remaining = self.max_response_bytes + 1 - len(output)
-                    output.extend(chunk[:max(0, remaining)])
-                    if len(chunk) > remaining or len(output) > self.max_response_bytes:
-                        overflow.set()
-                        self._kill(process)
-                        return
-            except BaseException as exc:
-                read_error.append(exc)
-                self._kill(process)
-
-        def write_stdin() -> None:
-            try:
-                assert process.stdin is not None
-                process.stdin.write(payload)
-                process.stdin.close()
-            except (BrokenPipeError, OSError, ValueError):
-                pass
-
-        reader = threading.Thread(target=read_stdout, name="auren-provider-stdout", daemon=True)
-        writer = threading.Thread(target=write_stdin, name="auren-provider-stdin", daemon=True)
-        reader.start()
-        writer.start()
-        while process.poll() is None:
-            if cancel_event is not None and cancel_event.is_set():
-                self._kill(process)
-                try:
-                    process.wait(timeout=1.0)
-                except subprocess.TimeoutExpired:
-                    self._kill(process)
-                writer.join(timeout=0.2)
-                reader.join(timeout=0.2)
-                for stream in (process.stdin, process.stdout):
-                    if stream is not None:
-                        try:
-                            stream.close()
-                        except OSError:
-                            pass
-                raise InterruptedError("provider subprocess was cancelled and terminated")
-            remaining = timeout - (time.monotonic() - started)
-            if remaining <= 0:
-                self._kill(process)
-                try:
-                    process.wait(timeout=1.0)
-                except subprocess.TimeoutExpired:
-                    self._kill(process)
-                writer.join(timeout=0.2)
-                reader.join(timeout=0.2)
-                for stream in (process.stdin, process.stdout):
-                    if stream is not None:
-                        try:
-                            stream.close()
-                        except OSError:
-                            pass
-                raise TimeoutError("provider subprocess exceeded its deadline and was terminated")
-            try:
-                process.wait(timeout=min(0.05, remaining))
-            except subprocess.TimeoutExpired:
-                continue
-        writer.join(timeout=0.2)
-        reader.join(timeout=max(0.0, timeout - (time.monotonic() - started)))
-        if overflow.is_set():
-            raise ValueError("provider response exceeds configured byte limit")
-        if read_error:
-            raise SubprocessProviderError("provider response stream failed") from read_error[0]
-        if reader.is_alive():
-            self._kill(process)
-            raise TimeoutError("provider output stream did not close before its deadline")
-        # A provider may return successfully while a child process remains alive.
-        # Kill the process group (POSIX) or close the Job Object (Windows) before
-        # returning control to a consequential caller.
-        if os.name == "posix":
-            self._kill(process)
-        else:
-            _close_windows_job(process)
-        for stream in (process.stdin, process.stdout):
-            if stream is not None:
-                try:
-                    stream.close()
-                except OSError:
-                    pass
-        if process.returncode != 0:
-            raise SubprocessProviderError(f"provider subprocess exited with code {process.returncode}")
+        previous_sigterm_handler = _install_parent_termination_forwarder(process)
         try:
-            rendered = bytes(output).decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise ValueError("provider response must be UTF-8 text") from exc
-        if extension_decision is not None:
-            limit = extension_decision["output_limit_chars"]
-            if len(rendered) > limit:
-                suffix = "\n[output truncated by AUREN policy]"
-                rendered = rendered[:limit] if limit <= len(suffix) else rendered[:limit - len(suffix)] + suffix
-        return rendered
+            _windows_job(process, max_memory_bytes=self.max_memory_bytes, max_processes=self.max_processes)
+            output = bytearray()
+            overflow = threading.Event()
+            read_error: list[BaseException] = []
+
+            def read_stdout() -> None:
+                assert process.stdout is not None
+                try:
+                    while True:
+                        chunk = process.stdout.read(8192)
+                        if not chunk:
+                            return
+                        remaining = self.max_response_bytes + 1 - len(output)
+                        output.extend(chunk[:max(0, remaining)])
+                        if len(chunk) > remaining or len(output) > self.max_response_bytes:
+                            overflow.set()
+                            self._kill(process)
+                            return
+                except BaseException as exc:
+                    read_error.append(exc)
+                    self._kill(process)
+
+            def write_stdin() -> None:
+                try:
+                    assert process.stdin is not None
+                    process.stdin.write(payload)
+                    process.stdin.close()
+                except (BrokenPipeError, OSError, ValueError):
+                    pass
+
+            reader = threading.Thread(target=read_stdout, name="auren-provider-stdout", daemon=True)
+            writer = threading.Thread(target=write_stdin, name="auren-provider-stdin", daemon=True)
+            reader.start()
+            writer.start()
+            while process.poll() is None:
+                if cancel_event is not None and cancel_event.is_set():
+                    self._kill(process)
+                    try:
+                        process.wait(timeout=1.0)
+                    except subprocess.TimeoutExpired:
+                        self._kill(process)
+                    writer.join(timeout=0.2)
+                    reader.join(timeout=0.2)
+                    for stream in (process.stdin, process.stdout):
+                        if stream is not None:
+                            try:
+                                stream.close()
+                            except OSError:
+                                pass
+                    raise InterruptedError("provider subprocess was cancelled and terminated")
+                remaining = timeout - (time.monotonic() - started)
+                if remaining <= 0:
+                    self._kill(process)
+                    try:
+                        process.wait(timeout=1.0)
+                    except subprocess.TimeoutExpired:
+                        self._kill(process)
+                    writer.join(timeout=0.2)
+                    reader.join(timeout=0.2)
+                    for stream in (process.stdin, process.stdout):
+                        if stream is not None:
+                            try:
+                                stream.close()
+                            except OSError:
+                                pass
+                    raise TimeoutError("provider subprocess exceeded its deadline and was terminated")
+                try:
+                    process.wait(timeout=min(0.05, remaining))
+                except subprocess.TimeoutExpired:
+                    continue
+            writer.join(timeout=0.2)
+            reader.join(timeout=max(0.0, timeout - (time.monotonic() - started)))
+            if overflow.is_set():
+                raise ValueError("provider response exceeds configured byte limit")
+            if read_error:
+                raise SubprocessProviderError("provider response stream failed") from read_error[0]
+            if reader.is_alive():
+                self._kill(process)
+                raise TimeoutError("provider output stream did not close before its deadline")
+            # A provider may return successfully while a child process remains alive.
+            # Kill the process group (POSIX) or close the Job Object (Windows) before
+            # returning control to a consequential caller.
+            if os.name == "posix":
+                self._kill(process)
+            else:
+                _close_windows_job(process)
+            for stream in (process.stdin, process.stdout):
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except OSError:
+                        pass
+            if process.returncode != 0:
+                raise SubprocessProviderError(f"provider subprocess exited with code {process.returncode}")
+            try:
+                rendered = bytes(output).decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise ValueError("provider response must be UTF-8 text") from exc
+            if extension_decision is not None:
+                limit = extension_decision["output_limit_chars"]
+                if len(rendered) > limit:
+                    suffix = "\n[output truncated by AUREN policy]"
+                    rendered = rendered[:limit] if limit <= len(suffix) else rendered[:limit - len(suffix)] + suffix
+            return rendered
+        finally:
+            _restore_parent_termination_handler(previous_sigterm_handler)
 

@@ -6,6 +6,7 @@ import argparse
 import math
 import os
 import queue
+import signal
 import subprocess
 import sys
 import tempfile
@@ -20,7 +21,13 @@ from runtime.auto_compaction import compact
 from runtime.feedback_loop import FeedbackLoop
 from portable.local_llm import LocalLLMError, enabled as local_llm_enabled, fallback_allowed as local_llm_fallback_allowed, generate as local_llm_generate
 from portable.identity_compat import get_auren_env
-from portable.subprocess_provider import SubprocessProviderInvoker, _close_windows_job, _windows_job
+from portable.subprocess_provider import (
+    SubprocessProviderInvoker,
+    _close_windows_job,
+    _install_parent_termination_forwarder,
+    _restore_parent_termination_handler,
+    _windows_job,
+)
 from portable.agent_execution_guard import deny_unscoped_subprocess_for_assigned_agent
 
 _TRANSIENT_MARKERS = (
@@ -168,6 +175,7 @@ def _bounded_process_output(command: list[str], *, cwd: Path, env: dict[str, str
     elif os.name == "nt":
         kwargs["creationflags"] = getattr(subprocess, "CREATE_SUSPENDED", 0x00000004)
     process = subprocess.Popen(command, **kwargs)
+    previous_sigterm_handler = _install_parent_termination_forwarder(process)
     if os.name == "nt":
         _windows_job(process)
     chunks: queue.Queue = queue.Queue(maxsize=8)
@@ -235,6 +243,7 @@ def _bounded_process_output(command: list[str], *, cwd: Path, env: dict[str, str
                 pass
         raise
     finally:
+        _restore_parent_termination_handler(previous_sigterm_handler)
         # Drain bounded queued chunks after termination so the reader can exit.
         if reader.is_alive():
             drain_deadline = time.monotonic() + 2

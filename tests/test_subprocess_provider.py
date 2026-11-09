@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from portable.subprocess_provider import SubprocessProviderInvoker, SubprocessProviderError
+from portable.bounded_subprocess import run_bounded_command
 
 
 class SubprocessProviderInvokerTests(unittest.TestCase):
@@ -273,6 +274,7 @@ class SubprocessProviderInvokerTests(unittest.TestCase):
 
             bounded = self.invoker(
                 "print('0123456789abcdefghijklmnopqrstuvwxyz')",
+                max_memory_bytes=512 * 1024 * 1024,
                 is_extension=True,
                 extension_metadata={**metadata, "requires_approval": False},
                 extension_trust_granted=True,
@@ -282,6 +284,64 @@ class SubprocessProviderInvokerTests(unittest.TestCase):
             )
             result = bounded("request", 2)
             self.assertLessEqual(len(result), 12)
+
+
+
+    @unittest.skipUnless(os.name == "posix", "POSIX nested process-group propagation")
+    def test_supervisor_termination_is_forwarded_by_portable_provider_invoker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "nested-provider-survived.txt"
+            child_code = (
+                "import pathlib,sys,time; time.sleep(0.8); "
+                "pathlib.Path(sys.argv[1]).write_text('survived', encoding='utf-8')"
+            )
+            wrapper_code = (
+                "import os,sys; "
+                f"sys.path.insert(0, {str(ROOT)!r}); "
+                "from pathlib import Path; "
+                "from portable.subprocess_provider import SubprocessProviderInvoker; "
+                f"provider = SubprocessProviderInvoker([sys.executable, '-c', {child_code!r}, {str(marker)!r}], "
+                f"cwd=Path({str(ROOT)!r})); "
+                "provider('request', 10)"
+            )
+            result = run_bounded_command(
+                [sys.executable, "-c", wrapper_code],
+                timeout_seconds=0.3,
+                terminate_grace_seconds=0.2,
+            )
+            self.assertEqual("timed_out", result.status)
+            time.sleep(1.0)
+            self.assertFalse(
+                marker.exists(),
+                "portable provider descendants must not outlive supervisor cancellation",
+            )
+
+    def test_extension_provider_requires_explicit_memory_limit_before_launch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "provider-launched.txt"
+            command = f"import pathlib; pathlib.Path({str(marker)!r}).write_text('launched')"
+            metadata = {
+                "available": True,
+                "manifest_valid": True,
+                "trust_class": "trusted",
+                "requires_approval": False,
+                "permissions": ["provider:invoke"],
+                "provider_ids": ["provider-test"],
+                "artifact_fresh": True,
+                "output_limit_chars": 100,
+            }
+            provider = self.invoker(
+                command,
+                is_extension=True,
+                extension_metadata=metadata,
+                extension_trust_granted=True,
+                extension_permissions=("provider:invoke",),
+                extension_artifact_fresh=True,
+                extension_provider_id="provider-test",
+            )
+            with self.assertRaisesRegex(PermissionError, "extension_resource_memory_limit_required"):
+                provider("request", 2)
+            self.assertFalse(marker.exists())
 
     def test_extension_provider_scope_mismatch_denies_before_launch(self):
         with tempfile.TemporaryDirectory() as directory:
