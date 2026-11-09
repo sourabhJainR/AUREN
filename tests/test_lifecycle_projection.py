@@ -93,7 +93,7 @@ def test_projection_catalog_covers_authoritative_runtime_vocabularies():
     from portable.persistent_remediation_backlog import STATUSES as REMEDIATION_STATUSES
 
     vocabularies = (
-        ("workspace", ("running", "proposal_ready", "adopting", "adopted", "cleaned", "stopped", "cancel_requested", "failed", "unknown")),
+        ("workspace", ("running", "proposal_ready", "adopting", "adopted", "cleaned", "stopped", "cancel_requested", "failed")),
         ("learning_hypothesis", HYPOTHESIS_STATES),
         ("agency_execution", tuple(item.value for item in ExecutionState)),
         ("approval", APPROVAL_STATES),
@@ -128,7 +128,7 @@ def test_projection_catalog_covers_authoritative_runtime_vocabularies():
         ("admission_control", ("active", "paused", "audit_invalid")),
         ("release_action", ("shadow", "canary", "promote", "rollback")),
         ("work_unit", ("open", "created", "running", "waiting_ci", "waiting_external", "resolved", "completed", "failed", "cancelled")),
-        ("graph_worker", ("pending", "queued", "waiting", "working", "running", "adopting", "complete", "completed", "done", "failed", "cancelled", "blocked", "unknown")),
+        ("graph_worker", ("pending", "queued", "waiting", "working", "running", "adopting", "complete", "completed", "done", "failed", "cancelled", "blocked")),
         ("evidence_outbox", ("pending", "sending", "sent")),
     )
     for domain, states in vocabularies:
