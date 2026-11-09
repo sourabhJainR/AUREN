@@ -27,7 +27,7 @@ def validate_local_url(value: str) -> str:
         or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}
         or not parsed.port
         or parsed.username or parsed.password or parsed.query or parsed.fragment
-        or parsed.path.rstrip("/") != "/mcp"
+        or parsed.path != "/mcp"
     ):
         raise ValueError("stdio proxy URL must be a loopback HTTP /mcp endpoint with an explicit port")
     return value
@@ -93,7 +93,10 @@ def run_proxy(
     source = stdin or sys.stdin.buffer
     target = stdout or sys.stdout.buffer
     diagnostics = stderr or sys.stderr
-    for line in source:
+    while True:
+        line = source.readline(_MAX_REQUEST_BYTES + 1)
+        if not line:
+            break
         request_id = None
         try:
             if len(line) > _MAX_REQUEST_BYTES:
