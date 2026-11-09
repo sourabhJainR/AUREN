@@ -59,6 +59,7 @@ The main gap is not the engineering workflow. It is the last-mile product integr
 | Mistral API | Partial | Native OpenAI-compatible adapter | Live credentials and model-ID acceptance remain unverified |
 | Cerebras API | Partial | Native OpenAI-compatible adapter | Live credentials and model-ID acceptance remain unverified |
 | Perplexity API | Partial | Native OpenAI-compatible adapter | Live credentials and model-ID acceptance remain unverified |
+| Custom OpenAI-compatible API | Partial | Generic adapter with exact HTTPS hostname allowlist | Provider-specific behavior and live conformance remain unverified |
 | Cline IDE / CLI | Partial | Remote Streamable HTTP MCP and OAuth | No AUREN live host acceptance |
 | Roo Code | Partial | Project/global MCP configuration | No AUREN live host acceptance |
 | Continue | Partial | MCP in Agent mode; remote Streamable HTTP | No AUREN live host acceptance |
@@ -74,7 +75,7 @@ See [MCP Host Compatibility](MCP_HOST_COMPATIBILITY.md) for host-specific setup 
 
 AUREN includes fixed-host, bounded API adapters for Anthropic Messages and OpenAI-compatible Chat Completions providers: OpenAI, Gemini, Groq, xAI, OpenRouter, Together, Fireworks, DeepSeek, Mistral, Cerebras and Perplexity. They use guarded HTTPS, explicit model IDs, per-provider credentials and ordered failover charged against the existing supervisor budget.
 
-Configure `AUREN_REMOTE_PROVIDER_ORDER` to choose provider order, and set each selected provider's API key and model ID through the deployment secret/environment configuration. For example, Groq uses `GROQ_API_KEY` and `GROQ_MODEL`; xAI uses `XAI_API_KEY` and `XAI_MODEL`. The adapter does not stream, discover model catalogs, calculate current prices, or execute model-returned tool calls. Live vendor credential acceptance remains unverified. Remote inference is opt-in and only eligible for tasks classified as public or non-sensitive; private and restricted tasks remain local-only.
+Configure `AUREN_REMOTE_PROVIDER_ORDER` to choose provider order, and set each selected provider's API key and model ID through the deployment secret/environment configuration. For example, Groq uses `GROQ_API_KEY` and `GROQ_MODEL`; xAI uses `XAI_API_KEY` and `XAI_MODEL`. A custom OpenAI-compatible endpoint requires `AUREN_CUSTOM_PROVIDER_URL`, `AUREN_CUSTOM_PROVIDER_ALLOWED_HOSTS`, `AUREN_CUSTOM_PROVIDER_API_KEY` and `AUREN_CUSTOM_PROVIDER_MODEL`. The adapter does not stream, discover model catalogs, calculate current prices, or execute model-returned tool calls. Live vendor credential acceptance remains unverified. Remote inference is opt-in and only eligible for tasks classified as public or non-sensitive; private and restricted tasks remain local-only.
 
 MCP host connectivity and direct model inference are separate integration layers. A ChatGPT, Claude, Gemini or IDE client connecting to AUREN over MCP does not give AUREN access to that host's model credentials or inference API.
 
