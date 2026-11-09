@@ -65,6 +65,15 @@ class ProviderConformanceTests(unittest.TestCase):
         self.assertIn("[mcp_servers.auren]", codex)
         self.assertIn("https://mcp.example.com/mcp", codex)
 
+    def test_custom_provider_is_allowlisted_and_documented(self):
+        matrix = json.loads(MATRIX.read_text(encoding="utf-8"))
+        entry = matrix["platform_integrations"]["custom_openai_compatible_api"]
+        self.assertEqual("partial", entry["support"])
+        self.assertFalse(entry.get("live_verified", False))
+        doc = (ROOT / "docs" / "MODEL_PROVIDER_INTEGRATION.md").read_text(encoding="utf-8")
+        self.assertIn("AUREN_CUSTOM_PROVIDER_ALLOWED_HOSTS", doc)
+        self.assertIn("port 443", doc)
+
     def test_mcp_host_compatibility_docs_cover_major_ide_clients(self):
         matrix = json.loads(MATRIX.read_text(encoding="utf-8"))
         integrations = matrix.get("platform_integrations", {})
