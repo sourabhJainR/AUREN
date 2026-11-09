@@ -229,14 +229,9 @@ def set_runtime_mode(
     }
     if not apply:
         return {"applied": False, "path": str(path), "profile": updated}
-    backup = path.with_name(path.name + f".backup-{time.time_ns()}")
-    shutil.copy2(path, backup)
-    try:
-        _atomic_config_write(path, (json.dumps(updated, indent=2, sort_keys=True) + "\n").encode("utf-8"))
-    except BaseException:
-        if backup.exists():
-            shutil.copy2(backup, path)
-        raise
+    backup = _atomic_config_write(
+        path, (json.dumps(updated, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+    )
     return {"applied": True, "path": str(path), "backup": str(backup), "runtime_mode": mode}
 
 
