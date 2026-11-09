@@ -281,7 +281,11 @@ class LocalMCPHostProcessTests(unittest.TestCase):
                     except queue.Empty:
                         continue
                     output.append(line)
-                    if line == "AUREN local services are ready.":
+                    if (
+                        "AUREN local services are ready." in output
+                        and any(item.startswith("Observation console: ") for item in output)
+                        and any(item.startswith("MCP endpoint: ") for item in output)
+                    ):
                         break
                 self.assertIn("AUREN local services are ready.", output, "\\n".join(output))
                 dashboard_line = next(line for line in output if line.startswith("Observation console: "))
@@ -323,6 +327,8 @@ class LocalMCPHostProcessTests(unittest.TestCase):
                         process.kill()
                         process.wait(timeout=5)
                 reader.join(timeout=2)
+                if process.stdout is not None:
+                    process.stdout.close()
             self.assertEqual(0, process.returncode, "\\n".join(output))
 
 
