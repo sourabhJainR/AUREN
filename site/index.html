@@ -48,12 +48,12 @@ pre{overflow:auto;background:#050b14;border:1px solid var(--line);border-radius:
 <div class="card"><h3>Safe repository onboarding</h3><p>Inspect new or existing repositories before changing them. Preserve existing instructions, Git state, CI and client settings. Show configuration diffs, back up changed files and verify every connection.</p></div>
 </div>
 <h3>Target first-run flow</h3>
-<pre><code>auren install
-cd /path/to/your/repository
+<pre><code>cd /path/to/your/repository
 auren init
 auren doctor
 auren connect
-auren start</code></pre>
+auren connect --apply</code></pre>
+<p class="small">To start the current local MCP host, a trusted runtime factory is still required: <code>auren local --project-root . --runtime-factory module:function</code>. The built-in factory-free start command is part of the remaining runtime work.</p>
 <p class="small">Repository initialization, diagnostics and client configuration are available in the current initiative branch. Factory-free managed runtime startup is not yet implemented; local MCP still requires an explicitly trusted runtime factory. See the <a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/LOCAL_FIRST_RUNTIME_AND_ONBOARDING.md">implementation and acceptance status</a>.</p>
 <h3>Choose how AUREN gets model capability</h3>
 <p>Use a supported local agent CLI, a local model, or configure direct API providers. Host login credentials do not automatically transfer to AUREN. Provider selection remains explicit and privacy-aware; private work cannot silently fall back to remote inference. Hosted ChatGPT and Claude web clients need the separately enabled remote MCP endpoint because cloud services cannot reach workstation loopback.</p>
