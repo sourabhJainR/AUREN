@@ -239,17 +239,10 @@ _DOMAIN_STATES: dict[str, dict[str, _Semantics]] = {
         "unknown": _s("unknown", "Unknown", attention=True, action="reconcile_worker_ledger_and_progress_journal"),
     },
     "continuous_execution": {
-        "ready": _s("ready", "Ready", action="start_only_after_admission_and_guard_checks"),
         "running": _s("active", "Running", action="monitor_supervisor_cycle_and_deadline"),
-        "waiting_for_required_checks": _s("waiting", "Waiting for checks", action="poll_required_checks_for_exact_head"),
-        "waiting_for_main_head": _s("waiting", "Waiting for main", action="verify_main_head_and_post_merge_checks"),
-        "observed_complete_unverified": _s("verifying", "Observed complete, unverified", attention=True, action="obtain_exact_head_completion_evidence"),
-        "failure": _s("failed", "Failed", attention=True, action="inspect_failed_check_and_bounded_repair_policy"),
-        "poll_error": _s("unknown", "Polling error", attention=True, action="retry_bounded_poll_without_claiming_completion"),
-        "held": _s("blocked", "Held", attention=True, action="inspect_hold_reason_and_operator_authority"),
-        "backoff": _s("waiting", "Backoff", action="wait_until_durable_retry_deadline"),
         "stop_requested": _s("waiting", "Stop requested", attention=True, action="wait_for_supervisor_to_acknowledge_stop"),
         "stopped": _s("cancelled", "Stopped", terminal=True, resume="never", action="preserve_durable_stop"),
+        "failed": _s("failed", "Failed", terminal=True, attention=True, resume="never", action="inspect_supervisor_failure_and_control_lease"),
     },
     "release_action": {
         "shadow": _s("verifying", "Shadow channel set", action="collect_shadow_verification_evidence"),
@@ -348,6 +341,8 @@ _DOMAIN_STATES: dict[str, dict[str, _Semantics]] = {
         "poll_error": _s("unknown", "Polling error", attention=True, action="retry_bounded_poll_without_claiming_completion"),
     },
     "ci_repair": {
+        "observed": _s("not_started", "Observed", action="inspect_check_evidence_before_triage"),
+        "triaged": _s("ready", "Triaged", action="decide_whether_bounded_repair_is_authorized"),
         "queued": _s("ready", "Queued", action="wait_for_repair_task_admission"),
         "claimed": _s("active", "Claimed", action="verify_repair_task_lease"),
         "repairing": _s("active", "Repairing", action="monitor_bounded_repair_and_new_evidence"),
