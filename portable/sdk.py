@@ -113,6 +113,35 @@ class AurenClient:
             deadline_seconds=deadline_seconds,
         )
 
+    def submit_engineering_task(
+        self,
+        handler: str,
+        payload: Mapping[str, Any],
+        *,
+        work_key: str,
+        readiness: Mapping[str, Any],
+        goal: str | None = None,
+        phase: str = "implementation",
+        deadline_seconds: float | None = None,
+    ) -> Any:
+        """Submit engineering work only after an explicit TECH/INTENT/COGNITIVE assessment."""
+        if not isinstance(payload, Mapping):
+            raise TypeError("payload must be a mapping")
+        if not isinstance(readiness, Mapping):
+            raise TypeError("readiness must be a mapping with technology, intent and cognitive axes")
+        if not isinstance(work_key, str) or not work_key.strip():
+            raise ValueError("engineering tasks require a stable work_key")
+        task_payload = dict(payload)
+        task_payload.update({
+            "engineering_task": True,
+            "engineering_readiness": dict(readiness),
+            "engineering_phase": phase,
+        })
+        return self.controller.submit(
+            handler, task_payload, goal=goal, work_key=work_key,
+            deadline_seconds=deadline_seconds,
+        )
+
     def submit_agent_task(
         self,
         handler: str,
