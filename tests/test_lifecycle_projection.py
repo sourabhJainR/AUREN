@@ -9,7 +9,7 @@ def test_known_domains_have_stable_projection_and_unknown_states_fail_closed():
         "legacy_task", "capability", "invention", "experiment", "work_unit",
         "evidence_outbox", "graph_worker", "continuous_execution", "release",
         "engineering_gate", "worktree", "remediation", "goal_planning",
-        "transfer_learning",
+        "transfer_learning", "crew_handoff", "cognitive_phase",
     } <= set(lifecycle_domains())
 
     unknown = project_lifecycle("session", "future-state")
