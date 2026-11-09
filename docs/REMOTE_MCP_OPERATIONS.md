@@ -331,8 +331,8 @@ This implementation provides an authenticated single-host operator service. It i
 Run from the repository root:
 
 ~~~bash
-python -m unittest tests.test_remote_mcp_service -v
-python -m unittest tests.test_chat_capability_mcp tests.test_provider_conformance -v
+python -m unittest tests.test_remote_mcp_service tests.test_remote_mcp_acceptance -v
+python -m unittest tests.test_chat_capability_mcp tests.test_provider_conformance tests.test_remote_model_providers -v
 python -m unittest discover -s tests -p '*trigger_runtime*' -v
 ~~~
 
