@@ -105,6 +105,8 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("portable/agency_runtime.py", ("tests.test_agency_runtime", "tests.test_agency_runtime_release_integration", "tests.test_agency_release_lifecycle"), True),
     ("tests/test_agency_runtime.py", ("tests.test_agency_runtime",), True),
     ("tests/test_agency_runtime_release_integration.py", ("tests.test_agency_runtime_release_integration", "tests.test_agency_release_lifecycle"), True),
+    ("portable/experiment_learning_cycle.py", ("tests.test_experiment_learning_cycle", "tests.test_agency_observability"), True),
+    ("tests/test_experiment_learning_cycle.py", ("tests.test_experiment_learning_cycle",), True),
     ("portable/agency_observability.py", ("tests.test_agency_observability",), True),
     ("portable/persistent_experiment_learning.py", ("tests.test_persistent_experiment_learning", "tests.test_persistent_learning_observability"), True),
     ("tests/test_persistent_experiment_learning.py", ("tests.test_persistent_experiment_learning",), True),
