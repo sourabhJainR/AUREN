@@ -206,6 +206,22 @@ When no Authorization header is configured, Zed can use the standard MCP OAuth f
 - Windsurf/Devin: product naming and agent configuration have changed. Confirm whether the installed client is legacy Cascade or Devin Local before choosing its MCP configuration file.
 - Goose, OpenCode, Aider and other clients: use the native MCP client configuration only when the installed version documents Streamable HTTP and the required OAuth flow. Otherwise use the local stdio bridge or AUREN CLI where supported.
 
+
+## Official host references
+
+- [ChatGPT custom MCP servers](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt)
+- [ChatGPT and Codex MCP host configuration](https://learn.chatgpt.com/docs/extend/mcp)
+- [Codex CLI MCP commands](https://learn.chatgpt.com/docs/cli/reference)
+- [Anthropic MCP support](https://docs.anthropic.com/en/docs/mcp)
+- [Claude Code CLI reference](https://docs.anthropic.com/en/docs/claude-code/cli-usage)
+- [Gemini CLI MCP servers](https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/mcp-server.md)
+- [Cursor MCP](https://prod.cursor.com/docs/mcp)
+- [Visual Studio MCP servers](https://learn.microsoft.com/en-us/visualstudio/ide/mcp-servers?view=visualstudio)
+- [Cline MCP](https://github.com/cline/cline/blob/main/docs/mcp/mcp-overview.mdx)
+- [Roo Code MCP](https://github.com/RooCodeInc/Roo-Code-Docs/blob/main/docs/features/mcp/using-mcp-in-roo.mdx)
+- [Continue MCP](https://docs.continue.dev/customize/deep-dives/mcp)
+- [Zed MCP](https://zed.dev/docs/ai/mcp)
+
 ## Acceptance checklist
 
 A host is not production-compatible until all of these are recorded for its exact version:
