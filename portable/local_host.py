@@ -191,7 +191,7 @@ def serve_local(
     *,
     runtime_factory: str | None = None,
     dashboard_port: int = 0,
-    mcp_port: int = 0,
+    mcp_port: int = 8765,
 ) -> int:
     """Start the read-only console and full operator MCP service on free loopback ports."""
     root = Path(project_root).expanduser().resolve()
@@ -387,7 +387,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--project-root", default=".")
     parser.add_argument("--runtime-factory", default=None)
     parser.add_argument("--dashboard-port", type=int, default=0, help="TCP port; 0 selects a free port")
-    parser.add_argument("--mcp-port", type=int, default=0, help="TCP port; 0 selects a free port")
+    parser.add_argument("--mcp-port", type=int, default=8765, help="TCP port; 0 selects a free port")
     args = parser.parse_args(argv)
     return serve_local(
         args.project_root,
