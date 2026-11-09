@@ -2427,6 +2427,7 @@ class ExecutionController:
             if not readiness.ready:
                 raise EngineeringReadinessBlocked(readiness)
             phase = payload_copy.pop("engineering_phase", None) or infer_engineering_phase(handler, goal_text)
+            payload_copy["work_key"] = stable_work_key
             payload_copy["_auren_engineering_task"] = True
             payload_copy["_auren_engineering_readiness"] = readiness.to_dict()
             payload_copy["_auren_engineering_readiness_digest"] = readiness.assessment_digest
