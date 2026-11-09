@@ -8,6 +8,25 @@ from scripts.impact_policy import classify_changes, classify_path, final_status
 
 
 class ImpactPolicyTests(unittest.TestCase):
+    def test_model_provider_adapter_changes_have_required_impact_suites(self):
+        expected = {
+            "portable/remote_model_providers.py": {
+                "tests.test_remote_model_providers", "tests.test_hybrid_model_router",
+                "tests.test_guarded_network",
+            },
+            "portable/hybrid_model_router.py": {
+                "tests.test_hybrid_model_router", "tests.test_remote_model_providers",
+                "tests.test_execution_controller_guard_policy",
+            },
+            "tests/test_remote_model_providers.py": {"tests.test_remote_model_providers"},
+        }
+        for path, required in expected.items():
+            with self.subTest(path=path):
+                impact = classify_path(path)
+                self.assertIsNotNone(impact)
+                self.assertTrue(required.issubset(set(impact.required_suites)))
+                self.assertTrue(impact.hardening_required)
+
     def test_scheduler_and_recovery_journal_changes_have_required_impact_suites(self):
         expected = {
             "portable/agent_capabilities.py": {
