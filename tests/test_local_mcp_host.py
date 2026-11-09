@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import importlib.util
 import json
 import os
 import queue
@@ -220,7 +221,7 @@ class LocalMCPHostTests(unittest.TestCase):
 
 
 @unittest.skipUnless(
-    os.name != "nt" and __import__("importlib.util").util.find_spec("uvicorn"),
+    os.name != "nt" and importlib.util.find_spec("uvicorn"),
     "live local host acceptance requires POSIX signal handling and optional uvicorn",
 )
 class LocalMCPHostProcessTests(unittest.TestCase):
