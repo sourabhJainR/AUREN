@@ -28,8 +28,9 @@ The following inventory distinguishes an authoritative state owner from a projec
 
 | Area | State machine / implicit lifecycle | Current owner or source | Finding |
 |---|---|---|---|
-| Browser sessions | Snapshot, busy, refresh-again, search, filter and pagination | `dashboard/assets/sessions.js` | Local UI state is implicit and independently interprets status strings. |
-| Live operations panel | In-flight request, last successful sample, timeout, offline and degraded states | `dashboard/assets/control-center-live.js` | A second polling lifecycle exists beside the sessions panel. It is observational, not execution authority. |
+| Primary dashboard poller | Initial load, in-flight request, queued refresh, timeout, last-good snapshot, offline and hidden-tab states | `dashboard/assets/app.js` | Previously allowed overlapping 3-second requests and did not distinguish stale retained data from a fresh sample. It is now single-flight, bounded by an 8-second timeout, and retains the last good snapshot visibly. |
+| Browser sessions | Snapshot, busy, refresh-again, search debounce, filter, pagination, timeout, offline and hidden-tab states | `dashboard/assets/sessions.js` | Polling is single-flight and bounded; failed refreshes retain the last good page instead of replacing it with an error card. |
+| Live operations panel | In-flight request, last successful sample, timeout, offline and degraded states | `dashboard/assets/control-center-live.js` | An observational poller with timeout, single-flight protection, visibility handling and last-good retention; not execution authority. |
 | Session checkpoints | Stage, attempt, provider, completed/remaining batches and heartbeat | `portable/session_state.py` | Checkpoints do not contain a separate canonical session status; the adapter derives one. |
 | Session projection | Running, waiting, complete, blocked, stale or unverified | `portable/muxin_session_adapter.py` | Stage/error/age inference is useful for display but must be marked as derived. |
 | Supervisor progress | Queued, running, blocked, recovering, completed, failed and cancelled | `portable/progress_journal.py` | Append-only progress authority. Blocked and recovering are not terminal; completed, failed and cancelled are terminal. |
