@@ -140,10 +140,15 @@ def serve_local(
         raise SystemExit("AUREN project root must be an existing directory")
     factory_path = (runtime_factory or os.environ.get("AUREN_MCP_RUNTIME_FACTORY", "")).strip()
     if not factory_path:
-        raise SystemExit(
-            "Set AUREN_MCP_RUNTIME_FACTORY to a trusted module:function factory. "
-            "AUREN will not invent an empty or unconfigured agent graph."
-        )
+        conventional_factory = root / "auren_runtime_factory.py"
+        if conventional_factory.is_file():
+            factory_path = "auren_runtime_factory:create_runtime"
+        else:
+            raise SystemExit(
+                "No AUREN runtime factory was found. Add auren_runtime_factory.py with "
+                "create_runtime(*, project_root), or pass --runtime-factory module:function. "
+                "The factory must return a configured runtime with a reviewed, non-empty agent graph."
+            )
     try:
         import uvicorn
     except ImportError as exc:
@@ -152,8 +157,9 @@ def serve_local(
     from .dashboard_server import create_server
     from .remote_mcp_server import _load_runtime
 
-    if str(root) not in sys.path:
-        sys.path.append(str(root))
+    if str(root) in sys.path:
+        sys.path.remove(str(root))
+    sys.path.insert(0, str(root))
     runtime = _load_runtime(factory_path, root)
     dashboard = None
     mcp_socket = None
@@ -224,19 +230,37 @@ def serve_local(
         dashboard_thread.start()
         mcp_thread.start()
 
+        dashboard_url = f"http://127.0.0.1:{dashboard.server_address[1]}/control-center"
+        dashboard_health_url = f"http://127.0.0.1:{dashboard.server_address[1]}/api/health"
+        mcp_url = f"http://127.0.0.1:{actual_mcp_port}/mcp"
+        mcp_health_url = f"http://127.0.0.1:{actual_mcp_port}/readyz"
+
+        def endpoint_ready(url: str) -> bool:
+            try:
+                from urllib.request import urlopen
+                with urlopen(url, timeout=0.5) as response:
+                    return response.status == 200
+            except Exception:
+                return False
+
         startup_deadline = time.monotonic() + 15.0
         while time.monotonic() < startup_deadline:
             if stop.is_set() or not dashboard_thread.is_alive() or not mcp_thread.is_alive():
                 break
-            if mcp_server.started:
+            if (
+                mcp_server.started
+                and endpoint_ready(dashboard_health_url)
+                and endpoint_ready(mcp_health_url)
+            ):
                 break
             time.sleep(0.05)
-        if not mcp_server.started:
+        if not (
+            mcp_server.started
+            and endpoint_ready(dashboard_health_url)
+            and endpoint_ready(mcp_health_url)
+        ):
             detail = f": {failures[0][1]}" if failures else ""
-            raise RuntimeError("local MCP service did not become ready within 15 seconds" + detail)
-
-        dashboard_url = f"http://127.0.0.1:{dashboard.server_address[1]}/control-center"
-        mcp_url = f"http://127.0.0.1:{actual_mcp_port}/mcp"
+            raise RuntimeError("local dashboard and MCP endpoints did not both become ready within 15 seconds" + detail)
         print("AUREN local services are ready.", flush=True)
         print(f"Observation console: {dashboard_url}", flush=True)
         print(f"Console health: http://127.0.0.1:{dashboard.server_address[1]}/api/health", flush=True)
