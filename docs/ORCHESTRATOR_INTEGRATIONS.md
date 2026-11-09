@@ -212,6 +212,23 @@ Configure provider priority with `AUREN_REMOTE_PROVIDER_ORDER` and each provider
 
 The following need dedicated adapter/conformance work before they can be called first-class direct API providers: Azure OpenAI deployment-specific auth/versioning, AWS Bedrock SigV4, Google Vertex AI OAuth/service accounts, Cohere's native API, and any provider whose OpenAI-compatible endpoint diverges in tool/schema semantics.
 
+## Not yet first-party verified
+
+These are not claimed as production-supported AUREN connectors until a version-pinned configuration and live acceptance record exist:
+
+| Product/framework | Current gap |
+|---|---|
+| CrewAI | No AUREN-specific Streamable HTTP sample or live client acceptance |
+| Dify | No AUREN-specific MCP client configuration and auth acceptance |
+| Flowise | No AUREN-specific MCP client configuration and auth acceptance |
+| Microsoft Semantic Kernel | No version-pinned MCP client integration acceptance |
+| Haystack | No version-pinned MCP client integration acceptance |
+| OpenHands remote deployment | Local MCP path is documented; remote HTTP/auth acceptance is still open |
+| ChatGPT desktop | No separate desktop-specific acceptance record; use ChatGPT web custom MCP apps where enabled |
+| Grok web chat | Not treated as an MCP execution host; xAI API inference is supported separately |
+
+A host can be described as **MCP-compatible** without being **AUREN-verified**. Until its own live test passes, use a supported MCP client bridge and keep the host marked unverified.
+
 ## Acceptance gates before calling an integration production-ready
 
 1. Register the external OAuth client and verify PKCE S256, audience/resource, issuer, expiry and per-user scope mapping.
