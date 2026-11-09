@@ -541,26 +541,31 @@ class AurenMCPService:
         if principal is None or not principal.allows(scope):
             raise PermissionError("authenticated principal lacks the required AUREN scope")
 
+    def _principal_has_project_access(self, principal: MCPPrincipal) -> bool:
+        if not principal.projects:
+            return True
+        for project in principal.projects:
+            try:
+                candidate = Path(project).expanduser().resolve(strict=True)
+                if candidate.is_dir() and os.path.samefile(candidate, self.project_root):
+                    return True
+            except (OSError, RuntimeError, TypeError, ValueError):
+                continue
+        return False
+
     def _require_project(self, principal: MCPPrincipal | None) -> None:
         if principal is None:
             raise PermissionError("authentication is required for this AUREN workspace")
-        if principal.projects:
-            authorized_roots = set()
-            for project in principal.projects:
-                try:
-                    resolved = Path(project).expanduser().resolve()
-                    authorized_roots.add(os.path.normcase(os.path.normpath(str(resolved))))
-                except (OSError, RuntimeError, TypeError, ValueError):
-                    continue
-            configured_root = os.path.normcase(os.path.normpath(str(self.project_root)))
-            if configured_root not in authorized_roots:
-                raise PermissionError("authenticated principal is not authorized for this AUREN workspace")
+        if not self._principal_has_project_access(principal):
+            raise PermissionError("authenticated principal is not authorized for this AUREN workspace")
 
     def _event_for_principal(self, event_id: str, principal: MCPPrincipal):
         normalized_id = event_id.removeprefix("llm-chat:")
         event = self.trigger_runtime.get_event(normalized_id)
         if event is None or event.kind != "adaptive_runtime":
             return None
+        if not self._principal_has_project_access(principal):
+            raise PermissionError("authenticated principal is not authorized for this AUREN workspace")
         owner = event.payload.get("_auren_mcp_subject")
         if owner != self._principal_key(principal) and not principal.allows(_SCOPE_ADMIN):
             raise PermissionError("task is not visible to this principal")
