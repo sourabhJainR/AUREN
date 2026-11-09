@@ -312,7 +312,7 @@ class LocalMCPHostProcessTests(unittest.TestCase):
                 if process.poll() is None:
                     process.send_signal(signal.SIGTERM)
                     try:
-                        process.wait(timeout=20)
+                        process.wait(timeout=45)
                     except subprocess.TimeoutExpired:
                         process.kill()
                         process.wait(timeout=5)
