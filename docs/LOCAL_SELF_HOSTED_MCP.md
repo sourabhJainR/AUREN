@@ -9,7 +9,7 @@ This is a local development/operator host, not a public deployment recipe. Do no
 From an AUREN checkout or portable bundle:
 
 ```bash
-python -m pip install -r requirements-local-mcp.txt
+python -m pip install "uvicorn[standard]>=0.35,<1"
 python auren_cli.py local --project-root /absolute/path/to/your/project
 ```
 
