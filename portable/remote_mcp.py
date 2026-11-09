@@ -1428,7 +1428,7 @@ class AurenMCPASGI:
             cors = [
                 (b"access-control-allow-origin", origin.encode("latin1")),
                 (b"vary", b"Origin"),
-                (b"access-control-allow-headers", b"Authorization, Content-Type, Accept, MCP-Protocol-Version"),
+                (b"access-control-allow-headers", b"Authorization, Content-Type, Accept, MCP-Protocol-Version, Mcp-Method, Mcp-Name"),
                 (b"access-control-allow-methods", b"POST, GET, OPTIONS"),
                 (b"access-control-expose-headers", b"WWW-Authenticate, MCP-Protocol-Version"),
             ]
@@ -1495,13 +1495,48 @@ class AurenMCPASGI:
                 raise MCPServiceError("JSON-RPC batches are not supported", code=-32600, status=400)
             if not isinstance(request, Mapping):
                 raise MCPServiceError("JSON-RPC request must be an object", code=-32600, status=400)
+            method_name = request.get("method")
+            params = request.get("params", {})
+            request_meta = params.get("_meta", {}) if isinstance(params, Mapping) else {}
+            body_protocol = (
+                request_meta.get("io.modelcontextprotocol/protocolVersion")
+                if isinstance(request_meta, Mapping) else None
+            )
             protocol = headers.get("mcp-protocol-version")
-            if request.get("method") != "initialize":
-                protocol = protocol or "2025-03-26"
-                if protocol not in SUPPORTED_PROTOCOL_VERSIONS:
+            modern_request = (
+                protocol == MODERN_PROTOCOL_VERSION
+                or body_protocol == MODERN_PROTOCOL_VERSION
+                or method_name == "server/discover"
+            )
+            if modern_request:
+                if protocol != MODERN_PROTOCOL_VERSION or body_protocol != MODERN_PROTOCOL_VERSION:
+                    raise MCPServiceError(
+                        "modern MCP requests require matching MCP-Protocol-Version and _meta protocolVersion",
+                        code=-32020, status=400,
+                    )
+                if headers.get("mcp-method") != method_name:
+                    raise MCPServiceError("Mcp-Method header does not match JSON-RPC method", code=-32020, status=400)
+                expected_name = None
+                if isinstance(params, Mapping):
+                    if method_name == "tools/call":
+                        expected_name = params.get("name")
+                    elif method_name == "resources/read":
+                        expected_name = params.get("uri")
+                supplied_name = headers.get("mcp-name")
+                if expected_name is not None:
+                    if not isinstance(expected_name, str) or supplied_name != expected_name:
+                        raise MCPServiceError("Mcp-Name header does not match JSON-RPC params", code=-32020, status=400)
+                elif supplied_name is not None:
+                    raise MCPServiceError("unexpected Mcp-Name header for this method", code=-32020, status=400)
+                if method_name in {"initialize", "ping"}:
+                    raise MCPServiceError("method is not available in stateless MCP", code=-32601, status=404)
+            else:
+                if method_name != "initialize":
+                    protocol = protocol or "2025-03-26"
+                    if protocol not in SUPPORTED_PROTOCOL_VERSIONS:
+                        raise MCPServiceError("unsupported MCP-Protocol-Version", code=-32000, status=400)
+                elif protocol and protocol not in SUPPORTED_PROTOCOL_VERSIONS:
                     raise MCPServiceError("unsupported MCP-Protocol-Version", code=-32000, status=400)
-            elif protocol and protocol not in SUPPORTED_PROTOCOL_VERSIONS:
-                raise MCPServiceError("unsupported MCP-Protocol-Version", code=-32000, status=400)
             response = self.service._rpc(request, principal)
             if response is None:
                 await self._send(send, 202, headers=cors)
