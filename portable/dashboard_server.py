@@ -851,7 +851,8 @@ def serve(
         delivery_execution_guard=delivery_execution_guard,
         delivery_budget_id=delivery_budget_id,
     )
-    print(f"AUREN Engineering Console: http://{server.server_address[0]}:{server.server_address[1]}", flush=True)
+    bound_address = getattr(server, "server_address", (host, port))
+    print(f"AUREN Engineering Console: http://{bound_address[0]}:{bound_address[1]}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
