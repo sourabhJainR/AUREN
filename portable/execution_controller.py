@@ -3253,7 +3253,8 @@ class ExecutionController:
             "_auren_engineering_task", "_auren_engineering_readiness",
             "_auren_engineering_readiness_digest", "_auren_engineering_phase",
             "_auren_engineering_department", "_auren_engineering_remediation",
-            "engineering_readiness",
+            "engineering_readiness", "auren_engineering_deadline_epoch",
+            "auren_engineering_budget_phase",
         ):
             safe_payload.pop(readiness_field, None)
         payload_digest = hashlib.sha256(
