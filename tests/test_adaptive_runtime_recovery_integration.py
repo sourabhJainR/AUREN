@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 import tempfile
 import unittest
 from pathlib import Path
@@ -36,7 +37,7 @@ class AdaptiveRuntimeRecoveryIntegrationTests(unittest.TestCase):
                 context={"auren_max_iterations": 3},
             )
 
-        with sqlite3.connect(runtime.execution_controller.db_path) as db:
+        with closing(sqlite3.connect(runtime.execution_controller.db_path)) as db, db:
             work_id = db.execute(
                 "SELECT work_unit_id FROM sessions WHERE session_id=?",
                 ("recovery-session:recovery-task",),
@@ -150,7 +151,7 @@ class AdaptiveRuntimeRecoveryIntegrationTests(unittest.TestCase):
             )
 
         self.assertEqual(1, len(observed), "must stop before dispatching another attempt")
-        with sqlite3.connect(runtime.execution_controller.db_path) as db:
+        with closing(sqlite3.connect(runtime.execution_controller.db_path)) as db, db:
             work_id = db.execute(
                 "SELECT work_unit_id FROM sessions WHERE session_id=?",
                 ("journal-failure-session:journal-failure-task",),
@@ -181,7 +182,7 @@ class AdaptiveRuntimeRecoveryIntegrationTests(unittest.TestCase):
         self.assertEqual(1, len(seen))
         self.assertEqual(2, seen[0].attempts_used)  # supervisor iteration plus graph node
 
-        with sqlite3.connect(runtime.execution_controller.db_path) as db:
+        with closing(sqlite3.connect(runtime.execution_controller.db_path)) as db, db:
             work_id = db.execute(
                 "SELECT work_unit_id FROM sessions WHERE session_id=?",
                 ("real-shared-guard-session:real-shared-guard-task",),
@@ -217,7 +218,7 @@ class AdaptiveRuntimeRecoveryIntegrationTests(unittest.TestCase):
         )
         self.assertEqual("accepted", result.status.value)
         self.assertEqual(1, len(observed))
-        with sqlite3.connect(runtime.execution_controller.db_path) as db:
+        with closing(sqlite3.connect(runtime.execution_controller.db_path)) as db, db:
             work_id = db.execute(
                 "SELECT work_unit_id FROM sessions WHERE session_id=?",
                 ("harness-experiment-session:harness-experiment-task",),
@@ -256,7 +257,7 @@ class AdaptiveRuntimeRecoveryIntegrationTests(unittest.TestCase):
         self.assertTrue(all(guard is seen_guards[0] for guard in seen_guards))
         self.assertEqual(6, seen_guards[0].attempts_used)  # 3 supervisor + 3 provider attempts
 
-        with sqlite3.connect(runtime.execution_controller.db_path) as db:
+        with closing(sqlite3.connect(runtime.execution_controller.db_path)) as db, db:
             work_id = db.execute(
                 "SELECT work_unit_id FROM sessions WHERE session_id=?",
                 ("shared-guard-session:shared-guard-task",),
@@ -303,7 +304,7 @@ class AdaptiveRuntimeRecoveryIntegrationTests(unittest.TestCase):
                 enrich_cognition=False,
             )
 
-        with sqlite3.connect(runtime.execution_controller.db_path) as db:
+        with closing(sqlite3.connect(runtime.execution_controller.db_path)) as db, db:
             work_id = db.execute(
                 "SELECT work_unit_id FROM sessions WHERE session_id=?",
                 (f"{session_id}:{task_id}",),
@@ -417,7 +418,7 @@ class AdaptiveRuntimeRecoveryIntegrationTests(unittest.TestCase):
             )
 
         self.assertEqual(calls, ["critical", "independent"])
-        with sqlite3.connect(runtime.execution_controller.db_path) as db:
+        with closing(sqlite3.connect(runtime.execution_controller.db_path)) as db, db:
             work_id = db.execute(
                 "SELECT work_unit_id FROM sessions WHERE session_id=?",
                 ("blocked-dependency-session:blocked-dependency-task",),
