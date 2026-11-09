@@ -3,6 +3,23 @@
 **Status:** Architecture initiative; implementation and acceptance are tracked independently.  
 **Product direction:** Local-first by default. Remote MCP is optional. Local OAuth is optional.
 
+### Implementation status (2026-11-10)
+
+**Implemented in this branch**
+- `auren init`: bounded, read-only repository discovery; creates only `.auren/project.json`; refuses overwrite and symlinked state roots.
+- `auren doctor`: reports Python/HTTP prerequisites, detected local provider CLIs and the current runtime-factory blocker. Detection is not live provider validation.
+- `auren connect`: previews by default; with `--apply`, backs up and atomically updates supported JSON MCP client configuration while preserving unrelated entries. Supported discovered formats currently include Claude Desktop, Claude Code, Gemini CLI, Cursor and VS Code.
+- Local MCP uses a stable default port of 8765 and remains loopback-only with a private per-user bearer credential. This is local token authentication, not OAuth.
+
+**Still blocked / not implemented**
+- The built-in managed runtime composition root and factory-free task execution.
+- Live provider-backed engineering graph and trusted host resolvers for plan dispatch, approval, assignment and shared budgets.
+- Readiness-gated local MCP task admission without a trusted runtime factory.
+- Tested auto-configuration for Codex TOML, Visual Studio and cloud-hosted ChatGPT/Claude surfaces.
+- Cross-platform user service registration, secure Windows credential ACL validation, macOS Keychain integration, and clean-machine upgrade/rollback/uninstall acceptance.
+
+Do not treat the implemented onboarding commands as proof that the managed runtime is ready. The local MCP host still requires an explicitly trusted runtime factory; this is retained as a fail-closed boundary until the built-in composition root can supply all required authorities.
+
 ## Objective
 
 A developer should be able to install AUREN on a new workstation, open a new or existing repository, connect a supported local AI client, and begin a verified engineering task without writing a runtime factory or assembling AUREN internals.
