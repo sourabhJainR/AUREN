@@ -48,6 +48,22 @@ class ProviderConformanceTests(unittest.TestCase):
                 self.assertTrue(entry.get("next_steps"))
                 self.assertFalse(entry.get("live_verified", False))
 
+    def test_mcp_host_compatibility_docs_cover_major_ide_clients(self):
+        matrix = json.loads(MATRIX.read_text(encoding="utf-8"))
+        integrations = matrix.get("platform_integrations", {})
+        required = {
+            "cline_ide", "roo_code_ide", "continue_ide", "zed_ide",
+            "openhands_local", "windsurf_devin_local", "visual_studio_ide",
+        }
+        self.assertTrue(required.issubset(integrations))
+        doc = (ROOT / "docs" / "MCP_HOST_COMPATIBILITY.md").read_text(encoding="utf-8")
+        for host in ("ChatGPT web", "Codex CLI", "Claude Code", "Gemini CLI",
+                     "Cursor", "Visual Studio", "Cline", "Roo Code", "Continue", "Zed"):
+            with self.subTest(host=host):
+                self.assertIn(host, doc)
+        self.assertIn("live_verified=false", doc)
+        self.assertIn("does not implement the MCP Tasks extension", doc)
+
     def test_direct_api_provider_catalog_matches_machine_readable_matrix(self):
         matrix = json.loads(MATRIX.read_text(encoding="utf-8"))
         integrations = matrix.get("platform_integrations", {})
