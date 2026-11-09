@@ -380,6 +380,12 @@ _DOMAIN_STATES: dict[str, dict[str, _Semantics]] = {
         "paused": _s("blocked", "Admissions paused", attention=True, action="await_authorized_admission_resume"),
         "audit_invalid": _s("blocked", "Audit invalid", terminal=True, attention=True, resume="never", action="fail_closed_and_reconcile_control_audit"),
     },
+    "task_memory_promotion": {
+        "candidate": _s("not_started", "Candidate", action="collect_repeated_observations_and_supporting_evidence"),
+        "verified": _s("succeeded", "Verified", terminal=True, resume="never", action="retain_verified_immutable_learning_revision"),
+        "superseded": _s("rejected", "Superseded", terminal=True, resume="never", action="follow_superseding_learning_revision"),
+        "rejected": _s("rejected", "Rejected", terminal=True, resume="never", action="retain_rejection_reason_and_evidence"),
+    },
     "legacy_task": {
         "pending": _s("not_started", "Pending", action="check_dependencies_before_dispatch"),
         "in-progress": _s("active", "In progress", action="monitor_task_progress"),
