@@ -241,7 +241,7 @@ class LocalMCPStdioProxyTests(unittest.TestCase):
                 validate_local_url(url)
 
     def test_stdio_proxy_stops_after_an_oversized_frame(self):
-        source = io.BytesIO((b"x" * (64 * 1024 + 1)) + b"\\n" + b'{"jsonrpc":"2.0","id":9,"method":"ping"}\\n')
+        source = io.BytesIO((b"x" * (64 * 1024 + 1)) + b"\n" + b'{"jsonrpc":"2.0","id":9,"method":"ping"}\n')
         target = io.BytesIO()
         with patch("portable.mcp_stdio_proxy.post_message") as post:
             result = run_proxy(
