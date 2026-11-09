@@ -7,7 +7,7 @@ This is the deployment and client integration guide for AUREN's authenticated re
 Before public deployment, review [REMOTE_MCP_PRIVACY.md](REMOTE_MCP_PRIVACY.md), publish the deployment-specific privacy/retention terms, and configure the GitHub security reporting route.
 
 - ASGI Streamable HTTP endpoint: POST /mcp.
-- Protocol versions: 2025-11-25, 2025-06-18 and 2025-03-26.
+- Protocol versions: 2026-07-28 stateless (preferred) plus legacy 2025-11-25, 2025-06-18 and 2025-03-26.
 - Stateless transport with no MCP session affinity or server-side session ID.
 - JSON responses for requests; notifications receive HTTP 202.
 - GET returns HTTP 405 because this service does not open an SSE stream.
@@ -17,7 +17,7 @@ Before public deployment, review [REMOTE_MCP_PRIVACY.md](REMOTE_MCP_PRIVACY.md),
 - Liveness/readiness endpoints: /healthz and /readyz.
 - Operator control and rate-limit state are stored under canonical AUREN home on persistent local disk.
 
-The service does not implement an OAuth authorization server. An established identity provider must implement OAuth 2.1 authorization-code flow with PKCE S256, issuer discovery, DCR or CIMD client identification, refresh/revocation and the resource/audience parameter. The MCP resource server validates the resulting token through introspection on each request. The introspection response must include iss, sub, aud, exp and scope; roles and projects should also be included where those policies are used. Certificate-bound access tokens (cnf claims) are rejected because the ASGI service does not validate token-to-client-certificate binding.
+The service does not implement an OAuth authorization server. An established identity provider must implement OAuth 2.1 authorization-code flow with PKCE S256, issuer discovery, Client ID Metadata Documents (CIMD; preferred by MCP 2026-07-28) or DCR for legacy clients, refresh/revocation and the resource/audience parameter. Authorization responses must include and validate the RFC 9207 `iss` parameter; credentials must remain bound to the issuer that minted them. The MCP resource server validates the resulting token through introspection on each request. The introspection response must include iss, sub, aud, exp and scope; roles and projects should also be included where those policies are used. Certificate-bound access tokens (cnf claims) are rejected because the ASGI service does not validate token-to-client-certificate binding.
 
 ## Operator tool surface
 
@@ -304,7 +304,7 @@ These are model-provider APIs, not interchangeable MCP host applications. AUREN 
 
 ## Read-only deployment acceptance
 
-After deploying the service behind TLS and configuring the external OAuth authorization server, run the live acceptance probe with a short-lived read-only access token. The probe verifies HTTPS/host allowlisting, health, protected-resource metadata, MCP initialization, negotiated protocol version and the minimum read-only operator tools. It does not submit tasks or make approval/admission changes.
+After deploying the service behind TLS and configuring the external OAuth authorization server, run the live acceptance probe with a short-lived read-only access token. The probe verifies HTTPS/host allowlisting, health, protected-resource metadata, modern `server/discover`, modern cacheable `tools/list`, legacy `initialize` fallback and the minimum read-only operator tools. It does not submit tasks or make approval/admission changes.
 
 ```bash
 export AUREN_MCP_ENDPOINT=https://mcp.example.com/mcp
@@ -313,7 +313,7 @@ export AUREN_MCP_ACCESS_TOKEN="<short-lived-read-only-token>"
 python scripts/remote_mcp_acceptance.py
 ```
 
-The token is read from the environment and is never printed. Use a principal with read, status and evidence scopes only. A successful probe proves a basic deployed handshake; it does not replace vendor-specific ChatGPT/Codex/Claude/Gemini/IDE acceptance, load testing, OAuth lifecycle tests or independent security review.
+The token is read from the environment and is never printed. Use a principal with read, status and evidence scopes only. A successful probe proves both MCP protocol eras against the deployed endpoint; it does not replace vendor-specific ChatGPT/Codex/Claude/Gemini/IDE acceptance, load testing, OAuth lifecycle tests or independent security review.
 
 ## Production boundary and remaining gates
 
