@@ -104,7 +104,7 @@ class RemoteMCPNetworkAcceptanceTests(unittest.TestCase):
             sock.bind(("127.0.0.1", 0))
             return int(sock.getsockname()[1])
 
-    def _request(self, path: str, *, body=None, token: str | None = None):
+    def _request(self, path: str, *, body=None, token: str | None = None, extra_headers=None):
         headers = {
             "Host": "mcp.example.test",
             "X-Forwarded-Proto": "https",
@@ -116,6 +116,7 @@ class RemoteMCPNetworkAcceptanceTests(unittest.TestCase):
             headers["Content-Type"] = "application/json"
         if token is not None:
             headers["Authorization"] = "Bearer " + token
+        headers.update(extra_headers or {})
         request = urllib.request.Request(
             self.base_url + path, data=data, headers=headers,
             method="POST" if body is not None else "GET",
@@ -170,19 +171,25 @@ class RemoteMCPNetworkAcceptanceTests(unittest.TestCase):
         self.assertEqual("2025-11-25", json.loads(body)["result"]["protocolVersion"])
         self.assertEqual("2025-11-25", headers.get("mcp-protocol-version"))
 
-        status, _, body = self._request("/mcp", token=self.token, body={
-            "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {},
-        })
+        status, _, body = self._request(
+            "/mcp", token=self.token,
+            extra_headers={"MCP-Protocol-Version": "2025-11-25"},
+            body={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+        )
         self.assertEqual(200, status)
         tools = {item["name"] for item in json.loads(body)["result"]["tools"]}
         self.assertIn("auren.service_status", tools)
         self.assertIn("auren.list_tasks", tools)
         self.assertNotIn("auren.submit_task", tools)
 
-        status, _, body = self._request("/mcp", token=self.token, body={
-            "jsonrpc": "2.0", "id": 3, "method": "tools/call",
-            "params": {"name": "auren.service_status", "arguments": {}},
-        })
+        status, _, body = self._request(
+            "/mcp", token=self.token,
+            extra_headers={"MCP-Protocol-Version": "2025-11-25"},
+            body={
+                "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                "params": {"name": "auren.service_status", "arguments": {}},
+            },
+        )
         self.assertEqual(200, status)
         response = json.loads(body)
         self.assertEqual("2.0", response["jsonrpc"])
