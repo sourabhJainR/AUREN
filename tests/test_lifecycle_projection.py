@@ -6,7 +6,8 @@ def test_known_domains_have_stable_projection_and_unknown_states_fail_closed():
         "session", "progress_task", "plan_task", "plan_run", "workspace",
         "approval", "side_effect", "provider_operation", "agent_turn",
         "agency_execution", "learning_hypothesis", "feedback_loop", "goal",
-        "legacy_task",
+        "legacy_task", "capability", "invention", "experiment", "work_unit",
+        "evidence_outbox", "graph_worker", "continuous_execution", "release",
     } <= set(lifecycle_domains())
 
     unknown = project_lifecycle("session", "future-state")
@@ -46,3 +47,26 @@ def test_success_and_failure_are_never_inferred_from_missing_or_unknown_states()
         assert projected["terminal"] is False
         assert projected["attention_required"] is True
         assert projected["resume_policy"] == "controller_decides"
+
+
+
+def test_projection_catalog_covers_authoritative_runtime_vocabularies():
+    from portable.agency_evolution_gates import HYPOTHESIS_STATES
+    from portable.agency_state import ExecutionState
+    from portable.durable_approval import STATES as APPROVAL_STATES
+    from portable.engineering_plan import TASK_STATUSES
+    from portable.feedback_loop import LOOP_TERMINAL_STATES
+    from portable.progress_journal import STATES as PROGRESS_STATES
+
+    vocabularies = (
+        ("learning_hypothesis", HYPOTHESIS_STATES),
+        ("agency_execution", tuple(item.value for item in ExecutionState)),
+        ("approval", APPROVAL_STATES),
+        ("plan_task", TASK_STATUSES),
+        ("feedback_loop", LOOP_TERMINAL_STATES),
+        ("progress_task", PROGRESS_STATES),
+    )
+    for domain, states in vocabularies:
+        for state in states:
+            projected = project_lifecycle(domain, state)
+            assert projected["category"] != "unknown", (domain, state)
