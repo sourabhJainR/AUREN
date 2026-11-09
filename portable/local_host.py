@@ -349,7 +349,10 @@ def serve_local(
         if dashboard_thread is not None:
             dashboard_thread.join(timeout=5)
         if mcp_thread is not None:
-            mcp_thread.join(timeout=12)
+            # Uvicorn owns the MCP ASGI lifespan and closes the service there.
+            # Wait for that close before a direct fallback close; concurrent
+            # close calls could race the durable trigger worker.
+            mcp_thread.join(timeout=35)
         if dashboard is not None:
             dashboard.server_close()
         if mcp_socket is not None:
@@ -357,8 +360,13 @@ def serve_local(
                 mcp_socket.close()
             except OSError:
                 pass
-        if service is not None:
+        if service is not None and (mcp_thread is None or not mcp_thread.is_alive()):
             service.close()
+        elif mcp_thread is not None and mcp_thread.is_alive():
+            print(
+                "AUREN MCP shutdown exceeded 35 seconds; the daemon host thread will be terminated with the process.",
+                file=sys.stderr, flush=True,
+            )
         for signum, previous in previous_handlers.items():
             signal.signal(signum, previous)
 
