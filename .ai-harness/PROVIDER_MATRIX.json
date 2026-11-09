@@ -446,7 +446,7 @@
       "kind": "model_api",
       "support": "partial",
       "mechanisms": [
-        "xAI Chat Completions API",
+        "Native xAI Responses API adapter",
         "AUREN supervised provider failover"
       ],
       "repository_artifacts": [
@@ -585,7 +585,7 @@
       "kind": "model_api",
       "support": "partial",
       "mechanisms": [
-        "OpenAI Chat Completions API",
+        "Native OpenAI Responses API adapter",
         "AUREN supervised provider failover"
       ],
       "repository_artifacts": [
