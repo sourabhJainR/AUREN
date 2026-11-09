@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import os
@@ -15,9 +16,10 @@ from portable.adaptive_runtime import AdaptiveRuntime
 from portable.local_host import (
     create_local_mcp_service,
     load_or_create_local_token,
+    resolve_runtime_factory,
 )
 from portable.mcp_stdio_proxy import run_proxy, validate_local_url
-from portable.remote_mcp import AurenMCPService, StaticBearerTokenVerifier
+from portable.remote_mcp import AurenMCPASGI, AurenMCPService, StaticBearerTokenVerifier
 from portable.orchestration import Graph, Node, NodeKind
 from portable.dashboard_server import create_server
 
@@ -108,6 +110,87 @@ class LocalMCPHostTests(unittest.TestCase):
                 require_https=False,
                 control_store_path=self.root / "remote-control.sqlite3",
             )
+
+    def test_project_local_runtime_factory_is_auto_discovered(self):
+        with self.assertRaisesRegex(RuntimeError, "No AUREN runtime factory"):
+            resolve_runtime_factory(self.project)
+        (self.project / "auren_runtime_factory.py").write_text(
+            "def create_runtime(*, project_root):\\n    raise NotImplementedError\\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            "auren_runtime_factory:create_runtime",
+            resolve_runtime_factory(self.project),
+        )
+        self.assertEqual(
+            "trusted_runtime:create_runtime",
+            resolve_runtime_factory(self.project, "trusted_runtime:create_runtime"),
+        )
+
+    def test_local_mcp_asgi_health_initialize_and_host_validation(self):
+        runtime = AdaptiveRuntime(
+            Graph([Node("local-asgi-test", NodeKind.DETERMINISTIC, lambda _state: "ready")]),
+            state_root=self.root / "asgi-runtime",
+        )
+        state_home = self.root / "auren-home"
+        with patch("portable.local_host.canonical_auren_home", return_value=state_home):
+            service, token_path = create_local_mcp_service(
+                runtime, self.project, 43128, token_path=self.token_path,
+            )
+        app = AurenMCPASGI(service)
+        token = token_path.read_text(encoding="utf-8").strip()
+
+        async def request(method, path, body=None, host="127.0.0.1:43128", auth=None):
+            sent = []
+            consumed = False
+            raw = json.dumps(body).encode("utf-8") if body is not None else b""
+            headers = {
+                "host": host,
+                "accept": "application/json, text/event-stream",
+            }
+            if body is not None:
+                headers["content-type"] = "application/json"
+            if auth:
+                headers["authorization"] = "Bearer " + auth
+
+            async def receive():
+                nonlocal consumed
+                if not consumed:
+                    consumed = True
+                    return {"type": "http.request", "body": raw, "more_body": False}
+                return {"type": "http.disconnect"}
+
+            async def send(message):
+                sent.append(message)
+
+            scope = {
+                "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
+                "method": method, "path": path, "scheme": "http",
+                "headers": [(key.encode(), value.encode()) for key, value in headers.items()],
+                "client": ("127.0.0.1", 12345), "server": ("127.0.0.1", 43128),
+            }
+            await app(scope, receive, send)
+            start = next(item for item in sent if item["type"] == "http.response.start")
+            payload = b"".join(item.get("body", b"") for item in sent if item["type"] == "http.response.body")
+            return start["status"], json.loads(payload) if payload else None
+
+        try:
+            status, health = asyncio.run(request("GET", "/healthz"))
+            self.assertEqual(200, status)
+            self.assertEqual({"status": "ok"}, health)
+            status, initialized = asyncio.run(request(
+                "POST", "/mcp",
+                {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                 "params": {"protocolVersion": "2025-11-25", "capabilities": {},
+                            "clientInfo": {"name": "local-asgi-test", "version": "1"}}},
+                auth=token,
+            ))
+            self.assertEqual(200, status)
+            self.assertEqual("2025-11-25", initialized["result"]["protocolVersion"])
+            status, _ = asyncio.run(request("GET", "/healthz", host="evil.example:43128"))
+            self.assertEqual(400, status)
+        finally:
+            service.close()
 
     def test_dashboard_server_selects_an_available_loopback_port(self):
         server = create_server(self.project, "127.0.0.1", 0)
