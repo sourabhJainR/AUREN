@@ -216,6 +216,51 @@ def guarded_https_get(
 
 
 
+
+def guarded_loopback_http_get(
+    url: str,
+    *,
+    timeout: float = 1.0,
+    max_bytes: int = 64 * 1024,
+) -> tuple[int, bytes]:
+    """Perform one bounded HTTP GET to an explicit IPv4 loopback endpoint.
+
+    This is reserved for local readiness probes. It never resolves a hostname,
+    follows redirects, or accepts a non-loopback destination.
+    """
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or timeout <= 0:
+        raise NetworkPolicyDenied("timeout must be finite and positive")
+    if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or not 1 <= max_bytes <= 1024 * 1024:
+        raise NetworkPolicyDenied("response limit is outside the supported range")
+    try:
+        parsed = urlparse(url)
+        port = parsed.port
+    except (TypeError, ValueError) as exc:
+        raise NetworkPolicyDenied("invalid local HTTP destination") from exc
+    if (
+        parsed.scheme != "http"
+        or parsed.hostname != "127.0.0.1"
+        or port is None or not 1 <= port <= 65535
+        or parsed.username is not None or parsed.password is not None
+        or parsed.query or parsed.fragment
+        or not parsed.path.startswith("/")
+        or "\r" in parsed.path or "\n" in parsed.path
+    ):
+        raise NetworkPolicyDenied("local HTTP probes require an explicit IPv4 loopback URL without query or fragment")
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=float(timeout))
+    try:
+        connection.request("GET", parsed.path, headers={"Connection": "close"})
+        response = connection.getresponse()
+        body = response.read(max_bytes + 1)
+        if len(body) > max_bytes:
+            raise NetworkPolicyDenied("local HTTP response exceeded the configured byte limit")
+        return int(response.status), body
+    except (OSError, http.client.HTTPException) as exc:
+        raise NetworkPolicyDenied("local HTTP readiness probe failed") from exc
+    finally:
+        connection.close()
+
+
 guarded_https_request = guarded_https_get
 
 
@@ -223,6 +268,7 @@ __all__ = [
     "NetworkPolicyDenied",
     "PinnedHTTPSDestination",
     "connect_https_pinned",
+    "guarded_loopback_http_get",
     "guarded_https_get",
     "guarded_https_request",
     "resolve_https_destination",
