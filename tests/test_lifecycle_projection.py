@@ -53,6 +53,13 @@ def test_success_and_failure_are_never_inferred_from_missing_or_unknown_states()
 
 
 
+def test_trigger_complete_alias_is_terminal_success():
+    lifecycle = project_lifecycle("trigger_task", "complete")
+    assert lifecycle["category"] == "succeeded"
+    assert lifecycle["terminal"] is True
+    assert lifecycle["resume_policy"] == "never"
+
+
 def test_workspace_adoption_and_shutdown_states_preserve_terminality():
     adopting = project_lifecycle("workspace", "adopting")
     adopted = project_lifecycle("workspace", "adopted")
@@ -102,7 +109,7 @@ def test_projection_catalog_covers_authoritative_runtime_vocabularies():
             "waiting_quota", "blocked_quota", "blocked_reconciliation", "blocked",
             "recovering", "completed", "failed", "cancelled",
         )),
-        ("trigger_task", ("pending", "claimed", "dispatched", "retryable", "success", "failed", "cancelled")),
+        ("trigger_task", ("pending", "claimed", "dispatched", "retryable", "success", "complete", "completed", "failed", "cancelled")),
     )
     for domain, states in vocabularies:
         for state in states:
