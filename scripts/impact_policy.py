@@ -57,6 +57,7 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("portable/local_host.py", ("tests.test_local_mcp_host", "tests.test_remote_mcp_service", "tests.test_control_center_api"), True),
     ("portable/mcp_stdio_proxy.py", ("tests.test_local_mcp_host", "tests.test_remote_mcp_service"), True),
     ("tests/test_local_mcp_host.py", ("tests.test_local_mcp_host",), True),
+    ("tests/test_mcp_host_acceptance_contract.py", ("tests.test_mcp_host_acceptance_contract",), True),
     ("portable/chat_capability.py", ("tests.test_chat_capability", "tests.test_chat_capability_mcp"), True),
     ("tests/test_chat_capability.py", ("tests.test_chat_capability",), True),
     ("portable/remote_mcp_server.py", ("tests.test_remote_mcp_service",), True),
