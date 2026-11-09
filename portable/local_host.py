@@ -14,6 +14,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any
+from urllib.request import HTTPRedirectHandler, build_opener
 
 from .identity_compat import canonical_auren_home, canonical_runtime_home
 from .remote_mcp import AurenMCPASGI, AurenMCPService, StaticBearerTokenVerifier
@@ -170,17 +171,11 @@ def resolve_runtime_factory(project_root: Path | str, requested: str | None = No
     )
 
 
-class _NoRedirect:
+class _NoRedirect(HTTPRedirectHandler):
     """Reject redirects from local readiness probes; never follow a local response elsewhere."""
 
-    def __call__(self):
-        from urllib.request import HTTPRedirectHandler
-
-        class Handler(HTTPRedirectHandler):
-            def redirect_request(self, request, fp, code, message, headers, new_url):
-                return None
-
-        return Handler()
+    def redirect_request(self, request, fp, code, message, headers, new_url):
+        return None
 
 
 def _bound_loopback_socket(port: int) -> socket.socket:
@@ -304,7 +299,7 @@ def serve_local(
         def endpoint_ready(url: str) -> bool:
             try:
                 from urllib.request import build_opener
-                opener = build_opener(_NoRedirect()())
+                opener = build_opener(_NoRedirect)
                 with opener.open(url, timeout=0.5) as response:
                     if response.status != 200:
                         return False
