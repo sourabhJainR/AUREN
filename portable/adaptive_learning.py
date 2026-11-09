@@ -69,7 +69,7 @@ class AdaptiveLearningStore:
         self.project = project.strip()
         self.max_jobs = max_jobs
         self.dream_root = Path(dream_root).expanduser().resolve() if dream_root is not None else None
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS deferred_learning_jobs(
                 project TEXT NOT NULL, job_id TEXT NOT NULL, task_id TEXT NOT NULL,
                 kind TEXT NOT NULL, payload TEXT NOT NULL, status TEXT NOT NULL,
@@ -134,7 +134,7 @@ class AdaptiveLearningStore:
             "prediction_id": prediction_id,
             "prediction_correct": prediction_correct,
         }
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             count = db.execute("SELECT COUNT(*) FROM deferred_learning_jobs WHERE project=? AND status='pending'", (self.project,)).fetchone()[0]
             if count >= self.max_jobs:
                 raise ValueError("deferred learning job budget exceeded")
@@ -147,7 +147,7 @@ class AdaptiveLearningStore:
     def pending(self, *, limit: int = 20) -> tuple[DeferredLearningJob, ...]:
         if limit < 1:
             return ()
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             rows = db.execute(
                 "SELECT job_id,task_id,kind,payload,status FROM deferred_learning_jobs WHERE project=? AND status='pending' ORDER BY created_at,job_id LIMIT ?",
                 (self.project, limit),
@@ -155,7 +155,7 @@ class AdaptiveLearningStore:
         return tuple(DeferredLearningJob(row[0], self.project, row[1], row[2], dict(json.loads(row[3])), row[4]) for row in rows)
 
     def profile(self) -> WorkStyleProfile:
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             row = db.execute(
                 "SELECT preferred_detail,verification_emphasis,iteration_target,confidence,observations,average_quality FROM adaptive_workstyle_profiles WHERE project=?",
                 (self.project,),
@@ -184,7 +184,7 @@ class AdaptiveLearningStore:
             digest = str(getattr(episode, "digest", ""))
             if not digest:
                 continue
-            with self.memory._lock, self.memory._connect() as db:
+            with self.memory._lock, self.memory._connection() as db:
                 row = db.execute(
                     "SELECT status FROM processed_episode_skill_evolution WHERE project=? AND episode_digest=?",
                     (self.project, digest),
@@ -214,7 +214,7 @@ class AdaptiveLearningStore:
             except Exception as exc:
                 status = "failed"
                 result_digest = _digest({"episode": digest, "error": type(exc).__name__})
-            with self.memory._lock, self.memory._connect() as db:
+            with self.memory._lock, self.memory._connection() as db:
                 db.execute(
                     "INSERT OR REPLACE INTO processed_episode_skill_evolution VALUES(?,?,?,?,?)",
                     (self.project, digest, status, result_digest, _utc()),
@@ -255,7 +255,7 @@ class AdaptiveLearningStore:
                         DreamMemory(self.dream_root).dream(job.task_id)
                     except Exception:
                         pass
-            with self.memory._lock, self.memory._connect() as db:
+            with self.memory._lock, self.memory._connection() as db:
                 db.execute(
                     "UPDATE deferred_learning_jobs SET status='completed',completed_at=? WHERE project=? AND job_id=? AND status='pending'",
                     (_utc(), self.project, job.job_id),
@@ -275,7 +275,7 @@ class AdaptiveLearningStore:
         confidence = min(0.99, (current.observations + 1) / (current.observations + 3) * max(average_quality, 0.5))
         preferred_detail = self._detail_from_quality(context, quality)
         verification_emphasis = "evidence-first" if quality < 0.9 or iterations > 2 else "verification-efficient"
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute(
                 """INSERT INTO adaptive_workstyle_profiles
                    (project,preferred_detail,verification_emphasis,iteration_target,confidence,observations,average_quality,updated_at)
