@@ -283,11 +283,11 @@ Use the custom MCP app/connector setup in the ChatGPT workspace and point it at 
 
 The ChatGPT OAuth authorization server must support authorization-code flow with PKCE S256, the resource parameter and either Client ID Metadata Documents (CIMD) or Dynamic Client Registration (DCR). ChatGPT does not use machine-to-machine client-credentials grants or customer-supplied API keys for this flow. AUREN publishes protected-resource metadata and validates access tokens, but it does not implement the authorization server or client registration. ChatGPT also presents an OpenAI-managed client certificate; if client identity verification is required, enforce the current OpenAI certificate chain/SAN policy at the TLS ingress. Do not assume a public endpoint alone proves the caller is ChatGPT.
 
-Full MCP write/modify access is currently limited to eligible Business, Enterprise and Edu workspaces. Pro users can connect custom MCP servers with read/fetch permissions, while Free does not have the full custom MCP write path. The custom server connection flow is documented for ChatGPT web; do not assume the native desktop app has identical setup until tested.
+Full MCP write/modify access is currently limited to eligible Business, Enterprise and Edu workspaces. Pro users can connect custom MCP servers with read/fetch permissions, while Free does not have the full custom MCP write path. ChatGPT desktop, Codex CLI and the IDE extension share MCP host configuration. The remote server still requires a live OAuth/client acceptance run for each product surface.
 
 ### Groq, xAI/Grok and other model APIs
 
-These are model-provider APIs, not interchangeable MCP host applications. An MCP client may connect to AUREN regardless of which model it uses, but routing inference through Groq or xAI requires separate AUREN provider adapters, key isolation and provider conformance tests. This MCP service does not add those model adapters.
+These are model-provider APIs, not interchangeable MCP host applications. AUREN now includes direct API adapters for Anthropic, OpenAI, Gemini, Groq, xAI, OpenRouter, Together, Fireworks, DeepSeek, Mistral, Cerebras, Perplexity and allowlisted custom OpenAI-compatible endpoints. The adapters are integrated with HybridModelRouter and use explicit provider order, per-provider secrets and shared execution budgets. They are repository-tested but not live-verified with vendor credentials; see [Model Provider Integration](MODEL_PROVIDER_INTEGRATION.md).
 
 ## Official client references
 
@@ -301,6 +301,19 @@ These are model-provider APIs, not interchangeable MCP host applications. An MCP
 - [Google transition from Gemini CLI to Antigravity CLI](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/)
 - [Antigravity MCP configuration](https://antigravity.google/docs/mcp)
 - [Visual Studio MCP servers](https://learn.microsoft.com/en-us/visualstudio/ide/mcp-servers?view=visualstudio)
+
+## Read-only deployment acceptance
+
+After deploying the service behind TLS and configuring the external OAuth authorization server, run the live acceptance probe with a short-lived read-only access token. The probe verifies HTTPS/host allowlisting, health, protected-resource metadata, MCP initialization, negotiated protocol version and the minimum read-only operator tools. It does not submit tasks or make approval/admission changes.
+
+```bash
+export AUREN_MCP_ENDPOINT=https://mcp.example.com/mcp
+export AUREN_MCP_ALLOWED_HOSTS=mcp.example.com
+export AUREN_MCP_ACCESS_TOKEN="<short-lived-read-only-token>"
+python scripts/remote_mcp_acceptance.py
+```
+
+The token is read from the environment and is never printed. Use a principal with read, status and evidence scopes only. A successful probe proves a basic deployed handshake; it does not replace vendor-specific ChatGPT/Codex/Claude/Gemini/IDE acceptance, load testing, OAuth lifecycle tests or independent security review.
 
 ## Production boundary and remaining gates
 
