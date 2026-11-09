@@ -3275,12 +3275,17 @@ class ExecutionController:
         # dispatch is not rejected before its handler starts. Preserve the historical
         # digest shape for older intents that predate these optional fields.
         extension_fields = {
-            "deadline_policy_seconds", "shared_budget_binding", "approval_evidence", "assignment_evidence",
+            "deadline_policy_seconds", "shared_budget_binding", "approval_evidence",
         }
         present_extension_fields = extension_fields.intersection(metadata)
+        has_assignment_evidence = "assignment_evidence" in metadata
         if present_extension_fields and present_extension_fields != extension_fields:
             raise EngineeringPlanCheckpointMismatch(
                 "queued dispatch has an incomplete budget/approval binding"
+            )
+        if has_assignment_evidence and not present_extension_fields:
+            raise EngineeringPlanCheckpointMismatch(
+                "queued dispatch has assignment evidence without its immutable budget binding"
             )
         if present_extension_fields:
             deadline_policy_seconds = metadata.get("deadline_policy_seconds")
@@ -3307,34 +3312,45 @@ class ExecutionController:
                 raise EngineeringPlanCheckpointMismatch(
                     "queued dispatch budget or approval binding is invalid"
                 ) from exc
-            assignment_evidence = metadata.get("assignment_evidence")
-            recorded_assignment = task.payload.get("_auren_agent_assignment")
-            if not isinstance(assignment_evidence, Mapping) or dict(assignment_evidence) != recorded_assignment:
+            binding.update({
+                "deadline_policy_seconds": deadline_policy_seconds,
+                "shared_budget_binding": shared_budget_binding,
+                "approval_evidence": approval_evidence,
+            })
+            if has_assignment_evidence:
+                assignment_evidence = metadata.get("assignment_evidence")
+                recorded_assignment = task.payload.get("_auren_agent_assignment")
+                if not isinstance(assignment_evidence, Mapping) or dict(assignment_evidence) != recorded_assignment:
+                    raise EngineeringPlanCheckpointMismatch(
+                        "queued task assignment envelope differs from its immutable dispatch binding"
+                    )
+                resolver = getattr(self, "_trusted_plan_assignment_resolver", None)
+                if not callable(resolver):
+                    raise EngineeringPlanCheckpointMismatch(
+                        "trusted assignment authority is not configured in this worker; refusing task execution"
+                    )
+                assignment_payload = dict(safe_payload)
+                assignment_payload.pop("_auren_agent_assignment", None)
+                try:
+                    refreshed_assignment = resolver({
+                        "run_id": run_id, "task_id": plan_task_id, "handler": task.handler,
+                        "dispatch_key": dispatch_key,
+                        "deadline_seconds": deadline_policy_seconds,
+                        "assignment_deadline_seconds": recorded_assignment.get("deadline_seconds"),
+                        "payload": assignment_payload, "recorded_assignment": dict(recorded_assignment),
+                    })
+                except Exception as exc:
+                    raise EngineeringPlanCheckpointMismatch(
+                        "queued specialist assignment is revoked or no longer authorized"
+                    ) from exc
+                if refreshed_assignment != dict(recorded_assignment):
+                    raise EngineeringPlanCheckpointMismatch(
+                        "queued specialist assignment changed after dispatch"
+                    )
+                binding["assignment_evidence"] = dict(assignment_evidence)
+            elif task.payload.get("_auren_agent_assignment") is not None:
                 raise EngineeringPlanCheckpointMismatch(
-                    "queued task assignment envelope differs from its immutable dispatch binding"
-                )
-            resolver = getattr(self, "_trusted_plan_assignment_resolver", None)
-            if not callable(resolver):
-                raise EngineeringPlanCheckpointMismatch(
-                    "trusted assignment authority is not configured in this worker; refusing task execution"
-                )
-            assignment_payload = dict(safe_payload)
-            assignment_payload.pop("_auren_agent_assignment", None)
-            try:
-                refreshed_assignment = resolver({
-                    "run_id": run_id, "task_id": plan_task_id, "handler": task.handler,
-                    "dispatch_key": dispatch_key,
-                    "deadline_seconds": deadline_policy_seconds,
-                    "assignment_deadline_seconds": recorded_assignment.get("deadline_seconds"),
-                    "payload": assignment_payload, "recorded_assignment": dict(recorded_assignment),
-                })
-            except Exception as exc:
-                raise EngineeringPlanCheckpointMismatch(
-                    "queued specialist assignment is revoked or no longer authorized"
-                ) from exc
-            if refreshed_assignment != dict(recorded_assignment):
-                raise EngineeringPlanCheckpointMismatch(
-                    "queued specialist assignment changed after dispatch"
+                    "queued specialist task is missing its immutable assignment evidence"
                 )
             if approval_evidence is not None:
                 approval_verifier = getattr(self, "_trusted_plan_approval_verifier", None)
@@ -3352,12 +3368,6 @@ class ExecutionController:
                     raise EngineeringPlanCheckpointMismatch(
                         "queued approval is revoked, expired, or no longer authorized"
                     )
-            binding.update({
-                "deadline_policy_seconds": deadline_policy_seconds,
-                "shared_budget_binding": shared_budget_binding,
-                "approval_evidence": approval_evidence,
-                "assignment_evidence": dict(assignment_evidence),
-            })
         binding_digest = hashlib.sha256(
             json.dumps(binding, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
         ).hexdigest()
