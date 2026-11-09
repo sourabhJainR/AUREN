@@ -209,9 +209,16 @@ def serve_local(
     from .dashboard_server import create_server
     from .remote_mcp_server import _load_runtime
 
-    if str(root) in sys.path:
-        sys.path.remove(str(root))
-    sys.path.insert(0, str(root))
+    # Keep the installed AUREN payload ahead of the workspace on sys.path.
+    # A project may itself contain a package named "portable"; it must not
+    # shadow AUREN's runtime modules when the project factory is imported.
+    auren_root = str(Path(__file__).resolve().parents[1])
+    for entry in (auren_root, str(root)):
+        if entry in sys.path:
+            sys.path.remove(entry)
+    sys.path.insert(0, auren_root)
+    if str(root) != auren_root:
+        sys.path.insert(1, str(root))
     runtime = _load_runtime(factory_path, root)
     ensure_local_observability_store()
     dashboard = None
