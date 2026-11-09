@@ -35,10 +35,15 @@ The following inventory distinguishes an authoritative state owner from a projec
 | Engineering plan task | Pending, ready, running, verifying, passed, blocked, failed and cancelled | `portable/engineering_plan.py` | Explicit transition graph. Failed and blocked tasks can return to ready; passed and cancelled are terminal. |
 | Engineering plan run | Planned, ready, running, completed, failed, blocked, cancelled or unknown | `portable/engineering_dashboard.py` plus persisted plan/run and checkpoint | A digest-checked dashboard projection. It must not override the persisted plan/run or checkpoint. |
 | StateGraph execution | Node routing, evaluator, repair, retries, checkpoints and crew dispatch | `portable/state_graph.py`, `portable/agency_state_graph.py` | Graph topology and node execution form a state machine. Keep graph transitions inside the graph/supervisor contract. |
+| Engineering gate DAG | Pending, ready, in-progress, passed, blocked, failed and cancelled | `portable/engineering_gate_crew_plan.py` | Dependency planning and gate progress; durable task execution remains with the controller. |
+| Crew handoff | Queued, claimed, retried, completed or rejected | `portable/crew_adapters.py::GraphHandoffController` | Durable checkpointed handoff queue; completion/rejection requires independent review evidence. |
+| Cognitive episode | Observe, evaluate, optional learn, complete | `portable/cognitive_loop.py` | Episode phases wrap existing execution and do not own execution authority. |
 | Agency execution | Created, planned, executing, verifying, repairing, escalated, passed, failed and blocked | `portable/agency_state.py` | Explicit but separate lifecycle. It overlaps conceptually with plan and controller execution; it must not become a second source of task truth. |
 | Agent turn | Idle, planning, acting, observing, verifying, deciding, repairing, stopped, completed and failed | `.ai-harness/runtime/agent_turn.py` | Explicit provider-neutral turn machine with live observation and interrupt decisions. |
 | Graph worker | Pending, working, adopting, waiting, blocked, complete, failed, cancelled and unknown | `portable/graph_worker_lifecycle.py` and recovery bridge | Worker, workspace and recovery states must reconcile before redispatch. |
 | Workspace | Creating, active, proposal-ready, adopting, merged/closed, failed or stale | Graph workspace registry/coordinator; projected by `MuxinSessionAdapter` | Host-owned lifecycle. Dashboard remains read-only. |
+| Git worktree | Creating, active, creation-failed and cleaned | `.ai-harness/worktree.py` | Durable task, intent, budget and owned-path bindings are checked before resume. |
+| Remediation backlog | Pending, in-progress, blocked, resolved, accepted and deferred | `portable/persistent_remediation_backlog.py` | Remediation state is distinct from the execution state of the task attempting the fix. |
 | Human approval | Pending, approved, executing, outcome-unknown, completed, failed, rejected, expired, cancelled and superseded | `portable/durable_approval.py` | Durable CAS transitions and audit chain. Approval state does not replace side-effect reconciliation. |
 | Consequential side effect | Executing, completed, reconcile-required and retry-authorized | `portable/side_effect_ledger.py` | Idempotency and uncertainty boundary. An unknown result must be reconciled before retry. |
 | Provider operation | Dispatching, completed, blocked or reconcile-required | `portable/provider_operation_lifecycle.py` over the side-effect ledger | Provider receipt and lookup lifecycle. A dispatch return is not proof of completion. |
@@ -47,6 +52,7 @@ The following inventory distinguishes an authoritative state owner from a projec
 | Continuous goal execution | Running, required-check wait, main-head wait, poll error, unverified completion, hold, backoff, stop-requested and stopped | `portable/continuous_execution.py` | Long-running supervisor and CI polling machine. Observed completion is not verified completion. |
 | Autonomous work unit | Created/running, waiting for CI or external input, completed, failed or cancelled | `portable/autonomous_company.py` | Durable work-unit lifecycle with separate event records and clarification states. |
 | Goal planning | Open, active, blocked, completed and abandoned | `portable/goal_manager.py` | Durable goal hierarchy; goal completion is distinct from task execution completion. |
+| Goal-directed planning | Open, active, blocked, complete and abandoned | `portable/goal_directed_planning.py` | Separate in-memory planner vocabulary. Its `complete` differs from GoalManager's `completed`; keep it advisory until explicitly reconciled. |
 | Legacy task planning | Pending, in-progress, blocked, done and cancelled | `portable/task_planner.py` | Smaller task vocabulary. Treat as planning/compatibility input, not a competing execution authority. |
 | Bounded feedback loop | Success, clean no-op, blocked, approval-required, exhausted, no-progress and error | `portable/feedback_loop.py` | Explicit terminal outcomes and finite pass budget. |
 | Learning hypothesis | Observed, investigated, hypothesized, planned, evaluated, approved, deployed, verified, rejected, blocked, inconclusive and rolled back | `portable/agency_evolution_gates.py` | Evidence and independent review gate learning promotion. |
@@ -54,6 +60,7 @@ The following inventory distinguishes an authoritative state owner from a projec
 | Capability invention | Candidate and promoted, with benchmark/evidence gates | `portable/invention_lifecycle.py` | Candidate state is not a deployed capability. |
 | Experiment queue | Queued, assigned, observed and attributed | `portable/experiment_queue.py` | Observation and attribution are distinct; queued work is not evidence. |
 | Release channels | Staged artifact, shadow, canary, current/promoted and rollback | `portable/agency_release_lifecycle.py` and `portable/context_bound_release.py` | Release actions update channel pointers only after evidence gates. |
+| Independent transfer learning | Sealed benchmark, transfer measurement, causal attribution, fresh holdout retest, promotion or rollback | `portable/independent_transfer_learning_lifecycle.py` | Promotion is a policy artifact and never grants execution permissions. |
 | CI and health | Poll result, required-check state, readiness, liveness and deployment evidence | `portable/continuous_execution.py`, `portable/dashboard_server.py` | HTTP liveness, local readiness, provider health and production readiness are separate claims. |
 
 ### Important non-equivalences
@@ -128,6 +135,6 @@ The dashboard may recommend a next action but cannot perform it. Agents may read
 
 ## Rollout boundary
 
-The shared projection is now used by the sessions API for session, progress-task, plan-run and workspace records. The remaining state machines are inventoried but retain their existing domain-specific runtime and API contracts. Extend the projection to those surfaces incrementally with contract tests; do not mass-rewrite state storage or transition logic.
+The shared projection is now used by the sessions API for session, progress-task, plan-run and workspace records. The registry also describes engineering gates, crew handoffs, cognitive phases, worktrees, remediation, goals, learning, delivery, approvals, providers and release. The remaining state machines retain their existing domain-specific runtime and API contracts until each surface is integrated with contract tests. Extend the projection to those surfaces incrementally with contract tests; do not mass-rewrite state storage or transition logic.
 
 This is the safest path to consistent UX, DX and AX without breaking durable state, existing integrations or execution authority.
