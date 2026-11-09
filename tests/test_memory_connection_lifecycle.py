@@ -48,6 +48,8 @@ class MemoryConnectionLifecycleTests(unittest.TestCase):
             "with self.memory._connect() as db:",
             "with self.memory._lock, self.memory._connect() as db:",
             "with self.memory._lock,self.memory._connect() as db:",
+            "with memory._lock,memory._connect() as db:",
+            "with memory._connect() as db:",
         )
         violations = []
         for path in sorted((ROOT / "portable").glob("*.py")):
