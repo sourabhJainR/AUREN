@@ -150,7 +150,7 @@ class EngineeringEvolutionControlPlane:
         self.backlog = PersistentRemediationBacklog(memory, project)
         self.graph = ContextGraph(memory, project)
         self.providers = ProviderFabric()
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.executescript("""
             CREATE TABLE IF NOT EXISTS evolution_metrics(
               project TEXT NOT NULL, phase TEXT NOT NULL, key TEXT NOT NULL,
@@ -313,7 +313,7 @@ class EngineeringEvolutionControlPlane:
         return prediction
 
     def failure_prediction(self, *, task_family: str, capability: str) -> FailurePrediction:
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             rows = db.execute(
                 "SELECT severity,status,attempts FROM remediation_backlog WHERE project=? AND task_family=? AND capability=?",
                 (self.project, task_family, capability),
@@ -367,7 +367,7 @@ class EngineeringEvolutionControlPlane:
     def record_provider_result(self, provider: str, capability: str, *, success: bool, duration_seconds: float, quality: float) -> ProviderCalibration:
         if not provider.strip() or not capability.strip() or duration_seconds < 0 or not 0 <= quality <= 1:
             raise ValueError("invalid provider result")
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute("INSERT INTO provider_calibration VALUES(?,?,?,?,?,?,?)",
                        (self.project, provider, capability, int(success), float(duration_seconds), float(quality), _utc()))
         return self.provider_calibration(provider, capability)
@@ -386,7 +386,7 @@ class EngineeringEvolutionControlPlane:
         return max(candidates, key=lambda item: (item[0], item[1]))[1]
 
     def provider_calibration(self, provider: str, capability: str) -> ProviderCalibration:
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             rows = db.execute("SELECT success,duration,quality FROM provider_calibration WHERE project=? AND provider=? AND capability=?",
                               (self.project, provider, capability)).fetchall()
         samples = len(rows)
@@ -399,7 +399,7 @@ class EngineeringEvolutionControlPlane:
 
     # Phase 9: validate transfer against held-out target-project episodes.
     def record_transfer_result(self, source_project: str, target_project: str, capability: str, *, success: bool, regression: bool = False) -> CrossProjectValidation:
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute("INSERT INTO transfer_validation VALUES(?,?,?,?,?,?)",
                        (source_project, target_project, capability, int(success), int(regression), _utc()))
         return self.cross_project_validation(source_project, target_project, capability)
@@ -415,7 +415,7 @@ class EngineeringEvolutionControlPlane:
         return result
 
     def cross_project_validation(self, source_project: str, target_project: str, capability: str) -> CrossProjectValidation:
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             rows = db.execute("SELECT success,regression FROM transfer_validation WHERE source_project=? AND target_project=? AND capability=?",
                               (source_project, target_project, capability)).fetchall()
         samples = len(rows)
