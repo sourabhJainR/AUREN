@@ -7,7 +7,7 @@ is finalized after an ambiguous result.
 """
 from __future__ import annotations
 
-from contextlib import closing, contextmanager
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -189,7 +189,7 @@ class DurableApprovalStore:
         self.wake_callback = wake_callback
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
-        with closing(self._connect()) as db, db:
+        with self._connect() as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS durable_approvals (
                     approval_id TEXT PRIMARY KEY,
@@ -387,7 +387,7 @@ class DurableApprovalStore:
         approval_id = "approval-" + _digest(identity)[:40]
         created_new = False
         superseded_records: list[ApprovalRecord] = []
-        with closing(self._connect()) as db, db:
+        with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             same = db.execute(
                 "SELECT * FROM durable_approvals WHERE approval_id=?", (approval_id,)
@@ -469,7 +469,7 @@ class DurableApprovalStore:
         """Repair the latest missing journal projection without replaying old states."""
         if self.progress_journal is None:
             return 0
-        with closing(self._connect()) as db, db:
+        with self._connect() as db:
             rows = db.execute("SELECT * FROM durable_approvals ORDER BY created_at,approval_id").fetchall()
         count = 0
         for row in rows:
@@ -482,7 +482,7 @@ class DurableApprovalStore:
     def checkpoint_for(self, approval_id: str) -> Mapping[str, Any]:
         """Load the exact bounded continuation checkpoint saved with the approval."""
         approval_id = _required(approval_id, "approval_id")
-        with closing(self._connect()) as db, db:
+        with self._connect() as db:
             row = db.execute(
                 "SELECT checkpoint_json,checkpoint_digest FROM durable_approvals WHERE approval_id=?",
                 (approval_id,),
@@ -496,14 +496,14 @@ class DurableApprovalStore:
 
     def get(self, approval_id: str) -> ApprovalRecord:
         approval_id = _required(approval_id, "approval_id")
-        with closing(self._connect()) as db, db:
+        with self._connect() as db:
             row = db.execute("SELECT * FROM durable_approvals WHERE approval_id=?", (approval_id,)).fetchone()
         if row is None:
             raise KeyError("unknown approval_id")
         return _record(row)
 
     def events(self, approval_id: str | None = None) -> tuple[Mapping[str, Any], ...]:
-        with closing(self._connect()) as db, db:
+        with self._connect() as db:
             if approval_id is None:
                 rows = db.execute("SELECT * FROM durable_approval_events ORDER BY sequence").fetchall()
             else:
@@ -525,7 +525,7 @@ class DurableApprovalStore:
         records. Roles and scope are claims captured at vote time, not credentials.
         """
         approval_id = _required(approval_id, "approval_id")
-        with closing(self._connect()) as db, db:
+        with self._connect() as db:
             rows = db.execute(
                 "SELECT approver_id,decision,roles_json,scope,decision_digest,created_at "
                 "FROM durable_approval_decisions WHERE approval_id=? ORDER BY approver_id",
@@ -543,7 +543,7 @@ class DurableApprovalStore:
     def verify_audit_chain(self) -> bool:
         previous = "0" * 64
         recorded_decision_digests: set[str] = set()
-        with closing(self._connect()) as db, db:
+        with self._connect() as db:
             rows = db.execute("SELECT event_json,previous_digest,event_digest FROM durable_approval_events ORDER BY sequence").fetchall()
             decisions = db.execute("SELECT * FROM durable_approval_decisions ORDER BY decision_id").fetchall()
         for row in rows:
@@ -579,7 +579,7 @@ class DurableApprovalStore:
         if decision not in {"approve", "reject"}:
             raise ValueError("decision must be approve or reject")
         normalized_roles = tuple(sorted(set(_required(role, "role") for role in roles)))
-        with closing(self._connect()) as db, db:
+        with self._connect() as db:
             first = db.execute("SELECT * FROM durable_approvals WHERE approval_id=?", (approval_id,)).fetchone()
         if first is None:
             raise KeyError("unknown approval_id")
@@ -597,7 +597,7 @@ class DurableApprovalStore:
             raise PermissionError("trusted approver authorization rejected the decision")
         current = _parse_time(now or self._now(), "now")
         wake = False
-        with closing(self._connect()) as db, db:
+        with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT * FROM durable_approvals WHERE approval_id=?", (approval_id,)).fetchone()
             if row is None:
@@ -687,7 +687,7 @@ class DurableApprovalStore:
     ) -> ApprovalReceipt:
         if not isinstance(request, ActionRequest):
             raise TypeError("request must be an ActionRequest")
-        with closing(self._connect()) as db, db:
+        with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT * FROM durable_approvals WHERE approval_id=?", (approval_id,)).fetchone()
             if row is None:
@@ -782,7 +782,7 @@ class DurableApprovalStore:
                 or self._validate_digest(context.get("policy_digest"), "policy_digest") != record.policy_digest
             ):
                 return False
-            with closing(self._connect()) as db, db:
+            with self._connect() as db:
                 rows = db.execute(
                     "SELECT approver_id FROM durable_approval_decisions WHERE approval_id=? AND decision='approve' ORDER BY approver_id",
                     (receipt.approval_id,),
@@ -842,7 +842,7 @@ class DurableApprovalStore:
             raise ValueError("outcome must be completed, failed, or outcome_unknown")
         if receipt_digest and not _DIGEST.fullmatch(receipt_digest):
             raise ValueError("receipt_digest must be a SHA-256 digest")
-        with closing(self._connect()) as db, db:
+        with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT * FROM durable_approvals WHERE approval_id=?", (approval_id,)).fetchone()
             if row is None:
@@ -877,7 +877,7 @@ class DurableApprovalStore:
             raise PermissionError("outcome reconciliation failed closed") from exc
         if not verified:
             raise PermissionError("outcome reconciliation failed closed: provider outcome evidence was rejected")
-        with closing(self._connect()) as db, db:
+        with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT * FROM durable_approvals WHERE approval_id=?", (approval_id,)).fetchone()
             if row is None or row["status"] != "outcome_unknown":
@@ -908,7 +908,7 @@ class DurableApprovalStore:
         if authorized is not True:
             raise PermissionError("actor is not authorized to cancel this approval")
 
-        with closing(self._connect()) as db, db:
+        with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 "SELECT * FROM durable_approvals WHERE approval_id=?", (approval_id,),
@@ -936,7 +936,7 @@ class DurableApprovalStore:
         if type(limit) is not int or not 1 <= limit <= 1000:
             raise ValueError("limit must be between 1 and 1000")
         changed: list[ApprovalRecord] = []
-        with closing(self._connect()) as db, db:
+        with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             rows = db.execute(
                 "SELECT * FROM durable_approvals WHERE status IN ('pending','approved') "
@@ -958,7 +958,7 @@ class DurableApprovalStore:
         if type(limit) is not int or not 1 <= limit <= 1000:
             raise ValueError("limit must be between 1 and 1000")
         self.expire_due(limit=limit)
-        with closing(self._connect()) as db, db:
+        with self._connect() as db:
             rows = db.execute(
                 "SELECT * FROM durable_approvals WHERE status='approved' ORDER BY updated_at,approval_id LIMIT ?",
                 (limit,),
@@ -980,7 +980,7 @@ class DurableApprovalStore:
             raise ValueError("older_than_seconds must be finite and positive")
         cutoff = _time_text(self._now() - timedelta(seconds=float(older_than_seconds)))
         changed: list[ApprovalRecord] = []
-        with closing(self._connect()) as db, db:
+        with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             has_tasks = db.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tasks'"
