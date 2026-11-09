@@ -260,7 +260,7 @@ class LocalMCPHostProcessTests(unittest.TestCase):
             def collect_output():
                 assert process.stdout is not None
                 for line in process.stdout:
-                    lines.put(line.rstrip("\\r\\n"))
+                    lines.put(line.rstrip("\r\n"))
 
             reader = threading.Thread(target=collect_output, daemon=True)
             reader.start()
