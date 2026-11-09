@@ -35,6 +35,7 @@ def _dispatch_payload_digest_json(payload: Mapping[str, Any]) -> str:
         "_auren_engineering_task", "_auren_engineering_readiness",
         "_auren_engineering_readiness_digest", "_auren_engineering_phase",
         "_auren_engineering_department", "_auren_engineering_remediation",
+        "auren_engineering_deadline_epoch", "auren_engineering_budget_phase",
     ):
         normalized.pop(name, None)
     normalized.pop("engineering_readiness", None)
@@ -409,15 +410,16 @@ class EngineeringPlanDispatch:
 
         plan, run = self._verified_state(run_id, task_id, packet)
         if any(name in safe_payload for name in (
-            "_auren_engineering_readiness", "_auren_engineering_readiness_digest",
-            "_auren_engineering_phase", "_auren_engineering_department",
+            "_auren_engineering_task", "_auren_engineering_readiness",
+            "_auren_engineering_readiness_digest", "_auren_engineering_phase",
+            "_auren_engineering_department", "_auren_engineering_remediation",
+            "engineering_readiness", "auren_engineering_deadline_epoch",
+            "auren_engineering_budget_phase",
         )):
-            raise ValueError("engineering readiness fields are supervisor-owned")
-        explicit_axes = safe_payload.pop("engineering_readiness", None)
+            raise ValueError("engineering readiness and budget fields are supervisor-owned")
         plan_task = next(item for item in plan.tasks if item.task_id == task_id)
         readiness = self.readiness_gate.assess_packet(
             work_key=key, plan=plan, task=plan_task, packet=packet,
-            explicit_axes=explicit_axes if isinstance(explicit_axes, Mapping) else None,
         )
         if not readiness.ready:
             raise EngineeringReadinessBlocked(readiness)
