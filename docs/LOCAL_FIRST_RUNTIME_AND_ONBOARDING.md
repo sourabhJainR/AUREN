@@ -1,8 +1,20 @@
 # Local-first Runtime and Repository Onboarding Architecture
 
 **Status:** Architecture initiative; implementation and acceptance are tracked independently.  
-**Product direction:** Local-first by default. Remote MCP is optional. Local OAuth is optional.
+**Product direction:** Local-first by default. Single-user local mode is the default profile. Managed runtime integration is optional and explicit. Remote MCP and local OAuth are separate optional choices.
 
+### Runtime profiles
+
+| Profile | Default | Runtime factory | Identity / transport |
+|---|---:|---|---|
+| Single-user local | Yes | Not used or required | Local caller identity/token; loopback MCP only |
+| Managed | No; explicit opt-in | Optional advanced trusted extension | Host-managed identity, shared policy/budgets and deployment services as configured |
+
+The user can switch profiles with `auren mode --mode managed --apply` or `auren mode --mode single_user_local --apply`. An advanced factory can be named only while opting into managed mode: `auren mode --mode managed --runtime-factory module:function --apply`. Switching back to local mode clears the factory reference. Local setup must never prompt for, discover, or import a project runtime factory.
+
+The profile selector and persistence are implemented in this branch. The built-in single-user composition root is still a delivery gate: until it is complete, the local host must report that it is unavailable rather than silently falling back to a factory or an empty/no-op graph. The existing factory-backed host is the managed/advanced path only.
+
+### Implementation status (2026-11-10)
 ### Implementation status (2026-11-10)
 
 **Implemented in this branch**
