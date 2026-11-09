@@ -1,3 +1,4 @@
+import sqlite3
 from pathlib import Path
 from portable.agent_capabilities import Skill, SkillRegistry
 from portable.autonomous_company import AutonomousCompany
@@ -41,3 +42,57 @@ def test_executive_team_shares_trust(tmp_path: Path):
     status, _, _ = team.run_agent(unit.id, "verifier", "task")
     assert status == "passed"
     assert "score" in team.share_trust(unit.id)
+
+
+
+def test_company_refuses_success_without_current_verification_evidence(tmp_path: Path):
+    company = AutonomousCompany(tmp_path)
+    unit = company.start("require evidence before completion")
+
+    company.finish(unit.id, success=True, reason="caller claimed completion", evidence=("release:claimed",))
+
+    assert company._state(unit.id)[0] == "failed"
+    with sqlite3.connect(company.db_path) as db:
+        latest = db.execute(
+            "SELECT kind,status,detail FROM events WHERE work_unit_id=? ORDER BY rowid DESC LIMIT 2",
+            (unit.id,),
+        ).fetchall()
+    assert ("verification", "failed") in [(row[0], row[1]) for row in latest]
+    assert "verification evidence is missing" in latest[0][2] or "verification evidence is missing" in latest[1][2]
+
+
+def test_company_refuses_success_with_empty_verification_evidence(tmp_path: Path):
+    company = AutonomousCompany(tmp_path)
+    unit = company.start("require non-empty verification evidence")
+    company.record(unit.id, "verification", "passed", "tests were reported", ())
+
+    company.finish(unit.id, success=True, reason="caller claimed completion", evidence=("release:claimed",))
+
+    assert company._state(unit.id)[0] == "failed"
+
+
+def test_company_refuses_success_with_stale_iteration_verification(tmp_path: Path):
+    company = AutonomousCompany(tmp_path)
+    unit = company.start("require verification for the current iteration")
+    company.record(unit.id, "verification", "passed", "earlier iteration passed", ("tests:old",))
+    company._transition(unit.id, "running", 1)
+
+    company.finish(unit.id, success=True, reason="caller claimed completion", evidence=("release:claimed",))
+
+    assert company._state(unit.id)[0] == "failed"
+
+
+def test_company_finish_accepts_current_verified_evidence(tmp_path: Path):
+    company = AutonomousCompany(tmp_path)
+    unit = company.start("complete only after current verification")
+    company.record(unit.id, "verification", "passed", "current verification passed", ("tests:current",))
+
+    company.finish(unit.id, success=True, reason="verified completion")
+
+    assert company._state(unit.id)[0] == "completed"
+    with sqlite3.connect(company.db_path) as db:
+        latest = db.execute(
+            "SELECT evidence FROM events WHERE work_unit_id=? AND kind='execution' ORDER BY rowid DESC LIMIT 1",
+            (unit.id,),
+        ).fetchone()
+    assert "tests:current" in latest[0]
