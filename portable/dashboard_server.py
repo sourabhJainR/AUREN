@@ -795,18 +795,16 @@ class _Handler(BaseHTTPRequestHandler):
         return
 
 
-def serve(
+def create_server(
     project_root=".", host="127.0.0.1", port=8765, *,
     delivery_execution_guard: RuntimeExecutionGuard | None = None,
     delivery_budget_id: str | None = None,
 ):
-    """Run the dashboard host, optionally joining a caller-owned crew budget.
-
-    A shared guard must be paired with a stable budget ID. Hosts that do not
-    provide one retain the safer delivery-scoped default budget.
-    """
+    """Create a bound local dashboard server without starting its event loop."""
     if host not in {"127.0.0.1", "localhost"}:
         raise ValueError("dashboard server only binds to loopback; remote access requires a separately secured deployment")
+    if type(port) is not int or not 0 <= port <= 65535:
+        raise ValueError("dashboard port must be between 0 and 65535; use 0 for automatic selection")
     if delivery_execution_guard is not None:
         if not isinstance(delivery_execution_guard, RuntimeExecutionGuard):
             raise TypeError("delivery_execution_guard must be a RuntimeExecutionGuard")
@@ -828,7 +826,7 @@ def serve(
     progress_journal = ProgressJournal(runtime_root / "progress.jsonl")
     controller = ExecutionController(project_root)
     delivery_supervisor = ResponseDeliverySupervisor(controller, runtime_root / "progress.jsonl")
-    handler = type("AERDashboardHandler", (_Handler,), {
+    handler = type("AURENDashboardHandler", (_Handler,), {
         "dashboard": dashboard, "control_center": control_center,
         "ui_root": UI_ROOT, "control_center_path": CONTROL_CENTER,
         "artifact_store": artifact_store, "response_repository": response_repository,
@@ -838,7 +836,22 @@ def serve(
         "delivery_budget_id": delivery_budget_id,
     })
     server = ThreadingHTTPServer((host, port), handler)
-    print(f"AUREN Engineering Console: http://{host}:{port}")
+    server.daemon_threads = True
+    return server
+
+
+def serve(
+    project_root=".", host="127.0.0.1", port=8765, *,
+    delivery_execution_guard: RuntimeExecutionGuard | None = None,
+    delivery_budget_id: str | None = None,
+):
+    """Run the dashboard host, optionally joining a caller-owned crew budget."""
+    server = create_server(
+        project_root, host, port,
+        delivery_execution_guard=delivery_execution_guard,
+        delivery_budget_id=delivery_budget_id,
+    )
+    print(f"AUREN Engineering Console: http://{server.server_address[0]}:{server.server_address[1]}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
