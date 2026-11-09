@@ -48,6 +48,23 @@ class ProviderConformanceTests(unittest.TestCase):
                 self.assertTrue(entry.get("next_steps"))
                 self.assertFalse(entry.get("live_verified", False))
 
+    def test_mcp_client_json_templates_are_valid_and_contain_no_credentials(self):
+        templates = [
+            "gemini.settings.json.example", "cursor.mcp.json.example",
+            "vscode.mcp.json.example", "cline.mcp.json.example",
+            "roo.mcp.json.example", "zed.settings.json.example",
+        ]
+        base = ROOT / "integrations" / "mcp"
+        for name in templates:
+            with self.subTest(template=name):
+                payload = json.loads((base / name).read_text(encoding="utf-8"))
+                self.assertTrue(payload)
+                self.assertNotIn("Bearer ", json.dumps(payload))
+                self.assertNotIn("api_key", json.dumps(payload).lower())
+        codex = (base / "codex.config.toml.example").read_text(encoding="utf-8")
+        self.assertIn("[mcp_servers.auren]", codex)
+        self.assertIn("https://mcp.example.com/mcp", codex)
+
     def test_mcp_host_compatibility_docs_cover_major_ide_clients(self):
         matrix = json.loads(MATRIX.read_text(encoding="utf-8"))
         integrations = matrix.get("platform_integrations", {})
