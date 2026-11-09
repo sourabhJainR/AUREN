@@ -9,13 +9,15 @@ TOKEN = "test-access-token-with-sufficient-length"
 
 
 class RemoteMCPAcceptanceTests(unittest.TestCase):
-    def _transport(self, *, omit_tool=None, health_status=200):
+    def _transport(self, *, omit_tool=None, health_status=200, readiness_status=200):
         calls = []
 
         def transport(url, **kwargs):
             calls.append((url, kwargs))
             if kwargs["method"] == "GET" and url.endswith("/healthz"):
                 return health_status, b'{"status":"ok"}'
+            if kwargs["method"] == "GET" and url.endswith("/readyz"):
+                return readiness_status, b'{"status":"ok"}'
             if kwargs["method"] == "GET" and "oauth-protected-resource" in url:
                 return 200, json.dumps({
                     "resource": ENDPOINT,
@@ -67,7 +69,7 @@ class RemoteMCPAcceptanceTests(unittest.TestCase):
         self.assertEqual("accepted", result["status"])
         self.assertEqual(5, result["tool_count"])
         self.assertEqual(0, result["live_task_mutations"])
-        self.assertEqual(6, len(calls))
+        self.assertEqual(7, len(calls))
         self.assertTrue(all(call[1]["allowed_hosts"] == ("mcp.example.test",) for call in calls))
         post_calls = [call for call in calls if call[1]["method"] == "POST"]
         self.assertEqual(
@@ -100,6 +102,23 @@ class RemoteMCPAcceptanceTests(unittest.TestCase):
         transport, _ = self._transport(health_status=503)
         with self.assertRaisesRegex(AcceptanceFailure, "HTTP 503"):
             run_acceptance(ENDPOINT, TOKEN, allowed_hosts=("mcp.example.test",), transport=transport)
+
+    def test_non_200_readiness_fails(self):
+        transport, calls = self._transport(readiness_status=503)
+        with self.assertRaisesRegex(AcceptanceFailure, "HTTP 503"):
+            run_acceptance(ENDPOINT, TOKEN, allowed_hosts=("mcp.example.test",), transport=transport)
+        self.assertEqual(2, len(calls))
+        self.assertTrue(calls[-1][0].endswith("/readyz"))
+
+    def test_unready_service_fails_even_when_liveness_is_ok(self):
+        transport, _ = self._transport(readiness_status=200)
+        original = transport
+        def unready(url, **kwargs):
+            if url.endswith("/readyz"):
+                return 200, b'{"status":"not_ready"}'
+            return original(url, **kwargs)
+        with self.assertRaisesRegex(AcceptanceFailure, "readiness check"):
+            run_acceptance(ENDPOINT, TOKEN, allowed_hosts=("mcp.example.test",), transport=unready)
 
     def test_missing_read_only_tool_fails_without_mutating_server(self):
         transport, calls = self._transport(omit_tool="auren.get_evidence")
