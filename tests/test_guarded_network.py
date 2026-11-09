@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import socket
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from unittest.mock import Mock, patch
 
 from portable.guarded_network import (
     NetworkPolicyDenied,
     connect_https_pinned,
     guarded_https_get,
+    guarded_loopback_http_get,
     resolve_https_destination,
 )
 
@@ -127,6 +130,67 @@ class GuardedNetworkTests(unittest.TestCase):
             )
         resolver.assert_not_called()
         connector.assert_not_called()
+
+
+    def test_loopback_http_probe_rejects_remote_hosts_before_connect(self):
+        with patch("portable.guarded_network.http.client.HTTPConnection") as connection:
+            with self.assertRaisesRegex(NetworkPolicyDenied, "IPv4 loopback"):
+                guarded_loopback_http_get("http://example.com:80/health")
+        connection.assert_not_called()
+
+    def test_loopback_http_probe_is_bounded_and_does_not_follow_redirects(self):
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(302)
+                self.send_header("Location", "http://example.com/should-not-be-followed")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, *_args):
+                return
+
+        server = HTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            status, body = guarded_loopback_http_get(
+                f"http://127.0.0.1:{server.server_address[1]}/health",
+                timeout=1.0,
+                max_bytes=128,
+            )
+            self.assertEqual(302, status)
+            self.assertEqual(b"", body)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+    def test_loopback_http_probe_rejects_oversized_responses(self):
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = b"x" * 129
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_args):
+                return
+
+        server = HTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with self.assertRaisesRegex(NetworkPolicyDenied, "byte limit"):
+                guarded_loopback_http_get(
+                    f"http://127.0.0.1:{server.server_address[1]}/health",
+                    timeout=1.0,
+                    max_bytes=128,
+                )
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
 
 
     def test_agency_sync_fetch_uses_pinned_upstream_host_scope(self):
