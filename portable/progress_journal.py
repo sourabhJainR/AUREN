@@ -64,6 +64,34 @@ REDACTORS = (
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
+
+_METADATA_SECRET = re.compile(r"(?i)(?:secret|token|password|api[_-]?key|authorization|credential|private[_-]?key)")
+
+def _safe_metadata(value: Any, *, depth: int = 0, key: str = "") -> Any:
+    """Bound structured journal metadata and redact credential-like keys."""
+    if key and _METADATA_SECRET.search(key):
+        return "[REDACTED]"
+    if depth > 8:
+        return "[DEPTH_LIMIT]"
+    if value is None or isinstance(value, (bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else "[NON_FINITE]"
+    if isinstance(value, str):
+        return _safe(value, limit=2000)
+    if isinstance(value, Mapping):
+        result = {}
+        for index, (raw_key, item) in enumerate(value.items()):
+            if index >= 100:
+                result["[TRUNCATED]"] = True
+                break
+            safe_key = _safe(str(raw_key), limit=128)
+            result[safe_key] = _safe_metadata(item, depth=depth + 1, key=safe_key)
+        return result
+    if isinstance(value, (list, tuple)):
+        return [_safe_metadata(item, depth=depth + 1) for item in value[:100]] + (["[TRUNCATED]"] if len(value) > 100 else [])
+    raise ValueError(f"journal metadata contains unsupported value: {type(value).__name__}")
+
 def _safe(value: str, limit: int = 500) -> str:
     value = str(value).replace("\x00", "")[:limit]
     for pattern in REDACTORS:
@@ -85,6 +113,7 @@ class ProgressEvent:
     priority: int = 0
     parent_task_id: str | None = None
     decision_required: bool = False
+    metadata: dict[str, Any] | None = None
 
 class ProgressJournalCorruption(RuntimeError):
     """The append-only progress journal contains data that cannot be trusted."""
@@ -146,6 +175,10 @@ class ProgressJournal:
                         raise ProgressJournalCorruption(
                             f"progress journal has invalid field values at line {line_number}; writes and snapshots are blocked"
                         )
+                    if "metadata" in row and not isinstance(row["metadata"], dict):
+                        raise ProgressJournalCorruption(
+                            f"progress journal has invalid metadata at line {line_number}; writes and snapshots are blocked"
+                        )
                     rows.append(row)
         except UnicodeDecodeError as exc:
             raise ProgressJournalCorruption(
@@ -159,13 +192,14 @@ class ProgressJournal:
                evidence_ref: str | None = None, timestamp: str | None = None,
                priority: int | None = None, parent_task_id: str | None = None,
                decision_required: bool | None = None,
-               expected_sequence: int | None = None) -> ProgressEvent:
+               expected_sequence: int | None = None,
+               metadata: Mapping[str, Any] | None = None) -> ProgressEvent:
         return self._record(
             task_id, event, state=state, stage=stage, message=message,
             completed_units=completed_units, total_units=total_units,
             evidence_ref=evidence_ref, timestamp=timestamp, priority=priority,
             parent_task_id=parent_task_id, decision_required=decision_required,
-            expected_sequence=expected_sequence,
+            expected_sequence=expected_sequence, metadata=metadata,
             allow_terminal_correction=False,
         )
 
@@ -210,6 +244,7 @@ class ProgressJournal:
                 evidence_ref: str | None = None, timestamp: str | None = None,
                 priority: int | None = None, parent_task_id: str | None = None,
                 decision_required: bool | None = None, expected_sequence: int | None = None,
+                metadata: Mapping[str, Any] | None = None,
                 allow_terminal_correction: bool = False) -> ProgressEvent:
         if not task_id or not task_id.strip():
             raise ValueError("task_id must be non-empty")
@@ -221,6 +256,8 @@ class ProgressJournal:
             raise ValueError("parent_task_id must be a non-empty string when supplied")
         if decision_required is not None and not isinstance(decision_required, bool):
             raise ValueError("decision_required must be a boolean")
+        if metadata is not None and not isinstance(metadata, Mapping):
+            raise ValueError("metadata must be a mapping or None")
         if completed_units is not None and completed_units < 0:
             raise ValueError("completed_units cannot be negative")
         if total_units is not None and total_units < 0:
@@ -256,10 +293,14 @@ class ProgressJournal:
                     total_units=total_units, evidence_ref=_safe(evidence_ref, 1000) if evidence_ref else None,
                     priority=effective_priority, parent_task_id=_safe(effective_parent, 200) if effective_parent else None,
                     decision_required=effective_decision,
+                    metadata=_safe_metadata(metadata) if metadata is not None else None,
                 )
                 self.path.parent.mkdir(parents=True, exist_ok=True)
+                payload = asdict(row)
+                if payload.get("metadata") is None:
+                    payload.pop("metadata", None)
                 with self.path.open("a", encoding="utf-8") as stream:
-                    stream.write(json.dumps(asdict(row), sort_keys=True, separators=(",", ":")) + "\n")
+                    stream.write(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\\n")
                     stream.flush()
                     os.fsync(stream.fileno())
                 return row
