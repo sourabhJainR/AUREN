@@ -143,7 +143,7 @@
       '</strong><div class="muted">' + safe(row.stage || "unknown stage") + '</div></div><div>' +
       '<div class="muted">' + safe(row.next_action || "No recovery action recorded") + '</div><div class="muted">Updated ' +
       safe(time(row.last_update)) + ' · ' + safe(age(row.seconds_since_update)) + '</div></div><div><span class="status ' +
-      statusClass(status) + '">' + safe(status) + '</span><div class="muted">' + safe(label) + '</div></div></article>';
+      statusClass(category) + '">' + safe(status) + '</span><div class="muted">' + safe(label) + '</div></div></article>';
   }
   function planCard(row) {
     const counts = row.task_counts || {};
@@ -174,7 +174,7 @@
     return '<article class="session-task"><div><strong>' + safe(row.workspace_id || "Unidentified workspace") +
       '</strong><div class="muted">' + safe(row.worker_id || "No worker identity") + ' · ' +
       safe(row.task_id || "No task binding") + '</div></div><div><span class="status ' +
-      statusClass(status) + '">' + safe(status) + '</span><div class="muted">' +
+      statusClass(category) + '">' + safe(status) + '</span><div class="muted">' +
       safe(row.branch || "No branch metadata") + '</div></div><div class="workspace-details">' +
       detailHtml + '</div><div>' + list("Changed", changed) + list("Owned", owned) +
       list("Evidence", evidence) + (row.lists_truncated ? '<div class="muted">Workspace detail lists are truncated.</div>' : "") +
