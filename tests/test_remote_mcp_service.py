@@ -25,6 +25,10 @@ from portable.remote_mcp import (
 from portable.runtime_recovery import RuntimeExecutionGuard
 
 
+def _mcp_private_test_handler(_payload):
+    return "ok"
+
+
 class RemoteMCPServiceTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -104,7 +108,7 @@ class RemoteMCPServiceTests(unittest.TestCase):
         self.assertFalse(first["completion_verified"])
         self.assertEqual(2, enqueue.call_count)
         event = self.runtime.trigger_runtime.get_event(first["task_id"])
-        self.assertEqual(str(self.root), event.payload["project_root"])
+        self.assertEqual(self.root.resolve(), Path(event.payload["project_root"]).resolve())
         self.assertEqual(self.service._principal_key(self.principal), event.payload["context"]["_auren_mcp_subject"])
         self.assertNotIn("operator-1", event.payload["context"]["_auren_mcp_subject"])
 
@@ -237,7 +241,7 @@ class RemoteMCPServiceTests(unittest.TestCase):
 
     def test_non_admin_principal_cannot_read_or_mutate_internal_controller_tasks(self):
         self.service.controller.register_handler(
-            "mcp.private-test", lambda _payload: "ok", execution_class="read_only",
+            "mcp.private-test", _mcp_private_test_handler, execution_class="read_only",
         )
         task = self.service.controller.submit("mcp.private-test", {"safe": "fixture"})
         reader = MCPPrincipal(
