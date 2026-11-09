@@ -69,7 +69,23 @@ The main gap is not the engineering workflow. It is the last-mile product integr
 
 The machine-readable declarations live in `.ai-harness/PROVIDER_MATRIX.json`. The values there distinguish product integration from model-provider support.
 
-See [MCP Host Compatibility](MCP_HOST_COMPATIBILITY.md) for host-specific setup examples and a per-client acceptance checklist. See [Model Provider Integration](MODEL_PROVIDER_INTEGRATION.md) for direct API configuration and privacy boundaries.
+See [MCP Host Compatibility](MCP_HOST_COMPATIBILITY.md) for host-specific setup examples and a per-client acceptance checklist, [Orchestrator Integrations](ORCHESTRATOR_INTEGRATIONS.md) for OpenAI Agents SDK, AutoGen, Pydantic AI, LangChain/LangGraph and n8n, and [Model Provider Integration](MODEL_PROVIDER_INTEGRATION.md) for direct API configuration and privacy boundaries.
+
+## Agent orchestration connectors
+
+AUREN's remote Streamable HTTP MCP endpoint is the common integration contract for orchestration frameworks. First-party setup examples are in [Orchestrator Integrations](ORCHESTRATOR_INTEGRATIONS.md).
+
+| Framework | Connection path | Repository state | Remaining proof |
+|---|---|---|---|
+| OpenAI Agents SDK | `MCPServerStreamableHttp` / hosted MCP | Example documented | OAuth client and live tool acceptance |
+| Microsoft AutoGen | `StreamableHttpServerParams` and `mcp_server_tools` | Example documented | Live task lifecycle and approval acceptance |
+| Pydantic AI | `MCPToolset` with per-run auth | Example documented | Live per-user session and tool acceptance |
+| LangChain / LangGraph | `langchain-mcp-adapters` | Adapter path documented | Version-pinned sample and live graph acceptance |
+| n8n | MCP Client Tool node | Setup documented | Live workflow acceptance and credential-scope validation |
+| OpenHands local | Local MCP configuration | Partial | Version-specific configuration and acceptance |
+| CrewAI | No AUREN-specific adapter verified | Not verified | Confirm current MCP client support, then add a version-pinned example and test |
+
+The framework examples use AUREN's remote endpoint, not a separate framework-specific execution engine. The authenticated principal, workspace binding, idempotency, approval and evidence contracts remain on the AUREN side. A framework's model provider remains independently selectable.
 
 ## Direct model API adapters
 
