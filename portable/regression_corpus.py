@@ -57,7 +57,7 @@ class RegressionCorpus:
             raise ValueError("project is required")
         self.memory = memory
         self.project = project.strip()
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS regression_cases(
                 project TEXT NOT NULL, case_id TEXT NOT NULL, task_family TEXT NOT NULL,
                 description TEXT NOT NULL, expected_success INTEGER NOT NULL,
@@ -112,7 +112,7 @@ class RegressionCorpus:
         )
         risk = "high" if phase == "failed" else "medium"
         now = _utc()
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             existing = db.execute(
                 "SELECT case_id,source_episode,evidence_ids,validation_passes,validation_failures,consecutive_passes,status,created_at,description,risk FROM regression_cases WHERE project=? AND fingerprint=?",
                 (self.project, fingerprint),
@@ -143,7 +143,7 @@ class RegressionCorpus:
         if not independent:
             raise ValueError("regression promotion requires independent validation")
         digest = _digest({"case_id": case_id, "passed": passed, "evidence": evidence, "independent": independent})[:32]
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             row = db.execute(
                 "SELECT status,validation_passes,validation_failures,consecutive_passes,evidence_ids FROM regression_cases WHERE project=? AND case_id=?",
                 (self.project, case_id),
@@ -175,7 +175,7 @@ class RegressionCorpus:
         evidence = tuple(sorted(set(str(x).strip() for x in evidence_ids if str(x).strip())))
         if not evidence:
             raise ValueError("retirement requires evidence")
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             old = db.execute("SELECT status FROM regression_cases WHERE project=? AND case_id=?", (self.project, case_id)).fetchone()
             new = db.execute("SELECT status FROM regression_cases WHERE project=? AND case_id=?", (self.project, replacement_case_id)).fetchone()
             if old is None or new is None:
@@ -189,7 +189,7 @@ class RegressionCorpus:
         return self.get(case_id)
 
     def get(self, case_id: str) -> RegressionCase:
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             row = db.execute(
                 "SELECT case_id,task_family,description,expected_success,expected_verification,risk,status,fingerprint,source_episode,evidence_ids,validation_passes,validation_failures,consecutive_passes,created_at,updated_at FROM regression_cases WHERE project=? AND case_id=?",
                 (self.project, case_id),
@@ -202,14 +202,14 @@ class RegressionCorpus:
         )
 
     def get_by_fingerprint(self, fingerprint: str) -> RegressionCase:
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             row = db.execute("SELECT case_id FROM regression_cases WHERE project=? AND fingerprint=?", (self.project, fingerprint)).fetchone()
         if row is None:
             raise KeyError(fingerprint)
         return self.get(row[0])
 
     def active(self, *, task_family: str | None = None, limit: int = 100) -> tuple[RegressionCase, ...]:
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             if task_family:
                 rows = db.execute("SELECT case_id FROM regression_cases WHERE project=? AND task_family=? AND status='active' ORDER BY case_id LIMIT ?", (self.project, task_family, limit)).fetchall()
             else:
@@ -218,7 +218,7 @@ class RegressionCorpus:
 
     def export_jsonl(self, *, include_candidate: bool = False) -> str:
         statuses = ("active", "candidate") if include_candidate else ("active",)
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             placeholders = ",".join("?" for _ in statuses)
             rows = db.execute(
                 f"SELECT case_id,task_family,description,expected_success,expected_verification,risk,status,evidence_ids FROM regression_cases WHERE project=? AND status IN ({placeholders}) ORDER BY case_id",
