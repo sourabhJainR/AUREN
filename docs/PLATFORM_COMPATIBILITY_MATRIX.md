@@ -32,8 +32,8 @@ The main gap is not the engineering workflow. It is the last-mile product integr
 | Product surface | Status | Available AUREN path | Main gap |
 |---|---|---|---|
 | ChatGPT web | Partial | Remote Streamable HTTP MCP, OAuth tool metadata, profile identity | External OAuth 2.1 authorization server, ChatGPT app setup and live acceptance |
-| ChatGPT desktop | Partial | Shared MCP server protocol if app connector is available | Official setup path is documented for web; native desktop acceptance not recorded |
-| ChatGPT desktop / Codex in ChatGPT | Partial | `AGENTS.md`, Agent Skills, remote MCP | OAuth connection and desktop acceptance not recorded |
+| ChatGPT desktop | Unverified | No confirmed native custom-MCP setup path | Use the documented ChatGPT web connection; do not reuse Codex app configuration |
+| Codex app / IDE extension | Partial | Shared Codex MCP configuration, `AGENTS.md`, Agent Skills, remote MCP | Live OAuth and tool acceptance not recorded |
 | Codex CLI | Repository configured | `AGENTS.md`, skills, remote MCP, `codex exec` | Live OAuth and tool acceptance not recorded |
 | Codex app | Repository configured | Shared Codex MCP configuration and skills | App-specific live acceptance not recorded |
 | Claude chat web | Partial | Remote MCP custom connectors, OAuth | AUREN endpoint deployment and Claude connector acceptance |
