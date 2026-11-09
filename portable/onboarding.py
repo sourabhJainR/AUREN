@@ -143,6 +143,8 @@ def initialize_repository(project_root: str | Path, *, apply: bool = True) -> di
         "repository_inspection": report,
         "workflow_profile": "safe_default",
         "execution_authority": "host_managed_only",
+        "runtime_mode": "single_user_local",
+        "managed_runtime": {"enabled": False, "runtime_factory": None},
     }
     if not apply:
         return {"created": False, "preview": profile, "path": str(profile_path)}
@@ -172,6 +174,71 @@ def initialize_repository(project_root: str | Path, *, apply: bool = True) -> di
             pass
         raise
     return {"created": True, "path": str(profile_path), "inspection": report}
+
+
+
+_RUNTIME_MODES = {"single_user_local", "managed"}
+
+
+def load_project_profile(project_root: str | Path) -> tuple[Path, dict[str, Any]]:
+    root = Path(project_root).expanduser().resolve(strict=True)
+    profile_path = root / ".auren" / "project.json"
+    if profile_path.is_symlink() or not profile_path.is_file():
+        raise OnboardingError("AUREN project profile is missing or is not a regular file; run auren init first")
+    profile = _safe_json(profile_path)
+    if profile.get("schema_version") != "auren-project-profile-v1":
+        raise OnboardingError("unsupported AUREN project profile schema")
+    mode = profile.get("runtime_mode", "single_user_local")
+    if mode not in _RUNTIME_MODES:
+        raise OnboardingError("project profile has an unsupported runtime_mode")
+    managed = profile.get("managed_runtime", {"enabled": mode == "managed", "runtime_factory": None})
+    if not isinstance(managed, dict) or type(managed.get("enabled")) is not bool:
+        raise OnboardingError("managed_runtime configuration is invalid")
+    if mode == "single_user_local" and managed.get("enabled") is not False:
+        raise OnboardingError("single-user local mode cannot enable managed runtime components")
+    if mode == "managed" and managed.get("enabled") is not True:
+        raise OnboardingError("managed mode requires explicit managed_runtime.enabled=true")
+    return profile_path, profile
+
+
+def set_runtime_mode(
+    project_root: str | Path, mode: str, *, apply: bool = False,
+    runtime_factory: str | None = None,
+) -> dict[str, Any]:
+    """Preview or apply an explicit local/managed runtime choice.
+
+    Single-user local is the default and never accepts a runtime factory.
+    Managed mode is an explicit opt-in and may name an advanced trusted factory.
+    """
+    if mode not in _RUNTIME_MODES:
+        raise OnboardingError(f"runtime mode must be one of: {', '.join(sorted(_RUNTIME_MODES))}")
+    if mode == "single_user_local" and runtime_factory:
+        raise OnboardingError("runtime factories are not part of single-user local setup")
+    if runtime_factory is not None and (
+        not isinstance(runtime_factory, str) or ":" not in runtime_factory
+        or any(not part.strip() for part in runtime_factory.split(":", 1))
+        or any(ch.isspace() for ch in runtime_factory)
+    ):
+        raise OnboardingError("runtime factory must use module.path:function_name")
+    path, profile = load_project_profile(project_root)
+    updated = dict(profile)
+    updated["runtime_mode"] = mode
+    updated["managed_runtime"] = {
+        "enabled": mode == "managed",
+        "runtime_factory": runtime_factory if mode == "managed" else None,
+    }
+    if not apply:
+        return {"applied": False, "path": str(path), "profile": updated}
+    backup = path.with_name(path.name + f".backup-{time.time_ns()}")
+    shutil.copy2(path, backup)
+    try:
+        _atomic_config_write(path, (json.dumps(updated, indent=2, sort_keys=True) + "\n").encode("utf-8"))
+    except BaseException:
+        if backup.exists():
+            shutil.copy2(backup, path)
+        raise
+    return {"applied": True, "path": str(path), "backup": str(backup), "runtime_mode": mode}
+
 
 
 def discover_clients(home: Path | None = None) -> list[dict[str, str]]:
@@ -303,13 +370,31 @@ def configure_clients(
 def doctor(project_root: str | Path = ".") -> dict[str, Any]:
     """Report runtime prerequisites without claiming missing providers are ready."""
     root = Path(project_root).expanduser().resolve()
+    runtime_profile: dict[str, Any] = {
+        "mode": "single_user_local",
+        "managed_runtime_enabled": False,
+        "runtime_factory": "not_used_for_single_user_local_setup",
+    }
+    try:
+        _profile_path, profile = load_project_profile(root)
+        runtime_profile = {
+            "mode": profile.get("runtime_mode", "single_user_local"),
+            "managed_runtime_enabled": profile.get("runtime_mode") == "managed",
+            "runtime_factory": (
+                profile.get("managed_runtime", {}).get("runtime_factory")
+                if profile.get("runtime_mode") == "managed" else "not_used_for_single_user_local_setup"
+            ),
+        }
+    except OnboardingError as exc:
+        runtime_profile["profile_error"] = str(exc)
     report: dict[str, Any] = {
         "project": str(root),
+        "runtime_profile": runtime_profile,
         "python": {"executable": sys.executable, "version": sys.version.split()[0]},
         "local_http_dependency": {"available": False, "package": "uvicorn"},
         "providers": [],
-        "runtime_factory": {"required_by_current_local_host": True, "status": "not_configured"},
-        "next_action": "The built-in managed runtime composition root is not yet available in this release.",
+        "runtime_factory": {"required_for_single_user_local": False, "status": "advanced_managed_extension_only"},
+        "next_action": "Single-user local mode is the default profile; the factory-free local composition root remains under implementation.",
     }
     try:
         import uvicorn  # noqa: F401
