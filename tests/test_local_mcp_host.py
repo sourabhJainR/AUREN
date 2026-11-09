@@ -25,6 +25,7 @@ from portable.local_host import (
     ensure_local_observability_store,
     load_or_create_local_token,
     resolve_runtime_factory,
+    serve_local,
 )
 from portable.mcp_stdio_proxy import run_proxy, validate_local_url
 from portable.remote_mcp import AurenMCPASGI, AurenMCPService, StaticBearerTokenVerifier
@@ -130,6 +131,22 @@ class LocalMCPHostTests(unittest.TestCase):
         if os.name != "nt":
             self.assertEqual(0o700, stat.S_IMODE(trace_path.parent.stat().st_mode))
             self.assertEqual(0o600, stat.S_IMODE(trace_path.stat().st_mode))
+
+    def test_single_user_local_mode_never_loads_a_project_runtime_factory(self):
+        from portable.onboarding import initialize_repository
+        initialize_repository(self.project)
+        (self.project / "auren_runtime_factory.py").write_text(
+            "raise RuntimeError('project factory must not be imported in local mode')\\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(SystemExit, "factory-free runtime composition"):
+            serve_local(self.project)
+
+    def test_single_user_local_mode_rejects_explicit_factory(self):
+        from portable.onboarding import initialize_repository
+        initialize_repository(self.project)
+        with self.assertRaisesRegex(SystemExit, "not part of single-user local setup"):
+            serve_local(self.project, runtime_factory="auren_runtime_factory:create_runtime")
 
     def test_project_local_runtime_factory_is_auto_discovered(self):
         with self.assertRaisesRegex(RuntimeError, "No AUREN runtime factory"):
