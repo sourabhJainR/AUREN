@@ -15,6 +15,7 @@ from unittest.mock import patch
 from portable.adaptive_runtime import AdaptiveRuntime
 from portable.local_host import (
     create_local_mcp_service,
+    ensure_local_observability_store,
     load_or_create_local_token,
     resolve_runtime_factory,
 )
@@ -110,6 +111,17 @@ class LocalMCPHostTests(unittest.TestCase):
                 require_https=False,
                 control_store_path=self.root / "remote-control.sqlite3",
             )
+
+    def test_first_run_observability_store_is_created_as_private_empty_journal(self):
+        runtime_home = self.root / "runtime-home"
+        with patch("portable.local_host.canonical_runtime_home", return_value=runtime_home):
+            trace_path = ensure_local_observability_store()
+        self.assertEqual(runtime_home / "observability" / "traces.jsonl", trace_path)
+        self.assertTrue(trace_path.is_file())
+        self.assertEqual(b"", trace_path.read_bytes())
+        if os.name != "nt":
+            self.assertEqual(0o700, stat.S_IMODE(trace_path.parent.stat().st_mode))
+            self.assertEqual(0o600, stat.S_IMODE(trace_path.stat().st_mode))
 
     def test_project_local_runtime_factory_is_auto_discovered(self):
         with self.assertRaisesRegex(RuntimeError, "No AUREN runtime factory"):
