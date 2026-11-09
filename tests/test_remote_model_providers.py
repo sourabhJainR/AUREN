@@ -70,6 +70,37 @@ class RemoteModelProviderTests(unittest.TestCase):
         self.assertEqual("Bearer test-secret-value", seen["headers"]["authorization"])
         self.assertNotIn("test-secret-value", result.response_digest)
 
+    def test_openai_responses_api_uses_native_payload_and_normalizes_output(self):
+        seen = {}
+
+        def transport(url, **kwargs):
+            seen["url"] = url
+            seen.update(kwargs)
+            return 200, json.dumps({
+                "id": "resp-1",
+                "status": "completed",
+                "output": [
+                    {"type": "message", "content": [{"type": "output_text", "text": "Responses API answer"}]},
+                    {"type": "function_call", "call_id": "call-2", "name": "auren.get_task",
+                     "arguments": "{\"task_id\":\"task-1\"}"},
+                ],
+                "usage": {"input_tokens": 9, "output_tokens": 6, "total_tokens": 15},
+            }).encode()
+
+        provider = OpenAICompatibleProvider(
+            PROVIDER_SPECS["openai"], api_key="openai-secret-value",
+            model="gpt-test", transport=transport,
+        )
+        result = provider.complete("public task")
+        payload = json.loads(seen["body"].decode())
+        self.assertTrue(seen["url"].endswith("/v1/responses"))
+        self.assertEqual("public task", payload["input"])
+        self.assertIn("instructions", payload)
+        self.assertEqual("Responses API answer", result.content)
+        self.assertEqual("completed", result.finish_reason)
+        self.assertEqual("auren.get_task", result.tool_calls[0]["name"])
+        self.assertEqual(15, result.usage["total_tokens"])
+
     def test_anthropic_messages_api_has_native_headers_and_response_normalization(self):
         seen = {}
 
@@ -125,8 +156,12 @@ class RemoteModelProviderTests(unittest.TestCase):
                 return 503, b"temporary outage"
             return 200, json.dumps({
                 "id": "req-2",
-                "choices": [{"message": {"content": "fallback answer"}, "finish_reason": "stop"}],
-                "usage": {"total_tokens": 4},
+                "status": "completed",
+                "output": [{
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": "fallback answer"}],
+                }],
+                "usage": {"input_tokens": 2, "output_tokens": 2, "total_tokens": 4},
             }).encode()
 
         providers = [
