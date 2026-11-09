@@ -49,6 +49,37 @@ class TaskPlannerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "finite JSON-compatible"):
             plan.digest()
 
+    def test_engineering_task_waits_for_evidence_bound_readiness_receipt(self) -> None:
+        from types import SimpleNamespace
+
+        task = Task("implement", "Implement feature", tags=["engineering"])
+        plan = TaskPlan([task])
+        self.assertEqual([], plan.ready())
+        ready_receipt = {
+            "schema_version": "auren-engineering-readiness-v1",
+            "task_id": "implement",
+            "status": "ready",
+            "assessment_digest": "a" * 64,
+            "envelope_digest": "b" * 64,
+        }
+        plan.bind_engineering_readiness(
+            "implement", SimpleNamespace(to_dict=lambda: ready_receipt),
+        )
+        self.assertEqual(["implement"], [item.id for item in plan.ready()])
+
+    def test_engineering_task_rejects_receipt_for_another_task(self) -> None:
+        from types import SimpleNamespace
+
+        plan = TaskPlan([Task("implement", "Implement feature", tags=["engineering"])])
+        receipt = {
+            "schema_version": "auren-engineering-readiness-v1",
+            "task_id": "different-task", "status": "ready",
+            "assessment_digest": "a" * 64, "envelope_digest": "b" * 64,
+        }
+        with self.assertRaisesRegex(ValueError, "different task"):
+            plan.bind_engineering_readiness("implement", SimpleNamespace(to_dict=lambda: receipt))
+
+
 
 if __name__ == "__main__":
     unittest.main()
