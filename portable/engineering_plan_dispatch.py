@@ -351,6 +351,22 @@ class EngineeringPlanDispatch:
             ).fetchone()
         if existing is not None:
             plan, _current_run = self._load_plan_state(run_id)
+            prior_task = self.controller.task(str(existing["task_id"]))
+            if prior_task is None:
+                raise DispatchConflict("existing readiness dispatch points to a missing durable task")
+            prior_payload = dict(prior_task.payload)
+            for reserved_name in (
+                "_auren_engineering_task", "_auren_engineering_readiness",
+                "_auren_engineering_readiness_digest", "_auren_engineering_phase",
+                "_auren_engineering_department", "_auren_engineering_remediation",
+            ):
+                if reserved_name in prior_payload:
+                    safe_payload[reserved_name] = prior_payload[reserved_name]
+            if safe_payload.get("_auren_engineering_task") is True:
+                self.readiness_gate.verify_payload({
+                    **safe_payload, "work_key": key,
+                })
+            encoded_payload = json.dumps(safe_payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
             if (
                 existing["run_id"] != run_id
                 or existing["plan_task_id"] != task_id
@@ -405,6 +421,7 @@ class EngineeringPlanDispatch:
             ),
             "_auren_engineering_remediation": list(getattr(plan_task, "remediation_steps", ()) or ()),
         })
+        encoded_payload = json.dumps(safe_payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
         execution_class = self.controller._handler_execution_class(handler_name)
         if execution_class not in {"read_only", "ci_gated", "consequential"}:
             raise ValueError("dispatch handler must have an explicit executable class")
