@@ -1506,8 +1506,10 @@ class AurenMCPASGI:
             modern_request = (
                 protocol == MODERN_PROTOCOL_VERSION
                 or body_protocol == MODERN_PROTOCOL_VERSION
-                or method_name == "server/discover"
             )
+            if method_name == "server/discover" and not modern_request:
+                raise MCPServiceError("server/discover is available only in the stateless MCP protocol",
+                                      code=-32601, status=404)
             if modern_request:
                 if protocol != MODERN_PROTOCOL_VERSION or body_protocol != MODERN_PROTOCOL_VERSION:
                     raise MCPServiceError(
