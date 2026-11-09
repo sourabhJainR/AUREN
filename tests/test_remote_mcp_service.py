@@ -591,7 +591,8 @@ class RemoteMCPASGITests(unittest.TestCase):
         self.assertEqual(200, status)
         result = json.loads(response)["result"]
         self.assertEqual("complete", result["resultType"])
-        self.assertTrue(result["structuredContent"]["ready"])
+        self.assertIn("workspace_id", result["structuredContent"])
+        self.assertIn("2026-07-28", result["structuredContent"]["mcp_protocol_versions"])
 
         status, _, response = self.request(
             body=body,
