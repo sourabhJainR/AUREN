@@ -3248,6 +3248,13 @@ class ExecutionController:
             )
         safe_payload = dict(task.payload)
         safe_payload.pop("auren_dispatch", None)
+        for readiness_field in (
+            "_auren_engineering_task", "_auren_engineering_readiness",
+            "_auren_engineering_readiness_digest", "_auren_engineering_phase",
+            "_auren_engineering_department", "_auren_engineering_remediation",
+            "engineering_readiness",
+        ):
+            safe_payload.pop(readiness_field, None)
         payload_digest = hashlib.sha256(
             json.dumps(safe_payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
         ).hexdigest()
