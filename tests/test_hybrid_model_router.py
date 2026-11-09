@@ -25,6 +25,40 @@ class HybridRouterTests(unittest.TestCase):
         self.assertEqual([], remote_calls)
         self.assertIn("privacy policy", result.error)
 
+    def test_explicit_provider_order_is_honored_before_local_discovery(self):
+        discovery = Discovery(["qwen2.5-coder:7b"])
+        calls = []
+
+        class SelectedProviderPool:
+            max_attempts = 3
+
+            def max_attempts_for(self, request):
+                self.request = request
+                return len(request.provider_order)
+
+            def __call__(self, request):
+                calls.append(request)
+                return RemoteModelResponse(
+                    provider=request.provider_order[request.provider_attempt],
+                    model="selected-model", content="selected result",
+                    usage={}, request_id=None, finish_reason="stop",
+                    latency_ms=1.0, response_digest="a" * 64,
+                )
+
+        pool = SelectedProviderPool()
+        router = HybridModelRouter(
+            discovery=discovery, remote_executor=pool, resource_reader=lambda: {},
+        )
+        result = router.route(TaskRouteRequest(
+            "public task", "general", privacy="public", max_attempts=3,
+            provider_order=("xai", "groq"),
+        ))
+        self.assertTrue(result.success)
+        self.assertEqual("xai", result.provider)
+        self.assertEqual(0, discovery.calls)
+        self.assertEqual(("xai", "groq"), calls[0].provider_order)
+        self.assertEqual(2, pool.max_attempts_for(pool.request))
+
     def test_public_task_uses_explicit_remote_executor(self):
         router = HybridModelRouter(discovery=Discovery([]),
             remote_executor=lambda request: "ok",
