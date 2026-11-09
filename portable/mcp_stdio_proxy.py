@@ -102,9 +102,11 @@ def run_proxy(
         if not line:
             break
         request_id = None
+        if len(line) > _MAX_REQUEST_BYTES:
+            target.write(_rpc_error(None, -32700, "MCP request exceeds the configured byte limit") + b"\\n")
+            target.flush()
+            break
         try:
-            if len(line) > _MAX_REQUEST_BYTES:
-                raise ValueError("MCP request exceeds the configured byte limit")
             payload = json.loads(line.decode("utf-8"))
             if not isinstance(payload, dict):
                 raise ValueError("MCP stdio messages must be JSON objects")
