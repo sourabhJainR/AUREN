@@ -10,7 +10,7 @@ AUREN does not have one hidden state machine. It has multiple legitimate, domain
 
 The risk is not that there are many state machines. The risk is that the same work item can be described differently by its checkpoint, progress journal, controller task row, plan run, dashboard projection and browser filter. Those representations must not become competing authorities.
 
-The shared read-only catalog currently covers **38 lifecycle domains**. The inventory below also records UI polling and operational state that is not a persisted domain FSM.
+The shared read-only catalog currently covers **39 lifecycle domains**. The inventory below also records UI polling and operational state that is not a persisted domain FSM.
 
 The most concrete UX inconsistency found in this audit was in session tracking:
 
@@ -65,6 +65,7 @@ The following inventory distinguishes an authoritative state owner from a projec
 | Legacy task planning | Pending, in-progress, blocked, done and cancelled | `portable/task_planner.py` | Smaller task vocabulary. Treat as planning/compatibility input, not a competing execution authority. |
 | Bounded feedback loop | Success, clean no-op, blocked, approval-required, exhausted, no-progress and error | `portable/feedback_loop.py` | Explicit terminal outcomes and finite pass budget. |
 | Learning hypothesis | Observed, investigated, hypothesized, planned, evaluated, approved, deployed, verified, rejected, blocked, inconclusive and rolled back | `portable/agency_evolution_gates.py` | Evidence and independent review gate learning promotion. |
+| Durable task memory | Candidate, verified, superseded and rejected immutable learning revisions | `.ai-harness/runtime/task_memory.py` | Observation outcome and promotion status are separate fields; revisions supersede rather than overwrite prior learning. |
 | Capability promotion | Canary, promotion-blocked, promoted and rolled back | `portable/capability_lifecycle.py` | Separate bounded canary/promotion state; promotion must remain evidence-gated. |
 | Capability invention | Candidate, canary, promotion-blocked, promoted or rolled back | `portable/invention_lifecycle.py` | Candidate state is not a deployed capability; promotion-blocked and rollback are separate outcomes. |
 | Experiment queue | Queued, assigned, observed and attributed | `portable/experiment_queue.py` | Queue status is persisted as LearningSteward revisions; observation and attribution are distinct, and queued work is not evidence. |
