@@ -68,7 +68,7 @@ class CognitiveLearningLoop:
         self.self_model = self_model or SelfModel(memory, self.project)
         self.hypotheses = HypothesisEngine(memory, self.project)
         self.max_signals = max_signals
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS cognitive_learning_signals(
                 project TEXT NOT NULL, signal_id TEXT NOT NULL, task_id TEXT NOT NULL,
                 intent TEXT NOT NULL, status TEXT NOT NULL, capability TEXT,
@@ -88,7 +88,7 @@ class CognitiveLearningLoop:
     def beliefs(self, *, limit: int = 8) -> tuple[BeliefContext, ...]:
         if limit < 1:
             raise ValueError("limit must be positive")
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             rows = db.execute(
                 """SELECT h.hypothesis_id,h.statement,h.confidence,GROUP_CONCAT(e.evidence_id)
                    FROM hypotheses h
@@ -133,7 +133,7 @@ class CognitiveLearningLoop:
         digest = _digest(payload)
         persistence_errors: list[str] = []
         try:
-            with self.memory._lock, self.memory._connect() as db:
+            with self.memory._lock, self.memory._connection() as db:
                 count = db.execute("SELECT COUNT(*) FROM cognitive_learning_signals WHERE project=?", (self.project,)).fetchone()[0]
                 if count >= self.max_signals:
                     raise ValueError("cognitive learning signal budget exceeded")
