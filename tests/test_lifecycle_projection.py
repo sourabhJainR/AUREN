@@ -122,7 +122,7 @@ def test_projection_catalog_covers_authoritative_runtime_vocabularies():
             "waiting_quota", "blocked_quota", "blocked_reconciliation", "blocked",
             "recovering", "completed", "failed", "cancelled",
         )),
-        ("trigger_task", ("pending", "claimed", "dispatched", "retryable", "success", "complete", "completed", "failed", "cancelled")),
+        ("trigger_task", ("pending", "claimed", "dispatched", "success", "complete", "completed", "failed", "cancelled")),
         ("workspace_adoption", ("applying", "completed", "failed")),
         ("ci_poll", (
             "pending", "running", "waiting_for_required_checks", "waiting_for_main_head",
