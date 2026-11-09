@@ -21,7 +21,7 @@ Safe configuration templates for the CLI and IDE hosts are under [`integrations/
 | Gemini Code Assist | Gemini CLI MCP integration in Agent mode | Partial | Test the installed extension/plan separately |
 | Cursor | `mcpServers` in `mcp.json` | Documented | OAuth and local/cloud/SSH acceptance |
 | VS Code GitHub Copilot | `.vscode/mcp.json` | Documented | Agent-mode tool discovery and approval |
-| Visual Studio GitHub Copilot | Visual Studio MCP host configuration | Partial | Version-specific setup and live acceptance |
+| Visual Studio GitHub Copilot | `.mcp.json` or `%USERPROFILE%\\.mcp.json` with top-level `servers`; remote URL and OAuth | Repository configured | Visual Studio 2022 17.14+ / 2026 live AUREN OAuth, tool enablement and approval acceptance |
 | Cline IDE / CLI | Remote Streamable HTTP MCP | Documented | OAuth and tool approval acceptance |
 | Roo Code | Global or project MCP configuration | Documented | OAuth and workspace permission acceptance |
 | Continue | MCP in Agent mode; `.continue/mcpServers` | Documented | Remote OAuth and tool acceptance |
@@ -67,7 +67,7 @@ Equivalent `~/.codex/config.toml`:
 url = "https://mcp.example.com/mcp"
 ```
 
-The Codex app, CLI and IDE extension share the Codex host configuration. Authenticate from the host UI or `codex mcp login` when prompted. Do not treat this as a ChatGPT desktop configuration.
+The Codex app, CLI and IDE extension share the Codex host configuration. Authenticate from the host UI or `codex mcp login` when prompted. ChatGPT desktop's Settings → MCP servers uses this same Codex host configuration.
 
 ### ChatGPT web
 
@@ -158,7 +158,7 @@ Open Copilot Chat in Agent mode, enable the AUREN server in the tools picker and
 
 ### Visual Studio
 
-GitHub Copilot supports MCP servers in Visual Studio. Use the MCP configuration mechanism documented for the installed Visual Studio version. This is not the same as the Claude Code VS Code extension; AUREN does not claim a dedicated Visual Studio extension.
+Visual Studio 2022 version 17.14+ and Visual Studio 2026 support remote MCP servers in GitHub Copilot Agent mode. Create `.mcp.json` at the solution root or `%USERPROFILE%\\.mcp.json` and use the top-level `servers` object. Authenticate through the Visual Studio MCP authentication UI, then enable AUREN in the Agent tools picker. The repository includes `integrations/mcp/visual-studio.mcp.json.example`. This is a native MCP host connection, not a dedicated AUREN Visual Studio extension. Live acceptance is still required.
 
 ## Cline
 
