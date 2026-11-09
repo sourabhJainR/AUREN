@@ -12,7 +12,7 @@ def test_known_domains_have_stable_projection_and_unknown_states_fail_closed():
         "transfer_learning", "crew_handoff", "cognitive_phase",
         "controller_task", "trigger_task", "workspace_adoption", "ci_poll",
         "ci_repair", "goal_reconciliation", "team_member", "team_budget",
-        "admission_control",
+        "admission_control", "task_memory_promotion",
     } <= set(lifecycle_domains())
 
     unknown = project_lifecycle("session", "future-state")
@@ -137,6 +137,7 @@ def test_projection_catalog_covers_authoritative_runtime_vocabularies():
         ("team_member", ("pending", "assigned", "running", "blocked", "completed", "failed")),
         ("team_budget", ("reserved", "settled", "released", "overrun")),
         ("admission_control", ("active", "paused", "audit_invalid")),
+        ("task_memory_promotion", ("candidate", "verified", "superseded", "rejected")),
         ("release_action", ("shadow", "canary", "promote", "rollback")),
         ("work_unit", ("open", "created", "running", "waiting_ci", "waiting_external", "resolved", "completed", "failed", "cancelled")),
         ("graph_worker", ("pending", "queued", "waiting", "working", "running", "adopting", "complete", "completed", "done", "failed", "cancelled", "blocked")),
