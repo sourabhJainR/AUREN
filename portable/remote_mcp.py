@@ -1645,6 +1645,7 @@ def service_from_environment(runtime: Any, *, project_root: str | Path) -> Auren
 
 __all__ = [
     "AurenMCPASGI", "AurenMCPService", "MCPPrincipal", "OAuthIntrospectionVerifier",
-    "StaticBearerTokenVerifier", "SUPPORTED_PROTOCOL_VERSIONS", "create_app",
+    "StaticBearerTokenVerifier", "MODERN_PROTOCOL_VERSION", "SUPPORTED_PROTOCOL_VERSIONS",
+    "SUPPORTED_MCP_PROTOCOL_VERSIONS", "create_app",
     "service_from_environment",
 ]
