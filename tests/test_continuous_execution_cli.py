@@ -25,6 +25,8 @@ def test_continuous_cli_stop_is_durable(tmp_path, capsys):
     result = json.loads(capsys.readouterr().out)
     assert result["state"] == "stop_requested"
     assert result["stop_reason"] == "operator pause"
+    assert result["lifecycle"]["category"] == "waiting"
+    assert result["lifecycle"]["attention_required"] is True
     assert auren_cli.main(["continuous", "audit", "--project-root", str(tmp_path)]) == 0
     assert json.loads(capsys.readouterr().out)["audit_chain_valid"] is True
 
@@ -67,7 +69,10 @@ def test_continuous_cli_wires_recovery_ledger_for_ci_repair(monkeypatch, tmp_pat
     assert captured["supervisor"]["recovery_ledger"].__class__ is FakeLedger
     assert captured["supervisor"]["repair_handler"] == "tests.handlers.repair"
     assert captured["run_options"]["max_cycles"] == 1
-    assert json.loads(capsys.readouterr().out)["audit_chain_valid"] is True
+    result = json.loads(capsys.readouterr().out)
+    assert result["audit_chain_valid"] is True
+    assert result["lifecycle"]["category"] == "cancelled"
+    assert result["lifecycle"]["terminal"] is True
 
 
 def _continuous_status_handler(_payload):
