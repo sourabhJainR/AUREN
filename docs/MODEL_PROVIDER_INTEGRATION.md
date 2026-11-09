@@ -55,6 +55,8 @@ Custom endpoints must use HTTPS, port 443, a `/chat/completions` path, no URL cr
 
 The router creates a remote provider pool only when `AUREN_REMOTE_PROVIDER_ORDER` is explicitly configured. Providers without both a key and model ID are skipped. Unknown provider names and duplicate configured providers fail closed.
 
+`AUREN_REMOTE_PROVIDER_ORDER` is currently a deployment-level provider preference, not a per-user setting. When a user connects ChatGPT, Claude, Codex, Gemini or another MCP host, that host's own model selector remains the user's model choice; AUREN does not import the host's private API credentials. Per-user direct-provider preferences and tenant-scoped provider credentials are not yet implemented.
+
 The pool attempts providers in the exact configured order. One provider is attempted per supervisor-charged remote attempt. The existing shared execution guard remains authoritative: the provider pool cannot increase the task's attempt count or deadline. The route currently has a maximum of three attempts, and any local attempt consumes that same budget.
 
 ## Privacy and authority
