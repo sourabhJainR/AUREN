@@ -338,7 +338,7 @@ _DOMAIN_STATES: dict[str, dict[str, _Semantics]] = {
         "observed_complete_unverified": _s("verifying", "Observed complete, unverified", attention=True, action="obtain_exact_head_completion_evidence"),
         "success": _s("succeeded", "Checks passed", terminal=True, resume="never", action="verify_exact_head_and_required_check_set"),
         "failure": _s("failed", "Checks failed", attention=True, action="inspect_failed_check_and_bounded_repair_policy"),
-        "poll_error": _s("unknown", "Polling error", attention=True, action="retry_bounded_poll_without_claiming_completion"),
+        "poll_error": _s("uncertain", "Polling error", attention=True, action="retry_bounded_poll_without_claiming_completion"),
     },
     "ci_repair": {
         "observed": _s("not_started", "Observed", action="inspect_check_evidence_before_triage"),
@@ -378,7 +378,7 @@ _DOMAIN_STATES: dict[str, dict[str, _Semantics]] = {
     "admission_control": {
         "active": _s("ready", "Admissions active", action="admit_only_after_policy_and_capacity_checks"),
         "paused": _s("blocked", "Admissions paused", attention=True, action="await_authorized_admission_resume"),
-        "audit_invalid": _s("unknown", "Audit invalid", terminal=True, attention=True, resume="never", action="fail_closed_and_reconcile_control_audit"),
+        "audit_invalid": _s("blocked", "Audit invalid", terminal=True, attention=True, resume="never", action="fail_closed_and_reconcile_control_audit"),
     },
     "legacy_task": {
         "pending": _s("not_started", "Pending", action="check_dependencies_before_dispatch"),
