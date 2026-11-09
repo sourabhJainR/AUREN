@@ -28,6 +28,19 @@ from .workflow_profile import resolve_profile
 from .workflow_profile_store import load_profile
 
 
+def _dispatch_payload_digest_json(payload: Mapping[str, Any]) -> str:
+    """Bind caller intent independently from the supervisor-owned readiness receipt."""
+    normalized = dict(payload)
+    for name in (
+        "_auren_engineering_task", "_auren_engineering_readiness",
+        "_auren_engineering_readiness_digest", "_auren_engineering_phase",
+        "_auren_engineering_department", "_auren_engineering_remediation",
+    ):
+        normalized.pop(name, None)
+    normalized.pop("engineering_readiness", None)
+    return json.dumps(normalized, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
 class DispatchConflict(RuntimeError):
     """A dispatch key or plan revision was reused with different immutable inputs."""
 
@@ -343,7 +356,7 @@ class EngineeringPlanDispatch:
                 raise PermissionError("durable task work_key must equal the trusted dispatch identity")
         self._bind_workflow_profile(safe_payload)
         self._validate_payload_keys(safe_payload)
-        encoded_payload = json.dumps(safe_payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        encoded_payload = _dispatch_payload_digest_json(safe_payload)
         with sqlite3.connect(self.database_path, timeout=10) as db:
             db.row_factory = sqlite3.Row
             existing = db.execute(
@@ -367,7 +380,7 @@ class EngineeringPlanDispatch:
                 self.readiness_gate.verify_payload({
                     **safe_payload, "work_key": key,
                 })
-            encoded_payload = json.dumps(safe_payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
+            encoded_payload = _dispatch_payload_digest_json(safe_payload)
             if (
                 existing["run_id"] != run_id
                 or existing["plan_task_id"] != task_id
@@ -422,7 +435,7 @@ class EngineeringPlanDispatch:
             ),
             "_auren_engineering_remediation": list(getattr(plan_task, "remediation_steps", ()) or ()),
         })
-        encoded_payload = json.dumps(safe_payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        encoded_payload = _dispatch_payload_digest_json(safe_payload)
         execution_class = self.controller._handler_execution_class(handler_name)
         if execution_class not in {"read_only", "ci_gated", "consequential"}:
             raise ValueError("dispatch handler must have an explicit executable class")
