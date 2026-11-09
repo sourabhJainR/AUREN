@@ -112,6 +112,21 @@ def create_local_mcp_service(
     return service, credential_path
 
 
+def resolve_runtime_factory(project_root: Path | str, requested: str | None = None) -> str:
+    """Resolve an explicit factory or the conventional project-local factory."""
+    root = Path(project_root).expanduser().resolve()
+    configured = (requested or os.environ.get("AUREN_MCP_RUNTIME_FACTORY", "")).strip()
+    if configured:
+        return configured
+    if (root / "auren_runtime_factory.py").is_file():
+        return "auren_runtime_factory:create_runtime"
+    raise RuntimeError(
+        "No AUREN runtime factory was found. Add auren_runtime_factory.py with "
+        "create_runtime(*, project_root), or pass --runtime-factory module:function. "
+        "The factory must return a configured runtime with a reviewed, non-empty agent graph."
+    )
+
+
 def _bound_loopback_socket(port: int) -> socket.socket:
     if type(port) is not int or not 0 <= port <= 65535:
         raise ValueError("port must be between 0 and 65535; use 0 for automatic selection")
@@ -138,17 +153,10 @@ def serve_local(
     root = Path(project_root).expanduser().resolve()
     if not root.is_dir():
         raise SystemExit("AUREN project root must be an existing directory")
-    factory_path = (runtime_factory or os.environ.get("AUREN_MCP_RUNTIME_FACTORY", "")).strip()
-    if not factory_path:
-        conventional_factory = root / "auren_runtime_factory.py"
-        if conventional_factory.is_file():
-            factory_path = "auren_runtime_factory:create_runtime"
-        else:
-            raise SystemExit(
-                "No AUREN runtime factory was found. Add auren_runtime_factory.py with "
-                "create_runtime(*, project_root), or pass --runtime-factory module:function. "
-                "The factory must return a configured runtime with a reviewed, non-empty agent graph."
-            )
+    try:
+        factory_path = resolve_runtime_factory(root, runtime_factory)
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
     try:
         import uvicorn
     except ImportError as exc:
