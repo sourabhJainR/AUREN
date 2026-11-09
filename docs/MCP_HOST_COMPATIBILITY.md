@@ -11,7 +11,7 @@ Safe configuration templates for the CLI and IDE hosts are under [`integrations/
 | Host | Native connection path | Repository readiness | Remaining proof |
 |---|---|---|---|
 | ChatGPT web | Custom MCP app/plugin with OAuth | Documented; remote service in PR #1313 | Workspace/plan eligibility, OAuth registration and live tool acceptance |
-| ChatGPT desktop | No confirmed custom-MCP setup path in the current host guide | Unverified | Do not reuse Codex app configuration; verify a supported desktop MCP workflow separately |
+| ChatGPT desktop app | Settings → MCP servers; Streamable HTTP or stdio; OAuth | Documented through the shared Codex host configuration | Connect to the deployed AUREN endpoint, authenticate, restart the app and verify `/mcp` tool discovery |
 | Codex CLI, Codex app and IDE extension | Shared `~/.codex/config.toml` or `codex mcp add` | Documented | OAuth login, tool discovery, approval and cancellation |
 | Claude chat web | Remote MCP connector / custom connector | Documented | External OAuth provider and live connector acceptance |
 | Claude Desktop | Remote MCP connector | Documented | Live OAuth and tool acceptance |
@@ -71,7 +71,7 @@ The Codex app, CLI and IDE extension share the Codex host configuration. Authent
 
 ### ChatGPT web
 
-ChatGPT web does not read local Codex configuration. Connect AUREN through the ChatGPT custom MCP app/plugin flow. This custom connection flow is documented for ChatGPT web; mobile custom MCP is not supported, and ChatGPT desktop should be treated as unverified until separately tested. The AUREN service requires an external OAuth authorization server that supports the client registration and resource/audience behavior expected by the host. ChatGPT workspace, plan and administrator settings affect availability; do not infer hosted access from Codex CLI access.
+ChatGPT web does not read local Codex configuration. It uses remote MCP tools through an installed MCP-backed plugin. Package and publish AUREN through the ChatGPT Plugin Creator/Sites flow, then install and connect it in the workspace. This plugin packaging and publication step is still open. ChatGPT desktop has a separate Settings → MCP servers flow and shares MCP configuration with Codex CLI and the IDE extension. The AUREN service requires an external OAuth authorization server that supports the client registration and resource/audience behavior expected by each host. Workspace, plan and administrator settings affect availability; do not infer hosted access from desktop/Codex access.
 
 ### OpenAI API / Responses API
 
