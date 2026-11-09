@@ -905,6 +905,29 @@
         "Record the exact host version and a sanitized acceptance receipt."
       ],
       "live_verified": false
+    },
+    "custom_openai_compatible_api": {
+      "kind": "model_api",
+      "support": "partial",
+      "mechanisms": [
+        "Generic OpenAI-compatible Chat Completions adapter",
+        "Explicit HTTPS hostname allowlist",
+        "Supervisor-charged provider failover"
+      ],
+      "repository_artifacts": [
+        "portable/remote_model_providers.py",
+        "portable/hybrid_model_router.py",
+        "tests/test_remote_model_providers.py",
+        "docs/MODEL_PROVIDER_INTEGRATION.md"
+      ],
+      "current_gap": "Custom Chat Completions endpoints are configurable only with an exact hostname allowlist, HTTPS port 443 and an approved endpoint path. Provider-specific features, model IDs, pricing and live acceptance remain unverified.",
+      "next_steps": [
+        "Add the exact provider hostname to AUREN_CUSTOM_PROVIDER_ALLOWED_HOSTS.",
+        "Inject the API key through the deployment secret manager and set a current model ID.",
+        "Run read-only conformance and failover tests against the provider.",
+        "Review retention, data residency, rate limits and pricing before production use."
+      ],
+      "live_verified": false
     }
   },
   "remote_mcp": {
