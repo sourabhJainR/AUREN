@@ -1236,13 +1236,14 @@
       "cohere_native_api",
       "huggingface_native_inference"
     ],
-    "current_gap": "Direct adapters cover OpenAI Responses, Anthropic Messages, Gemini, Groq, xAI, OpenRouter, Together, Fireworks, DeepSeek, Mistral, Cerebras and Perplexity. Custom OpenAI-compatible HTTPS endpoints are supported with explicit hostname allowlisting. Live vendor credentials, model IDs, pricing, latency, streaming and provider-specific tool/schema behavior are not yet conformance-verified. Azure OpenAI native auth/deployment versioning, AWS Bedrock SigV4, Vertex AI OAuth/service accounts, Cohere native API and Hugging Face native inference require dedicated adapters. The direct adapters are used by HybridModelRouter/dashboard model routing; main graph-team crew adapters still require host-registered provider invokers and per-crew read-only tool scopes. MCP host credentials are not silently imported into AUREN.",
+    "current_gap": "Direct adapters cover OpenAI Responses, Anthropic Messages, Gemini, Groq, xAI, OpenRouter, Together, Fireworks, DeepSeek, Mistral, Cerebras and Perplexity. Custom OpenAI-compatible HTTPS endpoints are supported with explicit hostname allowlisting. Live vendor credentials, model IDs, pricing, latency, streaming and provider-specific tool/schema behavior are not yet conformance-verified. Azure OpenAI native auth/deployment versioning, AWS Bedrock SigV4, Vertex AI OAuth/service accounts, Cohere native API and Hugging Face native inference require dedicated adapters. The direct adapters are used by HybridModelRouter/dashboard model routing; main graph-team crew adapters still require host-registered provider invokers and per-crew read-only tool scopes. MCP host credentials are not silently imported into AUREN. Provider order is deployment-level environment configuration, not a per-user setting; MCP host model selection remains in the host, and host API credentials are not imported into AUREN.",
     "next_steps": [
       "Bridge the direct provider pool into the trusted graph-team crew bootstrap with per-crew privacy policy, provider selection, tool scopes and shared supervisor-budget receipts.",
       "Run opt-in read-only live canaries for each configured provider and store provider/model/build evidence.",
       "Add native adapters for Azure OpenAI, AWS Bedrock, Vertex AI, Cohere and Hugging Face where the OpenAI-compatible adapter is insufficient.",
       "Add streaming, model catalog, price/latency observations and per-provider retention/residency metadata.",
-      "Keep private and restricted task routing local-only and keep every remote provider attempt within the supervisor budget."
+      "Keep private and restricted task routing local-only and keep every remote provider attempt within the supervisor budget.",
+      "Add tenant-scoped provider credentials and per-user provider preferences with explicit authorization, audit receipts and no secret exposure to task context."
     ],
     "live_verified": false
   }
