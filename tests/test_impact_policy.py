@@ -205,7 +205,12 @@ class ImpactPolicyTests(unittest.TestCase):
             self.assertFalse(impact.hardening_required)
             self.assertTrue(suites.issubset(set(impact.required_suites)))
             for suite in suites:
-                self.assertIn(suite, workflow)
+                workflow_token = (
+                    "tests/test_lifecycle_projection.py"
+                    if suite == "tests.test_lifecycle_projection"
+                    else suite
+                )
+                self.assertIn(workflow_token, workflow)
 
     def test_runtime_resilience_filter_covers_recovery_sensitive_paths(self):
         workflow = Path(".github/workflows/runtime-resilience.yml").read_text(encoding="utf-8")
