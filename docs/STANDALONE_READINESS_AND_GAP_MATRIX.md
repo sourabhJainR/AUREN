@@ -121,7 +121,7 @@ Do not block the repository implementation merge on these external inputs. Do no
 ## Governance verification — 2026-10-28
 
 - [x] The `mainBranchRule` ruleset is active and blocks branch deletion and non-fast-forward updates.
-- [ ] The active `mainBranchRule` ruleset currently contains only `deletion` and `non_fast_forward`; it has no required-status-check rule. The branch-protection endpoint was not readable through the connected GitHub integration, so its separate settings could not be verified. A repository owner/admin must configure and verify effective required checks, including the final status aggregator and relevant runtime, architecture, hardening, harness, and portable-bundle checks. This integration cannot change repository administration settings.
+- [ ] The active `mainBranchRule` ruleset currently contains only `deletion` and `non_fast_forward`; it has no pull-request, required-review, or required-status-check rule. Branch metadata reports `protected: true`, but nested `protection.enabled: false` and `required_status_checks.enforcement_level: off` with empty `contexts` and `checks`. The dedicated `/branches/main/protection` endpoint was not readable, so no additional settings can be confirmed. A repository owner/admin must configure and verify PR-only updates, the intended review policy, and effective required checks, including a stable final-status aggregator that waits for all mandatory matrix jobs. This integration can inspect settings but cannot change repository administration rules.
 
 ## Merge and release rules
 
