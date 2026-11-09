@@ -318,6 +318,33 @@ class ProgressJournalTests(unittest.TestCase):
                 journal.record_response_artifact(
                     "delivery", response_id=response_id, artifact_sha256="c" * 64,
                 )
+    def test_structured_metadata_is_bounded_and_survives_restart(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "progress.jsonl"
+            journal = ProgressJournal(path)
+            event = journal.record(
+                "engineering-work", "engineering_gap_recorded",
+                state="blocked", stage="engineering-gap",
+                message="Technology readiness gap",
+                metadata={
+                    "schema_version": "auren-engineering-gap-v1",
+                    "gap_id": "gap-123",
+                    "axis": "technology",
+                    "remediation": ["Record provider capability evidence"],
+                },
+            )
+            self.assertEqual("gap-123", event.metadata["gap_id"])
+            restarted = ProgressJournal(path)
+            rows = restarted._events()
+            self.assertEqual("gap-123", rows[0]["metadata"]["gap_id"])
+            self.assertTrue(path.read_text(encoding="utf-8").endswith("\n"))
+            with self.assertRaisesRegex(ValueError, "16 KiB"):
+                restarted.record(
+                    "engineering-work", "oversized",
+                    metadata={"payload": "x" * 17000},
+                )
+
+
 
 if __name__ == "__main__":
     unittest.main()
