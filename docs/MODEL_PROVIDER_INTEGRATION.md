@@ -7,10 +7,10 @@ AUREN separates model inference from execution authority. The model can change b
 | Provider | API contract | Credential | Model selection |
 |---|---|---|---|
 | Anthropic | Messages API | `ANTHROPIC_API_KEY` | `ANTHROPIC_MODEL` or `AUREN_MODEL_ANTHROPIC` |
-| OpenAI | Chat Completions | `OPENAI_API_KEY` | `OPENAI_MODEL` or `AUREN_MODEL_OPENAI` |
+| OpenAI | Responses API | `OPENAI_API_KEY` | `OPENAI_MODEL` or `AUREN_MODEL_OPENAI` |
 | Google Gemini | OpenAI-compatible Chat Completions | `GEMINI_API_KEY` | `GEMINI_MODEL` or `AUREN_MODEL_GEMINI` |
 | Groq | OpenAI-compatible Chat Completions | `GROQ_API_KEY` | `GROQ_MODEL` or `AUREN_MODEL_GROQ` |
-| xAI / Grok | Chat Completions | `XAI_API_KEY` | `XAI_MODEL` or `AUREN_MODEL_XAI` |
+| xAI / Grok | Responses API | `XAI_API_KEY` | `XAI_MODEL` or `AUREN_MODEL_XAI` |
 | OpenRouter | OpenAI-compatible Chat Completions | `OPENROUTER_API_KEY` | `OPENROUTER_MODEL` or `AUREN_MODEL_OPENROUTER` |
 | Together AI | OpenAI-compatible Chat Completions | `TOGETHER_API_KEY` | `TOGETHER_MODEL` or `AUREN_MODEL_TOGETHER` |
 | Fireworks | OpenAI-compatible Chat Completions | `FIREWORKS_API_KEY` | `FIREWORKS_MODEL` or `AUREN_MODEL_FIREWORKS` |
