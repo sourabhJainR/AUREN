@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import sqlite3
 import tempfile
 import unittest
@@ -45,13 +44,15 @@ class MemoryConnectionLifecycleTests(unittest.TestCase):
             self.assertTrue(connections[0].was_closed)
 
     def test_memory_consumers_do_not_use_sqlite_connection_context_as_close(self):
-        unsafe = re.compile(
-            r"with\\s+(?:self\\.memory\\._lock\\s*,\\s*)?"
-            r"self\\.memory\\._connect\\(\\)\\s+as\\s+\\w+"
+        unsafe_patterns = (
+            "with self.memory._connect() as db:",
+            "with self.memory._lock, self.memory._connect() as db:",
+            "with self.memory._lock,self.memory._connect() as db:",
         )
         violations = []
         for path in sorted((ROOT / "portable").glob("*.py")):
-            if unsafe.search(path.read_text(encoding="utf-8")):
+            source = path.read_text(encoding="utf-8")
+            if any(pattern in source for pattern in unsafe_patterns):
                 violations.append(path.relative_to(ROOT).as_posix())
         self.assertEqual([], violations, "Use PersistentMemory._connection() so SQLite handles close on Windows")
 
