@@ -532,6 +532,7 @@ class DirectNetworkCallInventoryTests(unittest.TestCase):
         "portable/local_llm.py::available": "legacy optional local-LLM endpoint; must be restricted to loopback or explicit remote host policy",
         "portable/local_llm.py::_generate_ollama": "legacy local-LLM POST client; migration requires HTTP and HTTPS endpoint policy",
         "portable/auren_runtime.py::_download_source": "portable updater archive download; migration requires bounded streaming and explicit redirect-host chain",
+        "portable/guarded_network.py::guarded_loopback_http_get": "bounded local readiness transport pinned to IPv4 loopback; rejects remote hosts and never follows redirects",
         "scripts/pr_integration_guard.py::api_json": "CI bootstrap exception; fixed api.github.com allowlist and same-host-only redirects, not DNS-pinned",
         "portable/local_host.py::serve_local::endpoint_ready": "in-process readiness GETs to fixed 127.0.0.1 dashboard/MCP ports; no credentials or caller-controlled URL; redirects rejected",
         "scripts/verify_openshell_isolation.py::_host_can_reach": "host-side reachability precondition for an isolation probe; never treated as sandbox policy enforcement",
@@ -580,6 +581,7 @@ class DirectNetworkCallInventoryTests(unittest.TestCase):
                     "requests.get", "requests.post", "requests.request",
                     "httpx.get", "httpx.post", "httpx.request",
                     "socket.create_connection", "asyncio.open_connection",
+                    "http.client.HTTPConnection", "http.client.HTTPSConnection",
                 }
                 bootstrap_opener = (
                     name == "opener.open"
