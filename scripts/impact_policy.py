@@ -33,6 +33,8 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("portable/world_model.py", ("tests.test_world_model",), True),
     ("portable/adaptive_trigger.py", ("tests.test_adaptive_trigger", "tests.test_remote_mcp_service"), True),
     ("portable/remote_mcp.py", ("tests.test_remote_mcp_service",), True),
+    ("portable/chat_capability.py", ("tests.test_chat_capability", "tests.test_chat_capability_mcp"), True),
+    ("tests/test_chat_capability.py", ("tests.test_chat_capability",), True),
     ("portable/remote_mcp_server.py", ("tests.test_remote_mcp_service",), True),
     ("scripts/remote_mcp_acceptance.py", ("tests.test_remote_mcp_acceptance", "tests.test_remote_mcp_service", "tests.test_guarded_network"), True),
     ("tests/test_remote_mcp_acceptance.py", ("tests.test_remote_mcp_acceptance",), True),
