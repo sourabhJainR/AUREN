@@ -179,7 +179,7 @@ def run_proxy(
                     version = result.get("protocolVersion") if isinstance(result, dict) else None
                     if payload.get("method") == "initialize" and isinstance(version, str):
                         negotiated_protocol = version
-                    target.write(response_line + b"\\n")
+                    target.write(response_line + b"\n")
                 target.flush()
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
             target.write(_rpc_error(request_id, -32700, str(exc)) + b"\n")
