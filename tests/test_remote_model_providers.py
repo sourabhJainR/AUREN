@@ -19,7 +19,7 @@ class RemoteModelProviderTests(unittest.TestCase):
             "custom", "https://attacker.example/v1/chat/completions",
             "attacker.example", "CUSTOM_API_KEY", "CUSTOM_MODEL",
         )
-        with self.assertRaisesRegex(ValueError, "reviewed provider registry"):
+        with self.assertRaisesRegex(ValueError, "exact host allowlist"):
             OpenAICompatibleProvider(
                 custom, api_key="custom-secret-value", model="custom-model",
                 transport=lambda *a, **k: (200, b"{}"),
