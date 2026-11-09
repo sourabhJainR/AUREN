@@ -19,6 +19,7 @@ from .session_state import SessionCheckpoint, SessionStore
 from .memory_orchestrator import MemoryOrchestrator
 from .hybrid_model_router import HybridModelRouter
 from .local_endpoint import open_loopback_request, validate_loopback_base_url
+from .lifecycle_projection import project_lifecycle
 
 _STAGE_ORDER = (
     "queued", "planning", "running", "testing", "reviewing", "verified", "completed"
@@ -157,30 +158,37 @@ class MuxinSessionAdapter:
             raise ValueError(f"limit must be between 1 and {_MAX_SESSIONS}")
         if not isinstance(query, str) or len(query) > 200:
             raise ValueError("session search query must be at most 200 characters")
-        allowed_statuses = {"all", "active", "complete", "blocked", "stale", "unverified"}
+        allowed_statuses = {"all", "active", "complete", "blocked", "failed", "cancelled", "stale", "unverified"}
         if status not in allowed_statuses:
             raise ValueError("unsupported session status filter")
         rows = self._verified_sessions()
+        categories = {row["session_id"]: row["lifecycle"]["category"] for row in rows}
         counts = {
             "sessions": len(rows),
-            "active": sum(row["status"] in {"running", "waiting"} for row in rows),
-            "completed": sum(row["status"] == "complete" for row in rows),
-            "blocked": sum(row["status"] == "blocked" for row in rows),
-            "stale": sum(row["status"] == "stale" for row in rows),
-            "unverified": sum(row["status"] == "unverified" for row in rows),
+            "active": sum(categories[row["session_id"]] in {"active", "waiting", "ready", "recovering"} for row in rows),
+            "completed": sum(categories[row["session_id"]] == "succeeded" for row in rows),
+            "blocked": sum(categories[row["session_id"]] == "blocked" for row in rows),
+            "failed": sum(categories[row["session_id"]] == "failed" for row in rows),
+            "cancelled": sum(categories[row["session_id"]] == "cancelled" for row in rows),
+            "stale": sum(categories[row["session_id"]] == "stale" for row in rows),
+            "unverified": sum(categories[row["session_id"]] == "unknown" for row in rows),
         }
         normalized_query = query.strip().casefold()
         def matches(row: dict[str, Any]) -> bool:
-            row_status = row["status"]
-            if status == "active" and row_status not in {"running", "waiting"}:
+            category = row["lifecycle"]["category"]
+            if status == "active" and category not in {"active", "waiting", "ready", "recovering"}:
                 return False
-            if status == "complete" and row_status != "complete":
+            if status == "complete" and category != "succeeded":
                 return False
-            if status == "blocked" and row_status != "blocked":
+            if status == "blocked" and category != "blocked":
                 return False
-            if status == "stale" and row_status != "stale":
+            if status == "failed" and category != "failed":
                 return False
-            if status == "unverified" and row_status != "unverified":
+            if status == "cancelled" and category != "cancelled":
+                return False
+            if status == "stale" and category != "stale":
+                return False
+            if status == "unverified" and category != "unknown":
                 return False
             if normalized_query:
                 searchable = " ".join(str(value) for value in (
@@ -219,7 +227,10 @@ class MuxinSessionAdapter:
             and stage not in _TERMINAL_FAILURES | {"completed", "verified", "queued"}
             and (age_seconds is None or age_seconds > 60)
         )
-        status = "blocked" if stage in _TERMINAL_FAILURES or checkpoint.last_error else (
+        status = (
+            "failed" if stage == "failed" else
+            "cancelled" if stage in {"cancelled", "canceled"} else
+            "blocked" if stage == "blocked" or checkpoint.last_error else
             "complete" if stage in {"completed", "verified"} else
             "waiting" if stage == "queued" else
             "stale" if stale else
@@ -230,6 +241,8 @@ class MuxinSessionAdapter:
             "task_id": checkpoint.task_id,
             "stage": stage,
             "status": status,
+            "lifecycle": project_lifecycle("session", status),
+            "status_source": "checkpoint_stage_error_and_heartbeat_projection",
             "progress": progress,
             "attempt": checkpoint.attempt,
             "active_provider": checkpoint.active_provider,
@@ -299,12 +312,14 @@ class MuxinSessionAdapter:
                 owned, owned_truncated = self._workspace_list(raw.get("owned_paths"), "owned_paths", path_list=True)
                 changed, changed_truncated = self._workspace_list(raw.get("changed_paths"), "changed_paths", path_list=True)
                 evidence, evidence_truncated = self._workspace_list(raw.get("evidence_refs"), "evidence_refs")
+                workspace_status = self._workspace_text(raw.get("status"), "status", required=True, limit=80)
                 record = {
                     "workspace_id": workspace_id,
                     "worker_id": self._workspace_text(raw.get("worker_id"), "worker_id"),
                     "task_id": self._workspace_text(raw.get("task_id"), "task_id"),
                     "sandbox_id": self._workspace_text(raw.get("sandbox_id"), "sandbox_id"),
-                    "status": self._workspace_text(raw.get("status"), "status", required=True, limit=80),
+                    "status": workspace_status,
+                    "lifecycle": project_lifecycle("workspace", workspace_status),
                     "base_revision": self._workspace_text(raw.get("base_revision"), "base_revision", limit=64),
                     "branch": self._workspace_text(raw.get("branch"), "branch"),
                     "updated_at": self._workspace_text(raw.get("updated_at"), "updated_at", limit=80),
@@ -338,7 +353,7 @@ class MuxinSessionAdapter:
         for raw in inventory["sessions"]:
             row = {
                 key: raw.get(key) for key in (
-                    "session_id", "task_id", "stage", "status", "progress",
+                    "session_id", "task_id", "stage", "status", "lifecycle", "status_source", "progress",
                     "attempt", "active_provider", "updated_at", "seconds_since_update", "stale",
                     "completed_batches", "remaining_batches", "state_digest",
                 )
@@ -354,18 +369,26 @@ class MuxinSessionAdapter:
             "priority", "parent_task_id", "decision_required", "next_action",
             "workflow_profile_status",
         )
-        tasks = [
-            {key: row.get(key) for key in task_fields if key in row}
-            for row in dashboard.get("tasks", {}).get("progress", [])
-        ]
+        tasks = []
+        for raw in dashboard.get("tasks", {}).get("progress", []):
+            row = {key: raw.get(key) for key in task_fields if key in raw}
+            if raw.get("status_conflict") or raw.get("state") == "unknown":
+                source_state = "unknown"
+            elif raw.get("stale") or raw.get("state") == "stale":
+                source_state = "stale"
+            else:
+                source_state = raw.get("state") or raw.get("canonical_state") or raw.get("reported_state")
+            row["lifecycle"] = project_lifecycle("progress_task", source_state)
+            tasks.append(row)
         plan_fields = (
             "run_id", "status", "revision", "task_counts",
             "evidence_count", "source_revision",
         )
-        plans = [
-            {key: row.get(key) for key in plan_fields if key in row}
-            for row in dashboard.get("plan_runs", [])
-        ]
+        plans = []
+        for raw in dashboard.get("plan_runs", []):
+            row = {key: raw.get(key) for key in plan_fields if key in raw}
+            row["lifecycle"] = project_lifecycle("plan_run", raw.get("status"))
+            plans.append(row)
         counts = inventory["counts"]
         return {
             "schema_version": 1,
