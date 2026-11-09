@@ -274,6 +274,7 @@ class RemoteProviderPool:
             raise ValueError("remote provider order must not contain duplicates")
         self.providers = tuple(providers)
         self.available = True
+        self.max_attempts = len(self.providers)
 
     @classmethod
     def from_environment(cls, *, environ: Mapping[str, str] | None = None, transport=guarded_https_get):
