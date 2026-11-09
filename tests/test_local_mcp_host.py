@@ -330,6 +330,38 @@ class LocalMCPHostProcessTests(unittest.TestCase):
                     initialized = json.loads(response.read().decode("utf-8"))
                     self.assertEqual(200, response.status)
                     self.assertEqual("2025-11-25", initialized["result"]["protocolVersion"])
+                # Exercise the real stdio subprocess against the running local host.
+                proxy_input = "\n".join([
+                    json.dumps({
+                        "jsonrpc": "2.0", "id": 11, "method": "initialize",
+                        "params": {
+                            "protocolVersion": "2025-11-25", "capabilities": {},
+                            "clientInfo": {"name": "stdio-process-test", "version": "1"},
+                        },
+                    }),
+                    json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+                    json.dumps({"jsonrpc": "2.0", "id": 12, "method": "tools/list", "params": {}}),
+                    json.dumps({
+                        "jsonrpc": "2.0", "id": 13, "method": "tools/call",
+                        "params": {"name": "auren.service_status", "arguments": {}},
+                    }),
+                    "",
+                ])
+                proxy = subprocess.run(
+                    [
+                        sys.executable, str(repo_root / "auren_cli.py"), "mcp-proxy",
+                        "--url", mcp_url,
+                        "--token-file", str(state_home / "mcp" / "local-operator.token"),
+                    ],
+                    cwd=repo_root, env=env, input=proxy_input,
+                    capture_output=True, text=True, timeout=20,
+                )
+                self.assertEqual(0, proxy.returncode, proxy.stderr)
+                proxy_frames = [json.loads(item) for item in proxy.stdout.splitlines() if item.strip()]
+                self.assertEqual([11, 12, 13], [item["id"] for item in proxy_frames])
+                discovered = {tool["name"] for tool in proxy_frames[1]["result"]["tools"]}
+                self.assertIn("auren.service_status", discovered)
+                self.assertIn("result", proxy_frames[2])
             finally:
                 if process.poll() is None:
                     process.send_signal(signal.SIGTERM)
@@ -444,6 +476,64 @@ class LocalMCPStdioProxyTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join(timeout=2)
+
+    def test_stdio_proxy_decodes_sse_data_events_to_jsonrpc_lines(self):
+        seen = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                seen.append((request, self.headers.get("MCP-Protocol-Version")))
+                message = {
+                    "jsonrpc": "2.0", "id": request.get("id"),
+                    "result": (
+                        {"protocolVersion": "2025-11-25", "capabilities": {},
+                         "serverInfo": {"name": "sse-test", "version": "1"}}
+                        if request.get("method") == "initialize"
+                        else {"tools": [{"name": "auren.service_status"}]}
+                    ),
+                }
+                encoded = json.dumps(message, separators=(",", ":"))
+                body = (
+                    ": keepalive\r\n"
+                    "event: message\r\n"
+                    f"data: {encoded}\r\n\r\n"
+                ).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_args):
+                return
+
+        server = HTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            url = f"http://127.0.0.1:{server.server_address[1]}/mcp"
+            requests = [
+                {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                 "params": {"protocolVersion": "2025-11-25", "capabilities": {},
+                            "clientInfo": {"name": "sse-test", "version": "1"}}},
+                {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+            ]
+            source = io.BytesIO(("\n".join(json.dumps(item) for item in requests) + "\n").encode())
+            target = io.BytesIO()
+            result = run_proxy(url, self.token_path, stdin=source, stdout=target, stderr=io.StringIO())
+            self.assertEqual(0, result)
+            frames = [json.loads(line) for line in target.getvalue().decode().splitlines()]
+            self.assertEqual([1, 2], [item["id"] for item in frames])
+            self.assertEqual("2025-11-25", frames[0]["result"]["protocolVersion"])
+            self.assertEqual("auren.service_status", frames[1]["result"]["tools"][0]["name"])
+            self.assertIsNone(seen[0][1])
+            self.assertEqual("2025-11-25", seen[1][1])
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
 
 
 if __name__ == "__main__":
