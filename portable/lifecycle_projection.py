@@ -282,6 +282,19 @@ _DOMAIN_STATES: dict[str, dict[str, _Semantics]] = {
         "promoted": _s("succeeded", "Promoted", terminal=True, resume="never", action="retain_independent_transfer_promotion_receipt"),
         "rolled_back": _s("recovering", "Rolled back", attention=True, action="verify_prior_version_and_retest"),
     },
+
+    "crew_handoff": {
+        "queued": _s("ready", "Queued", action="claim_only_from_active_graph_node"),
+        "claimed": _s("active", "Claimed", action="run_target_crew_and_request_independent_review"),
+        "completed": _s("succeeded", "Completed", terminal=True, resume="never", action="retain_independent_review_receipt"),
+        "rejected": _s("rejected", "Rejected", terminal=True, resume="never", action="retain_rejection_receipt_without_redispatch"),
+    },
+    "cognitive_phase": {
+        "observe": _s("active", "Observing", action="record_bounded_observations"),
+        "evaluate": _s("verifying", "Evaluating", action="evaluate_observations_against_acceptance"),
+        "learn": _s("active", "Learning", action="record_only_evidence_supported_learning"),
+        "complete": _s("succeeded", "Complete", terminal=True, resume="never", action="retain_episode_receipt"),
+    },
     "legacy_task": {
         "pending": _s("not_started", "Pending", action="check_dependencies_before_dispatch"),
         "in-progress": _s("active", "In progress", action="monitor_task_progress"),
