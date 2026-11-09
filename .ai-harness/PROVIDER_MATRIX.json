@@ -135,10 +135,10 @@
       "kind": "hosted_chat",
       "support": "partial",
       "mechanisms": [
-        "ChatGPT custom MCP app",
+        "ChatGPT web hosted MCP plugin",
         "Remote Streamable HTTP",
-        "OAuth 2.1 resource-server validation",
-        "plugin-distributed Agent Skills"
+        "OAuth via hosted plugin flow",
+        "Plugin-distributed Agent Skills"
       ],
       "repository_artifacts": [
         "AGENTS.md",
@@ -146,11 +146,11 @@
         "portable/remote_mcp_server.py",
         "docs/REMOTE_MCP_OPERATIONS.md"
       ],
-      "current_gap": "The remote operator server and ChatGPT tool-level OAuth metadata/challenge are implemented, but AUREN does not host the OAuth authorization server. An external IdP must support authorization-code PKCE S256, resource/audience propagation, and CIMD or DCR. The endpoint is not deployed or live-tested, and no ChatGPT plugin is published.",
+      "current_gap": "AUREN's remote MCP service is implemented but not deployed. ChatGPT web connects to remote MCP through an installed MCP-backed plugin; AUREN still needs Plugin Creator/Sites packaging and publication, plus external OAuth and live workspace acceptance.",
       "next_steps": [
-        "Configure and verify an OAuth 2.1 identity provider with PKCE S256, resource/audience claims, issuer discovery and CIMD or DCR.",
-        "Deploy the remote service behind TLS with a persistent host and verify ChatGPT OAuth linking and per-tool scopes.",
-        "Complete ChatGPT plugin/app packaging, privacy/support information and live acceptance."
+        "Package and publish AUREN as an MCP-backed ChatGPT plugin using Plugin Creator/Sites.",
+        "Configure the hosted OAuth flow and verify the exact scopes and data handling.",
+        "Install the plugin in eligible workspaces and run live read/write/cancel/evidence acceptance."
       ],
       "live_verified": false
     },
@@ -168,11 +168,10 @@
         ".agents/skills/ai-coding-orchestrator/SKILL.md",
         "docs/REMOTE_MCP_OPERATIONS.md"
       ],
-      "current_gap": "This compatibility alias refers to the Codex app, not ChatGPT desktop. Use codex_app as the canonical matrix entry. No live AUREN endpoint acceptance is recorded.",
+      "current_gap": "Compatibility alias for ChatGPT desktop/Codex shared MCP configuration. Use chatgpt_desktop and codex_app as canonical entries; live AUREN endpoint acceptance remains open.",
       "next_steps": [
-        "Use the Codex app's MCP settings or shared ~/.codex/config.toml.",
-        "Verify OAuth, scope-filtered tool discovery and read-only task lifecycle.",
-        "Retain ChatGPT desktop as a separate unverified host."
+        "Use ChatGPT desktop Settings → MCP servers or the shared ~/.codex/config.toml.",
+        "Verify OAuth, scope-filtered tool discovery and task lifecycle on each client."
       ],
       "live_verified": false
     },
@@ -562,19 +561,22 @@
     },
     "chatgpt_desktop": {
       "kind": "chat_host",
-      "support": "partial",
+      "support": "repository_configured",
       "mechanisms": [
-        "ChatGPT desktop native MCP connector path not confirmed"
+        "Settings → MCP servers",
+        "Remote Streamable HTTP",
+        "OAuth",
+        "Shared Codex host configuration with Codex CLI and IDE extension"
       ],
       "repository_artifacts": [
         "portable/remote_mcp.py",
         "docs/REMOTE_MCP_OPERATIONS.md"
       ],
-      "current_gap": "The custom MCP connection flow is documented for ChatGPT web; mobile custom MCP is not supported. A native ChatGPT desktop MCP setup path has not been confirmed or tested. Do not reuse Codex configuration.",
+      "current_gap": "The ChatGPT desktop app supports MCP server configuration and shares the Codex host configuration. AUREN's endpoint is not deployed or live-tested with the desktop app.",
       "next_steps": [
-        "Create and test the custom MCP app in ChatGPT web using the external OAuth provider.",
-        "Verify whether the installed ChatGPT desktop client exposes the same app/connector.",
-        "Do not claim desktop compatibility until a live desktop session passes tool discovery and authorization tests."
+        "Register the AUREN Streamable HTTP endpoint in ChatGPT desktop Settings → MCP servers.",
+        "Complete OAuth, restart the app and verify /mcp tool discovery.",
+        "Run task submit/status/cancel/evidence acceptance and verify tool approvals."
       ],
       "live_verified": false
     },
