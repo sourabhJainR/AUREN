@@ -160,6 +160,25 @@ class RemoteModelProviderTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unsupported providers"):
             RemoteProviderPool.from_environment(environ={"AUREN_REMOTE_PROVIDER_ORDER": "unknown"})
 
+    def test_custom_openai_compatible_provider_requires_explicit_host_allowlist(self):
+        env = {
+            "AUREN_REMOTE_PROVIDER_ORDER": "custom",
+            "AUREN_CUSTOM_PROVIDER_URL": "https://models.example.net/v1/chat/completions",
+            "AUREN_CUSTOM_PROVIDER_ALLOWED_HOSTS": "models.example.net",
+            "AUREN_CUSTOM_PROVIDER_API_KEY": "custom-provider-secret",
+            "AUREN_CUSTOM_PROVIDER_MODEL": "custom-model",
+        }
+        pool = RemoteProviderPool.from_environment(
+            environ=env, transport=lambda *a, **k: (503, b""),
+        )
+        self.assertEqual(["custom"], [provider.spec.name for provider in pool.providers])
+        self.assertEqual("models.example.net", pool.providers[0].spec.host)
+        env["AUREN_CUSTOM_PROVIDER_ALLOWED_HOSTS"] = "other.example.net"
+        with self.assertRaisesRegex(ValueError, "explicitly allowlisted"):
+            RemoteProviderPool.from_environment(
+                environ=env, transport=lambda *a, **k: (503, b""),
+            )
+
     def test_provider_request_bounds_prompt_and_timeout(self):
         provider = OpenAICompatibleProvider(
             PROVIDER_SPECS["openai"], api_key="test-secret-value", model="test-model",
