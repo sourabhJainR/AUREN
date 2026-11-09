@@ -14,8 +14,8 @@ import threading
 import time
 from pathlib import Path
 from typing import Any
-from urllib.request import HTTPRedirectHandler, build_opener
 
+from .guarded_network import guarded_loopback_http_get
 from .identity_compat import canonical_auren_home, canonical_runtime_home
 from .remote_mcp import AurenMCPASGI, AurenMCPService, StaticBearerTokenVerifier
 
@@ -298,15 +298,15 @@ def serve_local(
 
         def endpoint_ready(url: str) -> bool:
             try:
-                from urllib.request import build_opener
-                opener = build_opener(_NoRedirect)
-                with opener.open(url, timeout=0.5) as response:
-                    if response.status != 200:
-                        return False
-                    if url == dashboard_health_url:
-                        health = json.loads(response.read(64 * 1024).decode("utf-8"))
-                        return isinstance(health, dict) and health.get("readiness") == "ready"
-                    return True
+                status, body = guarded_loopback_http_get(
+                    url, timeout=0.5, max_bytes=64 * 1024,
+                )
+                if status != 200:
+                    return False
+                if url == dashboard_health_url:
+                    health = json.loads(body.decode("utf-8"))
+                    return isinstance(health, dict) and health.get("readiness") == "ready"
+                return True
             except Exception:
                 return False
 
