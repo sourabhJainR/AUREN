@@ -2396,6 +2396,41 @@ class ExecutionController:
         else:
             delegation_policy = None
         goal_text = goal or f"execute durable handler: {handler}"
+        if payload_copy.get("engineering_task") is True:
+            if stable_work_key is None:
+                raise ValueError("engineering tasks require a stable work_key for readiness and budget records")
+            from .engineering_readiness import (
+                EngineeringBudgetLedger, EngineeringReadinessBlocked,
+                EngineeringReadinessGate, infer_engineering_phase,
+            )
+            if any(name in payload_copy for name in (
+                "_auren_engineering_readiness", "_auren_engineering_readiness_digest",
+                "_auren_engineering_phase", "_auren_engineering_department",
+            )):
+                raise ValueError("engineering readiness fields are supervisor-owned")
+            axes = payload_copy.pop("engineering_readiness", None)
+            readiness_intent = hashlib.sha256(json.dumps(
+                {"handler": handler, "goal": goal_text, "payload": payload_copy},
+                sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
+            ).encode("utf-8")).hexdigest()
+            repository_identity = _git_repository_identity(self.root)
+            snapshot_digest = (
+                repository_identity[1] if repository_identity is not None
+                else hashlib.sha256(str(self.root).encode("utf-8")).hexdigest()
+            )
+            readiness = EngineeringReadinessGate(self.progress_journal).assess(
+                task_id=stable_work_key, work_key=stable_work_key,
+                intent_digest=readiness_intent,
+                repository_snapshot_digest=snapshot_digest,
+                axes=axes if isinstance(axes, Mapping) else {},
+            )
+            if not readiness.ready:
+                raise EngineeringReadinessBlocked(readiness)
+            phase = payload_copy.pop("engineering_phase", None) or infer_engineering_phase(handler, goal_text)
+            payload_copy["_auren_engineering_task"] = True
+            payload_copy["_auren_engineering_readiness"] = readiness.to_dict()
+            payload_copy["_auren_engineering_readiness_digest"] = readiness.assessment_digest
+            payload_copy["_auren_engineering_phase"] = phase
         try:
             payload_json = json.dumps(
                 payload_copy, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
@@ -3640,6 +3675,24 @@ class ExecutionController:
                 if deadline.tzinfo is None or datetime.now(timezone.utc) >= deadline.astimezone(timezone.utc):
                     raise TaskDeadlineExceeded("task deadline expired before preflight")
             self.heartbeat(task)
+            engineering_budget_receipt = None
+            if task.payload.get("_auren_engineering_task") is True:
+                from .engineering_readiness import (
+                    EngineeringBudgetLedger, EngineeringReadinessGate,
+                )
+                readiness = EngineeringReadinessGate(self.progress_journal).verify_payload(task.payload)
+                if not readiness.ready:
+                    raise RuntimeError("engineering readiness receipt is blocked")
+                work_key_value = task.payload.get("work_key")
+                if not isinstance(work_key_value, str) or not work_key_value.strip():
+                    raise ValueError("engineering task lost its stable work_key")
+                phase = str(task.payload.get("_auren_engineering_phase", "implementation"))
+                engineering_budget_receipt = EngineeringBudgetLedger(self.progress_journal).begin(work_key_value, phase)
+                deadlines = [engineering_budget_receipt.cycle_deadline_epoch]
+                if engineering_budget_receipt.phase_deadline_epoch is not None:
+                    deadlines.append(engineering_budget_receipt.phase_deadline_epoch)
+                task.payload["auren_engineering_deadline_epoch"] = min(deadlines)
+                task.payload["auren_engineering_budget_phase"] = phase
             self._verify_engineering_plan_dispatch_checkpoint(task)
             self._verify_workflow_profile_binding(task)
             gates_passed, gate_detail, gate_evidence = self._preflight_gates(task)
