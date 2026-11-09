@@ -8,6 +8,21 @@ from scripts.impact_policy import classify_changes, classify_path, final_status
 
 
 class ImpactPolicyTests(unittest.TestCase):
+    def test_remote_mcp_acceptance_probe_has_required_impact_suites(self):
+        expected = {
+            "scripts/remote_mcp_acceptance.py": {
+                "tests.test_remote_mcp_acceptance", "tests.test_remote_mcp_service",
+                "tests.test_guarded_network",
+            },
+            "tests/test_remote_mcp_acceptance.py": {"tests.test_remote_mcp_acceptance"},
+        }
+        for path, required in expected.items():
+            with self.subTest(path=path):
+                impact = classify_path(path)
+                self.assertIsNotNone(impact)
+                self.assertTrue(required.issubset(set(impact.required_suites)))
+                self.assertTrue(impact.hardening_required)
+
     def test_model_provider_adapter_changes_have_required_impact_suites(self):
         expected = {
             "portable/remote_model_providers.py": {
