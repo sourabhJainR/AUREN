@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sqlite3
+from contextlib import closing
 import tempfile
 import time
 import unittest
@@ -185,7 +186,7 @@ class RemoteMCPServiceTests(unittest.TestCase):
         self.assertTrue(self.service.verify_control_audit())
 
     def test_operator_control_audit_tampering_blocks_new_admissions(self):
-        with sqlite3.connect(self.service.control_db) as db:
+        with closing(sqlite3.connect(self.service.control_db)) as db, db:
             db.execute("DROP TRIGGER immutable_service_control_event_update")
             db.execute(
                 "UPDATE service_control_events SET event_json=? WHERE sequence=0",
