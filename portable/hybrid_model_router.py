@@ -318,7 +318,7 @@ class HybridModelRouter:
                 attempts_used += 1
                 remote_attempts += 1
                 persist_guard()
-                    attempt_request = TaskRouteRequest(
+                attempt_request = TaskRouteRequest(
                     bounded.task, bounded.capability, bounded.privacy,
                     max(1, attempts_limit - attempts_used + 1), remaining,
                     provider_attempt=remote_attempts - 1,
