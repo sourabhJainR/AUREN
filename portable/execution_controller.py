@@ -3664,6 +3664,17 @@ class ExecutionController:
             task.id, "preflight_started", state="running", stage="preflight",
             message="Checking dispatch policy, revision binding, and required evidence.",
         )
+        engineering_budget_receipt = None
+        engineering_budget_ledger = None
+        def complete_engineering_budget(outcome: str) -> None:
+            if engineering_budget_receipt is not None and engineering_budget_ledger is not None:
+                evidence_refs = tuple(
+                    str(item) for item in task.payload.get("evidence", ())
+                    if isinstance(item, str) and item.strip()
+                )
+                engineering_budget_ledger.complete(
+                    engineering_budget_receipt, outcome=outcome, evidence_refs=evidence_refs,
+                )
         try:
             if self._cancellation_requested(task.id):
                 raise TaskCancellationRequested("task cancellation requested before preflight")
@@ -3687,7 +3698,8 @@ class ExecutionController:
                 if not isinstance(work_key_value, str) or not work_key_value.strip():
                     raise ValueError("engineering task lost its stable work_key")
                 phase = str(task.payload.get("_auren_engineering_phase", "implementation"))
-                engineering_budget_receipt = EngineeringBudgetLedger(self.progress_journal).begin(work_key_value, phase)
+                engineering_budget_ledger = EngineeringBudgetLedger(self.progress_journal)
+                engineering_budget_receipt = engineering_budget_ledger.begin(work_key_value, phase)
                 deadlines = [engineering_budget_receipt.cycle_deadline_epoch]
                 if engineering_budget_receipt.phase_deadline_epoch is not None:
                     deadlines.append(engineering_budget_receipt.phase_deadline_epoch)
@@ -3697,6 +3709,7 @@ class ExecutionController:
             self._verify_workflow_profile_binding(task)
             gates_passed, gate_detail, gate_evidence = self._preflight_gates(task)
             if not gates_passed:
+                complete_engineering_budget("failed")
                 if not self._finalize_claim(task, "failed"):
                     raise LeaseLostError("stale worker cannot finalize rejected task")
                 evidence = [f"handler:{task.handler}", *gate_evidence]
@@ -3774,6 +3787,7 @@ class ExecutionController:
             self._pause_for_approval(task, exc)
             return None
         except TaskDeadlineExceeded as exc:
+            complete_engineering_budget("failed")
             if not self._finalize_claim(task, "failed"):
                 raise LeaseLostError("task lease was lost; stale worker cannot finalize deadline failure") from exc
             detail = "Task deadline exceeded; handler result was not accepted."
@@ -3787,6 +3801,7 @@ class ExecutionController:
             self._record_progress(task.id, "task_terminal", state="failed", stage="terminal", message=detail)
             return None
         except TaskCancellationRequested as exc:
+            complete_engineering_budget("cancelled")
             if not self._finalize_claim(task, "cancelled"):
                 raise LeaseLostError(
                     "task lease was lost; stale worker cannot finalize cancellation"
@@ -3807,6 +3822,7 @@ class ExecutionController:
             )
             return None
         except ProviderOutcomeBlocked as exc:
+            complete_engineering_budget("blocked")
             if not self._finalize_claim(task, "blocked_reconciliation"):
                 raise LeaseLostError(
                     "task lease was lost; stale worker cannot finalize an ambiguous provider outcome"
@@ -3834,6 +3850,7 @@ class ExecutionController:
         except Exception as exc:
             if self._pause_for_quota(task, exc):
                 return None
+            complete_engineering_budget("failed")
             if not self._finalize_claim(task, "failed"):
                 raise LeaseLostError(
                     "task lease was lost; stale worker cannot overwrite the current task outcome"
@@ -3865,6 +3882,7 @@ class ExecutionController:
             success, detail = True, "handler completed"
 
         state = "completed" if success else "failed"
+        complete_engineering_budget("passed" if success else "failed")
         if not self._finalize_claim(task, state):
             raise LeaseLostError("task lease was lost; stale worker cannot finalize task outcome")
         self.company.record(task.work_unit_id, "execution", state, detail, evidence)
