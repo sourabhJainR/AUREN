@@ -450,7 +450,7 @@ class RemoteMCPASGITests(unittest.TestCase):
         self.assertEqual(200, status)
         response = json.loads(body)
         self.assertEqual("2025-11-25", response["result"]["protocolVersion"])
-        self.assertEqual("2025-11-25", headers[b"mcp-protocol-version"])
+        self.assertEqual(b"2025-11-25", headers[b"mcp-protocol-version"])
 
         status, _, body = self.request(body={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
                                        extra_headers={"mcp-protocol-version": "2025-11-25"})
