@@ -15,6 +15,9 @@ class ImpactPolicyTests(unittest.TestCase):
                 "tests.test_guarded_network",
             },
             "tests/test_remote_mcp_acceptance.py": {"tests.test_remote_mcp_acceptance"},
+            "tests/test_remote_mcp_network_acceptance.py": {
+                "tests.test_remote_mcp_network_acceptance", "tests.test_remote_mcp_service",
+            },
         }
         for path, required in expected.items():
             with self.subTest(path=path):
@@ -136,6 +139,9 @@ class ImpactPolicyTests(unittest.TestCase):
             "portable/remote_mcp_server.py": {"tests.test_remote_mcp_service"},
             "portable/trigger_runtime.py": {"tests.test_remote_mcp_service"},
             "tests/test_remote_mcp_service.py": {"tests.test_remote_mcp_service"},
+            "tests/test_remote_mcp_network_acceptance.py": {
+                "tests.test_remote_mcp_network_acceptance", "tests.test_remote_mcp_service",
+            },
             "portable/canonical_evidence_ledger.py": {"tests.test_canonical_evidence_ledger", "tests.test_provider_operation_lifecycle"},
             "portable/agency_evolution_gates.py": {"tests.test_agency_evolution_gates", "tests.test_promotion_evidence_chain", "tests.test_evidence_freshness"},
             "tests/test_agency_evolution_gates.py": {"tests.test_agency_evolution_gates"},
@@ -244,6 +250,7 @@ class ImpactPolicyTests(unittest.TestCase):
             "portable/remote_mcp_server.py",
             "portable/trigger_runtime.py",
             "tests/test_remote_mcp_service.py",
+            "tests/test_remote_mcp_network_acceptance.py",
             "portable/durable_routines.py",
             "tests/test_durable_routines.py",
         )
