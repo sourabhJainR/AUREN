@@ -129,11 +129,11 @@ class ContinuousEngineeringDecisionFabric:
             """)
     def observe(self,task_family:str,capability:str,provider:str,tool_path:str,*,success:bool,duration_seconds:float,cost:float,quality:float,parallel:bool=False)->None:
         if min(duration_seconds,cost)<0 or not 0<=quality<=1: raise ValueError("invalid observation metrics")
-        with self.memory._lock,self.memory._connect() as db:
+        with self.memory._lock,self.memory._connection() as db:
             db.execute("INSERT INTO decision_observations VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                 (self.project,task_family,capability,provider,tool_path,int(parallel),int(success),float(duration_seconds),float(cost),float(quality),_utc()))
     def _metrics(self,tf:str,cap:str,provider:str,tool:str,parallel:bool)->tuple[float,float,float,float,int]:
-        with self.memory._lock,self.memory._connect() as db:
+        with self.memory._lock,self.memory._connection() as db:
             rows=db.execute("""SELECT success,duration,cost,quality FROM decision_observations
               WHERE project=? AND task_family=? AND capability=? AND provider=? AND tool_path=? AND parallel=?""",
               (self.project,tf,cap,provider,tool,int(parallel))).fetchall()
@@ -173,7 +173,7 @@ class ContinuousEngineeringDecisionFabric:
         passed=[r for r in rows if r.passed and r.measured_quality>=minimum_quality]; regressions=sum(not r.passed for r in rows)
         rate=len(passed)/len(rows); status="promote" if rate>=.9 and regressions==0 else "rollback"
         record=CanaryRecord(capability,candidate_id,baseline_id,status,len(rows),round(rate,4),regressions,baseline_id,evidence)
-        with self.memory._lock,self.memory._connect() as db:
+        with self.memory._lock,self.memory._connection() as db:
             db.execute("""INSERT INTO decision_canaries VALUES(?,?,?,?,?,?,?,?,?,?,?)
               ON CONFLICT(project,capability,candidate_id) DO UPDATE SET status=excluded.status,
               samples=excluded.samples,pass_rate=excluded.pass_rate,regressions=excluded.regressions,
