@@ -387,6 +387,7 @@ class AurenMCPService:
         self.trigger = AdaptiveTrigger.for_runtime(runtime)
         self._stop = threading.Event()
         self._worker: threading.Thread | None = None
+        self._closed = False
         self._dispatcher_last_error: str | None = None
         self._dispatcher_last_run_at: str | None = None
         self._dispatcher_processed_count = 0
@@ -1254,10 +1255,25 @@ class AurenMCPService:
         self._worker.start()
 
     def close(self) -> None:
+        """Gracefully stop dispatch and release service-owned runtime references."""
+        if self._closed:
+            return
         self._stop.set()
-        if self._worker and self._worker.is_alive():
-            self._worker.join(timeout=5)
+        worker = self._worker
+        if worker and worker.is_alive():
+            worker.join(timeout=30)
+            if worker.is_alive():
+                raise TimeoutError("remote MCP dispatcher did not stop within 30 seconds")
         self._worker = None
+        trigger = self.trigger
+        if trigger is not None:
+            trigger.close(wait_for_background=True)
+        self.trigger = None
+        self.approval_store = None
+        self.trigger_runtime = None
+        self.controller = None
+        self.runtime = None
+        self._closed = True
 
 
 class AurenMCPASGI:
