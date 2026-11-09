@@ -240,12 +240,18 @@ class HybridModelRouter:
                 {"before": before, "after": self.resource_reader()}, str(exc),
                 error="Execution budget is exhausted or cancelled before model discovery")
         try:
-            local = self.discovery.discover()
-            candidates = self._ranked_candidates(
-                local.get("models") if isinstance(local, Mapping) else None,
-                bounded.capability,
-            )
-            discovery_error = None
+            if bounded.provider_order is not None and bounded.privacy.casefold() in {"public", "non_sensitive"}:
+                # An explicit remote provider order is a user choice, not a hint.
+                local = {"available": False, "models": []}
+                candidates = []
+                discovery_error = None
+            else:
+                local = self.discovery.discover()
+                candidates = self._ranked_candidates(
+                    local.get("models") if isinstance(local, Mapping) else None,
+                    bounded.capability,
+                )
+                discovery_error = None
         except Exception as exc:
             local = {"available": False, "models": []}
             candidates = []
