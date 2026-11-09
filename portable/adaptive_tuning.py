@@ -106,7 +106,7 @@ class AdaptiveTuner:
             raise ValueError("project is required")
         self.memory = memory
         self.project = project.strip()
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS adaptive_experience_history(
                 project TEXT NOT NULL, record_id TEXT NOT NULL, task_id TEXT NOT NULL,
                 capability TEXT NOT NULL, strategy TEXT NOT NULL, quality REAL NOT NULL,
@@ -173,7 +173,7 @@ class AdaptiveTuner:
             "created_at": created_at,
         }
         record_digest = _digest(payload)
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute(
                 "INSERT INTO adaptive_experience_history VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (self.project, record_id, payload["task_id"], payload["capability"], payload["strategy"],
@@ -189,7 +189,7 @@ class AdaptiveTuner:
         if limit < 1:
             return ()
         scope = scope or "global"
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             rows = db.execute(
                 "SELECT record_id,task_id,capability,strategy,quality,iterations,confidence,verified,evidence,evaluation_class,realized_success,created_at,digest "
                 "FROM adaptive_experience_history WHERE project=? AND (?='global' OR capability=?) ORDER BY created_at,record_id LIMIT ?",
@@ -202,7 +202,7 @@ class AdaptiveTuner:
         )
 
     def current_policy(self, scope: str = "global") -> AdaptivePolicy:
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             row = db.execute(
                 "SELECT version,parent_version,strategy,confidence_adjustment,iteration_target,created_at,status,evidence_digest "
                 "FROM adaptive_policies WHERE project=? AND scope=? AND status='active' ORDER BY created_at DESC,version DESC LIMIT 1",
@@ -289,7 +289,7 @@ class AdaptiveTuner:
             "errors": clean_errors,
         }
         digest = _digest(payload)
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute(
                 "INSERT INTO adaptive_maintenance_receipts VALUES(?,?,?,?,?,?,?,?,?)",
                 (self.project, cycle_id, started_at, finished_at, int(jobs_processed), strategy_action, policy_version,
@@ -299,7 +299,7 @@ class AdaptiveTuner:
                                   policy_version, clean_errors, digest)
 
     def recent_receipts(self, limit: int = 20) -> tuple[MaintenanceReceipt, ...]:
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             rows = db.execute(
                 "SELECT cycle_id,started_at,finished_at,jobs_processed,strategy_action,policy_version,errors,digest "
                 "FROM adaptive_maintenance_receipts WHERE project=? ORDER BY finished_at DESC,cycle_id DESC LIMIT ?",
@@ -311,7 +311,7 @@ class AdaptiveTuner:
                  iteration_target: float, observations: int, independent: int, reason: str,
                  evidence_digest: str, action: str) -> TuningDecision:
         version = f"v{int(datetime.now(timezone.utc).timestamp() * 1000)}"
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute("UPDATE adaptive_policies SET status='retired' WHERE project=? AND scope=? AND status='active'", (self.project, scope))
             db.execute(
                 "INSERT INTO adaptive_policies VALUES(?,?,?,?,?,?,?,?,?,?)",
