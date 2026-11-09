@@ -288,6 +288,14 @@ class LocalMCPHostProcessTests(unittest.TestCase):
                     ):
                         break
                 self.assertIn("AUREN local services are ready.", output, "\\n".join(output))
+                self.assertTrue(
+                    any(line.startswith("Observation console: ") for line in output),
+                    "dashboard endpoint was not printed: " + "\\n".join(output),
+                )
+                self.assertTrue(
+                    any(line.startswith("MCP endpoint: ") for line in output),
+                    "MCP endpoint was not printed: " + "\\n".join(output),
+                )
                 dashboard_line = next(line for line in output if line.startswith("Observation console: "))
                 mcp_line = next(line for line in output if line.startswith("MCP endpoint: "))
                 dashboard_url = dashboard_line.split(": ", 1)[1]
