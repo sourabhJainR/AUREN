@@ -103,7 +103,7 @@ def run_proxy(
             break
         request_id = None
         if len(line) > _MAX_REQUEST_BYTES:
-            target.write(_rpc_error(None, -32700, "MCP request exceeds the configured byte limit") + b"\\n")
+            target.write(_rpc_error(None, -32700, "MCP request exceeds the configured byte limit") + b"\n")
             target.flush()
             break
         try:
