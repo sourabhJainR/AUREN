@@ -145,6 +145,18 @@ def _run_dashboard(args: list[str]) -> int:
     return 0
 
 
+def _run_local(args: list[str]) -> int:
+    """Run the observation console and local MCP endpoint as one managed host."""
+    from portable.local_host import main as local_main
+    return local_main(args)
+
+
+def _run_mcp_proxy(args: list[str]) -> int:
+    """Bridge a local HTTP MCP endpoint to clients that only support stdio."""
+    from portable.mcp_stdio_proxy import main as proxy_main
+    return proxy_main(args)
+
+
 def _has_flag(args: list[str], flag: str) -> bool:
     return flag in args or any(value.startswith(flag + "=") for value in args)
 
@@ -600,6 +612,10 @@ def main(argv: list[str] | None = None) -> int:
         return _run_delivery(args[1:])
     if args and args[0] == "dashboard":
         return _run_dashboard(args[1:])
+    if args and args[0] == "local":
+        return _run_local(args[1:])
+    if args and args[0] == "mcp-proxy":
+        return _run_mcp_proxy(args[1:])
     if args and args[0] == "workflow-profile":
         return _run_workflow_profile(args[1:])
     if args and args[0] == "guard-policy":
