@@ -20,7 +20,7 @@ The command starts both services and prints their actual addresses:
 - MCP endpoint: `http://127.0.0.1:<assigned-mcp-port>/mcp`
 - MCP readiness: `http://127.0.0.1:<assigned-mcp-port>/readyz`
 
-Startup is considered successful only after both health endpoints respond. If either server exits unexpectedly, the host shuts down the other service too. Press Ctrl+C or send SIGTERM to stop the pair cleanly.
+Startup is considered successful only after both health endpoints respond. If either server exits unexpectedly, the host shuts down the other service too. Press Ctrl+C to stop the pair cleanly; POSIX service managers may send SIGTERM.
 
 You can reserve fixed ports when your client requires stable addresses:
 
