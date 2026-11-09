@@ -6,14 +6,17 @@ This is a local development/operator host, not a public deployment recipe. Do no
 
 ## 1. Install and start
 
-From an AUREN checkout or portable bundle:
+From an AUREN checkout or portable bundle, initialize and inspect the repository first:
 
 ```bash
 python -m pip install "uvicorn[standard]>=0.35,<1"
-python auren_cli.py local --project-root /absolute/path/to/your/project
+python auren_cli.py init --project-root /absolute/path/to/your/project
+python auren_cli.py doctor --project-root /absolute/path/to/your/project
 ```
 
-The command starts both services and prints their actual addresses:
+Single-user local mode is the default and does not use a runtime factory. The built-in factory-free runtime composition is not available yet, so this mode will report a readiness blocker rather than import a project factory. To run the currently available factory-backed host, explicitly opt into managed mode using the instructions below.
+
+After managed-mode opt-in, the command starts both services and prints their actual addresses:
 
 - Observation console: `http://127.0.0.1:<assigned-dashboard-port>/control-center`
 - Dashboard health: `http://127.0.0.1:<assigned-dashboard-port>/api/health`
