@@ -118,6 +118,7 @@ class ExperimentLearningCycleTests(unittest.TestCase):
                 evidence_refs=("arena-run:campaign-1",),
                 trace=trace, parent_span_id=parent.span_id,
             )
+            parent.finish({"cycle_complete": True})
             tracer.end(trace)
 
             records = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
