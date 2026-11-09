@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+from contextlib import closing
 import sqlite3
 from typing import Any, Mapping
 from uuid import uuid4
@@ -145,7 +146,7 @@ class WorldModel:
         return connection
 
     def _initialize(self) -> None:
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute(
                 """CREATE TABLE IF NOT EXISTS world_observations(
                     project TEXT NOT NULL,
@@ -190,7 +191,7 @@ class WorldModel:
     def observe(self, observation: Observation) -> Observation:
         value_json = _value_json(observation.value)
         evidence_json = json.dumps(sorted(set(observation.evidence)), separators=(",", ":"), ensure_ascii=True)
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             existing = db.execute(
                 "SELECT entity_id,predicate,value,source,confidence,observed_at,evidence,properties FROM world_observations WHERE project=? AND observation_id=?",
@@ -220,7 +221,7 @@ class WorldModel:
         if predicate is not None:
             clause += " AND predicate=?"
             params.append(predicate)
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             rows = db.execute(
                 f"SELECT entity_id,predicate,value,source,confidence,observed_at,observation_id,evidence,properties FROM world_observations WHERE {clause} ORDER BY predicate,observed_at DESC,observation_id DESC",
                 tuple(params),
@@ -243,7 +244,7 @@ class WorldModel:
             clause += " AND predicate=?"
             params.append(predicate)
         params.append(limit)
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             rows = db.execute(
                 f"SELECT observation_id,entity_id,predicate,value,source,confidence,observed_at,evidence,properties FROM world_observations WHERE {clause} ORDER BY observed_at DESC,observation_id DESC LIMIT ?",
                 tuple(params),
@@ -286,7 +287,7 @@ class WorldModel:
             evidence_observation_ids=tuple(item.observation_id for item in evidence),
             created_at=_utc(),
         )
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute(
                 "INSERT INTO world_predictions VALUES(?,?,?,?,?,?,?,?,?,?)",
                 (self.project, prediction.prediction_id, prediction.entity_id, prediction.predicate,
@@ -308,7 +309,7 @@ class WorldModel:
             error_digest=digest,
             measured_at=_utc(),
         )
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute(
                 "INSERT OR REPLACE INTO world_prediction_errors VALUES(?,?,?,?,?,?,?)",
                 (self.project, error.prediction_id, _value_json(error.predicted_value),
@@ -322,7 +323,7 @@ class WorldModel:
         """Return verified prediction accuracy without changing model behavior."""
         if limit < 1:
             return {"samples": 0, "accuracy": 0.0}
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             clauses = ["e.project=?"]
             params: list[Any] = [self.project]
             if predicate is not None:
@@ -340,7 +341,7 @@ class WorldModel:
         return {"samples": int(row[0]), "accuracy": float(row[1])}
 
     def digest(self) -> str:
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             rows = db.execute(
                 "SELECT observation_id,entity_id,predicate,value,source,confidence,observed_at,evidence,properties FROM world_observations WHERE project=? ORDER BY observation_id",
                 (self.project,),
