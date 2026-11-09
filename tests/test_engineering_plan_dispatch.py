@@ -203,6 +203,26 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
             self.assertEqual("pending", task.state)
             self.assertEqual(plan.digest, task.payload["auren_dispatch"]["plan_digest"])
 
+    def test_engineering_cycle_budget_becomes_supervisor_enforced_task_deadline(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            plan, run, packet, _, store, controller, bridge = prepared(tmp)
+            DISPATCH_HANDLER_CALLS.clear()
+            task = bridge.dispatch(
+                run_id=plan.run_id, task_id="implement", dispatch_key="dispatch-budget-deadline",
+                handler="dispatch-test", packet=packet, payload={"change": "bounded"},
+            )
+            controller.run_once(task.id)
+            completed = controller.task(task.id)
+            self.assertEqual("completed", completed.state)
+            self.assertIsNotNone(completed.deadline_at)
+            self.assertEqual(1, len(DISPATCH_HANDLER_CALLS))
+            self.assertIn("auren_deadline_epoch", DISPATCH_HANDLER_CALLS[0])
+            with sqlite3.connect(controller.db_path) as db:
+                deadline_at = db.execute(
+                    "SELECT deadline_at FROM tasks WHERE id=?", (task.id,),
+                ).fetchone()[0]
+            self.assertEqual(completed.deadline_at, deadline_at)
+
     def test_worker_revalidates_checkpoint_before_running_queued_handler(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             plan, run, packet, _, store, controller, bridge = prepared(tmp)
