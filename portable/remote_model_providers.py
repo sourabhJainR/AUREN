@@ -141,21 +141,28 @@ class OpenAICompatibleProvider:
         api_key: str,
         model: str,
         transport=guarded_https_get,
+        allowed_hosts: Sequence[str] | None = None,
     ):
         if not isinstance(spec, ProviderSpec):
             raise TypeError("spec must be a ProviderSpec")
         if spec.name == "custom":
             parsed = urlsplit(spec.endpoint)
+            normalized_allowlist = tuple(sorted({
+                item.strip().lower() for item in (allowed_hosts or ()) if isinstance(item, str) and item.strip()
+            }))
             if (
                 parsed.scheme != "https" or parsed.hostname != spec.host
                 or parsed.port not in {None, 443} or parsed.username or parsed.password
                 or parsed.query or parsed.fragment or not parsed.path.rstrip("/").endswith("/chat/completions")
+                or normalized_allowlist != (spec.host,)
             ):
-                raise ValueError("custom provider must use an allowlisted HTTPS Chat Completions endpoint")
+                raise ValueError("custom provider must use an HTTPS Chat Completions endpoint with an exact host allowlist")
         else:
             registered_spec = PROVIDER_SPECS.get(spec.name)
             if registered_spec is None or spec != registered_spec:
                 raise ValueError("provider endpoint and host must match the reviewed provider registry")
+            if allowed_hosts is not None and tuple(allowed_hosts) != (spec.host,):
+                raise ValueError("built-in provider host allowlist cannot be overridden")
         if not isinstance(api_key, str) or len(api_key) < 8 or len(api_key) > 4096:
             raise ValueError("provider API key is missing or invalid")
         if not isinstance(model, str) or not model.strip() or len(model) > 200:
@@ -166,6 +173,7 @@ class OpenAICompatibleProvider:
         self._api_key = api_key
         self.model = model.strip()
         self.transport = transport
+        self.allowed_hosts = (spec.host,)
 
     @classmethod
     def from_environment(cls, name: str, *, environ: Mapping[str, str] | None = None, transport=guarded_https_get):
@@ -197,7 +205,10 @@ class OpenAICompatibleProvider:
         model = env.get("AUREN_MODEL_" + name.upper(), env.get(spec.model_env, ""))
         if not key or not model:
             raise ValueError(f"{name} requires {spec.api_key_env} and {spec.model_env} (or AUREN_MODEL_{name.upper()})")
-        return cls(spec, api_key=key, model=model, transport=transport)
+        return cls(
+            spec, api_key=key, model=model, transport=transport,
+            allowed_hosts=(spec.host,) if name == "custom" else None,
+        )
 
     def _request_payload(self, prompt: str) -> tuple[dict[str, Any], dict[str, str]]:
         system = (
@@ -234,7 +245,7 @@ class OpenAICompatibleProvider:
         try:
             status, raw = self.transport(
                 self.spec.endpoint,
-                allowed_hosts=(self.spec.host,),
+                allowed_hosts=self.allowed_hosts,
                 method="POST",
                 body=body,
                 headers=headers,
