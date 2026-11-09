@@ -206,6 +206,7 @@ def serve_local(
             server_header=False,
             date_header=False,
             lifespan="on",
+            timeout_graceful_shutdown=10,
         )
         mcp_server = uvicorn.Server(config)
 
@@ -247,7 +248,12 @@ def serve_local(
             try:
                 from urllib.request import urlopen
                 with urlopen(url, timeout=0.5) as response:
-                    return response.status == 200
+                    if response.status != 200:
+                        return False
+                    if url == dashboard_health_url:
+                        health = json.loads(response.read(64 * 1024).decode("utf-8"))
+                        return isinstance(health, dict) and health.get("readiness") == "ready"
+                    return True
             except Exception:
                 return False
 
