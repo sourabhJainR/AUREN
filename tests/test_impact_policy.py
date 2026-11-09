@@ -8,6 +8,28 @@ from scripts.impact_policy import classify_changes, classify_path, final_status
 
 
 class ImpactPolicyTests(unittest.TestCase):
+    def test_scheduler_and_recovery_journal_changes_have_required_impact_suites(self):
+        expected = {
+            "portable/agent_capabilities.py": {
+                "tests.test_adaptive_trigger", "tests.test_trigger_runtime",
+                "tests.test_adaptive_runtime_recovery_integration",
+            },
+            "portable/automation_scheduler.py": {
+                "tests.test_adaptive_trigger", "tests.test_trigger_runtime",
+                "tests.test_durable_routines", "tests.test_adaptive_runtime_recovery_integration",
+            },
+            "portable/recovery_decision_journal.py": {
+                "tests.test_recovery_decision_journal", "tests.test_engineering_recovery",
+                "tests.test_adaptive_runtime_recovery_integration",
+            },
+        }
+        for path, required in expected.items():
+            with self.subTest(path=path):
+                impact = classify_path(path)
+                self.assertIsNotNone(impact)
+                self.assertTrue(required.issubset(set(impact.required_suites)))
+                self.assertTrue(impact.hardening_required)
+
     def test_every_recovery_sensitive_source_has_mandatory_test_suites(self):
         expected = {
             "portable/sdk.py": {"tests.test_auren_sdk", "tests.test_agent_execution_guard", "tests.test_execution_controller_guard_policy"},
