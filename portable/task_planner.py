@@ -48,6 +48,7 @@ class TaskPlan:
     def __init__(self, tasks: Iterable[Task] = ()) -> None:
         rows = list(tasks)
         self.tasks = {task.id: task for task in rows}
+        self._engineering_readiness_receipts: dict[str, object] = {}
         if len(self.tasks) != len(rows):
             raise ValueError("duplicate task id")
         self.validate()
@@ -79,10 +80,10 @@ class TaskPlan:
         """Bind a supervisor-produced readiness receipt before an engineering task is schedulable."""
         if task_id not in self.tasks:
             raise KeyError(task_id)
-        to_dict = getattr(assessment, "to_dict", None)
-        if not callable(to_dict):
-            raise TypeError("engineering readiness assessment must expose to_dict()")
-        receipt = to_dict()
+        from .engineering_readiness import EngineeringReadinessAssessment
+        if not isinstance(assessment, EngineeringReadinessAssessment):
+            raise TypeError("engineering readiness must be a supervisor-generated assessment")
+        receipt = assessment.to_dict()
         if not isinstance(receipt, dict) or receipt.get("schema_version") != "auren-engineering-readiness-v1":
             raise ValueError("unsupported engineering readiness receipt")
         if receipt.get("task_id") != task_id:
@@ -95,6 +96,7 @@ class TaskPlan:
             "envelope_digest": receipt["envelope_digest"],
             "status": receipt["status"],
         }
+        self._engineering_readiness_receipts[task_id] = assessment
 
     def ready(self, tag: str | None = None) -> list[Task]:
         result = []
@@ -102,13 +104,19 @@ class TaskPlan:
             if task.status != "pending" or (tag and tag not in task.tags):
                 continue
             if "engineering" in task.tags:
+                assessment = self._engineering_readiness_receipts.get(task.id)
                 readiness = task.metadata.get("engineering_readiness")
                 if (
-                    not isinstance(readiness, dict)
+                    assessment is None
+                    or getattr(assessment, "task_id", None) != task.id
+                    or not getattr(assessment, "ready", False)
+                    or not getattr(assessment, "assessment_digest", None)
+                    or not getattr(getattr(assessment, "envelope", None), "envelope_digest", None)
+                    or not isinstance(readiness, dict)
                     or readiness.get("schema_version") != "auren-engineering-readiness-v1"
                     or readiness.get("status") != "ready"
-                    or not readiness.get("assessment_digest")
-                    or not readiness.get("envelope_digest")
+                    or readiness.get("assessment_digest") != assessment.assessment_digest
+                    or readiness.get("envelope_digest") != assessment.envelope.envelope_digest
                 ):
                     continue
             if all(self.tasks[d].status == "done" for d in task.dependencies):
