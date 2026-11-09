@@ -355,6 +355,7 @@ class EngineeringPlanDispatch:
             if prior_task is None:
                 raise DispatchConflict("existing readiness dispatch points to a missing durable task")
             prior_payload = dict(prior_task.payload)
+            safe_payload.pop("engineering_readiness", None)
             for reserved_name in (
                 "_auren_engineering_task", "_auren_engineering_readiness",
                 "_auren_engineering_readiness_digest", "_auren_engineering_phase",
