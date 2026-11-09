@@ -105,13 +105,30 @@ def test_projection_catalog_covers_authoritative_runtime_vocabularies():
         ("goal_planning", ("open", "active", "blocked", "complete", "abandoned")),
         ("worktree", ("creating", "active", "creation_failed", "cleaned")),
         ("capability", ("canary", "promotion_blocked", "promoted", "rolled_back")),
-        ("invention", ("candidate", "promoted", "blocked", "rejected")),
+        ("invention", ("candidate", "canary", "promotion_blocked", "promoted", "rolled_back")),
         ("controller_task", (
             "pending", "queued", "running", "waiting_approval", "blocked_approval",
             "waiting_quota", "blocked_quota", "blocked_reconciliation", "blocked",
             "recovering", "completed", "failed", "cancelled",
         )),
-        ("trigger_task", ("pending", "claimed", "dispatched", "retryable", "success", "complete", "completed", "failed", "cancelled")),
+        ("trigger_task", ("pending", "claimed", "dispatched", "success", "complete", "completed", "failed", "cancelled")),
+        ("workspace_adoption", ("applying", "completed", "failed")),
+        ("ci_poll", (
+            "pending", "running", "waiting_for_required_checks", "waiting_for_main_head",
+            "observed_complete_unverified", "success", "failure", "poll_error",
+        )),
+        ("ci_repair", ("queued", "claimed", "repairing", "validating", "resolved", "blocked")),
+        ("goal_reconciliation", (
+            "reconciled", "blocked", "waiting_for_approval", "waiting_external_dependency",
+            "paused", "cancelled", "cancel_requested", "user_cancelled", "retry_budget_exhausted",
+        )),
+        ("team_member", ("pending", "assigned", "running", "blocked", "completed", "failed")),
+        ("team_budget", ("reserved", "settled", "released", "overrun")),
+        ("admission_control", ("active", "paused", "audit_invalid")),
+        ("release_action", ("shadow", "canary", "promote", "rollback")),
+        ("work_unit", ("open", "created", "running", "waiting_ci", "waiting_external", "resolved", "completed", "failed", "cancelled")),
+        ("graph_worker", ("pending", "queued", "waiting", "working", "running", "adopting", "complete", "completed", "done", "failed", "cancelled", "blocked", "unknown")),
+        ("evidence_outbox", ("pending", "sending", "sent")),
     )
     for domain, states in vocabularies:
         for state in states:
