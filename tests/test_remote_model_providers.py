@@ -190,6 +190,39 @@ class RemoteModelProviderTests(unittest.TestCase):
         self.assertEqual("fallback answer", result.content)
         self.assertEqual(2, len(calls))
 
+    def test_pool_honors_per_request_provider_order_and_attempt_budget(self):
+        calls = []
+
+        def transport(url, **kwargs):
+            calls.append(url)
+            return 200, json.dumps({
+                "id": "req-selected",
+                "choices": [{"message": {"content": "selected provider"}, "finish_reason": "stop"}],
+            }).encode()
+
+        pool = RemoteProviderPool([
+            OpenAICompatibleProvider(PROVIDER_SPECS["openai"], api_key="openai-secret", model="model-a", transport=transport),
+            OpenAICompatibleProvider(PROVIDER_SPECS["xai"], api_key="xai-secret", model="model-b", transport=transport),
+        ])
+
+        class Request:
+            task = "public task"
+            timeout_seconds = 5
+            provider_attempt = 0
+            provider_order = ("xai",)
+
+        self.assertEqual(1, pool.max_attempts_for(Request()))
+        result = pool(Request())
+        self.assertEqual("xai", result.provider)
+        self.assertTrue(calls[0].startswith("https://api.x.ai/"))
+        Request.provider_attempt = 1
+        with self.assertRaisesRegex(RemoteProviderError, "chain is exhausted"):
+            pool(Request())
+        Request.provider_attempt = 0
+        Request.provider_order = ("not-configured",)
+        with self.assertRaisesRegex(RemoteProviderError, "not configured"):
+            pool(Request())
+
     def test_environment_factory_requires_explicit_order_key_and_model(self):
         env = {
             "AUREN_REMOTE_PROVIDER_ORDER": "groq,xai",
