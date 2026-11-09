@@ -8,6 +8,8 @@ def test_known_domains_have_stable_projection_and_unknown_states_fail_closed():
         "agency_execution", "learning_hypothesis", "feedback_loop", "goal",
         "legacy_task", "capability", "invention", "experiment", "work_unit",
         "evidence_outbox", "graph_worker", "continuous_execution", "release",
+        "engineering_gate", "worktree", "remediation", "goal_planning",
+        "transfer_learning",
     } <= set(lifecycle_domains())
 
     unknown = project_lifecycle("session", "future-state")
@@ -57,6 +59,8 @@ def test_projection_catalog_covers_authoritative_runtime_vocabularies():
     from portable.engineering_plan import TASK_STATUSES
     from portable.feedback_loop import LOOP_TERMINAL_STATES
     from portable.progress_journal import STATES as PROGRESS_STATES
+    from portable.engineering_gate_crew_plan import _STATUSES as ENGINEERING_GATE_STATUSES
+    from portable.persistent_remediation_backlog import STATUSES as REMEDIATION_STATUSES
 
     vocabularies = (
         ("learning_hypothesis", HYPOTHESIS_STATES),
@@ -65,6 +69,12 @@ def test_projection_catalog_covers_authoritative_runtime_vocabularies():
         ("plan_task", TASK_STATUSES),
         ("feedback_loop", LOOP_TERMINAL_STATES),
         ("progress_task", PROGRESS_STATES),
+        ("engineering_gate", ENGINEERING_GATE_STATUSES),
+        ("remediation", REMEDIATION_STATUSES),
+        ("goal_planning", ("open", "active", "blocked", "complete", "abandoned")),
+        ("worktree", ("creating", "active", "creation_failed", "cleaned")),
+        ("capability", ("canary", "promotion_blocked", "promoted", "rolled_back")),
+        ("invention", ("candidate", "promoted", "blocked", "rejected")),
     )
     for domain, states in vocabularies:
         for state in states:
