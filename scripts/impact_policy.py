@@ -27,6 +27,8 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("portable/adaptive_trigger.py", ("tests.test_adaptive_trigger", "tests.test_remote_mcp_service"), True),
     ("portable/remote_mcp.py", ("tests.test_remote_mcp_service",), True),
     ("portable/remote_mcp_server.py", ("tests.test_remote_mcp_service",), True),
+    ("scripts/remote_mcp_acceptance.py", ("tests.test_remote_mcp_acceptance", "tests.test_remote_mcp_service", "tests.test_guarded_network"), True),
+    ("tests/test_remote_mcp_acceptance.py", ("tests.test_remote_mcp_acceptance",), True),
     ("portable/remote_model_providers.py", ("tests.test_remote_model_providers", "tests.test_hybrid_model_router", "tests.test_guarded_network"), True),
     ("portable/hybrid_model_router.py", ("tests.test_hybrid_model_router", "tests.test_remote_model_providers", "tests.test_execution_controller_guard_policy"), True),
     ("tests/test_remote_model_providers.py", ("tests.test_remote_model_providers",), True),
