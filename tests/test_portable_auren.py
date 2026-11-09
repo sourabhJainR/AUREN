@@ -40,6 +40,9 @@ class PortableAurenTests(unittest.TestCase):
         (root / "auren_env_compat.py").write_text(
             "def get_auren_env(suffix, default=None):\n    return default\n", encoding="utf-8"
         )
+        (root / "requirements-local-mcp.txt").write_text(
+            'uvicorn[standard]>=0.35,<1\n', encoding="utf-8"
+        )
 
     def test_build_rejects_symlinked_source_payload(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -93,12 +96,14 @@ class PortableAurenTests(unittest.TestCase):
             ):
                 self.assertNotIn(private_path, included)
             self.assertTrue(any(item["path"] == "auren_cli.py" for item in manifest["files"]))
+            self.assertIn("requirements-local-mcp.txt", included)
             self.assertIn(".ai-harness/learning/compiler_bootstrap_priors.jsonl", included)
             self.assertFalse(manifest["target_repository_mutation"])
             with zipfile.ZipFile(bundle) as archive:
                 self.assertIn("auren_cli.py", archive.namelist())
                 self.assertIn("payload/portable/auren_runtime.py", archive.namelist())
                 self.assertIn("payload/auren_env_compat.py", archive.namelist())
+                self.assertIn("payload/requirements-local-mcp.txt", archive.namelist())
 
     def test_verify_and_install_accept_github_artifact_wrapper(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
