@@ -83,7 +83,11 @@ class RemoteMCPNetworkAcceptanceTests(unittest.TestCase):
             stdout=subprocess.DEVNULL,
             stderr=self.stderr,
         )
-        self._wait_ready()
+        try:
+            self._wait_ready()
+        except BaseException:
+            self.tearDown()
+            raise
 
     def tearDown(self):
         process = getattr(self, "process", None)
