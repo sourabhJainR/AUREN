@@ -890,12 +890,16 @@ class AurenMCPService:
                 if event.payload.get("_auren_mcp_subject") == self._principal_key(principal)
                 or principal.allows(_SCOPE_ADMIN)
             ][:limit]
-            try:
-                progress = self.controller.progress_journal.list_snapshots(stale_after_seconds=120)
-                progress_status = "available"
-            except Exception as exc:
+            if principal.allows(_SCOPE_ADMIN):
+                try:
+                    progress = self.controller.progress_journal.list_snapshots(stale_after_seconds=120)
+                    progress_status = "available"
+                except Exception as exc:
+                    progress = []
+                    progress_status = "unavailable:" + type(exc).__name__
+            else:
                 progress = []
-                progress_status = "unavailable:" + type(exc).__name__
+                progress_status = "restricted_to_admin_scope"
             return {
                 "trigger_tasks": trigger_tasks,
                 "controller_tasks": _safe_value(progress[-limit:][::-1]),
@@ -909,6 +913,8 @@ class AurenMCPService:
             event = self._event_for_principal(task_id.strip(), principal)
             if event is not None:
                 return self._trigger_summary(event)
+            if not principal.allows(_SCOPE_ADMIN):
+                raise PermissionError("controller task is not visible to this principal")
             return self._task_summary(task_id.strip())
         if name == "auren.cancel_task":
             self._require(principal, _SCOPE_CANCEL)
@@ -941,6 +947,8 @@ class AurenMCPService:
                     "status": "cancellation_requested" if signalled else event.status,
                     "note": "the durable trigger remains nonterminal until the running supervisor records its outcome",
                 }
+            if not principal.allows(_SCOPE_ADMIN):
+                raise PermissionError("controller task is not visible to this principal")
             cancelled = self.controller.request_cancellation(task_id.strip(), reason=reason)
             task = self.controller.task(task_id.strip())
             return {"task_id": task_id, "cancellation_requested": cancelled,
@@ -966,6 +974,8 @@ class AurenMCPService:
                     "task_id": task_id, "trigger": self._trigger_summary(event),
                     "snapshot": _safe_value(snapshot), "events": _safe_value(events),
                 }
+            if not principal.allows(_SCOPE_ADMIN):
+                raise PermissionError("controller task evidence is not visible to this principal")
             try:
                 events = self.controller.progress_journal.events_for_task(task_id.strip(), limit=limit)
                 snapshot = self.controller.progress_journal.snapshot(task_id.strip())
@@ -1025,8 +1035,12 @@ class AurenMCPService:
             reason = arguments.get("reason")
             if not all(isinstance(x, str) and x.strip() for x in (task_id, clarification_id, reason)):
                 raise ValueError("task_id, clarification_id and reason are required")
+            event = self._event_for_principal(task_id.strip(), principal)
+            if event is None and not principal.allows(_SCOPE_ADMIN):
+                raise PermissionError("controller task is not visible to this principal")
+            controller_task_id = "llm-chat:" + event.event_id if event is not None else task_id.strip()
             resumed = self.controller.resume_blocked_provider_task(
-                task_id.strip(), clarification_id=clarification_id.strip(),
+                controller_task_id, clarification_id=clarification_id.strip(),
                 operator_id=principal.subject, operator_reason=reason.strip(),
             )
             return {"task_id": task_id, "reconciliation_resume_authorized": bool(resumed)}
