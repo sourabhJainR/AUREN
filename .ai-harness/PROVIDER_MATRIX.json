@@ -869,18 +869,18 @@
       "kind": "ide_mcp_host",
       "support": "partial",
       "mechanisms": [
-        "SSE and Streamable HTTP MCP",
-        "Local deployment"
+        "Local stdio MCP bridge",
+        "Remote Streamable HTTP MCP"
       ],
       "repository_artifacts": [
         "portable/remote_mcp.py",
         "docs/MCP_HOST_COMPATIBILITY.md"
       ],
-      "current_gap": "Validate the local deployment path; do not assume OpenHands Cloud supports user-configured MCP.",
+      "current_gap": "AUREN local stdio exposes the chat-trigger capability and requires a trusted runtime factory; the remote service supports stateless Streamable HTTP but not SSE. No OpenHands host version has passed live AUREN acceptance.",
       "next_steps": [
-        "Configure the deployed AUREN MCP endpoint using the current host documentation.",
-        "Verify OAuth, discovered tools, least-privilege approvals, task status and cancellation.",
-        "Record the exact host version and a sanitized acceptance receipt."
+        "Test the local stdio bridge against a pinned OpenHands release.",
+        "Add the full operator tool surface to local stdio if required by the host.",
+        "Keep remote HTTP support unverified until OAuth and task lifecycle acceptance pass."
       ],
       "live_verified": false
     },
@@ -1054,6 +1054,91 @@
       "next_steps": [
         "Confirm the installed CrewAI MCP client and transport support from its official docs.",
         "Add a version-pinned connection example and live acceptance before claiming support."
+      ],
+      "live_verified": false
+    },
+    "dify": {
+      "kind": "orchestration_framework",
+      "support": "not_wired",
+      "mechanisms": [
+        "No AUREN-specific version-pinned connector verified"
+      ],
+      "repository_artifacts": [
+        "docs/ORCHESTRATOR_INTEGRATIONS.md"
+      ],
+      "current_gap": "AUREN has not pinned and live-tested this framework's MCP client transport, OAuth behavior and task lifecycle against the remote operator service.",
+      "next_steps": [
+        "Confirm current official MCP client support and supported transport.",
+        "Add a version-pinned connection sample.",
+        "Run live OAuth, tool discovery, task status and approval-boundary acceptance."
+      ],
+      "live_verified": false
+    },
+    "flowise": {
+      "kind": "orchestration_framework",
+      "support": "not_wired",
+      "mechanisms": [
+        "No AUREN-specific version-pinned connector verified"
+      ],
+      "repository_artifacts": [
+        "docs/ORCHESTRATOR_INTEGRATIONS.md"
+      ],
+      "current_gap": "AUREN has not pinned and live-tested this framework's MCP client transport, OAuth behavior and task lifecycle against the remote operator service.",
+      "next_steps": [
+        "Confirm current official MCP client support and supported transport.",
+        "Add a version-pinned connection sample.",
+        "Run live OAuth, tool discovery, task status and approval-boundary acceptance."
+      ],
+      "live_verified": false
+    },
+    "semantic_kernel": {
+      "kind": "orchestration_framework",
+      "support": "not_wired",
+      "mechanisms": [
+        "No AUREN-specific version-pinned connector verified"
+      ],
+      "repository_artifacts": [
+        "docs/ORCHESTRATOR_INTEGRATIONS.md"
+      ],
+      "current_gap": "AUREN has not pinned and live-tested this framework's MCP client transport, OAuth behavior and task lifecycle against the remote operator service.",
+      "next_steps": [
+        "Confirm current official MCP client support and supported transport.",
+        "Add a version-pinned connection sample.",
+        "Run live OAuth, tool discovery, task status and approval-boundary acceptance."
+      ],
+      "live_verified": false
+    },
+    "haystack": {
+      "kind": "orchestration_framework",
+      "support": "not_wired",
+      "mechanisms": [
+        "No AUREN-specific version-pinned connector verified"
+      ],
+      "repository_artifacts": [
+        "docs/ORCHESTRATOR_INTEGRATIONS.md"
+      ],
+      "current_gap": "AUREN has not pinned and live-tested this framework's MCP client transport, OAuth behavior and task lifecycle against the remote operator service.",
+      "next_steps": [
+        "Confirm current official MCP client support and supported transport.",
+        "Add a version-pinned connection sample.",
+        "Run live OAuth, tool discovery, task status and approval-boundary acceptance."
+      ],
+      "live_verified": false
+    },
+    "openhands_remote": {
+      "kind": "orchestration_framework",
+      "support": "not_wired",
+      "mechanisms": [
+        "No AUREN-specific version-pinned connector verified"
+      ],
+      "repository_artifacts": [
+        "docs/ORCHESTRATOR_INTEGRATIONS.md"
+      ],
+      "current_gap": "AUREN has not pinned and live-tested this framework's MCP client transport, OAuth behavior and task lifecycle against the remote operator service.",
+      "next_steps": [
+        "Confirm current official MCP client support and supported transport.",
+        "Add a version-pinned connection sample.",
+        "Run live OAuth, tool discovery, task status and approval-boundary acceptance."
       ],
       "live_verified": false
     }
