@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from scripts import provider_conformance
+from portable.remote_model_providers import PROVIDER_SPECS
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,6 +47,20 @@ class ProviderConformanceTests(unittest.TestCase):
                 self.assertTrue(entry.get("mechanisms"))
                 self.assertTrue(entry.get("next_steps"))
                 self.assertFalse(entry.get("live_verified", False))
+
+    def test_direct_api_provider_catalog_matches_machine_readable_matrix(self):
+        matrix = json.loads(MATRIX.read_text(encoding="utf-8"))
+        integrations = matrix.get("platform_integrations", {})
+        for name, spec in PROVIDER_SPECS.items():
+            key = name + "_api"
+            with self.subTest(provider=name):
+                self.assertIn(key, integrations)
+                entry = integrations[key]
+                self.assertEqual("partial", entry["support"])
+                self.assertFalse(entry.get("live_verified", False))
+                self.assertIn("portable/remote_model_providers.py", entry["repository_artifacts"])
+                self.assertTrue(spec.endpoint.startswith("https://"))
+                self.assertEqual(spec.host, spec.endpoint.split("/")[2])
 
     def test_mcp_setup_docs_point_to_executable_stdio_server(self):
         usage = (ROOT / "docs" / "USAGE_AND_PLATFORM_INTEGRATION.md").read_text(encoding="utf-8")
