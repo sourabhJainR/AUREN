@@ -115,6 +115,10 @@ class RemoteMCPServiceTests(unittest.TestCase):
         self.assertEqual("accepted", first["status"])
         self.assertFalse(first["completion_verified"])
         self.assertEqual(2, enqueue.call_count)
+        summary = self.service.call_tool("auren.get_task", {"task_id": first["task_id"]}, self.principal)
+        self.assertEqual("ready", summary["lifecycle"]["category"])
+        self.assertEqual("pending", summary["lifecycle"]["source_state"])
+        self.assertEqual("unknown", summary["runtime_lifecycle"]["category"])
         event = self.runtime.trigger_runtime.get_event(first["task_id"])
         self.assertEqual(self.root.resolve(), Path(event.payload["project_root"]).resolve())
         self.assertEqual(self.service._principal_key(self.principal), event.payload["context"]["_auren_mcp_subject"])
@@ -246,6 +250,21 @@ class RemoteMCPServiceTests(unittest.TestCase):
         self.assertEqual("cancellation_requested", requested["status"])
         self.assertTrue(guard.cancellation_event.is_set())
         self.assertTrue(self.runtime.trigger_runtime.is_cancel_requested(active["task_id"]))
+
+
+
+    def test_admin_controller_task_summary_includes_authoritative_lifecycle(self):
+        self.service.controller.register_handler(
+            "mcp.lifecycle-test", _mcp_private_test_handler, execution_class="read_only",
+        )
+        task = self.service.controller.submit("mcp.lifecycle-test", {"safe": "fixture"})
+        summary = self.service.call_tool(
+            "auren.get_task", {"task_id": task.id}, self.principal,
+        )
+        self.assertEqual(task.state, summary["state"])
+        self.assertEqual("controller_task", summary["lifecycle"]["domain"])
+        self.assertEqual(task.state, summary["lifecycle"]["source_state"])
+        self.assertNotEqual("unknown", summary["lifecycle"]["category"])
 
     def test_non_admin_principal_cannot_read_or_mutate_internal_controller_tasks(self):
         self.service.controller.register_handler(
