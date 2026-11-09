@@ -79,6 +79,9 @@ class PlanTask:
     owner_role_id: str | None = None
     manager_role_id: str | None = None
     priority: str = "P2"
+    department: str = ""
+    remediation_steps: tuple[str, ...] = ()
+    gap_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _nonempty(self.task_id, "task_id")
@@ -91,6 +94,14 @@ class PlanTask:
             _nonempty(self.manager_role_id, "manager_role_id")
         object.__setattr__(self, "acceptance_criteria", tuple(self.acceptance_criteria))
         object.__setattr__(self, "depends_on", tuple(self.depends_on))
+        object.__setattr__(self, "remediation_steps", tuple(self.remediation_steps))
+        object.__setattr__(self, "gap_ids", tuple(self.gap_ids))
+        if self.department and not isinstance(self.department, str):
+            raise ValueError("department must be text")
+        if any(not isinstance(item, str) or not item.strip() for item in self.remediation_steps):
+            raise ValueError("remediation_steps must contain non-empty text")
+        if any(not isinstance(item, str) or not item.strip() for item in self.gap_ids):
+            raise ValueError("gap_ids must contain non-empty identifiers")
         if self.risk not in RISK_LEVELS:
             raise ValueError(f"risk must be one of {sorted(RISK_LEVELS)}")
         if self.priority not in PRIORITY_LEVELS:
@@ -116,6 +127,12 @@ class PlanTask:
         # Keep legacy plan digests stable when the default priority is used.
         if self.priority != "P2":
             result["priority"] = self.priority
+        if self.department:
+            result["department"] = self.department
+        if self.remediation_steps:
+            result["remediation_steps"] = list(self.remediation_steps)
+        if self.gap_ids:
+            result["gap_ids"] = list(self.gap_ids)
         return result
 
 
@@ -202,6 +219,9 @@ class EngineeringPlan:
                     owner_role_id=item.get("owner_role_id"),
                     manager_role_id=item.get("manager_role_id"),
                     priority=item.get("priority", "P2"),
+                    department=item.get("department", ""),
+                    remediation_steps=tuple(item.get("remediation_steps", ())),
+                    gap_ids=tuple(item.get("gap_ids", ())),
                 )
                 for item in payload["tasks"]
             )
