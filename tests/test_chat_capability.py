@@ -22,7 +22,7 @@ class ChatCapabilityTests(unittest.TestCase):
     def test_invoke_returns_durable_receipt_without_waiting_for_execution(self):
         with tempfile.TemporaryDirectory() as directory:
             scheduler = AutomationScheduler(Path(directory) / "runtime.sqlite")
-            runtime = AdaptiveRuntime(Graph([Node("chat-noop", NodeKind.DETERMINISTIC, lambda _state: "ok")]), automation_scheduler=scheduler)
+            runtime = AdaptiveRuntime(Graph([Node("chat-noop", NodeKind.DETERMINISTIC, lambda _state: "ok")]), automation_scheduler=scheduler, state_root=Path(directory) / "state")
             receipt = invoke(
                 runtime,
                 {
@@ -45,7 +45,7 @@ class ChatCapabilityTests(unittest.TestCase):
     def test_invoke_rejects_empty_runtime_graph(self):
         with tempfile.TemporaryDirectory() as directory:
             scheduler = AutomationScheduler(Path(directory) / "runtime.sqlite")
-            runtime = AdaptiveRuntime(Graph([]), automation_scheduler=scheduler)
+            runtime = AdaptiveRuntime(Graph([]), automation_scheduler=scheduler, state_root=Path(directory) / "state")
             with self.assertRaisesRegex(ValueError, "non-empty reviewed agent graph"):
                 invoke(runtime, {"task": "do not enqueue", "project_root": directory})
             scheduler.close()
@@ -63,6 +63,7 @@ class ChatCapabilityTests(unittest.TestCase):
             runtime = AdaptiveRuntime(
                 Graph([Node("chat-noop", NodeKind.DETERMINISTIC, lambda _state: "ok")]),
                 automation_scheduler=scheduler,
+                state_root=Path(directory) / "state",
             )
             with self.assertRaisesRegex(PermissionError, "server-configured workspace"):
                 invoke(
@@ -75,7 +76,7 @@ class ChatCapabilityTests(unittest.TestCase):
     def test_invalid_arguments_fail_closed(self):
         with tempfile.TemporaryDirectory() as directory:
             scheduler = AutomationScheduler(Path(directory) / "runtime.sqlite")
-            runtime = AdaptiveRuntime(Graph([Node("chat-noop", NodeKind.DETERMINISTIC, lambda _state: "ok")]), automation_scheduler=scheduler)
+            runtime = AdaptiveRuntime(Graph([Node("chat-noop", NodeKind.DETERMINISTIC, lambda _state: "ok")]), automation_scheduler=scheduler, state_root=Path(directory) / "state")
             with self.assertRaisesRegex(ValueError, "priority"):
                 invoke(runtime, {"task": "x", "project_root": directory, "priority": "urgent"})
             with self.assertRaisesRegex(ValueError, "max_attempts"):
