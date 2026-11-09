@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from portable.adaptive_runtime import AdaptiveRuntime
+from portable.adaptive_trigger import AdaptiveTrigger
 from portable.agent_capabilities import AutomationScheduler
 from portable.chat_capability import CAPABILITY_NAME, descriptor, invoke
 from portable.orchestration import Graph, Node, NodeKind
@@ -23,6 +24,7 @@ class ChatCapabilityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             scheduler = AutomationScheduler(Path(directory) / "runtime.sqlite")
             runtime = AdaptiveRuntime(Graph([Node("chat-noop", NodeKind.DETERMINISTIC, lambda _state: "ok")]), automation_scheduler=scheduler, state_root=Path(directory) / "state")
+            trigger = AdaptiveTrigger.for_runtime(runtime)
             receipt = invoke(
                 runtime,
                 {
@@ -40,6 +42,7 @@ class ChatCapabilityTests(unittest.TestCase):
             # The trigger worker may claim the durable event before this read; both
             # pending and claimed mean invoke returned before task completion.
             self.assertIn(status.status, {"pending", "claimed"})
+            trigger.close(wait_for_background=True)
             scheduler.close()
 
     def test_invoke_rejects_empty_runtime_graph(self):
