@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from threading import Thread
 
-from portable.dashboard_server import _Handler
+from portable.dashboard_server import _Handler, _progress_rows_with_lifecycle
 from portable.muxin_session_adapter import MuxinSessionAdapter, workspace_registry_reader
 from portable.session_state import SessionCheckpoint, SessionStore
 
@@ -491,3 +491,16 @@ def test_session_status_projection_marks_derived_state_source(tmp_path):
     assert row["status"] == "unverified"
     assert row["lifecycle"]["category"] == "unknown"
     assert row["status_source"] == "checkpoint_stage_error_and_heartbeat_projection"
+
+
+def test_legacy_progress_api_fallback_adds_read_only_lifecycle_without_mutating_source():
+    source = [{"task_id": "fallback-task", "state": "blocked", "stage": "approval"}]
+
+    projected = _progress_rows_with_lifecycle(source)
+
+    assert projected[0]["task_id"] == "fallback-task"
+    assert projected[0]["state"] == "blocked"
+    assert projected[0]["lifecycle"]["domain"] == "progress_task"
+    assert projected[0]["lifecycle"]["category"] == "blocked"
+    assert projected[0]["lifecycle"]["attention_required"] is True
+    assert "lifecycle" not in source[0]
