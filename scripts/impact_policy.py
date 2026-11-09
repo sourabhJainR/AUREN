@@ -69,6 +69,7 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("portable/automation_scheduler.py", ("tests.test_adaptive_trigger", "tests.test_trigger_runtime", "tests.test_durable_routines", "tests.test_adaptive_runtime_recovery_integration"), True),
     ("portable/recovery_decision_journal.py", ("tests.test_recovery_decision_journal", "tests.test_engineering_recovery", "tests.test_adaptive_runtime_recovery_integration"), True),
     ("tests/test_remote_mcp_service.py", ("tests.test_remote_mcp_service",), True),
+    ("tests/test_remote_mcp_network_acceptance.py", ("tests.test_remote_mcp_network_acceptance", "tests.test_remote_mcp_service"), True),
     ("tests/test_provider_conformance.py", ("tests.test_provider_conformance",), True),
     ("portable/engineering_design_guard.py", ("tests.test_engineering_design_guard", "tests.test_engineering_conflict_decisions", "tests.test_trusted_conflict_scope_composition"), False),
     ("tests/test_engineering_conflict_decisions.py", ("tests.test_engineering_conflict_decisions",), False),
