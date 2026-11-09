@@ -386,6 +386,16 @@ _DOMAIN_STATES: dict[str, dict[str, _Semantics]] = {
         "superseded": _s("rejected", "Superseded", terminal=True, resume="never", action="follow_superseding_learning_revision"),
         "rejected": _s("rejected", "Rejected", terminal=True, resume="never", action="retain_rejection_reason_and_evidence"),
     },
+    "workbench_run": {
+        "completed": _s("succeeded", "Completed", terminal=True, resume="never", action="retain_workbench_run_receipt"),
+        "failed": _s("failed", "Failed", terminal=True, attention=True, resume="never", action="inspect_packet_receipts_and_dependency_failures"),
+    },
+    "workbench_packet": {
+        "completed": _s("succeeded", "Completed", terminal=True, resume="never", action="retain_packet_receipt"),
+        "failed": _s("failed", "Failed", terminal=True, attention=True, resume="never", action="inspect_command_failure_before_new_packet"),
+        "timeout": _s("failed", "Timed out", terminal=True, attention=True, resume="never", action="inspect_timeout_and_recovery_evidence"),
+        "blocked": _s("blocked", "Blocked", terminal=True, attention=True, resume="never", action="resolve_dependency_failure_before_replanning"),
+    },
     "legacy_task": {
         "pending": _s("not_started", "Pending", action="check_dependencies_before_dispatch"),
         "in-progress": _s("active", "In progress", action="monitor_task_progress"),
