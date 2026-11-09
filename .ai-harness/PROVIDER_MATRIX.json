@@ -300,18 +300,21 @@
       "live_verified": false
     },
     "visual_studio_ide": {
-      "kind": "ide_host",
-      "support": "not_native",
+      "kind": "ide_mcp_host",
+      "support": "partial",
       "mechanisms": [
-        "external terminal / CLI only"
+        "GitHub Copilot MCP support in Visual Studio",
+        "AUREN remote Streamable HTTP MCP"
       ],
       "repository_artifacts": [
-        "AGENTS.md"
+        "portable/remote_mcp.py",
+        "docs/MCP_HOST_COMPATIBILITY.md"
       ],
-      "current_gap": "Do not conflate Microsoft Visual Studio with Visual Studio Code. AUREN has no dedicated Visual Studio extension or integration.",
+      "current_gap": "Visual Studio can host MCP through GitHub Copilot, but AUREN has no dedicated Visual Studio extension and no live Visual Studio connection/authentication test.",
       "next_steps": [
-        "Use Claude Code in VS Code if that is the intended IDE.",
-        "For Microsoft Visual Studio, invoke a supported CLI or remote MCP host separately and retain AUREN as the authority boundary."
+        "Connect the deployed AUREN endpoint using the Visual Studio Copilot MCP configuration supported by the installed version.",
+        "Verify OAuth sign-in, tool visibility, tool approvals and cancellation in a disposable repository.",
+        "Keep Visual Studio distinct from the Claude Code VS Code extension."
       ],
       "live_verified": false
     },
@@ -682,6 +685,121 @@
         "Select the provider and failover order with AUREN_REMOTE_PROVIDER_ORDER.",
         "Run the read-only live provider conformance probe with deployment-owned credentials.",
         "Measure cost, latency, output quality, rate limits and outage behavior before enabling production routing."
+      ],
+      "live_verified": false
+    },
+    "cline_ide": {
+      "kind": "ide_mcp_host",
+      "support": "partial",
+      "mechanisms": [
+        "Remote Streamable HTTP MCP",
+        "OAuth and per-tool approval"
+      ],
+      "repository_artifacts": [
+        "portable/remote_mcp.py",
+        "docs/MCP_HOST_COMPATIBILITY.md"
+      ],
+      "current_gap": "No AUREN live host acceptance; verify the installed Cline version's OAuth and tool approval behavior.",
+      "next_steps": [
+        "Configure the deployed AUREN MCP endpoint using the current host documentation.",
+        "Verify OAuth, discovered tools, least-privilege approvals, task status and cancellation.",
+        "Record the exact host version and a sanitized acceptance receipt."
+      ],
+      "live_verified": false
+    },
+    "roo_code_ide": {
+      "kind": "ide_mcp_host",
+      "support": "partial",
+      "mechanisms": [
+        "Remote Streamable HTTP MCP",
+        "Project/global MCP configuration"
+      ],
+      "repository_artifacts": [
+        "portable/remote_mcp.py",
+        "docs/MCP_HOST_COMPATIBILITY.md"
+      ],
+      "current_gap": "No AUREN live host acceptance; verify OAuth and tool permissions in the selected workspace.",
+      "next_steps": [
+        "Configure the deployed AUREN MCP endpoint using the current host documentation.",
+        "Verify OAuth, discovered tools, least-privilege approvals, task status and cancellation.",
+        "Record the exact host version and a sanitized acceptance receipt."
+      ],
+      "live_verified": false
+    },
+    "continue_ide": {
+      "kind": "ide_mcp_host",
+      "support": "partial",
+      "mechanisms": [
+        "MCP in Agent mode",
+        "Remote Streamable HTTP MCP"
+      ],
+      "repository_artifacts": [
+        "portable/remote_mcp.py",
+        "docs/MCP_HOST_COMPATIBILITY.md"
+      ],
+      "current_gap": "MCP is available in Agent mode; AUREN OAuth and host-specific setup have not been tested.",
+      "next_steps": [
+        "Configure the deployed AUREN MCP endpoint using the current host documentation.",
+        "Verify OAuth, discovered tools, least-privilege approvals, task status and cancellation.",
+        "Record the exact host version and a sanitized acceptance receipt."
+      ],
+      "live_verified": false
+    },
+    "zed_ide": {
+      "kind": "ide_mcp_host",
+      "support": "partial",
+      "mechanisms": [
+        "Remote MCP servers",
+        "OAuth",
+        "ACP external agents"
+      ],
+      "repository_artifacts": [
+        "portable/remote_mcp.py",
+        "docs/MCP_HOST_COMPATIBILITY.md"
+      ],
+      "current_gap": "Zed Agent can use configured MCP; external agents own their own auth and configuration. No AUREN live acceptance.",
+      "next_steps": [
+        "Configure the deployed AUREN MCP endpoint using the current host documentation.",
+        "Verify OAuth, discovered tools, least-privilege approvals, task status and cancellation.",
+        "Record the exact host version and a sanitized acceptance receipt."
+      ],
+      "live_verified": false
+    },
+    "openhands_local": {
+      "kind": "ide_mcp_host",
+      "support": "partial",
+      "mechanisms": [
+        "SSE and Streamable HTTP MCP",
+        "Local deployment"
+      ],
+      "repository_artifacts": [
+        "portable/remote_mcp.py",
+        "docs/MCP_HOST_COMPATIBILITY.md"
+      ],
+      "current_gap": "Validate the local deployment path; do not assume OpenHands Cloud supports user-configured MCP.",
+      "next_steps": [
+        "Configure the deployed AUREN MCP endpoint using the current host documentation.",
+        "Verify OAuth, discovered tools, least-privilege approvals, task status and cancellation.",
+        "Record the exact host version and a sanitized acceptance receipt."
+      ],
+      "live_verified": false
+    },
+    "windsurf_devin_local": {
+      "kind": "ide_mcp_host",
+      "support": "partial",
+      "mechanisms": [
+        "MCP configuration",
+        "Local/remote agent host"
+      ],
+      "repository_artifacts": [
+        "portable/remote_mcp.py",
+        "docs/MCP_HOST_COMPATIBILITY.md"
+      ],
+      "current_gap": "Product naming and configuration changed across Cascade/Devin Local. Confirm the current client path and run AUREN OAuth acceptance before claiming support.",
+      "next_steps": [
+        "Configure the deployed AUREN MCP endpoint using the current host documentation.",
+        "Verify OAuth, discovered tools, least-privilege approvals, task status and cancellation.",
+        "Record the exact host version and a sanitized acceptance receipt."
       ],
       "live_verified": false
     }
