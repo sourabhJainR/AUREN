@@ -7,7 +7,8 @@
     "Every accepted campaign must bind exact runtime, evaluator, corpus, oracle, configuration, run nonce, outcomes, and timestamped signed receipt.",
     "Negative results and source-domain regressions must be retained; successful promotion requires fresh independent holdout retesting.",
     "No aggregate superintelligence score or AGI/SI label is defined by this matrix.",
-    "Every track must distinguish implementation status, repository-CI status, deployment verification, and independent external evaluation. Internal CI does not count as deployment or independent verification."
+    "Every track must distinguish implementation status, repository-CI status, deployment verification, and independent external evaluation. Internal CI does not count as deployment or independent verification.",
+    "Vendor identity/gateway announcements and published agent benchmark scores are comparison signals only; they do not establish AUREN deployment enforcement, independent evaluation, or capability."
   ],
   "required_ci": [
     "Architecture Integrity",
@@ -155,18 +156,23 @@
         "bounded retry count",
         "dependency blockage isolation",
         "time/resource budget adherence",
-        "rollback success"
+        "rollback success",
+        "rubric-weighted completion across long trajectories",
+        "trajectory efficiency (verified progress per action)",
+        "false-green and false-negative rate",
+        "hidden side effects and evidence-fabrication rate",
+        "missed/false event-trigger rate"
       ],
       "test_protocol": {
         "status": "partial",
         "command": "python -m unittest tests.test_adaptive_runtime_recovery_integration tests.test_engineering_plan_recovery tests.test_execution_controller_cancellation tests.test_execution_controller_promotion_gate tests.test_consequential_run_once_recovery tests.test_decision_gate -v",
-        "additional_required": "Internal tests cover selected process-death, cross-store reconciliation, duplicate-dispatch, cancellation and subprocess-deadline boundaries. Still required: operator-controlled multi-hour/day runs, provider-specific authoritative lookup/idempotency proof, independent completion oracle, and rollback rehearsal."
+        "additional_required": "Internal tests cover selected process-death, cross-store reconciliation, duplicate-dispatch, cancellation and subprocess-deadline boundaries. Still required: operator-controlled multi-hour/day runs, provider-specific authoritative lookup/idempotency proof, independent completion oracle, and rollback rehearsal. Add an independent long-horizon web/GUI/CLI/code campaign using rubric-based grading, instruction-swapped negatives, intermediate-state checks, event-monitoring timelines and trajectory-efficiency scoring; Odysseys, WeaveBench, AgentHorizon and SentinelBench are benchmark references, not AUREN baselines."
       },
       "baseline": {
         "status": "internal_regression_only",
-        "source": "Repository regression evidence on baseline main 7d88fa277d996f977a9cdff4e36308010c1e9f09 includes selected shared runtime/learning/delivery split-write and no-replay tests (PRs #1034, #1037, #1042); no independent multi-hour/day completion baseline is retained."
+        "source": "Repository regression evidence on baseline main 7d88fa277d996f977a9cdff4e36308010c1e9f09 includes selected shared runtime/learning/delivery split-write and no-replay tests (PRs #1034, #1037, #1042); no independent multi-hour/day completion baseline is retained. Odysseys (200 web tasks; reported 44.5% best success and 1.15% trajectory efficiency), WeaveBench (114 hybrid tasks; reported 41.2% best pass) and AgentHorizon (1,373 trajectories; reported 80.9% best judge balanced accuracy on its AH subset) are external benchmark references only; none is an AUREN baseline."
       },
-      "held_out_plan": "Use a separate operator to issue unseen task graphs, kill/restart processes at randomized checkpoints, and retain signed completion evidence.",
+      "held_out_plan": "Use a separate operator to issue unseen task graphs, kill/restart processes at randomized checkpoints, and retain signed completion evidence. Include multi-site web and hybrid GUI/CLI/code trajectories, instruction-swapped near misses, hidden intermediate constraints and event-timed changes; keep trajectory judge and oracle separate from candidate workers.",
       "threat_model": [
         "runaway loops",
         "stale tasks",
@@ -193,7 +199,7 @@
         "repository_ci": "CI-verified for selected recovery and side-effect contracts only; long-duration benchmark not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "4d3634165977df86fdc2454cd064f0bd970725e7"
+        "reviewed_main_sha": "93f40ae42d691801de9b000b21fec42b888ede6c"
       }
     },
     {
@@ -395,18 +401,24 @@
         "coordination overhead",
         "unauthorized action rate",
         "retry recovery",
-        "review defect detection"
+        "review defect detection",
+        "principal-to-action attribution coverage",
+        "scope-attenuation correctness",
+        "revocation latency",
+        "stale-policy and token replay rejection",
+        "action-trace completeness",
+        "cross-agent delegation conflict rate"
       ],
       "test_protocol": {
         "status": "partial",
         "command": "python -m unittest tests.test_execution_controller_promotion_gate tests.test_graph_agent_evidence_decision tests.test_decision_gate -v",
-        "additional_required": "Internal regression tests cover dependency-aware execution, stale/overlapping adoption, verifier self-approval rejection, shared durable identity, and selected cross-store recovery. Independently scored multi-agent success, coordination cost, and conflict-rate baselines remain missing."
+        "additional_required": "Internal regression tests cover dependency-aware execution, stale/overlapping adoption, verifier self-approval rejection, shared durable identity, and selected cross-store recovery. Independently scored multi-agent success, coordination cost, and conflict-rate baselines remain missing. Add operator-controlled delegated/autonomous identity and policy-ceiling scenarios: forged/expired/revoked principals, delegation widening, stale policy, approval revocation during execution, agent-to-agent scope transfer and unknown provider outcomes. Snowflake agent identity/Cortex AI Gateway are comparison signals only; no vendor dependency is required."
       },
       "baseline": {
         "status": "internal_regression_only",
         "source": "Graph/decision gate and shared runtime/learning/delivery regressions are CI-verified on baseline main 7d88fa277d996f977a9cdff4e36308010c1e9f09; PRs #1008–#1037 cover selected dependency, adoption, verification, and split-write cases. No independently scored multi-crew benchmark is retained."
       },
-      "held_out_plan": "Separate tool server from candidate; hide acceptance oracle; independently score handoffs, denied actions, and recovery.",
+      "held_out_plan": "Separate tool server from candidate; hide acceptance oracle; independently score handoffs, denied actions, and recovery. The identity administrator and audit oracle must be separate from the agent implementer; keep identity/permission cases hidden and retain host-attributed action receipts.",
       "threat_model": [
         "tool injection",
         "credential overreach",
@@ -421,7 +433,7 @@
         "Agent Capability Runtime",
         "Production AI Harness Hardening"
       ],
-      "promotion_criteria": "Require bounded adapters, least privilege, independent QA, exact-head checks, trusted evidence, and tested rollback.",
+      "promotion_criteria": "Require bounded adapters, least privilege, independent QA, exact-head checks, trusted evidence, and tested rollback. Require authenticated principal/delegator/scope/policy binding before dispatch, denial-before-action, tested revocation and independent host/action audit; do not infer enforcement from a vendor announcement.",
       "external_dependencies": [
         "approved tool sandbox",
         "independent QA/evaluator",
@@ -432,7 +444,7 @@
         "repository_ci": "CI-verified for graph/runtime contracts only; independent multi-crew benchmark not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "4d3634165977df86fdc2454cd064f0bd970725e7"
+        "reviewed_main_sha": "93f40ae42d691801de9b000b21fec42b888ede6c"
       }
     },
     {
@@ -522,12 +534,16 @@
         "repeat-run determinism",
         "uncertainty intervals",
         "resource cost",
-        "rollback success"
+        "rollback success",
+        "trajectory-level false acceptance and rejection",
+        "judge-human agreement",
+        "action-trace completeness",
+        "principal-to-action attribution coverage"
       ],
       "test_protocol": {
         "status": "protocol_and_ci_present",
         "command": "python -m unittest tests.test_sealed_arena_custody tests.test_sealed_cross_domain_attestation tests.test_external_evaluation_campaign tests.test_external_evaluator_gateway -v",
-        "additional_required": "An independent operator must run the campaign and retain signed artifacts outside the evaluated trust domain."
+        "additional_required": "An independent operator must run the campaign and retain signed artifacts outside the evaluated trust domain. External campaigns should use rubric-based trajectory grading and independently administered identity/action logs; no candidate worker or judge may hold the corpus, oracle, signing key or promotion authority."
       },
       "baseline": {
         "status": "internal_regression_only",
@@ -563,7 +579,78 @@
         "repository_ci": "CI-verified for custody/evaluator protocol only; independent campaign not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "4d3634165977df86fdc2454cd064f0bd970725e7"
+        "reviewed_main_sha": "93f40ae42d691801de9b000b21fec42b888ede6c"
+      }
+    },
+    {
+      "id": "agent_identity_action_governance",
+      "name": "Agent identity, delegation, and action governance",
+      "owner": "ExecutionController, organization Guard, ActionGovernance, ExecutionBoundary, provider/MCP adapters + independent identity auditor",
+      "status": "partial_runtime_only_external_suite_required",
+      "dependencies": [
+        "#1055",
+        "#909",
+        "#1193",
+        "#404",
+        "#1038"
+      ],
+      "trusted_data_source": "Operator-controlled delegated and autonomous agent identities, versioned permission policies, host-attributed action logs, provider receipts, and hidden negative cases",
+      "runtime_identity": "Exact AUREN main SHA, task/work key, TaskPlan and intent digests, role/delegator/principal identity, scope and policy digests, host identity, approval, provider operation ID, and cancellation/deadline context",
+      "evaluator_identity": "Separate identity administrator, host auditor, and independent action oracle; none may be the worker, implementer, approver or candidate verifier",
+      "metrics": [
+        "denial-before-side-effect rate",
+        "principal-to-action attribution coverage",
+        "scope-attenuation correctness",
+        "stale-policy and token replay rejection",
+        "revocation latency",
+        "self-approval rejection",
+        "action-trace completeness",
+        "unknown-outcome reconciliation",
+        "false approval rate",
+        "cost and latency"
+      ],
+      "test_protocol": {
+        "status": "partial",
+        "command": "python -m unittest tests.test_execution_boundary tests.test_trusted_plan_approval_preflight tests.test_graph_worker_lifecycle tests.test_provider_conformance -v",
+        "additional_required": "Repository tests cover selected role/scope preflight, stale-plan, self-approval and provider-replay contracts. Still required: operator-controlled identity-provider and host enforcement, delegated and autonomous principals, scope ceilings, mid-flight revocation, agent-to-agent delegation, policy drift, external audit and real provider unknown-outcome receipts."
+      },
+      "baseline": {
+        "status": "internal_regression_only",
+        "source": "Current-main repository CI on 93f40ae42d691801de9b000b21fec42b888ede6c covers selected denial-before-dispatch, trusted-plan approval preflight, graph self-approval and provider operation contracts. No independent identity/action governance baseline is retained."
+      },
+      "held_out_plan": "An independent operator holds identity, policy and negative-case fixtures. Run forged, expired, revoked, replayed and scope-widened identities across fresh processes and provider uncertainty; retain signed host-attributed action receipts outside the candidate trust domain.",
+      "threat_model": [
+        "principal spoofing",
+        "delegation widening",
+        "stale policy and token replay",
+        "approval revocation race",
+        "agent-to-agent privilege transfer",
+        "worker/verifier collusion",
+        "audit suppression",
+        "unknown provider outcome",
+        "duplicate consequential dispatch"
+      ],
+      "exact_head_ci": [
+        "Architecture Integrity",
+        "AI Harness Check",
+        "Agent Capability Runtime",
+        "Runtime Resilience Matrix",
+        "Production AI Harness Hardening"
+      ],
+      "promotion_criteria": "No deployment or capability promotion until identity and policy are bound before dispatch, denial/revocation behavior is measured, host enforcement is independently audited, action traces are complete, exact-head CI passes, and rollback is demonstrated by the operator.",
+      "external_dependencies": [
+        "operator-managed identity provider",
+        "independent host administrator",
+        "separate identity/action auditor",
+        "provider-native idempotency and lookup evidence",
+        "out-of-band signing and revocation keys"
+      ],
+      "evidence_status": {
+        "implementation": "partial",
+        "repository_ci": "CI-verified for selected role/scope, approval-preflight and action-boundary regressions only; no independent identity benchmark run",
+        "deployment": "not verified",
+        "independent_evaluation": "not verified; external gate blocked",
+        "reviewed_main_sha": "93f40ae42d691801de9b000b21fec42b888ede6c"
       }
     }
   ],
