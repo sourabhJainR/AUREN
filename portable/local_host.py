@@ -328,12 +328,12 @@ def serve_local(
         ):
             detail = f": {failures[0][1]}" if failures else ""
             raise RuntimeError("local dashboard and MCP endpoints did not both become ready within 15 seconds" + detail)
-        print("AUREN local services are ready.", flush=True)
         print(f"Observation console: {dashboard_url}", flush=True)
-        print(f"Console health: http://127.0.0.1:{dashboard.server_address[1]}/api/health", flush=True)
+        print(f"Console health: {dashboard_health_url}", flush=True)
         print(f"MCP endpoint: {mcp_url}", flush=True)
         print(f"MCP credential file: {credential_path}", flush=True)
         print("MCP clients without HTTP bearer-header support: use the AUREN stdio proxy.", flush=True)
+        print("AUREN local services are ready.", flush=True)
         print("Keep this process running. Press Ctrl+C to stop both services.", flush=True)
 
         while not stop.wait(0.25):
