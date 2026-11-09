@@ -159,12 +159,15 @@ class RemoteMCPNetworkAcceptanceTests(unittest.TestCase):
         metadata = json.loads(body)
         self.assertEqual("https://mcp.example.test/mcp", metadata["resource"])
 
-        with self.assertRaises(urllib.error.HTTPError) as unauthorized:
-            self._request("/mcp", body={
-                "jsonrpc": "2.0", "id": "unauthorized", "method": "tools/list", "params": {},
-            })
-        self.assertEqual(401, unauthorized.exception.code)
-        self.assertIn("WWW-Authenticate", unauthorized.exception.headers)
+        status, _, body = self._request("/mcp", body={
+            "jsonrpc": "2.0", "id": "unauthorized", "method": "tools/call",
+            "params": {"name": "auren.service_status", "arguments": {}},
+        })
+        self.assertEqual(200, status)
+        unauthorized = json.loads(body)["result"]
+        self.assertTrue(unauthorized["isError"])
+        challenge = unauthorized["_meta"]["mcp/www_authenticate"][0]
+        self.assertIn("resource_metadata=", challenge)
 
         status, headers, body = self._request("/mcp", token=self.token, body={
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
