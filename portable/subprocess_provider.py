@@ -315,6 +315,8 @@ class SubprocessProviderInvoker:
             )
             if not extension_decision["allowed"]:
                 raise ExtensionInvocationDenied(";".join(extension_decision["reasons"]))
+            if self.max_memory_bytes is None:
+                raise ExtensionInvocationDenied("extension_resource_memory_limit_required")
         if not isinstance(prompt, str):
             raise TypeError("provider prompt must be text")
         if cancel_event is not None and not isinstance(cancel_event, threading.Event):
