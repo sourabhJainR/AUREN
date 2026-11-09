@@ -716,7 +716,13 @@ class AurenMCPService:
                     "destructiveHint": consequential,
                     "openWorldHint": consequential,
                 },
-                "_meta": {"securitySchemes": [{"type": "oauth2", "scopes": [scope]}]},
+                "_meta": {
+                    "securitySchemes": (
+                        [{"type": "oauth2", "scopes": [scope]}]
+                        if self.authorization_server_url
+                        else [{"type": "http", "scheme": "bearer"}]
+                    ),
+                },
             }
             if name == "auren.get_profile":
                 tool["outputSchema"] = {
