@@ -171,13 +171,6 @@ def resolve_runtime_factory(project_root: Path | str, requested: str | None = No
     )
 
 
-class _NoRedirect(HTTPRedirectHandler):
-    """Reject redirects from local readiness probes; never follow a local response elsewhere."""
-
-    def redirect_request(self, request, fp, code, message, headers, new_url):
-        return None
-
-
 def _bound_loopback_socket(port: int) -> socket.socket:
     if type(port) is not int or not 0 <= port <= 65535:
         raise ValueError("port must be between 0 and 65535; use 0 for automatic selection")
