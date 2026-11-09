@@ -240,6 +240,20 @@ class LocalMCPStdioProxyTests(unittest.TestCase):
             with self.subTest(url=url), self.assertRaises(ValueError):
                 validate_local_url(url)
 
+    def test_stdio_proxy_stops_after_an_oversized_frame(self):
+        source = io.BytesIO((b"x" * (64 * 1024 + 1)) + b"\\n" + b'{"jsonrpc":"2.0","id":9,"method":"ping"}\\n')
+        target = io.BytesIO()
+        with patch("portable.mcp_stdio_proxy.post_message") as post:
+            result = run_proxy(
+                "http://127.0.0.1:43127/mcp", self.token_path,
+                stdin=source, stdout=target, stderr=io.StringIO(),
+            )
+        self.assertEqual(0, result)
+        post.assert_not_called()
+        frames = target.getvalue().decode("utf-8").splitlines()
+        self.assertEqual(1, len(frames))
+        self.assertIn("exceeds the configured byte limit", json.loads(frames[0])["error"]["message"])
+
     def test_stdio_proxy_preserves_auth_and_negotiated_protocol_version(self):
         seen = []
 
