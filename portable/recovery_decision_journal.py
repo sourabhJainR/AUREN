@@ -9,6 +9,7 @@ import hashlib
 import json
 import re
 import sqlite3
+from contextlib import closing
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -52,7 +53,7 @@ class RecoveryDecisionJournal:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path).expanduser().resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("""
                 CREATE TABLE IF NOT EXISTS recovery_decisions (
                     work_id TEXT NOT NULL,
@@ -140,7 +141,7 @@ class RecoveryDecisionJournal:
         strategy_id: str | None, failure_class: str, attempts_remaining: int,
         checkpoint_digest: str, side_effect_state: str, reason_code: str,
     ) -> RecoveryDecisionReceipt:
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             return self.record_in_transaction(
                 db, work_id=work_id, phase=phase, attempt_number=attempt_number, action=action,
@@ -154,7 +155,7 @@ class RecoveryDecisionJournal:
         source = Path(source_path).expanduser().resolve()
         if not source.is_file() or source == self.path:
             return 0
-        with sqlite3.connect(source, timeout=10) as source_db:
+        with closing(sqlite3.connect(source, timeout=10)) as source_db, source_db:
             source_db.row_factory = sqlite3.Row
             rows = source_db.execute(
                 "SELECT decision_json,decision_digest,created_at FROM recovery_decisions ORDER BY work_id,phase,attempt_number"
@@ -167,7 +168,7 @@ class RecoveryDecisionJournal:
             expected = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
             if canonical != row["decision_json"] or expected != row["decision_digest"]:
                 raise ValueError("legacy recovery receipt failed digest validation")
-            with self._connect() as db:
+            with closing(self._connect()) as db, db:
                 db.execute("BEGIN IMMEDIATE")
                 existing = db.execute(
                     "SELECT decision_json,decision_digest FROM recovery_decisions WHERE work_id=? AND phase=? AND attempt_number=?",
@@ -189,7 +190,7 @@ class RecoveryDecisionJournal:
         _token(phase, "phase")
         if type(attempt_number) is not int or attempt_number < 1:
             raise ValueError("attempt_number must be a positive integer")
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             row = db.execute(
                 "SELECT decision_json, decision_digest, created_at FROM recovery_decisions "
                 "WHERE work_id=? AND phase=? AND attempt_number=?",
@@ -309,7 +310,7 @@ class RecoveryDecisionJournal:
     def list_for_work(self, work_id: str, phase: str) -> tuple[RecoveryDecisionReceipt, ...]:
         _token(work_id, "work_id")
         _token(phase, "phase")
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             rows = db.execute(
                 "SELECT decision_json, decision_digest, created_at FROM recovery_decisions "
                 "WHERE work_id=? AND phase=? ORDER BY attempt_number",
