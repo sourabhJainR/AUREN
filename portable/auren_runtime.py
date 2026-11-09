@@ -348,7 +348,7 @@ def _manifest_record_path(root: Path, record_path: str) -> Path:
     relative = PurePosixPath(record_path)
     if record_path == LAUNCHER_PATH:
         return root / LAUNCHER_PATH
-    if record_path == "auren_env_compat.py":
+    if record_path in {"auren_env_compat.py", "requirements-local-mcp.txt"}:
         return root / PAYLOAD_ROOT / record_path
     if not any(record_path == prefix or record_path.startswith(f"{prefix}/") for prefix in REQUIRED_PATHS):
         raise SystemExit(f"unexpected manifest path: {record_path}")
