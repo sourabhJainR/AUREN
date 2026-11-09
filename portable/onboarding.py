@@ -12,6 +12,8 @@ import shutil
 import subprocess
 import sys
 import time
+import stat
+from urllib.parse import urlsplit
 from pathlib import Path
 from typing import Any
 
@@ -187,8 +189,13 @@ def discover_clients(home: Path | None = None) -> list[dict[str, str]]:
     ]
     found: list[dict[str, str]] = []
     seen: set[str] = set()
+    executable_by_name = {
+        "Claude Code": "claude", "Gemini CLI": "gemini",
+        "Cursor": "cursor", "VS Code": "code", "VS Code Insiders": "code-insiders",
+    }
     for name, path, key in candidates:
-        if path.exists() and str(path) not in seen:
+        executable = executable_by_name.get(name)
+        if (path.exists() or (executable and shutil.which(executable))) and str(path) not in seen:
             seen.add(str(path))
             found.append({"name": name, "path": str(path), "key": key})
     return found
@@ -212,13 +219,16 @@ def _atomic_config_write(path: Path, content: bytes) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.is_symlink():
         raise OnboardingError(f"refusing to write through client configuration symlink: {path}")
+    for parent in (path.parent, *path.parent.parents):
+        if parent.is_symlink():
+            raise OnboardingError(f"refusing to write through symlinked client configuration directory: {parent}")
     backup = path.with_name(path.name + f".auren-backup-{time.time_ns()}")
     if path.exists():
         if not path.is_file():
             raise OnboardingError(f"client configuration is not a regular file: {path}")
         shutil.copy2(path, backup)
-    temporary = path.with_name(path.name + ".auren-tmp")
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    temporary = path.with_name(path.name + f".auren-tmp-{time.time_ns()}")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
     descriptor = os.open(temporary, flags, 0o600)
@@ -244,11 +254,18 @@ def configure_clients(
     clients: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Preview or apply only the AUREN MCP server entry in supported JSON hosts."""
-    if not mcp_url.startswith("http://127.0.0.1:") or not mcp_url.endswith("/mcp"):
-        raise OnboardingError("local MCP URL must be an explicit 127.0.0.1 HTTP endpoint ending in /mcp")
+    parsed_url = urlsplit(mcp_url)
+    if (
+        parsed_url.scheme != "http" or parsed_url.hostname != "127.0.0.1"
+        or parsed_url.port is None or parsed_url.path != "/mcp"
+        or parsed_url.username or parsed_url.password or parsed_url.query or parsed_url.fragment
+    ):
+        raise OnboardingError("local MCP URL must be an explicit http://127.0.0.1:<port>/mcp endpoint")
     token = Path(token_file).expanduser()
     if token.is_symlink() or not token.is_file():
         raise OnboardingError("local MCP credential is not present; start AUREN local services first")
+    if os.name != "nt" and stat.S_IMODE(token.stat().st_mode) & 0o077:
+        raise OnboardingError("local MCP credential permissions must be owner-only (0600)")
     proxy = shutil.which("auren")
     if proxy:
         command = proxy
