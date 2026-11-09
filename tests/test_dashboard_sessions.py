@@ -274,6 +274,25 @@ class WorkspaceInventoryTests(unittest.TestCase):
         self.assertNotIn("provider_token", serialized)
         self.assertNotIn("must-not-appear", serialized)
 
+    def test_workspace_inventory_projects_adoption_and_shutdown_states(self):
+        states = (
+            ("adopting", "recovering", False),
+            ("adopted", "succeeded", True),
+            ("cleaned", "succeeded", True),
+            ("stopped", "cancelled", True),
+            ("cancel_requested", "waiting", False),
+        )
+        rows = [
+            {"workspace_id": "workspace-" + state, "worker_id": "worker-" + state, "status": state}
+            for state, _, _ in states
+        ]
+        inventory = self.adapter(lambda: rows).session_snapshot()["workspaces"]
+        projected = {row["status"]: row["lifecycle"] for row in inventory["records"]}
+        for state, category, terminal in states:
+            self.assertEqual(projected[state]["category"], category)
+            self.assertEqual(projected[state]["terminal"], terminal)
+
+
     def test_workspace_inventory_missing_or_failed_reader_is_not_reported_as_empty(self):
         unconfigured = self.adapter().session_snapshot()["workspaces"]
         self.assertEqual(unconfigured["status"], "not_configured")
