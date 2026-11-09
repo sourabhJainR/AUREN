@@ -80,6 +80,14 @@ class RemoteMCPServiceTests(unittest.TestCase):
         )
         return TriggerReceipt(event.event_id, event.status, event.created_at)
 
+    def test_service_close_is_idempotent_and_releases_runtime_references(self):
+        self.service.close()
+        self.assertIsNone(self.service.runtime)
+        self.assertIsNone(self.service.controller)
+        self.assertIsNone(self.service.trigger_runtime)
+        self.assertIsNone(self.service.trigger)
+        self.service.close()
+
     def test_operator_tool_catalog_is_scope_filtered(self):
         read_only = MCPPrincipal("reader", frozenset({"auren:tasks:read"}), projects=(str(self.root),))
         names = {tool["name"] for tool in self.service.list_tools(read_only)}
