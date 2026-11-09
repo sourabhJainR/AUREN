@@ -576,7 +576,15 @@ class _Handler(BaseHTTPRequestHandler):
                 timeout_seconds=min(120.0, max(0.1, float(payload.get("timeout_seconds", 30.0)))),
                 provider_order=provider_order,
             )
-            result = HybridModelRouter().route(request)
+            router = HybridModelRouter()
+            if provider_order is not None:
+                configured = {
+                    item.spec.name for item in getattr(router.remote_executor, "providers", ())
+                }
+                unavailable = [name for name in provider_order if name not in configured]
+                if unavailable:
+                    raise ValueError("requested provider is not configured: " + ", ".join(unavailable))
+            result = router.route(request)
             response_payload = {
                 "provider": result.provider, "model": result.model, "success": result.success,
                 "attempts": result.attempts, "latency_ms": result.latency_ms,
