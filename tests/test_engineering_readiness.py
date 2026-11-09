@@ -143,7 +143,8 @@ class EngineeringReadinessTests(unittest.TestCase):
         plan = TaskPlan([task])
         self.assertEqual([], plan.ready())
         blocked = self.assess({})
-        plan.bind_engineering_readiness("implement", blocked)
+        with self.assertRaisesRegex(ValueError, "ready, evidence-bound receipt"):
+            plan.bind_engineering_readiness("implement", blocked)
         self.assertEqual([], plan.ready())
         ready = self.assess(READY_AXES)
         plan.bind_engineering_readiness("implement", ready)
