@@ -129,8 +129,9 @@ class IdentityCompatibilityTests(unittest.TestCase):
             }, clear=True):
                 with patch("portable.remote_mcp_server._load_runtime", return_value=object()) as load:
                     _default_runtime()
+                observed_home = os.environ["AUREN_HOME"]
             load.assert_called_once_with("tests.runtime_factory:create_runtime", root.resolve())
-            self.assertEqual(str(canonical), os.environ["AUREN_HOME"])
+            self.assertEqual(str(canonical), observed_home)
 
     def test_canonical_runtime_home_migrates_legacy_orchestration_before_writes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
