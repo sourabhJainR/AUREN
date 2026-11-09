@@ -547,10 +547,12 @@ class AurenMCPService:
             authorized_roots = set()
             for project in principal.projects:
                 try:
-                    authorized_roots.add(str(Path(project).expanduser().resolve()))
+                    resolved = Path(project).expanduser().resolve()
+                    authorized_roots.add(os.path.normcase(os.path.normpath(str(resolved))))
                 except (OSError, RuntimeError, TypeError, ValueError):
                     continue
-            if str(self.project_root) not in authorized_roots:
+            configured_root = os.path.normcase(os.path.normpath(str(self.project_root)))
+            if configured_root not in authorized_roots:
                 raise PermissionError("authenticated principal is not authorized for this AUREN workspace")
 
     def _event_for_principal(self, event_id: str, principal: MCPPrincipal):
