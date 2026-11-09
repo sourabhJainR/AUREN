@@ -1,0 +1,2 @@
+claude mcp add --transport http auren https://mcp.example.com/mcp
+claude mcp list
