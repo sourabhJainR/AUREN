@@ -362,57 +362,8 @@ class AutonomousCompany:
         return rid
 
     def finish(self, wid: str, *, success: bool, reason: str, evidence: Iterable[str] = ()) -> TrustScore:
-        refs = tuple(dict.fromkeys(str(item).strip() for item in evidence if str(item).strip()))
-        with self._db() as db:
-            db.execute("BEGIN IMMEDIATE")
-            work = db.execute(
-                "SELECT state,iteration FROM work_units WHERE id=?",
-                (wid,),
-            ).fetchone()
-            if work is None:
-                raise KeyError(wid)
-            current_iteration = int(work[1])
-            if success:
-                verification = db.execute(
-                    "SELECT status,evidence,iteration FROM events "
-                    "WHERE work_unit_id=? AND kind='verification' ORDER BY rowid DESC LIMIT 1",
-                    (wid,),
-                ).fetchone()
-                verification_refs = tuple(json.loads(verification[1])) if verification else ()
-                verified_current_iteration = (
-                    verification is not None
-                    and verification[0] == "passed"
-                    and int(verification[2]) == current_iteration
-                    and bool(verification_refs)
-                )
-                if not verified_current_iteration:
-                    success = False
-                    reason = (
-                        f"{reason}; completion rejected: current iteration requires "
-                        "a passing verification event with evidence references"
-                    )
-                    db.execute(
-                        "INSERT INTO events VALUES(?,?,?,?,?,?,?,?)",
-                        (
-                            uuid4().hex, wid, current_iteration, "verification", "failed",
-                            "completion rejected because current-iteration verification evidence is missing, stale, or failed",
-                            json.dumps(()), _utc(),
-                        ),
-                    )
-                else:
-                    refs = tuple(dict.fromkeys((*verification_refs, *refs)))
-            db.execute(
-                "INSERT INTO events VALUES(?,?,?,?,?,?,?,?)",
-                (
-                    uuid4().hex, wid, current_iteration, "execution",
-                    "completed" if success else "failed", reason, json.dumps(refs), _utc(),
-                ),
-            )
-            db.execute(
-                "UPDATE work_units SET state=?,updated_at=? WHERE id=?",
-                ("completed" if success else "failed", _utc(), wid),
-            )
-            db.commit()
+        self.record(wid,"execution","completed" if success else "failed",reason,evidence)
+        self._transition(wid,"completed" if success else "failed")
         return self.trust(wid)
 
     def _consecutive_failures(self, wid: str, kind: str, successful_statuses: set[str]) -> int:
@@ -465,15 +416,24 @@ class AutonomousCompany:
             if ci_status == "passed":
                 with self._db() as db:
                     row = db.execute(
-                        "SELECT status,evidence FROM events WHERE work_unit_id=? AND kind='verification' ORDER BY rowid DESC LIMIT 1",
+                        "SELECT status,evidence,iteration FROM events "
+                        "WHERE work_unit_id=? AND kind='verification' ORDER BY rowid DESC LIMIT 1",
                         (wid,),
                     ).fetchone()
-                if row is None or row[0] != "passed":
+                evidence = tuple(json.loads(row[1])) if row else ()
+                if (
+                    row is None
+                    or row[0] != "passed"
+                    or int(row[2]) != initial_iteration
+                    or not evidence
+                ):
                     return self.finish(
                         wid, success=False,
-                        reason="resumed CI cannot promote without the latest passing verification evidence",
+                        reason=(
+                            "resumed CI cannot promote without current-iteration "
+                            "passing verification evidence"
+                        ),
                     )
-                evidence = tuple(json.loads(row[1]))
                 return self.finish(wid, success=True, reason="resumed CI passed after durable wait", evidence=evidence)
             if ci_status == "failed":
                 if recover:
@@ -534,6 +494,16 @@ class AutonomousCompany:
                         continue
                 return self.finish(wid, success=False, reason="review failed without a verified recovery path", evidence=refs)
 
+            refs = tuple(dict.fromkeys(str(item).strip() for item in refs if str(item).strip()))
+            if not refs:
+                self.record(
+                    wid, "verification", "failed",
+                    "review reported success without evidence references", (),
+                )
+                return self.finish(
+                    wid, success=False,
+                    reason="review passed without verification evidence",
+                )
             self.record(wid, "verification", "passed", review_detail, refs)
             if ci:
                 ci_status = self.wait_for_ci(
