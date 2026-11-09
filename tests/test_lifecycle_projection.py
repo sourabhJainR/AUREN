@@ -93,9 +93,9 @@ def test_projection_catalog_covers_authoritative_runtime_vocabularies():
     from portable.persistent_remediation_backlog import STATUSES as REMEDIATION_STATUSES
 
     vocabularies = (
-        ("session", ("running", "waiting", "complete", "blocked", "failed", "cancelled", "stale", "unverified")),
-        ("plan_run", ("planned", "ready", "running", "completed", "failed", "blocked", "cancelled", "unknown")),
-        ("workspace", ("creating", "active", "running", "proposal_ready", "review_pending", "adopting", "adopted", "merged", "completed", "cleaned", "unknown", "stopped", "cancel_requested", "failed", "creation_failed", "blocked", "stale", "cancelled", "closed")),
+        ("session", ("running", "waiting", "complete", "blocked", "failed", "cancelled", "stale")),
+        ("plan_run", ("planned", "ready", "running", "completed", "failed", "blocked", "cancelled")),
+        ("workspace", ("creating", "active", "running", "proposal_ready", "review_pending", "adopting", "adopted", "merged", "completed", "cleaned", "stopped", "cancel_requested", "failed", "creation_failed", "blocked", "stale", "cancelled", "closed")),
         ("side_effect", ("executing", "completed", "reconcile_required", "retry_authorized")),
         ("provider_operation", ("dispatching", "completed", "reconcile_required", "blocked")),
         ("agent_turn", ("idle", "planning", "acting", "observing", "verifying", "deciding", "repairing", "completed", "stopped", "failed")),
