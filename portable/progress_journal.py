@@ -77,6 +77,12 @@ def _safe_metadata(value: Mapping[str, Any] | None) -> dict[str, Any] | None:
         return None
     if not isinstance(value, Mapping):
         raise ValueError("progress metadata must be a mapping")
+    try:
+        raw_encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("progress metadata must contain finite JSON-compatible values") from exc
+    if len(raw_encoded.encode("utf-8")) > 16_384:
+        raise ValueError("progress metadata exceeds the 16 KiB event limit")
     hidden = {"authorization", "token", "access_token", "refresh_token", "password", "secret", "api_key"}
     def sanitize(item: Any, depth: int = 0) -> Any:
         if depth > 8:
@@ -89,7 +95,7 @@ def _safe_metadata(value: Mapping[str, Any] | None) -> dict[str, Any] | None:
         if isinstance(item, (list, tuple)):
             return [sanitize(child, depth + 1) for child in item]
         if isinstance(item, str):
-            return _safe(item, 2000)
+            return _safe(item, 16_000)
         if item is None or type(item) in {bool, int, float}:
             return item
         raise ValueError("progress metadata must contain only JSON-compatible values")
