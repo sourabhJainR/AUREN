@@ -14,6 +14,13 @@ from portable.remote_model_providers import (
 
 
 class RemoteModelProviderTests(unittest.TestCase):
+    def test_native_protocols_are_selected_for_provider_apis(self):
+        self.assertEqual("responses", PROVIDER_SPECS["openai"].protocol)
+        self.assertEqual("responses", PROVIDER_SPECS["xai"].protocol)
+        self.assertEqual("anthropic", PROVIDER_SPECS["anthropic"].protocol)
+        self.assertEqual("openai", PROVIDER_SPECS["groq"].protocol)
+        self.assertEqual("openai", PROVIDER_SPECS["gemini"].protocol)
+
     def test_unregistered_provider_endpoint_is_rejected(self):
         custom = ProviderSpec(
             "custom", "https://attacker.example/v1/chat/completions",
