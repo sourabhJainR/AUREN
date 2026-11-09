@@ -53,6 +53,26 @@ def test_success_and_failure_are_never_inferred_from_missing_or_unknown_states()
 
 
 
+def test_workspace_adoption_and_shutdown_states_preserve_terminality():
+    adopting = project_lifecycle("workspace", "adopting")
+    adopted = project_lifecycle("workspace", "adopted")
+    cleaned = project_lifecycle("workspace", "cleaned")
+    stopped = project_lifecycle("workspace", "stopped")
+    cancel_requested = project_lifecycle("workspace", "cancel_requested")
+
+    assert adopting["category"] == "recovering"
+    assert adopting["terminal"] is False
+    assert adopted["category"] == "succeeded"
+    assert adopted["terminal"] is True
+    assert cleaned["label"] == "Cleaned"
+    assert cleaned["terminal"] is True
+    assert stopped["category"] == "cancelled"
+    assert stopped["terminal"] is True
+    assert cancel_requested["category"] == "waiting"
+    assert cancel_requested["terminal"] is False
+    assert cancel_requested["attention_required"] is True
+
+
 def test_projection_catalog_covers_authoritative_runtime_vocabularies():
     from portable.agency_evolution_gates import HYPOTHESIS_STATES
     from portable.agency_state import ExecutionState
@@ -64,6 +84,7 @@ def test_projection_catalog_covers_authoritative_runtime_vocabularies():
     from portable.persistent_remediation_backlog import STATUSES as REMEDIATION_STATUSES
 
     vocabularies = (
+        ("workspace", ("running", "proposal_ready", "adopting", "adopted", "cleaned", "stopped", "cancel_requested", "failed", "unknown")),
         ("learning_hypothesis", HYPOTHESIS_STATES),
         ("agency_execution", tuple(item.value for item in ExecutionState)),
         ("approval", APPROVAL_STATES),
