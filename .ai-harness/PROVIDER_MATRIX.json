@@ -314,7 +314,7 @@
     },
     "visual_studio_ide": {
       "kind": "coding_host",
-      "support": "partial",
+      "support": "repository_configured",
       "mechanisms": [
         "Visual Studio 2022 17.14+ / 2026",
         "GitHub Copilot Agent mode",
@@ -322,14 +322,15 @@
         "OAuth"
       ],
       "repository_artifacts": [
-        "docs/REMOTE_MCP_OPERATIONS.md",
+        "docs/MCP_HOST_COMPATIBILITY.md",
+        "integrations/mcp/visual-studio.mcp.json.example",
         "portable/remote_mcp.py"
       ],
-      "current_gap": "Visual Studio itself supports remote MCP in Copilot Agent mode and has a documented .mcp.json setup. No AUREN Visual Studio connection, OAuth sign-in or tool acceptance run is recorded. This is not a Claude Code for Visual Studio extension.",
+      "current_gap": "Visual Studio 2022 17.14+ and Visual Studio 2026 support remote MCP in Copilot Agent mode using .mcp.json or %USERPROFILE%/.mcp.json. AUREN's endpoint is not deployed or live-tested in Visual Studio.",
       "next_steps": [
-        "Add AUREN to solution-level .mcp.json and enable it in Copilot Agent mode.",
-        "Complete OAuth and verify read/write scope filtering.",
-        "Run Visual Studio-specific task, cancellation, approval and evidence acceptance."
+        "Add the supplied .mcp.json example at solution or user scope.",
+        "Complete OAuth and enable AUREN tools in the Copilot Agent tool picker.",
+        "Run live task submit/status/cancel/approval/evidence acceptance."
       ],
       "live_verified": false
     },
@@ -409,7 +410,8 @@
       "support": "partial",
       "mechanisms": [
         "Groq OpenAI-compatible API",
-        "AUREN supervised provider failover"
+        "AUREN supervised provider failover",
+        "Per-request ordered provider selection"
       ],
       "repository_artifacts": [
         "portable/remote_model_providers.py",
@@ -444,7 +446,8 @@
       "support": "partial",
       "mechanisms": [
         "Native xAI Responses API adapter",
-        "AUREN supervised provider failover"
+        "AUREN supervised provider failover",
+        "Per-request ordered provider selection"
       ],
       "repository_artifacts": [
         "portable/remote_model_providers.py",
@@ -585,7 +588,8 @@
       "support": "partial",
       "mechanisms": [
         "Native OpenAI Responses API adapter",
-        "AUREN supervised provider failover"
+        "AUREN supervised provider failover",
+        "Per-request ordered provider selection"
       ],
       "repository_artifacts": [
         "portable/remote_model_providers.py",
@@ -606,7 +610,8 @@
       "support": "partial",
       "mechanisms": [
         "Anthropic Messages API",
-        "AUREN supervised provider failover"
+        "AUREN supervised provider failover",
+        "Per-request ordered provider selection"
       ],
       "repository_artifacts": [
         "portable/remote_model_providers.py",
@@ -627,7 +632,8 @@
       "support": "partial",
       "mechanisms": [
         "Gemini OpenAI-compatible API",
-        "AUREN supervised provider failover"
+        "AUREN supervised provider failover",
+        "Per-request ordered provider selection"
       ],
       "repository_artifacts": [
         "portable/remote_model_providers.py",
@@ -648,7 +654,8 @@
       "support": "partial",
       "mechanisms": [
         "OpenRouter Chat Completions API",
-        "AUREN supervised provider failover"
+        "AUREN supervised provider failover",
+        "Per-request ordered provider selection"
       ],
       "repository_artifacts": [
         "portable/remote_model_providers.py",
@@ -669,7 +676,8 @@
       "support": "partial",
       "mechanisms": [
         "Together Chat Completions API",
-        "AUREN supervised provider failover"
+        "AUREN supervised provider failover",
+        "Per-request ordered provider selection"
       ],
       "repository_artifacts": [
         "portable/remote_model_providers.py",
@@ -690,7 +698,8 @@
       "support": "partial",
       "mechanisms": [
         "Fireworks Chat Completions API",
-        "AUREN supervised provider failover"
+        "AUREN supervised provider failover",
+        "Per-request ordered provider selection"
       ],
       "repository_artifacts": [
         "portable/remote_model_providers.py",
@@ -711,7 +720,8 @@
       "support": "partial",
       "mechanisms": [
         "DeepSeek Chat Completions API",
-        "AUREN supervised provider failover"
+        "AUREN supervised provider failover",
+        "Per-request ordered provider selection"
       ],
       "repository_artifacts": [
         "portable/remote_model_providers.py",
@@ -732,7 +742,8 @@
       "support": "partial",
       "mechanisms": [
         "Mistral Chat Completions API",
-        "AUREN supervised provider failover"
+        "AUREN supervised provider failover",
+        "Per-request ordered provider selection"
       ],
       "repository_artifacts": [
         "portable/remote_model_providers.py",
@@ -753,7 +764,8 @@
       "support": "partial",
       "mechanisms": [
         "Cerebras Chat Completions API",
-        "AUREN supervised provider failover"
+        "AUREN supervised provider failover",
+        "Per-request ordered provider selection"
       ],
       "repository_artifacts": [
         "portable/remote_model_providers.py",
@@ -774,7 +786,8 @@
       "support": "partial",
       "mechanisms": [
         "Perplexity Chat Completions API",
-        "AUREN supervised provider failover"
+        "AUREN supervised provider failover",
+        "Per-request ordered provider selection"
       ],
       "repository_artifacts": [
         "portable/remote_model_providers.py",
