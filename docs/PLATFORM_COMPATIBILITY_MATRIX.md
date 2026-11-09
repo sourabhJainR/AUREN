@@ -46,10 +46,10 @@ The main gap is not the engineering workflow. It is the last-mile product integr
 | Cursor | Partial | `AGENTS.md`, skills, `.cursor/rules/auren.mdc`, remote MCP | OAuth and local/cloud/SSH acceptance still open |
 | Groq API | Partial | Native AUREN Groq Chat Completions adapter with supervised failover | Live credentials, current model IDs and cost/latency conformance remain unverified |
 | Grok chat web | Chat only | Supplied context only | No AUREN repository execution surface |
-| xAI API / Grok API | Partial | Native AUREN xAI Chat Completions adapter with supervised failover | Live credentials, current model IDs and xAI-specific feature conformance remain unverified |
+| xAI API / Grok API | Partial | Native AUREN xAI Responses API adapter with supervised failover | Live credentials, current model IDs and xAI-specific feature conformance remain unverified |
 | Grok Build CLI | Partial | Remote MCP is available upstream | No AUREN-specific local CLI/skill package |
 | GitHub Copilot | Repository configured | `AGENTS.md`, `.github/copilot-instructions.md`, skills, MCP | Copilot Agent-mode acceptance not in CI |
-| OpenAI API | Partial | Native Chat Completions adapter; supervised failover | Live credentials and model-ID acceptance remain unverified |
+| OpenAI API | Partial | Native Responses API adapter; supervised failover | Live credentials and model-ID acceptance remain unverified |
 | Anthropic API | Partial | Native Messages API adapter; supervised failover | Live credentials and model-ID acceptance remain unverified |
 | Gemini API | Partial | OpenAI-compatible Chat Completions adapter | Live credentials and Google-specific feature conformance remain unverified |
 | OpenRouter API | Partial | Native OpenAI-compatible adapter | Live credentials, provider routing and pricing remain unverified |
@@ -73,7 +73,7 @@ See [MCP Host Compatibility](MCP_HOST_COMPATIBILITY.md) for host-specific setup 
 
 ## Direct model API adapters
 
-AUREN includes fixed-host, bounded API adapters for Anthropic Messages and OpenAI-compatible Chat Completions providers: OpenAI, Gemini, Groq, xAI, OpenRouter, Together, Fireworks, DeepSeek, Mistral, Cerebras and Perplexity. They use guarded HTTPS, explicit model IDs, per-provider credentials and ordered failover charged against the existing supervisor budget.
+AUREN includes fixed-host, bounded API adapters for Anthropic Messages, OpenAI Responses, xAI Responses and OpenAI-compatible Chat Completions providers: Gemini, Groq, OpenRouter, Together, Fireworks, DeepSeek, Mistral, Cerebras and Perplexity. They use guarded HTTPS, explicit model IDs, per-provider credentials and ordered failover charged against the existing supervisor budget.
 
 Configure `AUREN_REMOTE_PROVIDER_ORDER` to choose provider order, and set each selected provider's API key and model ID through the deployment secret/environment configuration. For example, Groq uses `GROQ_API_KEY` and `GROQ_MODEL`; xAI uses `XAI_API_KEY` and `XAI_MODEL`. A custom OpenAI-compatible endpoint requires `AUREN_CUSTOM_PROVIDER_URL`, `AUREN_CUSTOM_PROVIDER_ALLOWED_HOSTS`, `AUREN_CUSTOM_PROVIDER_API_KEY` and `AUREN_CUSTOM_PROVIDER_MODEL`. The adapter does not stream, discover model catalogs, calculate current prices, or execute model-returned tool calls. Live vendor credential acceptance remains unverified. Remote inference is opt-in and only eligible for tasks classified as public or non-sensitive; private and restricted tasks remain local-only.
 
