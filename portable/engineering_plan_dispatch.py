@@ -14,12 +14,17 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 from uuid import uuid4
+from types import SimpleNamespace
 
 from .engineering_context_packet import EngineeringContextPacket
 from .engineering_plan import EngineeringPlan, EngineeringPlanRun
 from .engineering_plan_store import EngineeringPlanStore
 from .workflow_profile import resolve_profile
 from .workflow_profile_store import load_profile
+from .engineering_readiness import (
+    EngineeringBudgetLedger, EngineeringReadinessBlocked,
+    EngineeringReadinessGate, department_for_role, infer_engineering_phase,
+)
 
 
 class DispatchConflict(RuntimeError):
@@ -44,6 +49,8 @@ class EngineeringPlanDispatch:
         self.store = store
         self.controller = controller
         self.recovery_bridge = recovery_bridge
+        self.readiness_gate = EngineeringReadinessGate(controller.progress_journal)
+        self.budget_ledger = EngineeringBudgetLedger(controller.progress_journal)
         registry = getattr(controller, "_engineering_plan_recovery_bridges", None)
         if registry is None:
             registry = {}
@@ -325,6 +332,37 @@ class EngineeringPlanDispatch:
         safe_payload = dict(payload or {})
         if "auren_dispatch" in safe_payload:
             raise ValueError("payload key 'auren_dispatch' is reserved for trusted dispatch metadata")
+        if safe_payload.get("work_key") not in (None, key):
+            raise DispatchConflict("payload work_key must equal the stable dispatch_key")
+        if any(name in safe_payload for name in (
+            "_auren_engineering_readiness", "_auren_engineering_readiness_digest",
+            "_auren_engineering_phase", "_auren_engineering_department",
+        )):
+            raise ValueError("engineering readiness fields are supervisor-owned")
+        explicit_axes = safe_payload.pop("engineering_readiness", None)
+        plan_stub = SimpleNamespace(digest=packet.plan_digest, requirements=packet.requirements)
+        task_stub = SimpleNamespace(
+            task_id=task_id, acceptance_criteria=packet.acceptance_criteria,
+            rollback_plan=packet.rollback_plan,
+        )
+        readiness = self.readiness_gate.assess_packet(
+            work_key=key, plan=plan_stub, task=task_stub, packet=packet,
+            explicit_axes=explicit_axes if isinstance(explicit_axes, Mapping) else None,
+        )
+        if not readiness.ready:
+            raise EngineeringReadinessBlocked(readiness)
+        phase = infer_engineering_phase(handler_name, goal or "", str(packet.task.get("title", "")))
+        safe_payload.update({
+            "work_key": key,
+            "_auren_engineering_task": True,
+            "_auren_engineering_readiness": readiness.to_dict(),
+            "_auren_engineering_readiness_digest": readiness.assessment_digest,
+            "_auren_engineering_phase": phase,
+            "_auren_engineering_department": str(
+                packet.task.get("department") or department_for_role(packet.task.get("owner_role_id"))
+            ),
+            "_auren_engineering_remediation": list(packet.task.get("remediation_steps", ())),
+        })
         if assignment_binding is not None:
             if safe_payload.get("_auren_agent_assignment") != assignment_binding:
                 raise PermissionError("durable task assignment envelope differs from the trusted assignment binding")
@@ -421,6 +459,7 @@ class EngineeringPlanDispatch:
                 if count >= dispatch_limit:
                     raise DispatchConflict("shared plan dispatch budget is exhausted")
 
+        self.budget_ledger.begin(key, phase)
         now = time.time()
         deadline_at = (
             (datetime.now(timezone.utc) + timedelta(seconds=deadline_policy_seconds)).isoformat()
