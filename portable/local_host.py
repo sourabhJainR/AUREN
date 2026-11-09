@@ -155,7 +155,7 @@ def serve_local(
     if str(root) not in sys.path:
         sys.path.append(str(root))
     runtime = _load_runtime(factory_path, root)
-    dashboard = create_server(root, "127.0.0.1", dashboard_port)
+    dashboard = None
     mcp_socket = None
     service = None
     dashboard_thread = None
@@ -175,6 +175,7 @@ def serve_local(
             signal.signal(signum, request_shutdown)
 
     try:
+        dashboard = create_server(root, "127.0.0.1", dashboard_port)
         mcp_socket = _bound_loopback_socket(mcp_port)
         actual_mcp_port = int(mcp_socket.getsockname()[1])
         service, credential_path = create_local_mcp_service(
@@ -258,7 +259,7 @@ def serve_local(
         stop.set()
         if "mcp_server" in locals():
             mcp_server.should_exit = True
-        if dashboard_thread is not None and dashboard_thread.is_alive():
+        if dashboard is not None and dashboard_thread is not None and dashboard_thread.is_alive():
             try:
                 dashboard.shutdown()
             except Exception:
@@ -267,7 +268,8 @@ def serve_local(
             dashboard_thread.join(timeout=5)
         if mcp_thread is not None:
             mcp_thread.join(timeout=8)
-        dashboard.server_close()
+        if dashboard is not None:
+            dashboard.server_close()
         if mcp_socket is not None:
             try:
                 mcp_socket.close()
