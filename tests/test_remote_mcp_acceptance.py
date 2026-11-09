@@ -22,12 +22,24 @@ class RemoteMCPAcceptanceTests(unittest.TestCase):
                     "authorization_servers": ["https://identity.example.test"],
                 }).encode()
             request = json.loads(kwargs["body"].decode())
+            if request["method"] == "server/discover":
+                return 200, json.dumps({
+                    "jsonrpc": "2.0", "id": request["id"],
+                    "result": {
+                        "resultType": "complete",
+                        "supportedVersions": ["2026-07-28", "2025-11-25"],
+                        "ttlMs": 0, "cacheScope": "private",
+                        "_meta": {"io.modelcontextprotocol/serverInfo": {
+                            "name": "auren-operator-mcp", "version": "1.1.0",
+                        }},
+                    },
+                }).encode()
             if request["method"] == "initialize":
                 return 200, json.dumps({
                     "jsonrpc": "2.0", "id": request["id"],
                     "result": {
                         "protocolVersion": "2025-11-25",
-                        "serverInfo": {"name": "auren-operator-mcp", "version": "1.0.0"},
+                        "serverInfo": {"name": "auren-operator-mcp", "version": "1.1.0"},
                     },
                 }).encode()
             if request["method"] == "tools/list":
@@ -37,9 +49,11 @@ class RemoteMCPAcceptanceTests(unittest.TestCase):
                 ]
                 if omit_tool:
                     names.remove(omit_tool)
+                result = {"tools": [{"name": name} for name in names]}
+                if kwargs["headers"]["mcp-protocol-version"] == "2026-07-28":
+                    result.update({"resultType": "complete", "ttlMs": 0, "cacheScope": "private"})
                 return 200, json.dumps({
-                    "jsonrpc": "2.0", "id": request["id"],
-                    "result": {"tools": [{"name": name} for name in names]},
+                    "jsonrpc": "2.0", "id": request["id"], "result": result,
                 }).encode()
             raise AssertionError("acceptance probe attempted a mutating method")
 
@@ -53,12 +67,21 @@ class RemoteMCPAcceptanceTests(unittest.TestCase):
         self.assertEqual("accepted", result["status"])
         self.assertEqual(5, result["tool_count"])
         self.assertEqual(0, result["live_task_mutations"])
-        self.assertEqual(4, len(calls))
+        self.assertEqual(6, len(calls))
         self.assertTrue(all(call[1]["allowed_hosts"] == ("mcp.example.test",) for call in calls))
         post_calls = [call for call in calls if call[1]["method"] == "POST"]
-        self.assertEqual(["initialize", "tools/list"], [
-            json.loads(call[1]["body"].decode())["method"] for call in post_calls
+        self.assertEqual(
+            ["server/discover", "tools/list", "initialize", "tools/list"],
+            [json.loads(call[1]["body"].decode())["method"] for call in post_calls],
+        )
+        modern_calls = [
+            call for call in post_calls
+            if call[1]["headers"]["mcp-protocol-version"] == "2026-07-28"
+        ]
+        self.assertEqual(["server/discover", "tools/list"], [
+            json.loads(call[1]["body"].decode())["method"] for call in modern_calls
         ])
+        self.assertEqual("server/discover", modern_calls[0][1]["headers"]["mcp-method"])
         self.assertTrue(all(call[1]["headers"]["authorization"] == "Bearer " + TOKEN for call in calls))
 
     def test_endpoint_must_be_https_and_explicitly_allowlisted(self):
@@ -86,7 +109,7 @@ class RemoteMCPAcceptanceTests(unittest.TestCase):
             json.loads(kwargs["body"].decode())["method"]
             for _, kwargs in calls if kwargs["method"] == "POST"
         ]
-        self.assertEqual(["initialize", "tools/list"], methods)
+        self.assertEqual(["server/discover", "tools/list"], methods)
 
     def test_missing_or_invalid_token_fails_before_network(self):
         calls = []
