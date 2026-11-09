@@ -214,13 +214,16 @@ class OAuthIntrospectionVerifier:
                 expiry = payload.get("exp")
                 if (
                     isinstance(audiences, list) and self.audience in audiences
-                    and type(expiry) in {int, float} and expiry > time.time()
+                    and type(expiry) in {int, float}
+                    and 0 < expiry <= 253402300799 and math.isfinite(expiry)
                     and isinstance(payload.get("sub"), str) and payload["sub"].strip()
                     and isinstance(payload.get("iss"), str)
                     and payload["iss"].rstrip("/") == self.issuer
                     and payload.get("cnf") is None
                     and (payload.get("nbf") is None or (
-                        type(payload.get("nbf")) in {int, float} and payload["nbf"] <= time.time()
+                        type(payload.get("nbf")) in {int, float}
+                        and -62135596800 <= payload["nbf"] <= 253402300799
+                        and math.isfinite(payload["nbf"]) and payload["nbf"] <= time.time()
                     ))
                 ):
                     raw_scopes = payload.get("scope", "")
