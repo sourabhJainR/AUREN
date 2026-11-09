@@ -31,6 +31,12 @@ class ProgressCliTests(unittest.TestCase):
             self.assertEqual(payload["status"], "ok")
             self.assertEqual(payload["tasks"][0]["task_id"], "task-1")
             self.assertEqual(payload["tasks"][0]["state"], "queued")
+            self.assertEqual(payload["tasks"][0]["lifecycle"]["domain"], "progress_task")
+            self.assertEqual(payload["tasks"][0]["lifecycle"]["category"], "ready")
+            self.assertEqual(payload["returned_task_lifecycle_counts"], {"ready": 1})
+            human = self.invoke("progress", "--project-root", str(root))
+            self.assertEqual(human.returncode, 0, human.stderr)
+            self.assertIn("lifecycle: Queued (ready)", human.stdout)
             self.assertNotIn("Engineering HTML report", result.stdout)
 
     def test_stale_progress_is_explicit_and_includes_next_action(self):
@@ -48,6 +54,8 @@ class ProgressCliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             payload = json.loads(result.stdout)
             self.assertEqual(payload["tasks"][0]["state"], "stale")
+            self.assertEqual(payload["tasks"][0]["lifecycle"]["category"], "stale")
+            self.assertTrue(payload["tasks"][0]["lifecycle"]["attention_required"])
             self.assertTrue(payload["tasks"][0]["next_action"])
 
     def test_missing_task_is_not_reported_as_success(self):
@@ -59,6 +67,7 @@ class ProgressCliTests(unittest.TestCase):
             payload = json.loads(result.stdout)
             self.assertEqual(payload["status"], "not_found")
             self.assertEqual(payload["tasks"], [])
+            self.assertEqual(payload["returned_task_lifecycle_counts"], {})
 
 
 if __name__ == "__main__":

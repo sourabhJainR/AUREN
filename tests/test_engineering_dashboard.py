@@ -18,8 +18,8 @@ def test_dashboard_snapshot_uses_repository_and_test_evidence():
         assert snapshot["tests"]["files"]==1
         assert snapshot["tests"]["cases"]==1
         assert snapshot["usage"]["runs"]==1
-        assert snapshot["usage"]["average_task_duration_ms"]==300
-        assert snapshot["executions"]==()
+        assert snapshot["usage"]["average_task_duration_ms"]==480
+        assert snapshot["executions"]==[]
 
 
 
@@ -148,6 +148,9 @@ def test_dashboard_projects_durable_plan_run_and_task_counts():
         snapshot = EngineeringDashboard(root).snapshot().as_dict()
         row = next(item for item in snapshot["plan_runs"] if item["run_id"] == plan.run_id)
         assert row["status"] == "running"
+        assert row["lifecycle"]["domain"] == "plan_run"
+        assert row["lifecycle"]["category"] == "active"
+        assert row["lifecycle"]["label"] == "Running"
         assert row["revision"] == active.revision
         assert row["task_counts"] == {"running": 1, "pending": 1}
         assert row["plan_digest"] == plan.digest
@@ -167,6 +170,8 @@ def test_dashboard_keeps_corrupt_durable_plan_visible_as_unknown_not_success():
         snapshot = EngineeringDashboard(root).snapshot().as_dict()
         row = next(item for item in snapshot["plan_runs"] if item["run_id"] == plan.run_id)
         assert row["status"] == "unknown"
+        assert row["lifecycle"]["category"] == "unknown"
+        assert row["lifecycle"]["attention_required"] is True
         assert "reconciliation required" in row["detail"]
         assert row["status"] != "completed"
 
@@ -176,10 +181,11 @@ def test_canonical_terminal_plan_status_suppresses_stale_running_event():
         plan, run, store, bridge = _create_plan_run(root, "plan-run-terminal")
         current = run
         for task_id in ("inspect", "implement"):
-            for status in ("ready", "running", "passed"):
+            for status in ("ready", "running", "verifying", "passed"):
                 current = bridge.transition_task(
                     plan.run_id, task_id, status,
                     reason=f"test canonical transition to {status}",
+                    evidence_refs=(f"test-evidence:{task_id}:passed",) if status == "passed" else (),
                 )
 
         # Simulate an event projection that missed the terminal transition.
@@ -358,6 +364,8 @@ def test_dashboard_preserves_cancelled_and_failed_without_inventing_timeout_or_s
     for task_id, state in states:
         assert by_id[task_id]["state"] == state
         assert by_id[task_id]["status_category"] == state
+        assert by_id[task_id]["lifecycle"]["category"] == state
+        assert by_id[task_id]["lifecycle"]["terminal"] is True
         assert by_id[task_id]["status_conflict"] is False
     assert dashboard._progress_status_category("timed_out") == "timed_out"
     assert dashboard._progress_status_category("unscored") == "unscored"
@@ -412,6 +420,9 @@ def test_dashboard_adds_status_category_to_journal_only_rows(tmp_path, monkeypat
     rows = EngineeringDashboard(tmp_path).snapshot().as_dict()["tasks"]["progress"]
     row = next(item for item in rows if item["task_id"] == "journal-only")
     assert row["status_category"] == "blocked"
+    assert row["lifecycle"]["domain"] == "progress_task"
+    assert row["lifecycle"]["category"] == "blocked"
+    assert row["lifecycle"]["attention_required"] is True
     assert row["state_source"] == "progress_journal"
     assert row["canonical_state"] is None
 

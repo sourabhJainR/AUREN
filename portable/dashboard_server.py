@@ -25,6 +25,15 @@ from .response_delivery_metrics import (
     record_delivery_failure, record_delivery_metrics,
 )
 from .runtime_recovery import RuntimeExecutionGuard
+from .lifecycle_projection import project_lifecycle
+
+def _progress_rows_with_lifecycle(rows):
+    """Add a read-only lifecycle envelope to legacy progress-only API fallbacks."""
+    return [
+        {**row, "lifecycle": project_lifecycle("progress_task", row.get("state"))}
+        for row in rows
+    ]
+
 
 MAX_API_RESPONSE_BYTES = 4_000_000
 MAX_CHUNKED_RESPONSE_BYTES = 16_000_000
@@ -675,7 +684,7 @@ class _Handler(BaseHTTPRequestHandler):
                 search = query.get("q", [""])[0]
                 status = query.get("status", ["all"])[0]
                 if self.control_center is None:
-                    payload = {"sessions": self.progress_journal.list_snapshots(), "offset": offset, "limit": limit}
+                    payload = {"sessions": _progress_rows_with_lifecycle(self.progress_journal.list_snapshots()), "offset": offset, "limit": limit}
                 else:
                     payload = self.control_center.session_snapshot(
                         offset=offset, limit=limit, query=search, status=status,
@@ -701,7 +710,7 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/control-center":
             try:
                 if self.control_center is None:
-                    snapshot = {"sessions": self.progress_journal.list_snapshots(), "models": []}
+                    snapshot = {"sessions": _progress_rows_with_lifecycle(self.progress_journal.list_snapshots()), "models": []}
                 else:
                     snapshot = self.control_center.snapshot()
                     snapshot["models"] = LocalModelDiscovery().discover()

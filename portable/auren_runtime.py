@@ -99,7 +99,13 @@ def _progress_snapshot_rows(project_root: Path, stale_after_seconds: int) -> tup
     ordered = sorted(
         snapshots.values(), key=lambda row: str(row.get("last_update") or ""), reverse=True
     )
-    return ordered[:100], degraded
+    from .lifecycle_projection import project_lifecycle
+
+    projected = [
+        {**row, "lifecycle": project_lifecycle("progress_task", row.get("state"))}
+        for row in ordered[:100]
+    ]
+    return projected, degraded
 
 
 def _print_progress(args) -> int:
@@ -109,15 +115,22 @@ def _print_progress(args) -> int:
     if args.task_id:
         rows = [row for row in rows if row.get("task_id") == args.task_id]
     if args.task_id and not rows and not degraded:
-        payload = {"status": "not_found", "task_id": args.task_id, "tasks": []}
+        payload = {"status": "not_found", "task_id": args.task_id, "tasks": [], "returned_task_lifecycle_counts": {}}
         if args.json:
             print(json.dumps(payload, indent=2, sort_keys=True))
         else:
             print(f"No progress recorded for task {args.task_id}.")
         return 1
     status = "degraded" if degraded else ("ok" if rows else "empty")
+    lifecycle_counts = {}
+    for row in rows:
+        category = row["lifecycle"]["category"]
+        lifecycle_counts[category] = lifecycle_counts.get(category, 0) + 1
     if args.json:
-        print(json.dumps({"status": status, "tasks": rows}, indent=2, sort_keys=True))
+        print(json.dumps({
+            "status": status, "tasks": rows,
+            "returned_task_lifecycle_counts": dict(sorted(lifecycle_counts.items())),
+        }, indent=2, sort_keys=True))
     elif not rows:
         print("No durable task progress recorded.")
     else:
@@ -129,6 +142,14 @@ def _print_progress(args) -> int:
                 f"stage={row.get('stage') or 'unknown'} seq={row.get('sequence', '?')} "
                 f"{age_text} | {row.get('message') or ''}"
             )
+            lifecycle = row.get("lifecycle") or {}
+            if lifecycle:
+                print(
+                    f"  lifecycle: {lifecycle.get('label', 'Unknown')} "
+                    f"({lifecycle.get('category', 'unknown')}); "
+                    f"terminal={str(bool(lifecycle.get('terminal'))).lower()}; "
+                    f"resume={lifecycle.get('resume_policy', 'controller_decides')}"
+                )
             if row.get("next_action"):
                 print(f"  next: {row['next_action']}")
     return 2 if degraded else 0

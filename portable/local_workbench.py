@@ -69,7 +69,11 @@ class WorkReceipt:
         return self.status == "completed" and self.return_code == 0
 
     def as_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        from .lifecycle_projection import project_lifecycle
+
+        payload = asdict(self)
+        payload["lifecycle"] = project_lifecycle("workbench_packet", self.status)
+        return payload
 
 
 @dataclass(frozen=True)
@@ -81,9 +85,12 @@ class WorkbenchReceipt:
     digest: str
 
     def as_dict(self) -> dict[str, Any]:
+        from .lifecycle_projection import project_lifecycle
+
         return {
             "mission_id": self.mission_id,
             "status": self.status,
+            "lifecycle": project_lifecycle("workbench_run", self.status),
             "packets": [packet.as_dict() for packet in self.packets],
             "workers": self.workers,
             "digest": self.digest,

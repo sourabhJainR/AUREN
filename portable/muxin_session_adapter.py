@@ -227,10 +227,15 @@ class MuxinSessionAdapter:
             and stage not in _TERMINAL_FAILURES | {"completed", "verified", "queued"}
             and (age_seconds is None or age_seconds > 60)
         )
+        has_error = bool(str(checkpoint.last_error or "").strip())
+        # An error string is diagnostic evidence, not a lifecycle transition.
+        # Only an explicit checkpoint stage can establish blocked/failed/complete.
+        # Conflicting or unknown stage/error combinations remain unverified.
         status = (
             "failed" if stage == "failed" else
             "cancelled" if stage in {"cancelled", "canceled"} else
-            "blocked" if stage == "blocked" or checkpoint.last_error else
+            "blocked" if stage == "blocked" else
+            "unverified" if has_error else
             "complete" if stage in {"completed", "verified"} else
             "waiting" if stage == "queued" else
             "stale" if stale else
