@@ -26,6 +26,7 @@ class TaskRouteRequest:
     max_attempts: int = 2
     timeout_seconds: float = 30.0
     provider_attempt: int = 0
+    provider_order: tuple[str, ...] | None = None
 
 @dataclass(frozen=True)
 class RouteResult:
@@ -182,6 +183,7 @@ class HybridModelRouter:
                 raise ExecutionBudgetExceeded("supervisor deadline leaves insufficient budget for model routing")
         bounded_request = TaskRouteRequest(
             request.task, request.capability, request.privacy, request.max_attempts, timeout,
+            provider_order=request.provider_order,
         )
         if execution_guard is not None:
             if cancellation is not None and execution_guard.cancellation_event is not cancellation:
@@ -207,8 +209,10 @@ class HybridModelRouter:
     ) -> RouteResult:
         attempts_limit = max(1, min(int(request.max_attempts), 3))
         timeout = max(0.1, min(float(request.timeout_seconds), 120.0))
-        bounded = TaskRouteRequest(request.task, request.capability, request.privacy,
-                                   attempts_limit, timeout)
+        bounded = TaskRouteRequest(
+            request.task, request.capability, request.privacy, attempts_limit, timeout,
+            provider_order=request.provider_order,
+        )
         started = time.monotonic()
         route_deadline = started + timeout
         guard = execution_guard or RuntimeExecutionGuard(
@@ -266,7 +270,8 @@ class HybridModelRouter:
                     persist_guard()
                     last_local_model = model
                     attempt_request = TaskRouteRequest(bounded.task, bounded.capability, bounded.privacy,
-                                                       max(1, attempts_limit - attempts_used + 1), remaining)
+                                                       max(1, attempts_limit - attempts_used + 1), remaining,
+                    provider_order=bounded.provider_order)
                     value = self.local_executor(attempt_request, model)
                     if time.monotonic() >= route_deadline:
                         reason = "overall timeout budget exhausted"
@@ -307,6 +312,9 @@ class HybridModelRouter:
         remote_attempts = 0
         remote_attempt_limit = max(0, attempts_limit - attempts_used)
         configured_remote_limit = getattr(self.remote_executor, "max_attempts", None)
+        per_request_limit = getattr(self.remote_executor, "max_attempts_for", None)
+        if callable(per_request_limit):
+            configured_remote_limit = per_request_limit(bounded)
         if type(configured_remote_limit) is int and configured_remote_limit >= 0:
             remote_attempt_limit = min(remote_attempt_limit, configured_remote_limit)
         for _ in range(remote_attempt_limit):
@@ -326,6 +334,7 @@ class HybridModelRouter:
                     bounded.task, bounded.capability, bounded.privacy,
                     max(1, attempts_limit - attempts_used + 1), remaining,
                     provider_attempt=remote_attempts - 1,
+                    provider_order=bounded.provider_order,
                 )
                 value = self.remote_executor(attempt_request)
                 if time.monotonic() >= route_deadline:
