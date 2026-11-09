@@ -543,8 +543,15 @@ class AurenMCPService:
     def _require_project(self, principal: MCPPrincipal | None) -> None:
         if principal is None:
             raise PermissionError("authentication is required for this AUREN workspace")
-        if principal.projects and str(self.project_root) not in principal.projects:
-            raise PermissionError("authenticated principal is not authorized for this AUREN workspace")
+        if principal.projects:
+            authorized_roots = set()
+            for project in principal.projects:
+                try:
+                    authorized_roots.add(str(Path(project).expanduser().resolve()))
+                except (OSError, RuntimeError, TypeError, ValueError):
+                    continue
+            if str(self.project_root) not in authorized_roots:
+                raise PermissionError("authenticated principal is not authorized for this AUREN workspace")
 
     def _event_for_principal(self, event_id: str, principal: MCPPrincipal):
         normalized_id = event_id.removeprefix("llm-chat:")
