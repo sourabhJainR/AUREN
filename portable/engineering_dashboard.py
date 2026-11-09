@@ -492,7 +492,97 @@ class EngineeringDashboard:
         return {"observed": max(experience, len(ids)), "event_runs": len({e.get("run_id") for e in events if e.get("run_id")}),
                 "completed_experience_records": experience, "plan_runs": len(plan_rows),
                 "plan_tasks": sum(plan_task_counts.values()), "plan_task_counts": plan_task_counts,
-                "progress": self._progress_snapshots()}
+                "progress": self._progress_snapshots(),
+                "engineering_readiness": self._engineering_readiness()}
+
+    def _engineering_readiness(self) -> dict[str, Any]:
+        """Project three-axis assessments and remediation from the canonical journal."""
+        candidates = (
+            self.root / ".auren" / "progress.jsonl",
+            canonical_auren_home() / "executive" / ".auren" / "progress.jsonl",
+        )
+        assessments: dict[str, dict[str, Any]] = {}
+        gaps: dict[str, dict[str, Any]] = {}
+        seen: set[str] = set()
+        unreadable = False
+        for path in candidates:
+            identity = str(path.resolve())
+            if identity in seen or not path.is_file():
+                continue
+            seen.add(identity)
+            try:
+                rows = ProgressJournal(path)._events()
+            except Exception:
+                unreadable = True
+                continue
+            for row in rows:
+                metadata = row.get("metadata")
+                if not isinstance(metadata, Mapping):
+                    continue
+                if row.get("event") == "engineering_readiness_assessed":
+                    assessments[str(row.get("task_id", ""))] = {
+                        "work_key": str(row.get("task_id", "")),
+                        "status": metadata.get("status", "unknown"),
+                        "assessment_digest": metadata.get("assessment_digest"),
+                        "envelope_digest": metadata.get("envelope_digest"),
+                        "axes": metadata.get("axes", {}),
+                        "gap_ids": metadata.get("gap_ids", []),
+                        "last_update": row.get("timestamp"),
+                        "next_action": (
+                            "resolve the open TECH / INTENT / COGNITIVE gaps before dispatch"
+                            if metadata.get("status") != "ready"
+                            else "continue through canonical planning and supervisor dispatch"
+                        ),
+                    }
+                elif row.get("event") in {"engineering_gap_recorded", "engineering_gap_transition"}:
+                    gap_id = metadata.get("gap_id")
+                    if isinstance(gap_id, str) and gap_id:
+                        gaps[gap_id] = {
+                            "gap_id": gap_id,
+                            "work_key": str(row.get("task_id", "")),
+                            "axis": metadata.get("axis"),
+                            "status": metadata.get("status", "unknown"),
+                            "severity": metadata.get("severity", "high"),
+                            "department": metadata.get("department"),
+                            "owner_role_id": metadata.get("owner_role_id"),
+                            "summary": metadata.get("summary"),
+                            "remediation": metadata.get("remediation", []),
+                            "acceptance_criteria": metadata.get("acceptance_criteria", []),
+                            "evidence_refs": metadata.get("evidence_refs", []),
+                            "resolution_evidence_refs": metadata.get("resolution_evidence_refs", []),
+                            "envelope_digest": metadata.get("envelope_digest"),
+                            "last_update": row.get("timestamp"),
+                            "next_action": (
+                                "verify resolution evidence and close the gap"
+                                if metadata.get("status") in {"open", "in_progress", "blocked"}
+                                else "retain the resolved evidence lineage"
+                            ),
+                        }
+        open_gaps = [row for row in gaps.values() if row.get("status") != "resolved"]
+        blocked = unreadable or bool(open_gaps) or any(row.get("status") != "ready" for row in assessments.values())
+        return {
+            "status": "unknown" if unreadable else ("blocked" if blocked else ("ready" if assessments else "not_assessed")),
+            "assessment_count": len(assessments),
+            "ready_count": sum(row.get("status") == "ready" for row in assessments.values()),
+            "blocked_count": sum(row.get("status") != "ready" for row in assessments.values()),
+            "open_gap_count": len(open_gaps),
+            "resolved_gap_count": sum(row.get("status") == "resolved" for row in gaps.values()),
+            "by_axis": {
+                axis: sum(1 for gap in open_gaps if gap.get("axis") == axis)
+                for axis in ("technology", "intent", "cognitive")
+            },
+            "assessments": sorted(assessments.values(), key=lambda row: row.get("work_key", "")),
+            "open_gaps": sorted(open_gaps, key=lambda row: (row.get("work_key", ""), row.get("axis") or "")),
+            "resolved_gaps": sorted(
+                (row for row in gaps.values() if row.get("status") == "resolved"),
+                key=lambda row: (row.get("work_key", ""), row.get("axis") or ""),
+            ),
+            "next_action": (
+                "inspect journal integrity before trusting readiness state" if unreadable else
+                "assign owners and complete open gap remediation before engineering dispatch" if open_gaps else
+                "run the three-axis gate at the next engineering task intake"
+            ),
+        }
 
     def _workflow_profile_bindings(self) -> dict[str, dict[str, str]]:
         """Read only the safe profile summary for durable tasks; never expose payloads."""
