@@ -31,6 +31,7 @@ from .adaptive_trigger import AdaptiveTrigger
 from .durable_approval import DurableApprovalStore
 from .identity_compat import canonical_auren_home
 from .trigger_runtime import TriggerQueueCapacityError
+from .lifecycle_projection import project_lifecycle
 
 
 SUPPORTED_PROTOCOL_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26")
@@ -604,6 +605,11 @@ class AurenMCPService:
             "task_id": event.event_id, "runtime_task_id": runtime_task_id,
             "kind": "adaptive_runtime",
             "status": reported_status, "dispatch_status": event.status,
+            "lifecycle": project_lifecycle("trigger_task", reported_status),
+            "runtime_lifecycle": project_lifecycle(
+                "progress_task",
+                runtime_progress.get("state") or runtime_progress.get("reported_state"),
+            ),
             "execution_status": execution_status,
             "completion_verified": str(execution_status).lower() in {"completed", "complete", "success"},
             "cancellation_requested": self.trigger_runtime.is_cancel_requested(event.event_id),
@@ -624,7 +630,13 @@ class AurenMCPService:
         except Exception as exc:
             progress = {"status": "unavailable", "error_type": type(exc).__name__}
         return {
-            "task_id": task.id, "state": task.state, "attempts": task.attempts,
+            "task_id": task.id, "state": task.state,
+            "lifecycle": project_lifecycle("controller_task", task.state),
+            "progress_lifecycle": project_lifecycle(
+                "progress_task",
+                progress.get("state") or progress.get("reported_state"),
+            ),
+            "attempts": task.attempts,
             "work_unit_id": task.work_unit_id, "deadline_at": task.deadline_at,
             "progress": _safe_value(progress),
         }
@@ -922,9 +934,16 @@ class AurenMCPService:
             else:
                 progress = []
                 progress_status = "restricted_to_admin_scope"
+            controller_tasks = []
+            for raw in progress[-limit:][::-1]:
+                item = dict(raw)
+                item["lifecycle"] = project_lifecycle(
+                    "progress_task", item.get("state") or item.get("reported_state"),
+                )
+                controller_tasks.append(_safe_value(item))
             return {
                 "trigger_tasks": trigger_tasks,
-                "controller_tasks": _safe_value(progress[-limit:][::-1]),
+                "controller_tasks": controller_tasks,
                 "controller_tasks_status": progress_status,
             }
         if name == "auren.get_task":

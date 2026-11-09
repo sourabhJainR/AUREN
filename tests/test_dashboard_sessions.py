@@ -75,8 +75,8 @@ def test_session_snapshot_combines_checkpoints_and_safe_journal_projection(tmp_p
     adapter = MuxinSessionAdapter(tmp_path, session_store=store, dashboard=_Dashboard())
     payload = adapter.session_snapshot()
     assert payload["counts"] == {
-        "sessions": 4, "active": 1, "completed": 1, "blocked": 1, "stale": 1,
-        "unverified": 0, "tasks": 1, "plan_runs": 1,
+        "sessions": 4, "active": 1, "completed": 1, "blocked": 1, "failed": 0,
+        "cancelled": 0, "stale": 1, "unverified": 0, "tasks": 1, "plan_runs": 1,
     }
     assert {row["session_id"] for row in payload["sessions"]} == {
         "active-session", "completed-session", "blocked-session", "stale-session",
@@ -249,6 +249,17 @@ class WorkspaceInventoryTests(unittest.TestCase):
             "task_id": "task-1",
             "sandbox_id": "sandbox-1",
             "status": "proposal_ready",
+            "lifecycle": {
+                "schema_version": "auren-lifecycle-projection-v1",
+                "domain": "workspace",
+                "source_state": "proposal_ready",
+                "category": "ready",
+                "label": "Proposal ready",
+                "terminal": False,
+                "attention_required": False,
+                "resume_policy": "controller_decides",
+                "next_action": "request_independent_review",
+            },
             "base_revision": "a" * 40,
             "branch": "agent/worker-1",
             "updated_at": "2026-11-07T18:00:00+00:00",
@@ -262,6 +273,25 @@ class WorkspaceInventoryTests(unittest.TestCase):
         self.assertNotIn("raw_output", serialized)
         self.assertNotIn("provider_token", serialized)
         self.assertNotIn("must-not-appear", serialized)
+
+    def test_workspace_inventory_projects_adoption_and_shutdown_states(self):
+        states = (
+            ("adopting", "recovering", False),
+            ("adopted", "succeeded", True),
+            ("cleaned", "succeeded", True),
+            ("stopped", "cancelled", True),
+            ("cancel_requested", "waiting", False),
+        )
+        rows = [
+            {"workspace_id": "workspace-" + state, "worker_id": "worker-" + state, "status": state}
+            for state, _, _ in states
+        ]
+        inventory = self.adapter(lambda: rows).session_snapshot()["workspaces"]
+        projected = {row["status"]: row["lifecycle"] for row in inventory["records"]}
+        for state, category, terminal in states:
+            self.assertEqual(projected[state]["category"], category)
+            self.assertEqual(projected[state]["terminal"], terminal)
+
 
     def test_workspace_inventory_missing_or_failed_reader_is_not_reported_as_empty(self):
         unconfigured = self.adapter().session_snapshot()["workspaces"]
@@ -344,6 +374,41 @@ class WorkspaceInventoryTests(unittest.TestCase):
         })
         self.assertNotIn("/private", json.dumps(rows))
 
+    def test_workspace_registry_reader_states_keep_adoption_and_shutdown_distinct(self):
+        registry = self.root / "workspace-lifecycle.sqlite3"
+        connection = sqlite3.connect(registry)
+        connection.execute(
+            """CREATE TABLE graph_workspace_registry (
+                worker_id TEXT PRIMARY KEY, task_id TEXT, base_revision TEXT NOT NULL,
+                owned_paths TEXT NOT NULL, workspace_path TEXT NOT NULL,
+                state TEXT NOT NULL, artifact_path TEXT, artifact_digest TEXT,
+                proposal_paths TEXT, cancellation_reason TEXT, termination_evidence TEXT
+            )"""
+        )
+        for index, state in enumerate(("adopted", "cleaned", "stopped", "cancel_requested")):
+            connection.execute(
+                """INSERT INTO graph_workspace_registry
+                   (worker_id,task_id,base_revision,owned_paths,workspace_path,state,proposal_paths)
+                   VALUES(?,?,?,?,?,?,?)""",
+                (f"worker-{index}", f"task-{index}", "a" * 40, "[]",
+                 f"/private/worktree/{index}", state, "[]"),
+            )
+        connection.commit()
+        connection.close()
+
+        inventory = self.adapter(workspace_registry_reader(registry)).session_snapshot()["workspaces"]
+        projected = {row["status"]: row["lifecycle"] for row in inventory["records"]}
+        self.assertEqual(projected["adopted"]["category"], "succeeded")
+        self.assertTrue(projected["adopted"]["terminal"])
+        self.assertEqual(projected["cleaned"]["category"], "succeeded")
+        self.assertTrue(projected["cleaned"]["terminal"])
+        self.assertEqual(projected["stopped"]["category"], "cancelled")
+        self.assertTrue(projected["stopped"]["terminal"])
+        self.assertEqual(projected["cancel_requested"]["category"], "waiting")
+        self.assertFalse(projected["cancel_requested"]["terminal"])
+        self.assertTrue(projected["cancel_requested"]["attention_required"])
+
+
     def test_workspace_registry_reader_requires_absolute_existing_non_symlink_path(self):
         relative_reader = workspace_registry_reader("relative/workspace-registry.sqlite3")
         with self.assertRaisesRegex(ValueError, "must be absolute"):
@@ -374,3 +439,55 @@ class WorkspaceInventoryTests(unittest.TestCase):
         self.assertIn('id="workspace-count"', html)
         self.assertIn("renderWorkspaces(data)", script)
         self.assertIn("No workspace state is inferred", script)
+
+
+
+def test_session_lifecycle_keeps_failed_cancelled_and_blocked_distinct(tmp_path):
+    store = SessionStore(tmp_path / "sessions")
+    project_key = store.project_key(tmp_path)
+    for session_id, stage, last_error in (
+        ("failed-session", "failed", None),
+        ("cancelled-session", "cancelled", None),
+        ("blocked-session", "blocked", None),
+    ):
+        store.save(SessionCheckpoint(
+            session_id=session_id,
+            task_id=session_id.replace("-session", "-task"),
+            project_key=project_key,
+            stage=stage,
+            project_root=str(tmp_path),
+            last_error=last_error,
+        ))
+
+    adapter = MuxinSessionAdapter(tmp_path, session_store=store, dashboard=_Dashboard())
+    all_rows = {row["session_id"]: row for row in adapter.session_snapshot()["sessions"]}
+    assert all_rows["failed-session"]["status"] == "failed"
+    assert all_rows["failed-session"]["lifecycle"]["category"] == "failed"
+    assert all_rows["failed-session"]["lifecycle"]["terminal"] is True
+    assert all_rows["cancelled-session"]["status"] == "cancelled"
+    assert all_rows["cancelled-session"]["lifecycle"]["category"] == "cancelled"
+    assert all_rows["blocked-session"]["status"] == "blocked"
+    assert all_rows["blocked-session"]["lifecycle"]["category"] == "blocked"
+    assert all_rows["blocked-session"]["lifecycle"]["terminal"] is False
+
+    assert adapter.session_snapshot(status="failed")["pagination"]["total"] == 1
+    assert adapter.session_snapshot(status="cancelled")["pagination"]["total"] == 1
+    assert adapter.session_snapshot(status="blocked")["pagination"]["total"] == 1
+    counts = adapter.session_snapshot()["counts"]
+    assert counts["failed"] == 1
+    assert counts["cancelled"] == 1
+    assert counts["blocked"] == 1
+
+
+def test_session_status_projection_marks_derived_state_source(tmp_path):
+    checkpoint = SessionCheckpoint(
+        session_id="unknown-stage",
+        task_id="unknown-task",
+        project_key=SessionStore.project_key(tmp_path),
+        stage="future-stage",
+        project_root=str(tmp_path),
+    )
+    row = MuxinSessionAdapter._session_record(checkpoint)
+    assert row["status"] == "unverified"
+    assert row["lifecycle"]["category"] == "unknown"
+    assert row["status_source"] == "checkpoint_stage_error_and_heartbeat_projection"

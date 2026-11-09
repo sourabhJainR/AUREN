@@ -17,17 +17,26 @@
     return Math.round(seconds / 86400) + "d ago";
   };
   const statusClass = value => String(value || "unknown").toLowerCase().replace(/[^a-z0-9_-]/g, "");
-  const active = row => ["running", "waiting", "queued", "recovering"].includes(row.status || row.state);
+  const lifecycleCategory = row => row.lifecycle?.category || ({
+    running: "active", waiting: "waiting", queued: "ready", recovering: "recovering",
+    complete: "succeeded", completed: "succeeded", verified: "succeeded", passed: "succeeded",
+    blocked: "blocked", failed: "failed", cancelled: "cancelled", canceled: "cancelled",
+    stale: "stale", unverified: "unknown", unknown: "unknown"
+  }[String(row.status || row.state || "unknown").toLowerCase()] || "unknown");
+  const lifecycleLabel = row => row.lifecycle?.label || row.status || row.state || "Unknown";
+  const active = row => ["ready", "active", "waiting", "recovering"].includes(lifecycleCategory(row));
   const matches = row => {
     const haystack = [row.session_id,row.task_id,row.active_provider,row.stage,row.status,row.state]
       .concat(row.completed_batches || [], row.remaining_batches || []).join(" ").toLowerCase();
     if (state.query && !haystack.includes(state.query)) return false;
-    const status = row.status || row.state || "unknown";
+    const category = lifecycleCategory(row);
     if (state.filter === "active") return active(row);
-    if (state.filter === "complete") return ["complete","completed","verified","passed"].includes(status);
-    if (state.filter === "blocked") return ["blocked","failed","cancelled","canceled"].includes(status);
-    if (state.filter === "stale") return status === "stale";
-    if (state.filter === "unverified") return ["unverified","unknown"].includes(status);
+    if (state.filter === "complete") return category === "succeeded";
+    if (state.filter === "blocked") return category === "blocked";
+    if (state.filter === "failed") return category === "failed";
+    if (state.filter === "cancelled") return category === "cancelled";
+    if (state.filter === "stale") return category === "stale";
+    if (state.filter === "unverified") return category === "unknown";
     return true;
   };
   function metric(label, value, hint) {
@@ -40,6 +49,8 @@
       metric("Active sessions", c.active ?? "—", "Running or waiting"),
       metric("Completed", c.completed ?? "—", "Checkpoint says complete"),
       metric("Blocked", c.blocked ?? "—", "Needs recovery or review"),
+      metric("Failed", c.failed ?? "—", "Terminal task failures"),
+      metric("Cancelled", c.cancelled ?? "—", "Explicitly stopped work"),
       metric("Stale", c.stale ?? "—", "No recent checkpoint heartbeat"),
       metric("Unverified", c.unverified ?? "—", "State needs inspection"),
       metric("Durable tasks", c.tasks ?? "—", "Supervisor journal records")
@@ -96,7 +107,8 @@
     source.className = "pill" + (shared.saturated || !integrityOk || Number(d.unknown_outcomes || 0) > 0 ? " warning" : "");
   }
   function sessionCard(row) {
-    const status = row.status || "unknown";
+    const category = lifecycleCategory(row);
+    const status = lifecycleLabel(row);
     const completed = (row.completed_batches || []).length;
     const remaining = (row.remaining_batches || []).length;
     const percent = Math.max(0, Math.min(100, Number(row.progress) || 0));
@@ -113,7 +125,7 @@
     return '<article class="session-card" data-search="' + sessionSearch + '">' +
       '<div class="session-card-head"><div><div class="session-id">' + safe(row.session_id || "Unnamed session") +
       '</div><div class="session-meta">' + safe(row.task_id || "No task ID") + ' · updated ' + safe(time(row.updated_at)) +
-      '</div></div><span class="status ' + statusClass(status) + '">' + safe(status) + '</span></div>' +
+      '</div></div><span class="status ' + statusClass(category) + '">' + safe(status) + '</span></div>' +
       '<div class="session-progress"><span style="width:' + percent + '%"></span></div>' +
       '<div class="session-meta">' + percent + '% stage progress · ' + safe(row.stage || "unknown stage") + '</div>' +
       '<div class="session-detail">' + detailHtml + '</div>' + batchText +
@@ -123,25 +135,29 @@
       safe((row.remaining_batches || []).join(", ") || "None recorded") + '</div></details></article>';
   }
   function taskCard(row) {
-    const status = row.status_category || row.state || "unknown";
+    const category = lifecycleCategory(row);
+    const status = row.lifecycle?.label || row.status_category || row.state || "Unknown";
     const progress = row.progress_percent;
     const label = progress === null || progress === undefined ? "Progress not measured" : Number(progress) + "%";
     return '<article class="session-task"><div><strong>' + safe(row.task_id || "Unidentified task") +
       '</strong><div class="muted">' + safe(row.stage || "unknown stage") + '</div></div><div>' +
       '<div class="muted">' + safe(row.next_action || "No recovery action recorded") + '</div><div class="muted">Updated ' +
       safe(time(row.last_update)) + ' · ' + safe(age(row.seconds_since_update)) + '</div></div><div><span class="status ' +
-      statusClass(status) + '">' + safe(status) + '</span><div class="muted">' + safe(label) + '</div></div></article>';
+      statusClass(category) + '">' + safe(status) + '</span><div class="muted">' + safe(label) + '</div></div></article>';
   }
   function planCard(row) {
     const counts = row.task_counts || {};
     const tasks = Object.entries(counts).map(([key,value]) => safe(key) + ": " + safe(value)).join(" · ") || "Task counts unavailable";
+    const category = lifecycleCategory(row);
+    const status = row.lifecycle?.label || row.status || "Unknown";
     return '<article class="session-task"><div><strong>' + safe(row.run_id || "Unidentified plan") +
       '</strong><div class="muted">Revision ' + safe(row.revision ?? "—") + '</div></div><div class="muted">' +
-      tasks + '</div><div><span class="status ' + statusClass(row.status) + '">' + safe(row.status || "unknown") +
+      tasks + '</div><div><span class="status ' + statusClass(category) + '">' + safe(status) +
       '</span><div class="muted">' + safe(row.evidence_count ?? "—") + ' evidence records</div></div></article>';
   }
   function workspaceCard(row) {
-    const status = row.status || "unknown";
+    const category = lifecycleCategory(row);
+    const status = lifecycleLabel(row);
     const fields = [
       ["Workspace", row.workspace_id], ["Worker", row.worker_id], ["Task", row.task_id],
       ["Sandbox", row.sandbox_id], ["Base", row.base_revision ? String(row.base_revision).slice(0, 12) : null],
@@ -158,7 +174,7 @@
     return '<article class="session-task"><div><strong>' + safe(row.workspace_id || "Unidentified workspace") +
       '</strong><div class="muted">' + safe(row.worker_id || "No worker identity") + ' · ' +
       safe(row.task_id || "No task binding") + '</div></div><div><span class="status ' +
-      statusClass(status) + '">' + safe(status) + '</span><div class="muted">' +
+      statusClass(category) + '">' + safe(status) + '</span><div class="muted">' +
       safe(row.branch || "No branch metadata") + '</div></div><div class="workspace-details">' +
       detailHtml + '</div><div>' + list("Changed", changed) + list("Owned", owned) +
       list("Evidence", evidence) + (row.lists_truncated ? '<div class="muted">Workspace detail lists are truncated.</div>' : "") +

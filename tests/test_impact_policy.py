@@ -190,6 +190,28 @@ class ImpactPolicyTests(unittest.TestCase):
         self.assertIn("tests.test_control_center_api", adapter.required_suites)
         self.assertEqual(("tests.test_dashboard_sessions",), tests.required_suites)
 
+    def test_lifecycle_projection_has_focused_runtime_coverage(self):
+        expected = {
+            "portable/lifecycle_projection.py": {
+                "tests.test_lifecycle_projection", "tests.test_dashboard_sessions",
+                "tests.test_remote_mcp_service",
+            },
+            "tests/test_lifecycle_projection.py": {"tests.test_lifecycle_projection"},
+        }
+        workflow = Path(".github/workflows/runtime-resilience.yml").read_text(encoding="utf-8")
+        for path, suites in expected.items():
+            impact = classify_path(path)
+            self.assertIsNotNone(impact)
+            self.assertFalse(impact.hardening_required)
+            self.assertTrue(suites.issubset(set(impact.required_suites)))
+            for suite in suites:
+                workflow_token = (
+                    "tests/test_lifecycle_projection.py"
+                    if suite == "tests.test_lifecycle_projection"
+                    else suite
+                )
+                self.assertIn(workflow_token, workflow)
+
     def test_runtime_resilience_filter_covers_recovery_sensitive_paths(self):
         workflow = Path(".github/workflows/runtime-resilience.yml").read_text(encoding="utf-8")
         match = re.search(r"patterns = (\[.*?\])", workflow, re.DOTALL)
@@ -245,6 +267,8 @@ class ImpactPolicyTests(unittest.TestCase):
             "tests/test_control_center_api.py",
             "portable/muxin_session_adapter.py",
             "tests/test_dashboard_sessions.py",
+            "portable/lifecycle_projection.py",
+            "tests/test_lifecycle_projection.py",
             "portable/adaptive_trigger.py",
             "portable/remote_mcp.py",
             "portable/remote_mcp_server.py",
