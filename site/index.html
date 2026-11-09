@@ -39,6 +39,27 @@ pre{overflow:auto;background:#050b14;border:1px solid var(--line);border-radius:
 <p class="small"><a href="https://github.com/sourabhJainR/AUREN/blob/main/ABOUT.md">Read the full About page</a>. The runtime registry and receipt improve traceability; neither alone proves that every control is fully enforced in every deployment. See the <a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/ARCHITECTURE_CURRENT.md">current architecture</a> and <a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/AI_ERA_FOUNDATION_PRINCIPLES.md">AI-era foundation principles</a>.</p>
 </div></section>
 
+<section id="local-first"><div class="wrap">
+<h2>Local first. Ready in minutes.</h2>
+<p class="lead">AUREN should install as one managed workstation runtime. The CLI, dashboard and local MCP endpoint share the same supervisor, durable state and security boundary. Remote MCP is optional and disabled by default.</p>
+<div class="grid">
+<div class="card"><h3>One managed runtime</h3><p>No project-authored runtime factory for standard use. AUREN owns the reviewed graph, execution controller, durable trigger runtime, workspace binding and provider lifecycle. Missing dependencies are reported; empty or placeholder graphs are rejected.</p></div>
+<div class="card"><h3>Local MCP without mandatory OAuth</h3><p>Loopback-only by default, with a private per-user credential or supported OS identity. OAuth can be enabled for local use if preferred. Authorization, workspace scope, approval checks and budgets always remain enforced.</p></div>
+<div class="card"><h3>Safe repository onboarding</h3><p>Inspect new or existing repositories before changing them. Preserve existing instructions, Git state, CI and client settings. Show configuration diffs, back up changed files and verify every connection.</p></div>
+</div>
+<h3>Target first-run flow</h3>
+<pre><code>auren install
+cd /path/to/your/repository
+auren init
+auren doctor
+auren connect
+auren start</code></pre>
+<p class="small">These commands describe the target onboarding experience. Check the current CLI help and the <a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/LOCAL_FIRST_RUNTIME_AND_ONBOARDING.md">implementation and acceptance status</a> before assuming every command is available in a published release.</p>
+<h3>Choose how AUREN gets model capability</h3>
+<p>Use a supported local agent CLI, a local model, or configure direct API providers. Host login credentials do not automatically transfer to AUREN. Provider selection remains explicit and privacy-aware; private work cannot silently fall back to remote inference. Hosted ChatGPT and Claude web clients need the separately enabled remote MCP endpoint because cloud services cannot reach workstation loopback.</p>
+<p>Read the <a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/LOCAL_SELF_HOSTED_MCP.md">local MCP guide</a>, <a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/MCP_HOST_COMPATIBILITY.md">host compatibility matrix</a> and <a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/MODEL_PROVIDER_INTEGRATION.md">provider setup guide</a>.</p>
+</div></section>
+
 <section id="system"><div class="wrap">
 <h2>How AUREN works</h2><p class="lead">Execution authority and learning are deliberately separated. Active engineering stays policy-gated and bounded. Learning becomes advisory only after independent evaluation, regression protection and promotion/rollback evidence.</p>
 <div class="flow">
