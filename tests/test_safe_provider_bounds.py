@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / ".ai-harness"))
 
 from safe_provider import _bounded_process_output, _provider_total_budget_seconds, _run_resilient
 from portable.agent_execution_guard import AgentAssignmentScopeDenied, agent_assignment_scope
+from portable.bounded_subprocess import run_bounded_command
 
 
 class SafeProviderBoundTests(unittest.TestCase):
@@ -74,6 +75,37 @@ class SafeProviderBoundTests(unittest.TestCase):
             self.assertFalse(marker.exists(), "provider descendants must not outlive a completed invocation")
 
 
+
+
+    @unittest.skipUnless(os.name == "posix", "POSIX nested process-group propagation")
+    def test_supervisor_termination_is_forwarded_to_nested_provider_process_group(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "nested-provider-survived.txt"
+            child_code = (
+                "import pathlib,sys,time; time.sleep(0.8); "
+                "pathlib.Path(sys.argv[1]).write_text('survived', encoding='utf-8')"
+            )
+            wrapper_code = (
+                "import os,sys; "
+                f"sys.path.insert(0, {str(ROOT)!r}); "
+                f"sys.path.insert(0, {str(ROOT / '.ai-harness')!r}); "
+                "from pathlib import Path; "
+                "from safe_provider import _bounded_process_output; "
+                f"_bounded_process_output([sys.executable, '-c', {child_code!r}, {str(marker)!r}], "
+                f"cwd=Path({str(ROOT)!r}), env=dict(os.environ), timeout_seconds=10, "
+                "max_output_bytes=1024, output_sink=lambda _chunk: None)"
+            )
+            result = run_bounded_command(
+                [sys.executable, "-c", wrapper_code],
+                timeout_seconds=0.3,
+                terminate_grace_seconds=0.2,
+            )
+            self.assertEqual("timed_out", result.status)
+            time.sleep(1.0)
+            self.assertFalse(
+                marker.exists(),
+                "nested provider descendants must not outlive supervisor cancellation",
+            )
 
     def test_inherited_supervisor_deadline_caps_provider_budget(self):
         with patch.dict(os.environ, {
