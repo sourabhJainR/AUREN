@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+from contextlib import closing
 import sqlite3
 from typing import Any
 
@@ -73,7 +74,7 @@ class ReasoningLedger:
         self.memory = memory
         self.project = project
         self.max_records = max_records
-        with sqlite3.connect(self.memory.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.memory.path, timeout=10)) as db, db:
             db.execute("""CREATE TABLE IF NOT EXISTS reasoning_ledger(
                 project TEXT NOT NULL, record_id TEXT NOT NULL, run_id TEXT NOT NULL,
                 stage TEXT NOT NULL, observation_ids TEXT NOT NULL, hypothesis_ids TEXT NOT NULL,
@@ -89,7 +90,7 @@ class ReasoningLedger:
                   record.decision, record.action, record.outcome,
                   json.dumps(list(record.evidence_ids), separators=(",", ":")),
                   record.confidence, record.recorded_at)
-        with sqlite3.connect(self.memory.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.memory.path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             existing = db.execute("SELECT run_id,stage,observation_ids,hypothesis_ids,alternatives,decision,action,outcome,evidence_ids,confidence,recorded_at FROM reasoning_ledger WHERE project=? AND record_id=?", (self.project, record.record_id)).fetchone()
             expected = values[2:]
@@ -108,7 +109,7 @@ class ReasoningLedger:
             raise ValueError("run_id is required")
         if limit < 1:
             return ()
-        with sqlite3.connect(self.memory.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.memory.path, timeout=10)) as db, db:
             rows = db.execute("SELECT record_id,run_id,stage,observation_ids,hypothesis_ids,alternatives,decision,action,outcome,evidence_ids,confidence,recorded_at FROM reasoning_ledger WHERE project=? AND run_id=? ORDER BY recorded_at,record_id LIMIT ?", (self.project, run_id, limit)).fetchall()
         return tuple(self._record(row) for row in rows)
 

@@ -10,7 +10,19 @@ AUREN is a provider-neutral operating system for an AI engineering company. It c
 See [Software Team Operating Model](docs/SOFTWARE_TEAM_OPERATING_MODEL.md) for role boundaries, manager/leadership flow, and execution gates. Independent SI/AGI capability experiments are conducted in [AUREN Capability Lab](https://github.com/sourabhJainR/firstTestproj); the lab is not an AUREN runtime dependency.
 
 
+## Model and tool-provider integration
+
+AUREN now has bounded direct model API adapters for Anthropic, OpenAI, Gemini, Groq, xAI, OpenRouter, Together, Fireworks, DeepSeek, Mistral, Cerebras and Perplexity. The host configures the available provider pool and model IDs; callers can select an ordered subset per routing request. Private and restricted tasks never fall back to remote inference. See [Model Provider Integration](docs/MODEL_PROVIDER_INTEGRATION.md), [MCP Host Compatibility](docs/MCP_HOST_COMPATIBILITY.md), [Orchestrator Integrations](docs/ORCHESTRATOR_INTEGRATIONS.md), and the [Platform Compatibility Matrix](docs/PLATFORM_COMPATIBILITY_MATRIX.md). Direct inference adapters are integrated with the hybrid model-routing surface; the main graph-team crew adapters still require host-registered, per-crew provider invokers and tool scopes. Vendor-host live acceptance and production deployment remain separate release gates.
+
 AUREN separates **execution authority from learning**. Active runs operate under bounded, policy-gated execution; learning is recorded as evidence and can influence future runs only after independent evaluation, regression checks, and promotion/rollback decisions. The result is an engineering system designed to improve from observed outcomes while remaining auditable, reproducible, and fail-closed when evidence is insufficient.
+
+## Remote MCP and AI host integration
+
+The authenticated remote MCP operator service is under review in [PR #1313](https://github.com/sourabhJainR/AUREN/pull/1313). It adds a stateless Streamable HTTP endpoint, OAuth resource-server validation, per-tool scopes, durable task submission with caller-scoped idempotency, task status/cancellation, evidence, approvals, and admission controls.
+
+The same AUREN endpoint advertises MCP 2026-07-28 stateless mode while retaining the 2025 handshake for older clients, and is designed for MCP-capable hosts including ChatGPT web, ChatGPT desktop, Codex CLI/app, Claude web/Desktop/Code, Gemini CLI, Antigravity, Cursor, VS Code Copilot, GitHub Copilot CLI and Microsoft Visual Studio. OpenAI Agents SDK, AutoGen, Pydantic AI, LangChain/LangGraph, n8n, CrewAI, Semantic Kernel/Microsoft Agent Framework, Haystack, Flowise and OpenHands setup paths are documented; Dify's plugin-based path and limitations are called out separately. These integrations are not live-deployed or vendor-accepted yet. Hosted OAuth requires an external authorization server; the current durable stores remain single-host SQLite. Groq and xAI are included as direct inference adapters, but still require live credential/model conformance. The main graph-team crew adapters still require explicit host registration of provider invokers and tool scopes.
+
+See [Remote MCP Operations](docs/REMOTE_MCP_OPERATIONS.md), [Remote MCP Privacy](docs/REMOTE_MCP_PRIVACY.md), [MCP Host Compatibility](docs/MCP_HOST_COMPATIBILITY.md), and the [Platform Compatibility Matrix](docs/PLATFORM_COMPATIBILITY_MATRIX.md) for setup instructions, safe configuration templates, known limitations and acceptance gates.
 
 ## Project status (reviewed 2026-11-02)
 

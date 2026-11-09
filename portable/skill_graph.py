@@ -47,7 +47,7 @@ class SkillGraph:
             raise TypeError("memory must be a PersistentMemory instance")
         self.memory = memory
         self.project = _clean(project, "project")
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS skill_nodes(
                 project TEXT NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL,
                 evidence_ids TEXT NOT NULL, failure_modes TEXT NOT NULL, contexts TEXT NOT NULL,
@@ -61,7 +61,7 @@ class SkillGraph:
         if not isinstance(node, SkillNode):
             raise ValueError("node must be a SkillNode")
         now = datetime.now(timezone.utc).isoformat()
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             missing = [name for name in node.prerequisites if db.execute(
                 "SELECT 1 FROM skill_nodes WHERE project=? AND name=?", (self.project, name)
             ).fetchone() is None]
@@ -87,7 +87,7 @@ class SkillGraph:
         prerequisite = _clean(prerequisite, "prerequisite")
         if skill == prerequisite:
             raise ValueError("skill cannot depend on itself")
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             for name in (skill, prerequisite):
                 if db.execute("SELECT 1 FROM skill_nodes WHERE project=? AND name=?", (self.project, name)).fetchone() is None:
                     raise KeyError(f"unknown skill: {name}")
@@ -119,7 +119,7 @@ class SkillGraph:
 
     def missing_prerequisites(self, skill: str) -> tuple[str, ...]:
         skill = _clean(skill, "skill")
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             if db.execute("SELECT 1 FROM skill_nodes WHERE project=? AND name=?", (self.project, skill)).fetchone() is None:
                 return ()
             rows = db.execute(
@@ -133,12 +133,12 @@ class SkillGraph:
 
     def ready(self, skill: str) -> bool:
         skill = _clean(skill, "skill")
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             row = db.execute("SELECT validated,evidence_ids FROM skill_nodes WHERE project=? AND name=?", (self.project, skill)).fetchone()
         if row is None or not bool(row[0]) or not json.loads(row[1]):
             return False
         for ancestor in self.ancestors(skill):
-            with self.memory._lock, self.memory._connect() as db:
+            with self.memory._lock, self.memory._connection() as db:
                 ancestor_row = db.execute("SELECT validated,evidence_ids FROM skill_nodes WHERE project=? AND name=?", (self.project, ancestor)).fetchone()
             if ancestor_row is None or not bool(ancestor_row[0]) or not json.loads(ancestor_row[1]):
                 return False
@@ -148,7 +148,7 @@ class SkillGraph:
         skill = _clean(skill, "skill")
         if limit < 1:
             return ()
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             edges = db.execute("SELECT skill,prerequisite FROM skill_dependencies WHERE project=?", (self.project,)).fetchall()
         graph: dict[str, set[str]] = {}
         for child, parent in edges:

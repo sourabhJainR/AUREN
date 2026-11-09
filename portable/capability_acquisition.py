@@ -90,7 +90,7 @@ class CapabilityAcquirer:
         self.memory = memory
         self.project = project.strip()
         self.min_missing = min_missing
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS capability_proposals(
                 id TEXT PRIMARY KEY,
                 project TEXT NOT NULL,
@@ -125,7 +125,7 @@ class CapabilityAcquirer:
         payload = f"{self.project}|{need.task_family.strip()}|{need.capability.strip()}|{need.missing_count}|{json.dumps(evidence)}"
         proposal_id = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
         proposal = CapabilityProposal(proposal_id, need.task_family.strip(), need.capability.strip(), need.missing_count, evidence)
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute("INSERT OR IGNORE INTO capability_proposals VALUES(?,?,?,?,?,?,?)",
                        (proposal.id, self.project, proposal.task_family, proposal.capability, proposal.missing_count,
                         json.dumps(proposal.evidence_ids), datetime.now(timezone.utc).isoformat()))
@@ -139,7 +139,7 @@ class CapabilityAcquirer:
         validation_ids = tuple(sorted(set(evidence.evidence_ids)))
         if any(not isinstance(value, str) or not value.strip() for value in validation_ids):
             raise ValueError("validation evidence must contain non-empty ids")
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             row = db.execute("SELECT id,evidence_ids FROM capability_proposals WHERE id=? AND project=?", (proposal_id, self.project)).fetchone()
         if row is None:
             raise KeyError(f"unknown capability proposal: {proposal_id}")
@@ -162,7 +162,7 @@ class CapabilityAcquirer:
             raise TypeError("runner must be callable")
         if max_detail_chars < 1:
             raise ValueError("max_detail_chars must be positive")
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             row = db.execute("SELECT 1 FROM capability_proposals WHERE id=? AND project=?", (proposal_id, self.project)).fetchone()
         if row is None:
             raise KeyError(f"unknown capability proposal: {proposal_id}")
@@ -181,7 +181,7 @@ class CapabilityAcquirer:
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"[:max_detail_chars]
         result = PracticeResult(proposal_id, attempt_id, accepted, tests_passed, safety_reviewed, detail, error)
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute("INSERT INTO capability_practice VALUES(?,?,?,?,?,?,?,?)",
                        (proposal_id, attempt_id, int(accepted), int(tests_passed), int(safety_reviewed), detail,
                         error, datetime.now(timezone.utc).isoformat()))
@@ -191,7 +191,7 @@ class CapabilityAcquirer:
         if not isinstance(proposal_id, str) or not proposal_id.strip():
             raise ValueError("proposal_id is required")
         evidence = tuple(sorted(set(evidence_ids)))
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             proposal = db.execute("SELECT task_family,capability FROM capability_proposals WHERE id=? AND project=?", (proposal_id, self.project)).fetchone()
             if proposal is None:
                 raise KeyError(f"unknown capability proposal: {proposal_id}")
@@ -222,7 +222,7 @@ class CapabilityAcquirer:
         skill_graph.upsert(SkillNode(
             proposal[1], "acquired", frozenset(), frozenset(evidence), frozenset(), frozenset({proposal[0]}), True,
         ))
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute("INSERT OR REPLACE INTO capability_graduations VALUES(?,?,?,?,?)",
                        (proposal_id, proposal[1], json.dumps(evidence), json.dumps(attempt_ids), datetime.now(timezone.utc).isoformat()))
         return GraduationReceipt(proposal_id, True, proposal[1], evidence, attempt_ids, ())

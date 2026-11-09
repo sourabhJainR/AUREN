@@ -47,7 +47,7 @@ class ActiveInformationLoop:
         self.project = project.strip()
         self.planner = planner or InformationPlanner()
         self.max_executions = max_executions
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS active_information_executions(
                 project TEXT NOT NULL, execution_id TEXT NOT NULL, action_id TEXT NOT NULL,
                 uncertainty_before REAL NOT NULL, uncertainty_after REAL NOT NULL,
@@ -57,7 +57,7 @@ class ActiveInformationLoop:
             db.execute("CREATE INDEX IF NOT EXISTS idx_active_information_action ON active_information_executions(project, action_id, created_at)")
 
     def _learned_gain(self, action_id: str) -> float | None:
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             row = db.execute(
                 "SELECT AVG(realized_gain), COUNT(*) FROM active_information_executions WHERE project=? AND action_id=? AND verified=1",
                 (self.project, action_id),
@@ -91,7 +91,7 @@ class ActiveInformationLoop:
             raise ValueError("action_id is required")
         if limit < 1:
             return ()
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             rows = db.execute(
                 "SELECT execution_id,action_id,uncertainty_before,uncertainty_after,expected_gain,realized_gain,evidence_ids,verified,error,created_at "
                 "FROM active_information_executions WHERE project=? AND action_id=? ORDER BY created_at,execution_id LIMIT ?",
@@ -125,7 +125,7 @@ class ActiveInformationLoop:
             verified = bool(evidence)
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"[:512]
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             count = db.execute("SELECT COUNT(*) FROM active_information_executions WHERE project=?", (self.project,)).fetchone()[0]
             if count >= self.max_executions:
                 raise ValueError("active information execution budget exceeded")

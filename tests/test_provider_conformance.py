@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from scripts import provider_conformance
+from portable.remote_model_providers import PROVIDER_SPECS
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,6 +47,91 @@ class ProviderConformanceTests(unittest.TestCase):
                 self.assertTrue(entry.get("mechanisms"))
                 self.assertTrue(entry.get("next_steps"))
                 self.assertFalse(entry.get("live_verified", False))
+
+    def test_mcp_client_json_templates_are_valid_and_contain_no_credentials(self):
+        templates = [
+            "gemini.settings.json.example", "cursor.mcp.json.example",
+            "vscode.mcp.json.example", "cline.mcp.json.example",
+            "roo.mcp.json.example", "zed.settings.json.example",
+        ]
+        base = ROOT / "integrations" / "mcp"
+        for name in templates:
+            with self.subTest(template=name):
+                payload = json.loads((base / name).read_text(encoding="utf-8"))
+                self.assertTrue(payload)
+                self.assertNotIn("Bearer ", json.dumps(payload))
+                self.assertNotIn("api_key", json.dumps(payload).lower())
+        codex = (base / "codex.config.toml.example").read_text(encoding="utf-8")
+        self.assertIn("[mcp_servers.auren]", codex)
+        self.assertIn("https://mcp.example.com/mcp", codex)
+
+    def test_orchestration_frameworks_have_first_party_connection_guides(self):
+        matrix = json.loads(MATRIX.read_text(encoding="utf-8"))
+        integrations = matrix.get("platform_integrations", {})
+        required = {"openai_agents_sdk", "autogen", "pydantic_ai", "langchain_langgraph", "n8n"}
+        self.assertTrue(required.issubset(integrations))
+        for name in required:
+            with self.subTest(framework=name):
+                entry = integrations[name]
+                self.assertEqual("orchestration_framework", entry["kind"])
+                self.assertFalse(entry.get("live_verified", False))
+                self.assertTrue(entry["repository_artifacts"])
+                self.assertTrue(entry["next_steps"])
+        guide = (ROOT / "docs" / "ORCHESTRATOR_INTEGRATIONS.md").read_text(encoding="utf-8")
+        for name in ("OpenAI Agents SDK", "AutoGen", "Pydantic AI", "LangChain and LangGraph", "n8n"):
+            with self.subTest(guide=name):
+                self.assertIn(name, guide)
+
+    def test_machine_provider_catalog_matches_direct_adapter_registry(self):
+        matrix = json.loads(MATRIX.read_text(encoding="utf-8"))
+        adapters = matrix["llm_provider_adapters"]["direct_http_api_adapters"]
+        expected = {
+            "openai_responses", "anthropic_messages", "gemini_openai_compatible",
+            "groq_chat_completions", "xai_responses", "openrouter", "together",
+            "fireworks", "deepseek", "mistral", "cerebras", "perplexity",
+            "custom_openai_compatible",
+        }
+        self.assertTrue(expected.issubset(set(adapters)))
+        self.assertNotIn("no_groq_or_xai_provider_adapter", matrix["remote_mcp"]["known_limits"])
+
+    def test_custom_provider_is_allowlisted_and_documented(self):
+        matrix = json.loads(MATRIX.read_text(encoding="utf-8"))
+        entry = matrix["platform_integrations"]["custom_openai_compatible_api"]
+        self.assertEqual("partial", entry["support"])
+        self.assertFalse(entry.get("live_verified", False))
+        doc = (ROOT / "docs" / "MODEL_PROVIDER_INTEGRATION.md").read_text(encoding="utf-8")
+        self.assertIn("AUREN_CUSTOM_PROVIDER_ALLOWED_HOSTS", doc)
+        self.assertIn("port 443", doc)
+
+    def test_mcp_host_compatibility_docs_cover_major_ide_clients(self):
+        matrix = json.loads(MATRIX.read_text(encoding="utf-8"))
+        integrations = matrix.get("platform_integrations", {})
+        required = {
+            "cline_ide", "roo_code_ide", "continue_ide", "zed_ide",
+            "openhands_local", "windsurf_devin_local", "visual_studio_ide",
+        }
+        self.assertTrue(required.issubset(integrations))
+        doc = (ROOT / "docs" / "MCP_HOST_COMPATIBILITY.md").read_text(encoding="utf-8")
+        for host in ("ChatGPT web", "Codex CLI", "Claude Code", "Gemini CLI",
+                     "Cursor", "Visual Studio", "Cline", "Roo Code", "Continue", "Zed"):
+            with self.subTest(host=host):
+                self.assertIn(host, doc)
+        self.assertIn("live_verified=false", doc)
+        self.assertIn("does not implement the MCP Tasks extension", doc)
+
+    def test_direct_api_provider_catalog_matches_machine_readable_matrix(self):
+        matrix = json.loads(MATRIX.read_text(encoding="utf-8"))
+        integrations = matrix.get("platform_integrations", {})
+        for name, spec in PROVIDER_SPECS.items():
+            key = name + "_api"
+            with self.subTest(provider=name):
+                self.assertIn(key, integrations)
+                entry = integrations[key]
+                self.assertEqual("partial", entry["support"])
+                self.assertFalse(entry.get("live_verified", False))
+                self.assertIn("portable/remote_model_providers.py", entry["repository_artifacts"])
+                self.assertTrue(spec.endpoint.startswith("https://"))
+                self.assertEqual(spec.host, spec.endpoint.split("/")[2])
 
     def test_mcp_setup_docs_point_to_executable_stdio_server(self):
         usage = (ROOT / "docs" / "USAGE_AND_PLATFORM_INTEGRATION.md").read_text(encoding="utf-8")

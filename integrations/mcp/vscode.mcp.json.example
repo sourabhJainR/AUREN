@@ -1,0 +1,8 @@
+{
+  "servers": {
+    "auren": {
+      "type": "http",
+      "url": "https://mcp.example.com/mcp"
+    }
+  }
+}

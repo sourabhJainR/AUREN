@@ -110,7 +110,7 @@ class SkillOptimizer:
         self.min_improvement = float(min_improvement)
         self.metric = metric
         self.mixed_weight = float(mixed_weight)
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS skill_optimization_edits(
                 project TEXT NOT NULL, epoch_id TEXT NOT NULL, target TEXT NOT NULL,
                 op TEXT NOT NULL, content TEXT NOT NULL, anchor TEXT NOT NULL,
@@ -165,7 +165,7 @@ class SkillOptimizer:
                 candidate: SkillScore, accepted: bool, holdout_ids: Sequence[str], evidence_ids: Sequence[str],
                 edits: Iterable[SkillEdit], status: str) -> None:
         now = _utc()
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             for edit in edits:
                 db.execute(
                     "INSERT OR IGNORE INTO skill_optimization_edits VALUES(?,?,?,?,?,?,?,?,?)",
@@ -193,7 +193,7 @@ class SkillOptimizer:
     def rejected(self, *, limit: int = 100) -> tuple[SkillEdit, ...]:
         if limit < 1:
             return ()
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             rows = db.execute(
                 """SELECT op,content,anchor,rationale FROM skill_optimization_edits
                    WHERE project=? AND status='rejected'

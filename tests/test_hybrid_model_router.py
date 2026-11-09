@@ -4,6 +4,7 @@ import unittest
 from threading import Event, Thread
 from portable.hybrid_model_router import HybridModelRouter, TaskRouteRequest
 from portable.runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
+from portable.remote_model_providers import RemoteModelResponse, RemoteProviderError
 
 class Discovery:
     def __init__(self, names):
@@ -23,6 +24,40 @@ class HybridRouterTests(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertEqual([], remote_calls)
         self.assertIn("privacy policy", result.error)
+
+    def test_explicit_provider_order_is_honored_before_local_discovery(self):
+        discovery = Discovery(["qwen2.5-coder:7b"])
+        calls = []
+
+        class SelectedProviderPool:
+            max_attempts = 3
+
+            def max_attempts_for(self, request):
+                self.request = request
+                return len(request.provider_order)
+
+            def __call__(self, request):
+                calls.append(request)
+                return RemoteModelResponse(
+                    provider=request.provider_order[request.provider_attempt],
+                    model="selected-model", content="selected result",
+                    usage={}, request_id=None, finish_reason="stop",
+                    latency_ms=1.0, response_digest="a" * 64,
+                )
+
+        pool = SelectedProviderPool()
+        router = HybridModelRouter(
+            discovery=discovery, remote_executor=pool, resource_reader=lambda: {},
+        )
+        result = router.route(TaskRouteRequest(
+            "public task", "general", privacy="public", max_attempts=3,
+            provider_order=("xai", "groq"),
+        ))
+        self.assertTrue(result.success)
+        self.assertEqual("xai", result.provider)
+        self.assertEqual(0, discovery.calls)
+        self.assertEqual(("xai", "groq"), calls[0].provider_order)
+        self.assertEqual(2, pool.max_attempts_for(pool.request))
 
     def test_public_task_uses_explicit_remote_executor(self):
         router = HybridModelRouter(discovery=Discovery([]),
@@ -169,6 +204,38 @@ class HybridRouterTests(unittest.TestCase):
                 TaskRouteRequest("public summary", "general", privacy="public"),
                 {"_auren_runtime_execution_guard": object()},
             )
+
+    def test_remote_provider_failover_uses_supervisor_attempt_charges_and_returns_provider_identity(self):
+        calls = []
+
+        class ProviderPool:
+            def __call__(self, request):
+                calls.append(request.provider_attempt)
+                if request.provider_attempt == 0:
+                    raise RemoteProviderError("openai", "temporary outage", status=503)
+                return RemoteModelResponse(
+                    provider="groq", model="model-b", content="answer",
+                    usage={"total_tokens": 12}, request_id="req-2",
+                    finish_reason="stop", latency_ms=25.0,
+                    response_digest="d" * 64,
+                )
+
+        guard = RuntimeExecutionGuard(max_steps=4, max_attempts=2)
+        router = HybridModelRouter(
+            discovery=Discovery([]), remote_executor=ProviderPool(), resource_reader=lambda: {},
+        )
+        result = router.route(
+            TaskRouteRequest("public summary", "general", privacy="public", max_attempts=2),
+            execution_guard=guard,
+        )
+        self.assertTrue(result.success)
+        self.assertEqual("groq", result.provider)
+        self.assertEqual("model-b", result.model)
+        self.assertEqual("answer", result.result)
+        self.assertEqual([0, 1], calls)
+        self.assertEqual(2, guard.attempts_used)
+        self.assertEqual(12, result.provider_metadata["usage"]["total_tokens"])
+        self.assertEqual("req-2", result.provider_metadata["request_id"])
 
     def test_attempts_are_clamped_to_three(self):
         calls = []

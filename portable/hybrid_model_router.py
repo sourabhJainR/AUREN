@@ -10,7 +10,7 @@ import math
 import time
 from threading import Event
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping
 from uuid import uuid4
 
@@ -25,6 +25,8 @@ class TaskRouteRequest:
     privacy: str = "private"
     max_attempts: int = 2
     timeout_seconds: float = 30.0
+    provider_attempt: int = 0
+    provider_order: tuple[str, ...] | None = None
 
 @dataclass(frozen=True)
 class RouteResult:
@@ -37,6 +39,7 @@ class RouteResult:
     fallback_reason: str | None
     result: Any = None
     error: str | None = None
+    provider_metadata: Mapping[str, Any] = field(default_factory=dict)
 
 class _GuardPersistenceError(RuntimeError):
     """A shared-budget checkpoint could not be persisted; further dispatch is unsafe."""
@@ -52,6 +55,9 @@ class HybridModelRouter:
             from .muxin_session_adapter import LocalModelDiscovery
             discovery = LocalModelDiscovery()
         self.discovery = discovery
+        if remote_executor is None:
+            from .remote_model_providers import provider_pool_from_environment
+            remote_executor = provider_pool_from_environment()
         self.remote_executor = remote_executor
         self.local_executor = local_executor or self._execute_local
         self.resource_reader = resource_reader or self._resources
@@ -177,6 +183,7 @@ class HybridModelRouter:
                 raise ExecutionBudgetExceeded("supervisor deadline leaves insufficient budget for model routing")
         bounded_request = TaskRouteRequest(
             request.task, request.capability, request.privacy, request.max_attempts, timeout,
+            provider_order=request.provider_order,
         )
         if execution_guard is not None:
             if cancellation is not None and execution_guard.cancellation_event is not cancellation:
@@ -202,8 +209,10 @@ class HybridModelRouter:
     ) -> RouteResult:
         attempts_limit = max(1, min(int(request.max_attempts), 3))
         timeout = max(0.1, min(float(request.timeout_seconds), 120.0))
-        bounded = TaskRouteRequest(request.task, request.capability, request.privacy,
-                                   attempts_limit, timeout)
+        bounded = TaskRouteRequest(
+            request.task, request.capability, request.privacy, attempts_limit, timeout,
+            provider_order=request.provider_order,
+        )
         started = time.monotonic()
         route_deadline = started + timeout
         guard = execution_guard or RuntimeExecutionGuard(
@@ -231,12 +240,18 @@ class HybridModelRouter:
                 {"before": before, "after": self.resource_reader()}, str(exc),
                 error="Execution budget is exhausted or cancelled before model discovery")
         try:
-            local = self.discovery.discover()
-            candidates = self._ranked_candidates(
-                local.get("models") if isinstance(local, Mapping) else None,
-                bounded.capability,
-            )
-            discovery_error = None
+            if bounded.provider_order is not None and bounded.privacy.casefold() in {"public", "non_sensitive"}:
+                # An explicit remote provider order is a user choice, not a hint.
+                local = {"available": False, "models": []}
+                candidates = []
+                discovery_error = None
+            else:
+                local = self.discovery.discover()
+                candidates = self._ranked_candidates(
+                    local.get("models") if isinstance(local, Mapping) else None,
+                    bounded.capability,
+                )
+                discovery_error = None
         except Exception as exc:
             local = {"available": False, "models": []}
             candidates = []
@@ -261,7 +276,8 @@ class HybridModelRouter:
                     persist_guard()
                     last_local_model = model
                     attempt_request = TaskRouteRequest(bounded.task, bounded.capability, bounded.privacy,
-                                                       max(1, attempts_limit - attempts_used + 1), remaining)
+                                                       max(1, attempts_limit - attempts_used + 1), remaining,
+                    provider_order=bounded.provider_order)
                     value = self.local_executor(attempt_request, model)
                     if time.monotonic() >= route_deadline:
                         reason = "overall timeout budget exhausted"
@@ -300,7 +316,14 @@ class HybridModelRouter:
                 {"before": before, "after": self.resource_reader()}, reason,
                 error="No eligible executor configured")
         remote_attempts = 0
-        for _ in range(max(0, attempts_limit - attempts_used)):
+        remote_attempt_limit = max(0, attempts_limit - attempts_used)
+        configured_remote_limit = getattr(self.remote_executor, "max_attempts", None)
+        per_request_limit = getattr(self.remote_executor, "max_attempts_for", None)
+        if callable(per_request_limit):
+            configured_remote_limit = per_request_limit(bounded)
+        if type(configured_remote_limit) is int and configured_remote_limit >= 0:
+            remote_attempt_limit = min(remote_attempt_limit, configured_remote_limit)
+        for _ in range(remote_attempt_limit):
             try:
                 guard.check()
                 remaining = min(timeout - (time.monotonic() - started), route_deadline - time.monotonic())
@@ -313,16 +336,32 @@ class HybridModelRouter:
                 attempts_used += 1
                 remote_attempts += 1
                 persist_guard()
-                attempt_request = TaskRouteRequest(bounded.task, bounded.capability, bounded.privacy,
-                                                   max(1, attempts_limit - attempts_used + 1), remaining)
+                attempt_request = TaskRouteRequest(
+                    bounded.task, bounded.capability, bounded.privacy,
+                    max(1, attempts_limit - attempts_used + 1), remaining,
+                    provider_attempt=remote_attempts - 1,
+                    provider_order=bounded.provider_order,
+                )
                 value = self.remote_executor(attempt_request)
                 if time.monotonic() >= route_deadline:
                     reason = "overall timeout budget exhausted"
                     break
                 guard.check()
-                return RouteResult("remote", None, True, attempts_used,
-                    round((time.monotonic()-started)*1000, 2),
-                    {"before": before, "after": self.resource_reader()}, reason, value)
+                provider_name = getattr(value, "provider", "remote")
+                model_name = getattr(value, "model", None)
+                provider_metadata = {}
+                for key in ("usage", "request_id", "finish_reason", "latency_ms", "response_digest", "tool_calls"):
+                    item = getattr(value, key, None)
+                    if item is not None:
+                        provider_metadata[key] = item
+                result_value = getattr(value, "content", value)
+                return RouteResult(
+                    provider_name if isinstance(provider_name, str) else "remote",
+                    model_name if isinstance(model_name, str) else None,
+                    True, attempts_used, round((time.monotonic()-started)*1000, 2),
+                    {"before": before, "after": self.resource_reader()},
+                    reason, result_value, provider_metadata=provider_metadata,
+                )
             except _GuardPersistenceError as exc:
                 return RouteResult(
                     "remote" if remote_attempts else ("local" if last_local_model else "none"),

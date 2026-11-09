@@ -1,0 +1,7 @@
+{
+  "context_servers": {
+    "auren": {
+      "url": "https://mcp.example.com/mcp"
+    }
+  }
+}

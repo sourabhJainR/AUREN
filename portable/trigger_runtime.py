@@ -6,9 +6,11 @@ crash recovery, kind isolation, priority ordering and durable status metadata.
 """
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import json
+import hashlib
 import sqlite3
 from typing import Any, Callable, Mapping
 import uuid
@@ -91,6 +93,10 @@ class TriggerStatus:
     outcome: Mapping[str, Any] = field(default_factory=dict)
 
 
+class TriggerQueueCapacityError(ValueError):
+    """The durable trigger queue has reached its configured admission limit."""
+
+
 class TriggerRuntime:
     """Persisted event inbox with at-most-one active claim per event."""
 
@@ -118,7 +124,7 @@ class TriggerRuntime:
         return connection
 
     def _initialize(self) -> None:
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute(
                 """CREATE TABLE IF NOT EXISTS trigger_events(
                     event_id TEXT PRIMARY KEY,
@@ -151,6 +157,24 @@ class TriggerRuntime:
                     db.execute(statement)
             db.execute("CREATE INDEX IF NOT EXISTS idx_trigger_due ON trigger_events(status, priority, available_at, event_id)")
             db.execute("CREATE INDEX IF NOT EXISTS idx_trigger_kind_due ON trigger_events(kind, status, priority, available_at, event_id)")
+            db.execute(
+                """CREATE TABLE IF NOT EXISTS trigger_cancel_requests(
+                    event_id TEXT PRIMARY KEY,
+                    requested_at TEXT NOT NULL,
+                    requester_digest TEXT NOT NULL,
+                    reason_digest TEXT NOT NULL,
+                    status_at_request TEXT NOT NULL)"""
+            )
+            db.execute(
+                "CREATE TRIGGER IF NOT EXISTS immutable_trigger_cancel_update "
+                "BEFORE UPDATE ON trigger_cancel_requests BEGIN "
+                "SELECT RAISE(ABORT, 'trigger cancellation records are immutable'); END"
+            )
+            db.execute(
+                "CREATE TRIGGER IF NOT EXISTS immutable_trigger_cancel_delete "
+                "BEFORE DELETE ON trigger_cancel_requests BEGIN "
+                "SELECT RAISE(ABORT, 'trigger cancellation records are immutable'); END"
+            )
 
     @staticmethod
     def _select_sql() -> str:
@@ -168,6 +192,7 @@ class TriggerRuntime:
         max_attempts: int = 3,
         not_before: datetime | None = None,
         priority: int = 1,
+        max_pending_events: int | None = None,
     ) -> TriggerEvent:
         if not isinstance(kind, str) or not kind.strip():
             raise ValueError("event kind is required")
@@ -177,6 +202,10 @@ class TriggerRuntime:
             raise ValueError("max_attempts must be positive")
         if priority not in {0, 1, 2}:
             raise ValueError("priority must be one of: 0, 1, 2")
+        if max_pending_events is not None and (
+            type(max_pending_events) is not int or not 1 <= max_pending_events <= self.max_events
+        ):
+            raise ValueError("max_pending_events must be between 1 and the durable event budget")
         try:
             clean_payload = json.loads(json.dumps(dict(payload), sort_keys=True, separators=(",", ":"), ensure_ascii=True))
         except (TypeError, ValueError) as exc:
@@ -185,7 +214,7 @@ class TriggerRuntime:
         now = _utc()
         available = _aware(not_before) if not_before is not None else now
         payload_json = json.dumps(clean_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(self._select_sql() + " WHERE event_id=?", (event_id,)).fetchone()
             if row:
@@ -197,6 +226,13 @@ class TriggerRuntime:
                 ):
                     raise ValueError("event_id already exists with different content")
                 return existing
+            if max_pending_events is not None:
+                pending = db.execute(
+                    "SELECT COUNT(*) FROM trigger_events WHERE kind=? AND status IN ('pending','claimed','retryable')",
+                    (kind.strip(),),
+                ).fetchone()[0]
+                if pending >= max_pending_events:
+                    raise TriggerQueueCapacityError("trigger queue is at its configured pending-event capacity")
             count = db.execute("SELECT COUNT(*) FROM trigger_events").fetchone()[0]
             if count >= self.max_events:
                 raise ValueError("trigger event budget exceeded")
@@ -229,7 +265,7 @@ class TriggerRuntime:
         if limit < 1:
             return ()
         now = _aware(now) if now is not None else _utc()
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             if kind is None:
                 rows = db.execute(
                     self._select_sql() + " WHERE status='pending' AND available_at<=? ORDER BY priority,available_at,event_id LIMIT ?",
@@ -243,11 +279,128 @@ class TriggerRuntime:
                 ).fetchall()
         return tuple(self._event(row) for row in rows)
 
+    def get_event(self, event_id: str) -> TriggerEvent | None:
+        """Read the durable event envelope for trusted operator authorization checks."""
+        if not isinstance(event_id, str) or not event_id.strip():
+            raise ValueError("event_id is required")
+        with closing(self._connect()) as db, db:
+            row = db.execute(self._select_sql() + " WHERE event_id=?", (event_id.strip(),)).fetchone()
+        return self._event(row) if row else None
+
+    def count_events(
+        self, *, kind: str | None = None,
+        statuses: tuple[str, ...] = ("pending", "claimed", "retryable"),
+    ) -> int:
+        """Return an exact durable count for workspace admission control."""
+        allowed = {"pending", "claimed", "retryable", "success", "failed", "cancelled"}
+        if not statuses or any(status not in allowed for status in statuses):
+            raise ValueError("event statuses are invalid")
+        if kind is not None and (not isinstance(kind, str) or not kind.strip()):
+            raise ValueError("kind must be non-empty text when supplied")
+        placeholders = ",".join("?" for _ in statuses)
+        sql = "SELECT COUNT(*) FROM trigger_events WHERE status IN (" + placeholders + ")"
+        params: tuple[Any, ...] = tuple(statuses)
+        if kind is not None:
+            sql += " AND kind=?"
+            params += (kind.strip(),)
+        with closing(self._connect()) as db, db:
+            row = db.execute(sql, params).fetchone()
+        return int(row[0])
+
+    def list_events(
+        self, *, kind: str | None = None, limit: int = 100,
+    ) -> tuple[TriggerEvent, ...]:
+        """Return a bounded, newest-first event inventory for operator surfaces."""
+        if type(limit) is not int or not 1 <= limit <= 500:
+            raise ValueError("event list limit must be between 1 and 500")
+        if kind is not None and (not isinstance(kind, str) or not kind.strip()):
+            raise ValueError("kind must be non-empty text when supplied")
+        with closing(self._connect()) as db, db:
+            if kind is None:
+                rows = db.execute(
+                    self._select_sql() + " ORDER BY created_at DESC,event_id DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    self._select_sql() + " WHERE kind=? ORDER BY created_at DESC,event_id DESC LIMIT ?",
+                    (kind.strip(), limit),
+                ).fetchall()
+        return tuple(self._event(row) for row in rows)
+
+    def cancel_pending(
+        self, event_id: str, *, reason: str, requester_digest: str = "0" * 64,
+    ) -> bool:
+        """Cancel only an unclaimed event and append an immutable cancellation receipt."""
+        if not isinstance(event_id, str) or not event_id.strip():
+            raise ValueError("event_id is required")
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > 1000:
+            raise ValueError("cancellation reason must be non-empty text of at most 1000 characters")
+        if not isinstance(requester_digest, str) or len(requester_digest) != 64:
+            raise ValueError("requester_digest must be a SHA-256 hex digest")
+        reason_digest = hashlib.sha256(reason.strip().encode("utf-8")).hexdigest()
+        now = _utc().isoformat()
+        with closing(self._connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            current = db.execute(
+                "SELECT status,claim_id FROM trigger_events WHERE event_id=?",
+                (event_id.strip(),),
+            ).fetchone()
+            if not current or current[0] not in {"pending", "retryable"} or current[1] is not None:
+                return False
+            changed = db.execute(
+                "UPDATE trigger_events SET status='cancelled',claim_id=NULL,claimed_at=NULL,"
+                "lease_until=NULL,completed_at=?,last_detail=? "
+                "WHERE event_id=? AND status=? AND claim_id IS NULL",
+                (now, "cancelled by operator; reason_digest=" + reason_digest,
+                 event_id.strip(), current[0]),
+            ).rowcount
+            if changed == 1:
+                db.execute(
+                    "INSERT INTO trigger_cancel_requests VALUES(?,?,?,?,?)",
+                    (event_id.strip(), now, requester_digest, reason_digest, current[0]),
+                )
+        return changed == 1
+
+    def request_cancel_claimed(
+        self, event_id: str, *, reason: str, requester_digest: str,
+    ) -> bool:
+        """Persist an operator cancellation request for a claimed trigger."""
+        if not isinstance(event_id, str) or not event_id.strip():
+            raise ValueError("event_id is required")
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > 1000:
+            raise ValueError("cancellation reason must be non-empty text of at most 1000 characters")
+        if not isinstance(requester_digest, str) or len(requester_digest) != 64:
+            raise ValueError("requester_digest must be a SHA-256 hex digest")
+        now = _utc().isoformat()
+        reason_digest = hashlib.sha256(reason.strip().encode("utf-8")).hexdigest()
+        with closing(self._connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT status FROM trigger_events WHERE event_id=?",
+                (event_id.strip(),),
+            ).fetchone()
+            if not row or row[0] != "claimed":
+                return False
+            db.execute(
+                "INSERT OR IGNORE INTO trigger_cancel_requests VALUES(?,?,?,?,?)",
+                (event_id.strip(), now, requester_digest, reason_digest, "claimed"),
+            )
+        return self.is_cancel_requested(event_id)
+
+    def is_cancel_requested(self, event_id: str) -> bool:
+        with closing(self._connect()) as db, db:
+            row = db.execute(
+                "SELECT 1 FROM trigger_cancel_requests WHERE event_id=?",
+                (event_id,),
+            ).fetchone()
+        return row is not None
+
     def claim(self, event_id: str, *, now: datetime | None = None) -> TriggerClaim | None:
         now = _aware(now) if now is not None else _utc()
         claim_id = uuid.uuid4().hex
         lease_until = now + timedelta(seconds=self.claim_lease_seconds)
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(self._select_sql() + " WHERE event_id=?", (event_id,)).fetchone()
             if not row:
@@ -278,7 +431,7 @@ class TriggerRuntime:
         return TriggerClaim(self._event(claimed), claim_id)
 
     def get(self, event_id: str) -> TriggerStatus | None:
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             row = db.execute(self._select_sql() + " WHERE event_id=?", (event_id,)).fetchone()
         if row is None:
             return None
@@ -313,7 +466,7 @@ class TriggerRuntime:
         now = _aware(now) if now is not None else _utc()
         clean_outcome = _bounded_outcome(outcome)
         outcome_json = json.dumps(clean_outcome, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT attempts,max_attempts,status,claim_id FROM trigger_events WHERE event_id=?", (event_id,)).fetchone()
             if not row or row[2] != "claimed" or row[3] != claim_id:

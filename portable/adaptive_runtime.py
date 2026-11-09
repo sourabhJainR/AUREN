@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import threading
+import weakref
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
@@ -129,6 +130,8 @@ class AdaptiveRuntime:
             # Install inside the composition root before the controller is exposed
             # to graph workers; there is no worker-facing reconfiguration method.
             self.execution_controller._team_budget_enforcer = enforcer
+        self._active_runtime_guards: weakref.WeakValueDictionary[str, RuntimeExecutionGuard] = weakref.WeakValueDictionary()
+        self._active_runtime_guards_lock = threading.RLock()
         self.execution_controller._trusted_plan_dispatch_required = True
         self.trusted_plan_dispatch_root = None
         self._team_persona_dispatch_callbacks: dict[str, Callable[..., Any]] | None = None
@@ -612,6 +615,19 @@ class AdaptiveRuntime:
         """Resume pending/running durable tasks after process or host restart."""
         return self.execution_controller.resume_pending(limit=limit)
 
+    def request_cancel(self, task_id: str, *, reason: str = "operator requested cancellation") -> bool:
+        """Signal the live run guard; completion remains owned by the running supervisor."""
+        if not isinstance(task_id, str) or not task_id.strip():
+            raise ValueError("task_id is required")
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > 500:
+            raise ValueError("cancellation reason must be non-empty text of at most 500 characters")
+        with self._active_runtime_guards_lock:
+            guard = self._active_runtime_guards.get(task_id.strip())
+        if guard is None:
+            return False
+        guard.cancel(reason.strip())
+        return True
+
     def run(self, **kwargs: Any) -> OrchestrationRun:
         """Execute under durable supervision and a bounded, evidence-backed recovery ledger."""
         session_id = str(kwargs["session_id"])
@@ -691,6 +707,8 @@ class AdaptiveRuntime:
                 runtime_guard.cancel("task deadline exceeded before execution")
         # Do not let an external context inject an execution capability or replace
         # the supervisor-owned recovery snapshot.
+        with self._active_runtime_guards_lock:
+            self._active_runtime_guards[task_id] = runtime_guard
         runtime_context = dict(context)
         runtime_context.pop("_auren_runtime_execution_guard", None)
         runtime_context.pop("auren_runtime_guard", None)

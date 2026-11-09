@@ -58,7 +58,7 @@ class ContinualLearningGuard:
             raise ValueError("project is required")
         self.memory = memory
         self.project = project.strip()
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS continual_benchmarks(
                 id TEXT PRIMARY KEY,
                 project TEXT NOT NULL,
@@ -85,7 +85,7 @@ class ContinualLearningGuard:
         payload = f"{self.project}|{observation.suite}|{observation.capability}|{observation.version}|{observation.score}|{observation.sample_count}|{json.dumps(evidence)}"
         row_id = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
         recorded_at = datetime.now(timezone.utc).isoformat()
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             existing = db.execute("SELECT score,sample_count,evidence_ids,verified,approved FROM continual_benchmarks WHERE project=? AND suite=? AND capability=? AND version=?",
                                   (self.project, observation.suite, observation.capability, observation.version)).fetchone()
             incoming = (observation.score, observation.sample_count, json.dumps(evidence), int(observation.verified), int(observation.approved))
@@ -105,7 +105,7 @@ class ContinualLearningGuard:
         if not observation.verified or not observation.evidence_ids or (self.memory.require_approval and not observation.approved):
             return RegressionResult(observation.suite, observation.capability, None, observation.version,
                                     None, observation.score, None, tolerance, False, True)
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             row = db.execute("""SELECT version,score FROM continual_benchmarks
                 WHERE project=? AND suite=? AND capability=?
                 ORDER BY recorded_at DESC, version DESC LIMIT 1""",
@@ -122,7 +122,7 @@ class ContinualLearningGuard:
     def history(self, suite: str, capability: str, *, limit: int = 50) -> tuple[BenchmarkObservation, ...]:
         if limit < 1:
             return ()
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             rows = db.execute("""SELECT suite,capability,version,score,sample_count,evidence_ids,verified,approved
                 FROM continual_benchmarks WHERE project=? AND suite=? AND capability=?
                 ORDER BY recorded_at,version LIMIT ?""", (self.project, suite, capability, limit)).fetchall()

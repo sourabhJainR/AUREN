@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+from contextlib import closing
 import sqlite3
 from typing import Any, Mapping, Sequence
 
@@ -111,7 +112,7 @@ class ContextGraph:
         return connection
 
     def _initialize(self) -> None:
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.executescript(
                 """CREATE TABLE IF NOT EXISTS context_nodes(
                     project TEXT NOT NULL,
@@ -142,7 +143,7 @@ class ContextGraph:
             )
 
     def upsert_node(self, node: ContextNode) -> ContextNode:
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 "SELECT kind,label,source,confidence,properties,created_at FROM context_nodes WHERE project=? AND node_id=?",
@@ -182,7 +183,7 @@ class ContextGraph:
         return ContextNode(node_id, row[0], row[1], row[2], float(row[3]), _properties(row[4]), row[5])
 
     def _get_node_unscoped(self, node_id: str) -> ContextNode | None:
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             row = db.execute(
                 "SELECT kind,label,source,confidence,properties,created_at FROM context_nodes WHERE project=? AND node_id=?",
                 (self.project, node_id),
@@ -227,7 +228,7 @@ class ContextGraph:
             seed = f"{self.project}|{source_id}|{relation}|{target_id}"
             edge_id = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:24]
         edge = ContextEdge(edge_id, source_id, relation, target_id, source, confidence, properties)
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 "SELECT edge_id,source_id,relation,target_id,source,confidence,properties,created_at FROM context_edges WHERE project=? AND source_id=? AND relation=? AND target_id=?",
@@ -272,7 +273,7 @@ class ContextGraph:
             clauses.append(f"({clause})")
         where = " OR ".join(clauses)
         params.append(limit)
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             rows = db.execute(
                 f"SELECT edge_id,source_id,relation,target_id,source,confidence,properties,created_at FROM context_edges WHERE project=? AND ({where}) ORDER BY relation,source_id,target_id,edge_id LIMIT ?",
                 tuple(params),
@@ -308,7 +309,7 @@ class ContextGraph:
         )
 
     def digest(self) -> str:
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             nodes = db.execute("SELECT node_id,kind,label,source,confidence,properties,created_at FROM context_nodes WHERE project=? ORDER BY node_id", (self.project,)).fetchall()
             edges = db.execute("SELECT edge_id,source_id,relation,target_id,source,confidence,properties,created_at FROM context_edges WHERE project=? ORDER BY edge_id", (self.project,)).fetchall()
         payload = {"project": self.project, "nodes": nodes, "edges": edges}

@@ -84,7 +84,7 @@ class ContinuousEngineeringRuntime:
         self.evolution = AutonomousEvolutionController(
             memory, self.project, threshold=evolution_threshold
         )
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute(
                 """CREATE TABLE IF NOT EXISTS engineering_episodes(
                   project TEXT NOT NULL, episode_id TEXT NOT NULL,
@@ -99,7 +99,7 @@ class ContinuousEngineeringRuntime:
             )
 
     def _load(self, episode_id: str) -> EngineeringEpisodeState | None:
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             row = db.execute(
                 """SELECT episode_id,project,task_family,capability,state,iteration,
                    plan_digest,evidence_json,remediation_json,evolution_triggered,
@@ -134,7 +134,7 @@ class ContinuousEngineeringRuntime:
             raise ValueError(f"invalid episode state: {state}")
         evidence = tuple(dict.fromkeys(str(x) for x in evidence_ids if str(x)))
         remediation = tuple(dict.fromkeys(str(x) for x in remediation_ids if str(x)))
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute(
                 """INSERT INTO engineering_episodes
                    (project,episode_id,task_family,capability,state,iteration,plan_digest,

@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
+from contextlib import closing
 import sqlite3
 from typing import Any
 
@@ -82,7 +83,7 @@ class GoalManager:
         self.memory = memory
         self.project = project.strip()
         self.max_goals = max_goals
-        with sqlite3.connect(memory.path, timeout=10) as db:
+        with closing(sqlite3.connect(memory.path, timeout=10)) as db, db:
             db.execute("""CREATE TABLE IF NOT EXISTS goals(
                 project TEXT NOT NULL, goal_id TEXT NOT NULL, title TEXT NOT NULL,
                 description TEXT NOT NULL, parent_id TEXT, priority INTEGER NOT NULL,
@@ -109,7 +110,7 @@ class GoalManager:
         return "goal_id,title,description,parent_id,priority,status,created_at,deadline_at,progress,dependencies,constraints"
 
     def create(self, goal: Goal) -> Goal:
-        with sqlite3.connect(self.memory.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.memory.path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             if goal.parent_id and not db.execute("SELECT 1 FROM goals WHERE project=? AND goal_id=?", (self.project, goal.parent_id)).fetchone():
                 raise KeyError("parent goal does not exist")
@@ -130,14 +131,14 @@ class GoalManager:
         return goal
 
     def get(self, goal_id: str) -> Goal | None:
-        with sqlite3.connect(self.memory.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.memory.path, timeout=10)) as db, db:
             row = db.execute(f"SELECT {self._select()} FROM goals WHERE project=? AND goal_id=?", (self.project, goal_id)).fetchone()
         return self._row(row)
 
     def children(self, parent_id: str | None = None, *, limit: int = 100) -> tuple[Goal, ...]:
         if limit < 1:
             return ()
-        with sqlite3.connect(self.memory.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.memory.path, timeout=10)) as db, db:
             where = "parent_id IS NULL" if parent_id is None else "parent_id=?"
             params: tuple[Any, ...] = (self.project,) if parent_id is None else (self.project, parent_id)
             rows = db.execute(f"SELECT {self._select()} FROM goals WHERE project=? AND {where} ORDER BY priority DESC,goal_id LIMIT ?", params + (limit,)).fetchall()
@@ -153,7 +154,7 @@ class GoalManager:
             raise ValueError("terminal goal cannot be reopened")
         updated = Goal(goal.goal_id, goal.title, goal.description, goal.parent_id, goal.priority, status,
                        goal.created_at, goal.deadline_at, goal.progress, goal.dependencies, goal.constraints)
-        with sqlite3.connect(self.memory.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.memory.path, timeout=10)) as db, db:
             db.execute("UPDATE goals SET status=? WHERE project=? AND goal_id=?", (status, self.project, goal_id))
         return updated
 
@@ -163,7 +164,7 @@ class GoalManager:
             raise KeyError("goal does not exist")
         updated = Goal(goal.goal_id, goal.title, goal.description, goal.parent_id, goal.priority, goal.status,
                        goal.created_at, goal.deadline_at, progress, goal.dependencies, goal.constraints)
-        with sqlite3.connect(self.memory.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.memory.path, timeout=10)) as db, db:
             db.execute("UPDATE goals SET progress=? WHERE project=? AND goal_id=?", (progress, self.project, goal_id))
         return updated
 
@@ -171,7 +172,7 @@ class GoalManager:
         if limit < 1:
             return ()
         current = _timestamp(now) if now else _utc()
-        with sqlite3.connect(self.memory.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.memory.path, timeout=10)) as db, db:
             rows = db.execute(f"SELECT {self._select()} FROM goals WHERE project=? AND status IN ('open','active') ORDER BY priority DESC,goal_id", (self.project,)).fetchall()
             status_rows = db.execute("SELECT goal_id,status FROM goals WHERE project=?", (self.project,)).fetchall()
         statuses = {goal_id: status for goal_id, status in status_rows}

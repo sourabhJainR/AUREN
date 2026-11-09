@@ -1,0 +1,7 @@
+name: AUREN MCP
+version: 1.0.0
+schema: v1
+mcpServers:
+  - name: auren
+    type: streamable-http
+    url: https://mcp.example.com/mcp

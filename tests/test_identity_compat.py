@@ -124,12 +124,14 @@ class IdentityCompatibilityTests(unittest.TestCase):
             with patch.dict(os.environ, {
                 "AUREN_HOME": str(canonical),
                 "AER_HOME": str(legacy),
+                "AUREN_MCP_RUNTIME_FACTORY": "tests.runtime_factory:create_runtime",
+                "AUREN_PROJECT_ROOT": str(root),
             }, clear=True):
-                with patch("portable.chat_capability.AutomationScheduler") as scheduler, patch(
-                    "portable.chat_capability.AdaptiveRuntime"
-                ):
+                with patch("portable.remote_mcp_server._load_runtime", return_value=object()) as load:
                     _default_runtime()
-            scheduler.assert_called_once_with(canonical / "automation" / "automation.db")
+                observed_home = os.environ["AUREN_HOME"]
+            load.assert_called_once_with("tests.runtime_factory:create_runtime", root.resolve())
+            self.assertEqual(str(canonical), observed_home)
 
     def test_canonical_runtime_home_migrates_legacy_orchestration_before_writes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+from contextlib import closing
 import sqlite3
 from typing import Any
 
@@ -97,7 +98,7 @@ class HypothesisEngine:
         return sqlite3.connect(self.memory.path, timeout=10)
 
     def _initialize(self) -> None:
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.executescript(
                 """CREATE TABLE IF NOT EXISTS hypotheses(
                     project TEXT NOT NULL,
@@ -123,7 +124,7 @@ class HypothesisEngine:
             )
 
     def propose(self, hypothesis: Hypothesis) -> Hypothesis:
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 "SELECT question,statement,source,confidence,status,created_at FROM hypotheses WHERE project=? AND hypothesis_id=?",
@@ -142,7 +143,7 @@ class HypothesisEngine:
         return hypothesis
 
     def add_evidence(self, evidence: BeliefEvidence) -> BeliefEvidence:
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             if not db.execute("SELECT 1 FROM hypotheses WHERE project=? AND hypothesis_id=?", (self.project, evidence.hypothesis_id)).fetchone():
                 raise KeyError("hypothesis does not exist")
@@ -162,7 +163,7 @@ class HypothesisEngine:
         return evidence
 
     def assess(self, hypothesis_id: str) -> Hypothesis:
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             row = db.execute("SELECT question,statement,source,confidence,status,created_at FROM hypotheses WHERE project=? AND hypothesis_id=?",
                              (self.project, hypothesis_id)).fetchone()
             if not row:
@@ -179,13 +180,13 @@ class HypothesisEngine:
             confidence = support / total
             status = "supported" if confidence >= 0.8 else "refuted" if confidence <= 0.2 else "inconclusive"
         updated = Hypothesis(hypothesis_id, row[0], row[1], row[2], round(confidence, 6), status, row[5])
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("UPDATE hypotheses SET confidence=?,status=? WHERE project=? AND hypothesis_id=?",
                        (updated.confidence, updated.status, self.project, hypothesis_id))
         return updated
 
     def evidence(self, hypothesis_id: str) -> tuple[BeliefEvidence, ...]:
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             rows = db.execute("SELECT evidence_id,hypothesis_id,supports,detail,source,confidence,observed_at FROM hypothesis_evidence WHERE project=? AND hypothesis_id=? ORDER BY observed_at,evidence_id",
                               (self.project, hypothesis_id)).fetchall()
         return tuple(BeliefEvidence(row[0], row[1], bool(row[2]), row[3], row[4], float(row[5]), row[6]) for row in rows)

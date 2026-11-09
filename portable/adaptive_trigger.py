@@ -105,6 +105,7 @@ class AdaptiveTrigger:
         event_id: str | None = None,
         max_attempts: int = 3,
         fire_and_forget: bool = True,
+        max_pending_events: int | None = None,
     ) -> TriggerReceipt:
         """Persist a chat request and optionally dispatch it without blocking."""
         if not isinstance(task, str) or not task.strip():
@@ -127,6 +128,7 @@ class AdaptiveTrigger:
                 event_id=event_id,
                 max_attempts=max_attempts,
                 priority=_PRIORITY[request.priority],
+                max_pending_events=max_pending_events,
             )
             if fire_and_forget:
                 future = _BACKGROUND_EXECUTOR.submit(self._dispatch_event, event.event_id)
@@ -152,25 +154,38 @@ class AdaptiveTrigger:
         if claim is None:
             return None
         now = datetime.now(timezone.utc)
+        if self.trigger_runtime.is_cancel_requested(event_id):
+            self.trigger_runtime.complete(
+                event_id, claim.claim_id, "cancelled", "cancelled before runtime dispatch",
+                now=now, outcome={"cancelled": True},
+            )
+            return None
         try:
             outcome = self._handle_event(claim.event)
+            metadata = self._result_metadata(outcome.result)
+            result_status = str(metadata.get("result_status", "")).lower()
+            terminal_status = (
+                "cancelled" if result_status in {"cancelled", "canceled", "aborted", "interrupted"}
+                else "success"
+            )
             self.trigger_runtime.complete(
-                event_id,
-                claim.claim_id,
-                "success",
-                now=now,
-                outcome=self._result_metadata(outcome.result),
+                event_id, claim.claim_id, terminal_status,
+                "runtime cancellation confirmed" if terminal_status == "cancelled" else "",
+                now=now, outcome=metadata,
             )
             return outcome
         except Exception as exc:
-            self.trigger_runtime.complete(
-                event_id,
-                claim.claim_id,
-                "retryable",
-                str(exc),
-                now=now,
-                outcome={"error_type": type(exc).__name__},
-            )
+            if self.trigger_runtime.is_cancel_requested(event_id):
+                self.trigger_runtime.complete(
+                    event_id, claim.claim_id, "cancelled",
+                    "runtime stopped after operator cancellation; error_type=" + type(exc).__name__,
+                    now=now, outcome={"cancelled": True, "error_type": type(exc).__name__},
+                )
+            else:
+                self.trigger_runtime.complete(
+                    event_id, claim.claim_id, "retryable", str(exc), now=now,
+                    outcome={"error_type": type(exc).__name__},
+                )
             return None
 
     def _handle_event(self, event: TriggerEvent) -> TriggerOutcome:
@@ -209,6 +224,11 @@ class AdaptiveTrigger:
             futures = tuple(self._futures)
         if wait_for_background and futures:
             wait(futures)
+        with self._lock:
+            self._futures.clear()
+            # Break the runtime/service reference chain after graceful shutdown.
+            # A closed adapter is recreated by for_runtime() if the runtime is reused.
+            self.runner = lambda _request, _trigger_id: None
 
 
 def trigger_adaptive_runtime(

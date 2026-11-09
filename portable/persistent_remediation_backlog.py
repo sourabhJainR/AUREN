@@ -77,7 +77,7 @@ class PersistentRemediationBacklog:
             raise TypeError("memory must be a PersistentMemory instance")
         self.memory = memory
         self.project = _clean(project, "project")
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS remediation_backlog(
                 finding_id TEXT PRIMARY KEY,
                 project TEXT NOT NULL,
@@ -147,7 +147,7 @@ class PersistentRemediationBacklog:
         evidence = tuple(dict.fromkeys(_clean(str(x), "evidence_id") for x in evidence_ids))
         resolution = tuple(dict.fromkeys(_clean(str(x), "resolution_evidence_id") for x in resolution_evidence_ids))
         now = datetime.now(timezone.utc).isoformat()
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             row = db.execute("SELECT first_seen,attempts,status FROM remediation_backlog WHERE finding_id=?", (finding_id,)).fetchone()
             first_seen = str(row[0]) if row else now
             attempts = (int(row[1]) if row else 0) + attempts_increment
@@ -174,7 +174,7 @@ class PersistentRemediationBacklog:
 
     def get(self, finding_id: str) -> PersistentRemediationItem | None:
         finding_id = _clean(finding_id, "finding_id")
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             row = db.execute("SELECT * FROM remediation_backlog WHERE finding_id=? AND project=?", (finding_id,self.project)).fetchone()
         return self._row(row) if row else None
 
@@ -185,7 +185,7 @@ class PersistentRemediationBacklog:
         if task_family: query += " AND task_family=?"; args.append(task_family)
         if capability: query += " AND capability=?"; args.append(capability)
         query += " ORDER BY priority DESC, first_seen ASC, finding_id ASC LIMIT ?"; args.append(limit)
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             rows = db.execute(query, tuple(args)).fetchall()
         return [self._row(row) for row in rows]
 
@@ -204,7 +204,7 @@ class PersistentRemediationBacklog:
         )
 
     def reprioritize(self) -> list[PersistentRemediationItem]:
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             rows = db.execute("SELECT finding_id,severity,attempts,first_seen,status FROM remediation_backlog WHERE project=?", (self.project,)).fetchall()
             for finding_id,severity,attempts,first_seen,status in rows:
                 db.execute("UPDATE remediation_backlog SET priority=? WHERE finding_id=?",

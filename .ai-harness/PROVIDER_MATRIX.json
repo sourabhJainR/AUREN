@@ -135,38 +135,43 @@
       "kind": "hosted_chat",
       "support": "partial",
       "mechanisms": [
-        "ChatGPT custom MCP app",
-        "plugin-distributed Agent Skills"
+        "ChatGPT web hosted MCP plugin",
+        "Remote Streamable HTTP",
+        "OAuth via hosted plugin flow",
+        "Plugin-distributed Agent Skills"
       ],
       "repository_artifacts": [
-        "AGENTS.md"
+        "AGENTS.md",
+        "portable/remote_mcp.py",
+        "portable/remote_mcp_server.py",
+        "docs/REMOTE_MCP_OPERATIONS.md"
       ],
-      "current_gap": "AUREN has no published ChatGPT plugin and no remote Streamable HTTP MCP endpoint. The existing local stdio capability cannot be connected directly to ChatGPT web.",
+      "current_gap": "AUREN's remote MCP service is implemented but not deployed. ChatGPT web connects to remote MCP through an installed MCP-backed plugin; AUREN still needs Plugin Creator/Sites packaging and publication, plus external OAuth and live workspace acceptance.",
       "next_steps": [
-        "Deploy an authenticated remote MCP endpoint or Secure MCP Tunnel bridge.",
-        "Expose narrowly scoped tools with read/write separation and approval metadata.",
-        "Package the AUREN skill and MCP app as a ChatGPT plugin; test on supported workspace plans."
+        "Package and publish AUREN as an MCP-backed ChatGPT plugin using Plugin Creator/Sites.",
+        "Configure the hosted OAuth flow and verify the exact scopes and data handling.",
+        "Install the plugin in eligible workspaces and run live read/write/cancel/evidence acceptance."
       ],
       "live_verified": false
     },
     "chatgpt_desktop_codex": {
-      "kind": "coding_host",
+      "kind": "codex_desktop_host",
       "support": "partial",
       "mechanisms": [
-        "Codex desktop surface",
-        "AGENTS.md",
-        "Agent Skills",
-        "MCP"
+        "Codex app/desktop",
+        "Shared Codex MCP configuration",
+        "Remote Streamable HTTP MCP",
+        "OAuth"
       ],
       "repository_artifacts": [
         "AGENTS.md",
-        ".agents/skills/ai-coding-orchestrator/SKILL.md"
+        ".agents/skills/ai-coding-orchestrator/SKILL.md",
+        "docs/REMOTE_MCP_OPERATIONS.md"
       ],
-      "current_gap": "Repository guidance and skills exist, but no AUREN plugin is published in the ChatGPT/Codex universal directory and no desktop live conformance run is recorded.",
+      "current_gap": "Compatibility alias for ChatGPT desktop/Codex shared MCP configuration. Use chatgpt_desktop and codex_app as canonical entries; live AUREN endpoint acceptance remains open.",
       "next_steps": [
-        "Install the AUREN skill in the supported project or user skill directory.",
-        "Register the AUREN MCP server in Codex settings.",
-        "Package and publish a plugin if ChatGPT Chat/Work distribution is required."
+        "Use ChatGPT desktop Settings → MCP servers or the shared ~/.codex/config.toml.",
+        "Verify OAuth, scope-filtered tool discovery and task lifecycle on each client."
       ],
       "live_verified": false
     },
@@ -177,18 +182,19 @@
         "codex exec",
         "AGENTS.md",
         "Agent Skills",
-        "MCP"
+        "Remote Streamable HTTP MCP"
       ],
       "repository_artifacts": [
         "AGENTS.md",
         ".agents/skills/ai-coding-orchestrator/SKILL.md",
-        ".ai-harness/config.toml"
+        ".ai-harness/config.toml",
+        "docs/REMOTE_MCP_OPERATIONS.md"
       ],
-      "current_gap": "The provider conformance harness supports a read-only CLI probe, but no successful live probe from this audit environment is recorded.",
+      "current_gap": "Remote MCP registration instructions are documented. A successful live connection, OAuth flow and tool acceptance run are not recorded.",
       "next_steps": [
-        "Install Codex CLI and authenticate.",
-        "Run the static provider conformance suite, then the opt-in read-only live probe.",
-        "Verify MCP discovery and exact-head CI behavior in a disposable repository."
+        "Run codex mcp add auren --url https://<host>/mcp and verify with codex mcp list.",
+        "Complete the host's OAuth flow and verify scope-filtered tool discovery.",
+        "Run disposable-repository acceptance for task submit/status/cancel/evidence."
       ],
       "live_verified": false
     },
@@ -199,34 +205,38 @@
         "Codex app / desktop",
         "AGENTS.md",
         "Agent Skills",
-        "MCP"
+        "Remote Streamable HTTP MCP"
       ],
       "repository_artifacts": [
         "AGENTS.md",
-        ".agents/skills/ai-coding-orchestrator/SKILL.md"
+        ".agents/skills/ai-coding-orchestrator/SKILL.md",
+        "docs/REMOTE_MCP_OPERATIONS.md"
       ],
-      "current_gap": "The same repo instructions and skills are available, but app-specific MCP registration and end-to-end behavior are not live tested.",
+      "current_gap": "The shared Codex MCP configuration path is documented, but the app has not been connected to a deployed AUREN endpoint or live-tested.",
       "next_steps": [
-        "Install the AUREN skill in the project or user skill directory.",
-        "Add MCP server through Codex app settings and verify tool discovery.",
-        "Run a read-only repository task followed by a sandboxed change and exact-head verification."
+        "Register AUREN in Codex app MCP settings.",
+        "Verify OAuth, scopes, task acceptance and operator tools.",
+        "Run desktop-specific acceptance for long-running tasks and cancellation."
       ],
       "live_verified": false
     },
     "claude_chat_web": {
       "kind": "hosted_chat",
-      "support": "chat_only",
+      "support": "partial",
       "mechanisms": [
-        "Projects / project instructions",
-        "uploaded repository context",
-        "available remote connectors"
+        "Claude custom remote MCP connectors",
+        "OAuth",
+        "Projects / project instructions"
       ],
-      "repository_artifacts": [],
-      "current_gap": "Claude chat is not Claude Code. It does not inherit local CLAUDE.md, local skills, or local shell access just because the repository contains them.",
+      "repository_artifacts": [
+        "portable/remote_mcp.py",
+        "docs/REMOTE_MCP_OPERATIONS.md"
+      ],
+      "current_gap": "Claude web supports custom remote MCP connectors. AUREN's remote endpoint and OAuth resource-server path are implemented, but the external OAuth authorization server, deployment and Claude live connection are not complete.",
       "next_steps": [
-        "Use Claude Code for repository execution.",
-        "For chat-only use, attach the required artifacts and keep execution in AUREN CLI.",
-        "If remote tool use is enabled, connect a separately deployed authenticated MCP service."
+        "Configure the external OAuth provider for Claude's DCR/OAuth flow and AUREN scopes.",
+        "Add the remote connector in Claude Settings > Connectors.",
+        "Verify per-tool scopes and ensure task execution remains on the AUREN host."
       ],
       "live_verified": false
     },
@@ -238,41 +248,43 @@
         "CLAUDE.md",
         "Claude Agent Skills",
         "plugin",
-        "MCP",
+        "Remote Streamable HTTP MCP",
         "hooks"
       ],
       "repository_artifacts": [
         "CLAUDE.md",
         "skills/ai-coding-orchestrator/SKILL.md",
         ".claude-plugin/plugin.json",
-        ".ai-harness/config.toml"
+        "docs/REMOTE_MCP_OPERATIONS.md"
       ],
-      "current_gap": "Repository integration is present; provider CLI execution and permission-mode compatibility still need live checks against the installed Claude Code version.",
+      "current_gap": "Remote HTTP registration is documented, but OAuth discovery, CLI connection and permission-mode acceptance have not been tested against an installed Claude Code version.",
       "next_steps": [
-        "Install Claude Code and the AUREN plugin or skill.",
-        "Verify /mcp and plugin hook discovery.",
-        "Run the opt-in read-only probe, then a sandboxed disposable-repo acceptance run."
+        "Register with claude mcp add --transport http auren https://<host>/mcp.",
+        "Verify OAuth and /mcp discovery.",
+        "Run read-only and guarded task acceptance with the AUREN host policy."
       ],
       "live_verified": false
     },
     "claude_desktop": {
       "kind": "coding_host",
-      "support": "repository_configured",
+      "support": "partial",
       "mechanisms": [
-        "Claude Desktop Code tab / Claude Code",
-        "plugin",
-        "MCP"
+        "Claude Desktop remote connectors",
+        "Claude Code / Code tab",
+        "Remote Streamable HTTP MCP",
+        "OAuth"
       ],
       "repository_artifacts": [
         "CLAUDE.md",
         "skills/ai-coding-orchestrator/SKILL.md",
-        ".claude-plugin/plugin.json"
+        ".claude-plugin/plugin.json",
+        "docs/REMOTE_MCP_OPERATIONS.md"
       ],
-      "current_gap": "The plugin and skill are packaged, but Desktop-specific plugin installation and the Code tab workflow are not verified here. Ordinary Claude chat remains chat-only.",
+      "current_gap": "Claude Desktop supports remote connectors through Settings > Connectors. AUREN's server is implemented but not deployed or tested. The remote connector submits work to the AUREN host; it does not grant local Desktop filesystem access.",
       "next_steps": [
-        "Use the Code tab / Claude Code experience, not ordinary chat, for repository execution.",
-        "Install the AUREN plugin and confirm MCP server status.",
-        "Run a read-only smoke test and verify the tool cannot bypass AUREN gates."
+        "Add AUREN as a remote connector in Settings > Connectors, not as a local desktop_config.json server.",
+        "Complete OAuth and verify read/write tool scopes.",
+        "Test Claude Code's local Code workflow separately from Desktop chat connectors."
       ],
       "live_verified": false
     },
@@ -283,35 +295,42 @@
         "Claude Code VS Code extension",
         "CLAUDE.md",
         "Agent Skills",
-        "MCP",
-        "hooks"
+        "plugin",
+        "Remote Streamable HTTP MCP"
       ],
       "repository_artifacts": [
         "CLAUDE.md",
         "skills/ai-coding-orchestrator/SKILL.md",
-        ".claude-plugin/plugin.json"
+        ".claude-plugin/plugin.json",
+        "docs/REMOTE_MCP_OPERATIONS.md"
       ],
-      "current_gap": "No automated VS Code extension smoke test or editor-specific setup validation is in CI.",
+      "current_gap": "Remote MCP registration is documented, but no deployed endpoint or VS Code extension live smoke test is recorded.",
       "next_steps": [
-        "Install the official Claude Code VS Code extension.",
-        "Open the AUREN repository as the workspace and verify CLAUDE.md and skill discovery.",
-        "Check MCP status and run a read-only test before enabling write actions."
+        "Register AUREN through Claude Code MCP settings.",
+        "Verify tool discovery, OAuth and permission prompts.",
+        "Test editor changes and remote task handoff separately."
       ],
       "live_verified": false
     },
     "visual_studio_ide": {
-      "kind": "ide_host",
-      "support": "not_native",
+      "kind": "coding_host",
+      "support": "repository_configured",
       "mechanisms": [
-        "external terminal / CLI only"
+        "Visual Studio 2022 17.14+ / 2026",
+        "GitHub Copilot Agent mode",
+        "Remote Streamable HTTP MCP",
+        "OAuth"
       ],
       "repository_artifacts": [
-        "AGENTS.md"
+        "docs/MCP_HOST_COMPATIBILITY.md",
+        "integrations/mcp/visual-studio.mcp.json.example",
+        "portable/remote_mcp.py"
       ],
-      "current_gap": "Do not conflate Microsoft Visual Studio with Visual Studio Code. AUREN has no dedicated Visual Studio extension or integration.",
+      "current_gap": "Visual Studio 2022 17.14+ and Visual Studio 2026 support remote MCP in Copilot Agent mode using .mcp.json or %USERPROFILE%/.mcp.json. AUREN's endpoint is not deployed or live-tested in Visual Studio.",
       "next_steps": [
-        "Use Claude Code in VS Code if that is the intended IDE.",
-        "For Microsoft Visual Studio, invoke a supported CLI or remote MCP host separately and retain AUREN as the authority boundary."
+        "Add the supplied .mcp.json example at solution or user scope.",
+        "Complete OAuth and enable AUREN tools in the Copilot Agent tool picker.",
+        "Run live task submit/status/cancel/approval/evidence acceptance."
       ],
       "live_verified": false
     },
@@ -319,44 +338,46 @@
       "kind": "coding_host",
       "support": "repository_configured",
       "mechanisms": [
-        "gemini -p",
         "GEMINI.md",
         "AGENTS.md",
         "Agent Skills",
-        "MCP",
-        "headless JSONL"
+        "Remote Streamable HTTP MCP",
+        "headless mode"
       ],
       "repository_artifacts": [
         "GEMINI.md",
         "AGENTS.md",
         ".agents/skills/ai-coding-orchestrator/SKILL.md",
-        ".ai-harness/config.toml"
+        "docs/REMOTE_MCP_OPERATIONS.md"
       ],
-      "current_gap": "AUREN documentation pointed the Gemini MCP command at agency_mcp.py, which is a protocol helper rather than the stdio server. The correct stdio entry point is portable/chat_capability.py.",
+      "current_gap": "Gemini CLI supports Streamable HTTP MCP and registration is documented. Google has moved some consumer Gemini CLI/Code Assist tiers to Antigravity; plan-specific availability must be checked. No live AUREN OAuth or Gemini CLI acceptance is recorded.",
       "next_steps": [
-        "Use the corrected portable/chat_capability.py stdio entry point.",
-        "Install/link the AUREN skill and verify /skills list and /mcp list.",
-        "Add Gemini headless JSONL parsing and live conformance to the provider harness."
+        "Use gemini mcp add --transport http auren https://<host>/mcp where Gemini CLI remains available.",
+        "For consumer tiers migrated to Antigravity, use the Antigravity CLI entry and serverUrl configuration.",
+        "Complete OAuth and run task/status/evidence/cancellation acceptance."
       ],
       "live_verified": false
     },
     "gemini_code_assist_vscode": {
-      "kind": "ide_host",
+      "kind": "coding_host",
       "support": "partial",
       "mechanisms": [
-        "GEMINI.md / AGENTS.md where honored",
-        "Gemini CLI IDE companion"
+        "Gemini Code Assist Agent mode",
+        "Gemini CLI MCP integration",
+        "Remote Streamable HTTP MCP",
+        "Gemini settings.json"
       ],
       "repository_artifacts": [
         "GEMINI.md",
         "AGENTS.md",
-        ".agents/skills/ai-coding-orchestrator/SKILL.md"
+        ".agents/skills/ai-coding-orchestrator/SKILL.md",
+        "docs/REMOTE_MCP_OPERATIONS.md"
       ],
-      "current_gap": "Gemini CLI IDE companion and Gemini Code Assist are separate products. No dedicated Code Assist extension package or Code Assist live test is present.",
+      "current_gap": "Gemini Code Assist Agent mode in VS Code can load MCP servers through Gemini settings and the Gemini CLI integration. No AUREN connection or live test exists. Some consumer plans have migrated to Antigravity.",
       "next_steps": [
-        "Use Gemini CLI integration in VS Code for the complete AUREN CLI/MCP path.",
-        "Validate GEMINI.md discovery for the specific Code Assist mode before relying on it.",
-        "Do not assume Gemini CLI skill/MCP configuration transfers to Code Assist."
+        "Add the remote AUREN server to ~/.gemini/settings.json under mcpServers.",
+        "Test the supported Gemini Code Assist Standard/Enterprise agent mode separately from Gemini CLI.",
+        "For migrated consumer plans, use Antigravity CLI or IDE and its serverUrl configuration."
       ],
       "live_verified": false
     },
@@ -365,37 +386,44 @@
       "support": "partial",
       "mechanisms": [
         "AGENTS.md",
-        "Agent Skills",
-        "MCP",
-        "Cursor project rules"
+        ".agents/skills",
+        ".cursor/rules/auren.mdc",
+        "Remote Streamable HTTP MCP",
+        "OAuth or configured headers"
       ],
       "repository_artifacts": [
         "AGENTS.md",
-        ".agents/skills/ai-coding-orchestrator/SKILL.md"
+        ".agents/skills/ai-coding-orchestrator/SKILL.md",
+        ".cursor/rules/auren.mdc",
+        "docs/REMOTE_MCP_OPERATIONS.md"
       ],
-      "current_gap": "Cursor supports AGENTS.md, .agents/skills and MCP, but AUREN has no .cursor/rules policy file, no checked-in Cursor MCP setup, and no Cursor live conformance run.",
+      "current_gap": "A Cursor rule and remote MCP setup example are now present. OAuth configuration, local Agent, Cloud Agent and remote SSH acceptance have not been tested.",
       "next_steps": [
-        "Add a small .cursor/rules/auren.mdc rule that delegates to AGENTS.md and the AUREN skill.",
-        "Provide an opt-in local MCP configuration using portable/chat_capability.py.",
-        "Test local and Cloud Agent skill visibility separately; local user skills are not automatically copied to cloud workers."
+        "Add the endpoint in .cursor/mcp.json or global Cursor MCP settings.",
+        "Complete OAuth and verify tool allowlists/approval prompts.",
+        "Run separate local Agent, Cloud Agent, SSH and self-hosted worker acceptance."
       ],
       "live_verified": false
     },
     "groq_api": {
       "kind": "model_api",
-      "support": "not_wired",
+      "support": "partial",
       "mechanisms": [
-        "OpenAI-compatible API",
-        "Responses / tool calling",
-        "remote MCP"
+        "Groq OpenAI-compatible API",
+        "AUREN supervised provider failover",
+        "Per-request ordered provider selection"
       ],
-      "repository_artifacts": [],
-      "current_gap": "No Groq provider adapter, model catalog, GROQ_API_KEY allowlist, timeout/retry contract, or live model conformance test exists. OpenAI-compatible does not mean every API feature is identical.",
+      "repository_artifacts": [
+        "portable/remote_model_providers.py",
+        "portable/hybrid_model_router.py",
+        "tests/test_remote_model_providers.py"
+      ],
+      "current_gap": "A bounded native adapter is present. Live credential acceptance, current model-ID validation, vendor-specific feature conformance, pricing, latency and outage tests remain outstanding; no provider is marked live verified.",
       "next_steps": [
-        "Add a dedicated API provider adapter using https://api.groq.com/openai/v1.",
-        "Allow only the required secret through the secret broker/environment policy.",
-        "Implement capability/model discovery, structured tool-call normalization, usage/cost capture, retry budgets and unsupported-feature handling.",
-        "Run paired quality, latency, cost and safety tests before enabling routing."
+        "Set the provider API key and an explicit model ID in the deployment secret/environment configuration.",
+        "Select the provider and failover order with AUREN_REMOTE_PROVIDER_ORDER.",
+        "Run the read-only live provider conformance probe with deployment-owned credentials.",
+        "Measure cost, latency, output quality, rate limits and outage behavior before enabling production routing."
       ],
       "live_verified": false
     },
@@ -415,33 +443,37 @@
     },
     "xai_api": {
       "kind": "model_api",
-      "support": "not_wired",
+      "support": "partial",
       "mechanisms": [
-        "OpenAI-compatible Responses API",
-        "remote MCP"
+        "Native xAI Responses API adapter",
+        "AUREN supervised provider failover",
+        "Per-request ordered provider selection"
       ],
-      "repository_artifacts": [],
-      "current_gap": "No xAI API adapter, XAI_API_KEY allowlist, model catalog, response/tool-call normalizer, or live provider test exists.",
+      "repository_artifacts": [
+        "portable/remote_model_providers.py",
+        "portable/hybrid_model_router.py",
+        "tests/test_remote_model_providers.py"
+      ],
+      "current_gap": "A bounded native adapter is present. Live credential acceptance, current model-ID validation, vendor-specific feature conformance, pricing, latency and outage tests remain outstanding; no provider is marked live verified.",
       "next_steps": [
-        "Add a dedicated xAI Responses adapter using https://api.x.ai/v1.",
-        "Implement remote MCP allowlists, approval handling, model capability declarations and cost/usage capture.",
-        "Test API-specific behavior; do not assume OpenAI feature parity or MCP approval parity."
+        "Set the provider API key and an explicit model ID in the deployment secret/environment configuration.",
+        "Select the provider and failover order with AUREN_REMOTE_PROVIDER_ORDER.",
+        "Run the read-only live provider conformance probe with deployment-owned credentials.",
+        "Measure cost, latency, output quality, rate limits and outage behavior before enabling production routing."
       ],
       "live_verified": false
     },
     "grok_build_cli": {
       "kind": "coding_host",
-      "support": "partial",
+      "support": "not_native",
       "mechanisms": [
-        "remote MCP",
-        "Grok Build CLI"
+        "xAI/Grok model APIs are separate from MCP client hosts"
       ],
       "repository_artifacts": [],
-      "current_gap": "No AUREN-specific Grok Build project instructions, skills package or local provider command is present.",
+      "current_gap": "No verified general-purpose Grok Build CLI client integration is established in this audit. xAI API model routing is also not wired in AUREN.",
       "next_steps": [
-        "Connect a deployed remote AUREN MCP endpoint and allow only named tools.",
-        "Add a Grok Build instruction file only after validating its supported project-context contract.",
-        "Keep all high-impact approvals and release authority in AUREN."
+        "Confirm the exact xAI/Grok product and supported MCP client protocol before adding an adapter.",
+        "Keep xAI inference-provider work separate from remote MCP client integration."
       ],
       "live_verified": false
     },
@@ -450,22 +482,795 @@
       "support": "repository_configured",
       "mechanisms": [
         "AGENTS.md",
-        "Copilot instructions",
+        ".github/copilot-instructions.md",
         "Agent Skills",
-        "MCP"
+        "VS Code remote MCP"
       ],
       "repository_artifacts": [
         "AGENTS.md",
         ".github/copilot-instructions.md",
-        ".agents/skills/ai-coding-orchestrator/SKILL.md"
+        ".agents/skills/ai-coding-orchestrator/SKILL.md",
+        "docs/REMOTE_MCP_OPERATIONS.md"
       ],
-      "current_gap": "Instruction artifacts exist, but no Copilot Agent-mode MCP discovery or task acceptance run is part of CI.",
+      "current_gap": "VS Code remote MCP setup is documented. No live Copilot Agent-mode connection to the deployed AUREN service has been recorded.",
       "next_steps": [
-        "Verify .github/copilot-instructions.md and AGENTS.md are loaded in the intended Copilot mode.",
-        "Register the AUREN MCP server using the supported VS Code MCP configuration.",
-        "Run a read-only task and a guarded write task with evidence and CI checks."
+        "Register AUREN in .vscode/mcp.json.",
+        "Enable the server in Copilot Agent mode and verify OAuth/scoped tool discovery.",
+        "Run a disposable-repository task and verify AUREN remains the execution authority."
+      ],
+      "live_verified": false
+    },
+    "claude_visual_studio": {
+      "kind": "coding_host",
+      "support": "not_native",
+      "mechanisms": [
+        "Remote MCP through other MCP-capable Visual Studio agent hosts"
+      ],
+      "repository_artifacts": [
+        "docs/REMOTE_MCP_OPERATIONS.md"
+      ],
+      "current_gap": "There is no verified first-party Claude Code extension for Microsoft Visual Studio. Claude Code CLI, VS Code extension and Claude Desktop remote connectors are separate supported paths. Visual Studio can still use AUREN through its GitHub Copilot MCP host, but that is not Claude Code.",
+      "next_steps": [
+        "Use Claude Code CLI or VS Code extension for Anthropic coding-agent workflows.",
+        "Use Visual Studio Copilot Agent mode if Visual Studio is the required IDE.",
+        "Do not label Visual Studio Copilot MCP as Claude Code integration."
+      ],
+      "live_verified": false
+    },
+    "antigravity_cli": {
+      "kind": "coding_host",
+      "support": "repository_configured",
+      "mechanisms": [
+        "Antigravity CLI",
+        "Remote Streamable HTTP MCP",
+        "OAuth",
+        "AGENTS.md",
+        "Agent Skills"
+      ],
+      "repository_artifacts": [
+        "AGENTS.md",
+        ".agents/skills/ai-coding-orchestrator/SKILL.md",
+        "docs/REMOTE_MCP_OPERATIONS.md"
+      ],
+      "current_gap": "Antigravity CLI remote MCP configuration is documented using serverUrl. AUREN is not yet connected to a live Antigravity CLI instance.",
+      "next_steps": [
+        "Add serverUrl to ~/.gemini/config/mcp_config.json or workspace .agents/mcp_config.json.",
+        "Open /mcp and verify the remote server, OAuth and tool catalog.",
+        "Run a disposable workspace task and verify AUREN status/evidence/cancellation."
+      ],
+      "live_verified": false
+    },
+    "antigravity_ide": {
+      "kind": "coding_host",
+      "support": "repository_configured",
+      "mechanisms": [
+        "Antigravity IDE",
+        "MCP Store / custom mcp_config.json",
+        "Remote Streamable HTTP MCP",
+        "OAuth"
+      ],
+      "repository_artifacts": [
+        "AGENTS.md",
+        ".agents/skills/ai-coding-orchestrator/SKILL.md",
+        "docs/REMOTE_MCP_OPERATIONS.md"
+      ],
+      "current_gap": "Antigravity IDE supports custom remote MCP configuration. No AUREN installation or IDE live acceptance is recorded.",
+      "next_steps": [
+        "Install the AUREN remote server through Antigravity MCP settings or custom mcp_config.json.",
+        "Complete OAuth and inspect the enabled tool list.",
+        "Run a guarded end-to-end task and verify AUREN remains the execution authority."
+      ],
+      "live_verified": false
+    },
+    "chatgpt_desktop": {
+      "kind": "chat_host",
+      "support": "repository_configured",
+      "mechanisms": [
+        "Settings → MCP servers",
+        "Remote Streamable HTTP",
+        "OAuth",
+        "Shared Codex host configuration with Codex CLI and IDE extension"
+      ],
+      "repository_artifacts": [
+        "portable/remote_mcp.py",
+        "docs/REMOTE_MCP_OPERATIONS.md"
+      ],
+      "current_gap": "The ChatGPT desktop app supports MCP server configuration and shares the Codex host configuration. AUREN's endpoint is not deployed or live-tested with the desktop app.",
+      "next_steps": [
+        "Register the AUREN Streamable HTTP endpoint in ChatGPT desktop Settings → MCP servers.",
+        "Complete OAuth, restart the app and verify /mcp tool discovery.",
+        "Run task submit/status/cancel/evidence acceptance and verify tool approvals."
+      ],
+      "live_verified": false
+    },
+    "openai_api": {
+      "kind": "model_api",
+      "support": "partial",
+      "mechanisms": [
+        "Native OpenAI Responses API adapter",
+        "AUREN supervised provider failover",
+        "Per-request ordered provider selection"
+      ],
+      "repository_artifacts": [
+        "portable/remote_model_providers.py",
+        "portable/hybrid_model_router.py",
+        "tests/test_remote_model_providers.py"
+      ],
+      "current_gap": "A bounded native adapter is present. Live credential acceptance, current model-ID validation, vendor-specific feature conformance, pricing, latency and outage tests remain outstanding; no provider is marked live verified.",
+      "next_steps": [
+        "Set the provider API key and an explicit model ID in the deployment secret/environment configuration.",
+        "Select the provider and failover order with AUREN_REMOTE_PROVIDER_ORDER.",
+        "Run the read-only live provider conformance probe with deployment-owned credentials.",
+        "Measure cost, latency, output quality, rate limits and outage behavior before enabling production routing."
+      ],
+      "live_verified": false
+    },
+    "anthropic_api": {
+      "kind": "model_api",
+      "support": "partial",
+      "mechanisms": [
+        "Anthropic Messages API",
+        "AUREN supervised provider failover",
+        "Per-request ordered provider selection"
+      ],
+      "repository_artifacts": [
+        "portable/remote_model_providers.py",
+        "portable/hybrid_model_router.py",
+        "tests/test_remote_model_providers.py"
+      ],
+      "current_gap": "A bounded native adapter is present. Live credential acceptance, current model-ID validation, vendor-specific feature conformance, pricing, latency and outage tests remain outstanding; no provider is marked live verified.",
+      "next_steps": [
+        "Set the provider API key and an explicit model ID in the deployment secret/environment configuration.",
+        "Select the provider and failover order with AUREN_REMOTE_PROVIDER_ORDER.",
+        "Run the read-only live provider conformance probe with deployment-owned credentials.",
+        "Measure cost, latency, output quality, rate limits and outage behavior before enabling production routing."
+      ],
+      "live_verified": false
+    },
+    "gemini_api": {
+      "kind": "model_api",
+      "support": "partial",
+      "mechanisms": [
+        "Gemini OpenAI-compatible API",
+        "AUREN supervised provider failover",
+        "Per-request ordered provider selection"
+      ],
+      "repository_artifacts": [
+        "portable/remote_model_providers.py",
+        "portable/hybrid_model_router.py",
+        "tests/test_remote_model_providers.py"
+      ],
+      "current_gap": "A bounded native adapter is present. Live credential acceptance, current model-ID validation, vendor-specific feature conformance, pricing, latency and outage tests remain outstanding; no provider is marked live verified.",
+      "next_steps": [
+        "Set the provider API key and an explicit model ID in the deployment secret/environment configuration.",
+        "Select the provider and failover order with AUREN_REMOTE_PROVIDER_ORDER.",
+        "Run the read-only live provider conformance probe with deployment-owned credentials.",
+        "Measure cost, latency, output quality, rate limits and outage behavior before enabling production routing."
+      ],
+      "live_verified": false
+    },
+    "openrouter_api": {
+      "kind": "model_api",
+      "support": "partial",
+      "mechanisms": [
+        "OpenRouter Chat Completions API",
+        "AUREN supervised provider failover",
+        "Per-request ordered provider selection"
+      ],
+      "repository_artifacts": [
+        "portable/remote_model_providers.py",
+        "portable/hybrid_model_router.py",
+        "tests/test_remote_model_providers.py"
+      ],
+      "current_gap": "A bounded native adapter is present. Live credential acceptance, current model-ID validation, vendor-specific feature conformance, pricing, latency and outage tests remain outstanding; no provider is marked live verified.",
+      "next_steps": [
+        "Set the provider API key and an explicit model ID in the deployment secret/environment configuration.",
+        "Select the provider and failover order with AUREN_REMOTE_PROVIDER_ORDER.",
+        "Run the read-only live provider conformance probe with deployment-owned credentials.",
+        "Measure cost, latency, output quality, rate limits and outage behavior before enabling production routing."
+      ],
+      "live_verified": false
+    },
+    "together_api": {
+      "kind": "model_api",
+      "support": "partial",
+      "mechanisms": [
+        "Together Chat Completions API",
+        "AUREN supervised provider failover",
+        "Per-request ordered provider selection"
+      ],
+      "repository_artifacts": [
+        "portable/remote_model_providers.py",
+        "portable/hybrid_model_router.py",
+        "tests/test_remote_model_providers.py"
+      ],
+      "current_gap": "A bounded native adapter is present. Live credential acceptance, current model-ID validation, vendor-specific feature conformance, pricing, latency and outage tests remain outstanding; no provider is marked live verified.",
+      "next_steps": [
+        "Set the provider API key and an explicit model ID in the deployment secret/environment configuration.",
+        "Select the provider and failover order with AUREN_REMOTE_PROVIDER_ORDER.",
+        "Run the read-only live provider conformance probe with deployment-owned credentials.",
+        "Measure cost, latency, output quality, rate limits and outage behavior before enabling production routing."
+      ],
+      "live_verified": false
+    },
+    "fireworks_api": {
+      "kind": "model_api",
+      "support": "partial",
+      "mechanisms": [
+        "Fireworks Chat Completions API",
+        "AUREN supervised provider failover",
+        "Per-request ordered provider selection"
+      ],
+      "repository_artifacts": [
+        "portable/remote_model_providers.py",
+        "portable/hybrid_model_router.py",
+        "tests/test_remote_model_providers.py"
+      ],
+      "current_gap": "A bounded native adapter is present. Live credential acceptance, current model-ID validation, vendor-specific feature conformance, pricing, latency and outage tests remain outstanding; no provider is marked live verified.",
+      "next_steps": [
+        "Set the provider API key and an explicit model ID in the deployment secret/environment configuration.",
+        "Select the provider and failover order with AUREN_REMOTE_PROVIDER_ORDER.",
+        "Run the read-only live provider conformance probe with deployment-owned credentials.",
+        "Measure cost, latency, output quality, rate limits and outage behavior before enabling production routing."
+      ],
+      "live_verified": false
+    },
+    "deepseek_api": {
+      "kind": "model_api",
+      "support": "partial",
+      "mechanisms": [
+        "DeepSeek Chat Completions API",
+        "AUREN supervised provider failover",
+        "Per-request ordered provider selection"
+      ],
+      "repository_artifacts": [
+        "portable/remote_model_providers.py",
+        "portable/hybrid_model_router.py",
+        "tests/test_remote_model_providers.py"
+      ],
+      "current_gap": "A bounded native adapter is present. Live credential acceptance, current model-ID validation, vendor-specific feature conformance, pricing, latency and outage tests remain outstanding; no provider is marked live verified.",
+      "next_steps": [
+        "Set the provider API key and an explicit model ID in the deployment secret/environment configuration.",
+        "Select the provider and failover order with AUREN_REMOTE_PROVIDER_ORDER.",
+        "Run the read-only live provider conformance probe with deployment-owned credentials.",
+        "Measure cost, latency, output quality, rate limits and outage behavior before enabling production routing."
+      ],
+      "live_verified": false
+    },
+    "mistral_api": {
+      "kind": "model_api",
+      "support": "partial",
+      "mechanisms": [
+        "Mistral Chat Completions API",
+        "AUREN supervised provider failover",
+        "Per-request ordered provider selection"
+      ],
+      "repository_artifacts": [
+        "portable/remote_model_providers.py",
+        "portable/hybrid_model_router.py",
+        "tests/test_remote_model_providers.py"
+      ],
+      "current_gap": "A bounded native adapter is present. Live credential acceptance, current model-ID validation, vendor-specific feature conformance, pricing, latency and outage tests remain outstanding; no provider is marked live verified.",
+      "next_steps": [
+        "Set the provider API key and an explicit model ID in the deployment secret/environment configuration.",
+        "Select the provider and failover order with AUREN_REMOTE_PROVIDER_ORDER.",
+        "Run the read-only live provider conformance probe with deployment-owned credentials.",
+        "Measure cost, latency, output quality, rate limits and outage behavior before enabling production routing."
+      ],
+      "live_verified": false
+    },
+    "cerebras_api": {
+      "kind": "model_api",
+      "support": "partial",
+      "mechanisms": [
+        "Cerebras Chat Completions API",
+        "AUREN supervised provider failover",
+        "Per-request ordered provider selection"
+      ],
+      "repository_artifacts": [
+        "portable/remote_model_providers.py",
+        "portable/hybrid_model_router.py",
+        "tests/test_remote_model_providers.py"
+      ],
+      "current_gap": "A bounded native adapter is present. Live credential acceptance, current model-ID validation, vendor-specific feature conformance, pricing, latency and outage tests remain outstanding; no provider is marked live verified.",
+      "next_steps": [
+        "Set the provider API key and an explicit model ID in the deployment secret/environment configuration.",
+        "Select the provider and failover order with AUREN_REMOTE_PROVIDER_ORDER.",
+        "Run the read-only live provider conformance probe with deployment-owned credentials.",
+        "Measure cost, latency, output quality, rate limits and outage behavior before enabling production routing."
+      ],
+      "live_verified": false
+    },
+    "perplexity_api": {
+      "kind": "model_api",
+      "support": "partial",
+      "mechanisms": [
+        "Perplexity Chat Completions API",
+        "AUREN supervised provider failover",
+        "Per-request ordered provider selection"
+      ],
+      "repository_artifacts": [
+        "portable/remote_model_providers.py",
+        "portable/hybrid_model_router.py",
+        "tests/test_remote_model_providers.py"
+      ],
+      "current_gap": "A bounded native adapter is present. Live credential acceptance, current model-ID validation, vendor-specific feature conformance, pricing, latency and outage tests remain outstanding; no provider is marked live verified.",
+      "next_steps": [
+        "Set the provider API key and an explicit model ID in the deployment secret/environment configuration.",
+        "Select the provider and failover order with AUREN_REMOTE_PROVIDER_ORDER.",
+        "Run the read-only live provider conformance probe with deployment-owned credentials.",
+        "Measure cost, latency, output quality, rate limits and outage behavior before enabling production routing."
+      ],
+      "live_verified": false
+    },
+    "cline_ide": {
+      "kind": "ide_mcp_host",
+      "support": "partial",
+      "mechanisms": [
+        "Remote Streamable HTTP MCP",
+        "OAuth and per-tool approval"
+      ],
+      "repository_artifacts": [
+        "portable/remote_mcp.py",
+        "docs/MCP_HOST_COMPATIBILITY.md"
+      ],
+      "current_gap": "No AUREN live host acceptance; verify the installed Cline version's OAuth and tool approval behavior.",
+      "next_steps": [
+        "Configure the deployed AUREN MCP endpoint using the current host documentation.",
+        "Verify OAuth, discovered tools, least-privilege approvals, task status and cancellation.",
+        "Record the exact host version and a sanitized acceptance receipt."
+      ],
+      "live_verified": false
+    },
+    "roo_code_ide": {
+      "kind": "ide_mcp_host",
+      "support": "partial",
+      "mechanisms": [
+        "Remote Streamable HTTP MCP",
+        "Project/global MCP configuration"
+      ],
+      "repository_artifacts": [
+        "portable/remote_mcp.py",
+        "docs/MCP_HOST_COMPATIBILITY.md"
+      ],
+      "current_gap": "No AUREN live host acceptance; verify OAuth and tool permissions in the selected workspace.",
+      "next_steps": [
+        "Configure the deployed AUREN MCP endpoint using the current host documentation.",
+        "Verify OAuth, discovered tools, least-privilege approvals, task status and cancellation.",
+        "Record the exact host version and a sanitized acceptance receipt."
+      ],
+      "live_verified": false
+    },
+    "continue_ide": {
+      "kind": "ide_mcp_host",
+      "support": "partial",
+      "mechanisms": [
+        "MCP in Agent mode",
+        "Remote Streamable HTTP MCP"
+      ],
+      "repository_artifacts": [
+        "portable/remote_mcp.py",
+        "docs/MCP_HOST_COMPATIBILITY.md"
+      ],
+      "current_gap": "MCP is available in Agent mode; AUREN OAuth and host-specific setup have not been tested.",
+      "next_steps": [
+        "Configure the deployed AUREN MCP endpoint using the current host documentation.",
+        "Verify OAuth, discovered tools, least-privilege approvals, task status and cancellation.",
+        "Record the exact host version and a sanitized acceptance receipt."
+      ],
+      "live_verified": false
+    },
+    "zed_ide": {
+      "kind": "ide_mcp_host",
+      "support": "partial",
+      "mechanisms": [
+        "Remote MCP servers",
+        "OAuth",
+        "ACP external agents"
+      ],
+      "repository_artifacts": [
+        "portable/remote_mcp.py",
+        "docs/MCP_HOST_COMPATIBILITY.md"
+      ],
+      "current_gap": "Zed Agent can use configured MCP; external agents own their own auth and configuration. No AUREN live acceptance.",
+      "next_steps": [
+        "Configure the deployed AUREN MCP endpoint using the current host documentation.",
+        "Verify OAuth, discovered tools, least-privilege approvals, task status and cancellation.",
+        "Record the exact host version and a sanitized acceptance receipt."
+      ],
+      "live_verified": false
+    },
+    "openhands_local": {
+      "kind": "ide_mcp_host",
+      "support": "partial",
+      "mechanisms": [
+        "Local stdio MCP bridge",
+        "Remote Streamable HTTP MCP"
+      ],
+      "repository_artifacts": [
+        "docs/ORCHESTRATOR_INTEGRATIONS.md",
+        "docs/MCP_HOST_COMPATIBILITY.md"
+      ],
+      "current_gap": "OpenHands local supports SHTTP and stdio, but the documented SHTTP API-key setting has not been verified against AUREN's external OAuth flow. OpenHands Cloud does not expose this local MCP configuration path.",
+      "next_steps": [
+        "Pin OpenHands local release and verify supported OAuth/bearer credential injection.",
+        "Run live AUREN tool discovery and task lifecycle acceptance.",
+        "Keep Cloud support marked unavailable unless its managed MCP path is separately validated."
+      ],
+      "live_verified": false
+    },
+    "windsurf_devin_local": {
+      "kind": "ide_mcp_host",
+      "support": "partial",
+      "mechanisms": [
+        "MCP configuration",
+        "Local/remote agent host"
+      ],
+      "repository_artifacts": [
+        "portable/remote_mcp.py",
+        "docs/MCP_HOST_COMPATIBILITY.md"
+      ],
+      "current_gap": "Product naming and configuration changed across Cascade/Devin Local. Confirm the current client path and run AUREN OAuth acceptance before claiming support.",
+      "next_steps": [
+        "Configure the deployed AUREN MCP endpoint using the current host documentation.",
+        "Verify OAuth, discovered tools, least-privilege approvals, task status and cancellation.",
+        "Record the exact host version and a sanitized acceptance receipt."
+      ],
+      "live_verified": false
+    },
+    "custom_openai_compatible_api": {
+      "kind": "model_api",
+      "support": "partial",
+      "mechanisms": [
+        "Generic OpenAI-compatible Chat Completions adapter",
+        "Explicit HTTPS hostname allowlist",
+        "Supervisor-charged provider failover"
+      ],
+      "repository_artifacts": [
+        "portable/remote_model_providers.py",
+        "portable/hybrid_model_router.py",
+        "tests/test_remote_model_providers.py",
+        "docs/MODEL_PROVIDER_INTEGRATION.md"
+      ],
+      "current_gap": "Custom Chat Completions endpoints are configurable only with an exact hostname allowlist, HTTPS port 443 and an approved endpoint path. Provider-specific features, model IDs, pricing and live acceptance remain unverified.",
+      "next_steps": [
+        "Add the exact provider hostname to AUREN_CUSTOM_PROVIDER_ALLOWED_HOSTS.",
+        "Inject the API key through the deployment secret manager and set a current model ID.",
+        "Run read-only conformance and failover tests against the provider.",
+        "Review retention, data residency, rate limits and pricing before production use."
+      ],
+      "live_verified": false
+    },
+    "openai_agents_sdk": {
+      "kind": "orchestration_framework",
+      "support": "partial",
+      "mechanisms": [
+        "MCPServerStreamableHttp and hosted MCP",
+        "Remote Streamable HTTP MCP",
+        "External OAuth bearer token",
+        "Per-user scopes",
+        "AUREN operator tools"
+      ],
+      "repository_artifacts": [
+        "portable/remote_mcp.py",
+        "portable/remote_mcp_server.py",
+        "docs/ORCHESTRATOR_INTEGRATIONS.md"
+      ],
+      "current_gap": "The connection example is documented, but no live framework instance has connected to a deployed AUREN endpoint. AUREN's external OAuth authorization server and host-specific credential exchange remain deployment responsibilities.",
+      "next_steps": [
+        "Configure the framework's MCP client against the deployed /mcp endpoint.",
+        "Use per-user OAuth credentials and least-privilege scopes.",
+        "Run submit/status/cancel/evidence and approval-boundary acceptance against a disposable project."
+      ],
+      "live_verified": false
+    },
+    "autogen": {
+      "kind": "orchestration_framework",
+      "support": "partial",
+      "mechanisms": [
+        "StreamableHttpServerParams and mcp_server_tools",
+        "Remote Streamable HTTP MCP",
+        "External OAuth bearer token",
+        "Per-user scopes",
+        "AUREN operator tools"
+      ],
+      "repository_artifacts": [
+        "portable/remote_mcp.py",
+        "portable/remote_mcp_server.py",
+        "docs/ORCHESTRATOR_INTEGRATIONS.md"
+      ],
+      "current_gap": "The connection example is documented, but no live framework instance has connected to a deployed AUREN endpoint. AUREN's external OAuth authorization server and host-specific credential exchange remain deployment responsibilities.",
+      "next_steps": [
+        "Configure the framework's MCP client against the deployed /mcp endpoint.",
+        "Use per-user OAuth credentials and least-privilege scopes.",
+        "Run submit/status/cancel/evidence and approval-boundary acceptance against a disposable project."
+      ],
+      "live_verified": false
+    },
+    "pydantic_ai": {
+      "kind": "orchestration_framework",
+      "support": "partial",
+      "mechanisms": [
+        "MCPToolset with per-run auth",
+        "Remote Streamable HTTP MCP",
+        "External OAuth bearer token",
+        "Per-user scopes",
+        "AUREN operator tools"
+      ],
+      "repository_artifacts": [
+        "portable/remote_mcp.py",
+        "portable/remote_mcp_server.py",
+        "docs/ORCHESTRATOR_INTEGRATIONS.md"
+      ],
+      "current_gap": "The connection example is documented, but no live framework instance has connected to a deployed AUREN endpoint. AUREN's external OAuth authorization server and host-specific credential exchange remain deployment responsibilities.",
+      "next_steps": [
+        "Configure the framework's MCP client against the deployed /mcp endpoint.",
+        "Use per-user OAuth credentials and least-privilege scopes.",
+        "Run submit/status/cancel/evidence and approval-boundary acceptance against a disposable project."
+      ],
+      "live_verified": false
+    },
+    "langchain_langgraph": {
+      "kind": "orchestration_framework",
+      "support": "partial",
+      "mechanisms": [
+        "langchain-mcp-adapters",
+        "Remote Streamable HTTP MCP",
+        "External OAuth bearer token",
+        "Per-user scopes",
+        "AUREN operator tools"
+      ],
+      "repository_artifacts": [
+        "portable/remote_mcp.py",
+        "portable/remote_mcp_server.py",
+        "docs/ORCHESTRATOR_INTEGRATIONS.md"
+      ],
+      "current_gap": "The connection example is documented, but no live framework instance has connected to a deployed AUREN endpoint. AUREN's external OAuth authorization server and host-specific credential exchange remain deployment responsibilities.",
+      "next_steps": [
+        "Configure the framework's MCP client against the deployed /mcp endpoint.",
+        "Use per-user OAuth credentials and least-privilege scopes.",
+        "Run submit/status/cancel/evidence and approval-boundary acceptance against a disposable project."
+      ],
+      "live_verified": false
+    },
+    "n8n": {
+      "kind": "orchestration_framework",
+      "support": "partial",
+      "mechanisms": [
+        "MCP Client Tool node",
+        "Remote Streamable HTTP MCP",
+        "External OAuth bearer token",
+        "Per-user scopes",
+        "AUREN operator tools"
+      ],
+      "repository_artifacts": [
+        "portable/remote_mcp.py",
+        "portable/remote_mcp_server.py",
+        "docs/ORCHESTRATOR_INTEGRATIONS.md"
+      ],
+      "current_gap": "The connection example is documented, but no live framework instance has connected to a deployed AUREN endpoint. AUREN's external OAuth authorization server and host-specific credential exchange remain deployment responsibilities.",
+      "next_steps": [
+        "Configure the framework's MCP client against the deployed /mcp endpoint.",
+        "Use per-user OAuth credentials and least-privilege scopes.",
+        "Run submit/status/cancel/evidence and approval-boundary acceptance against a disposable project."
+      ],
+      "live_verified": false
+    },
+    "crewai": {
+      "kind": "orchestration_framework",
+      "support": "partial",
+      "mechanisms": [
+        "CrewAI Agent mcps field",
+        "Remote Streamable HTTP MCP",
+        "Per-agent tool filters"
+      ],
+      "repository_artifacts": [
+        "docs/ORCHESTRATOR_INTEGRATIONS.md",
+        "docs/MCP_HOST_COMPATIBILITY.md"
+      ],
+      "current_gap": "CrewAI's MCP client is documented and a connection example is in the repository. AUREN OAuth, current package-version compatibility and task/approval acceptance have not been live-tested.",
+      "next_steps": [
+        "Pin CrewAI and MCP dependency versions in the consuming application.",
+        "Verify bearer/OAuth header flow and per-agent tool filtering.",
+        "Run live task submit/status/cancel/evidence acceptance."
+      ],
+      "live_verified": false
+    },
+    "dify": {
+      "kind": "orchestration_framework",
+      "support": "not_native",
+      "mechanisms": [
+        "Dify plugin/API extension path; no verified native AUREN MCP client"
+      ],
+      "repository_artifacts": [
+        "docs/ORCHESTRATOR_INTEGRATIONS.md",
+        "docs/MCP_HOST_COMPATIBILITY.md"
+      ],
+      "current_gap": "Dify is plugin/API-first in this integration pass. A native MCP client path and OAuth connector for AUREN are not verified.",
+      "next_steps": [
+        "Build a dedicated Dify plugin that calls a narrow AUREN API facade.",
+        "Use Dify's credential vault, per-user identity and action confirmation.",
+        "Run Marketplace and end-to-end security acceptance before publishing."
+      ],
+      "live_verified": false
+    },
+    "flowise": {
+      "kind": "orchestration_framework",
+      "support": "partial",
+      "mechanisms": [
+        "Flowise Custom MCP client node",
+        "Remote MCP tools in Agentflow"
+      ],
+      "repository_artifacts": [
+        "docs/ORCHESTRATOR_INTEGRATIONS.md",
+        "docs/MCP_HOST_COMPATIBILITY.md"
+      ],
+      "current_gap": "The repository documents the Custom MCP path. Flowise version-specific OAuth, credential vault wiring and AUREN tool approval behavior are not live-tested.",
+      "next_steps": [
+        "Pin Flowise version and configure AUREN as a remote Streamable HTTP MCP server.",
+        "Store OAuth credentials in Flowise credential storage and verify token refresh.",
+        "Run read/write/approval/cancel/evidence acceptance."
+      ],
+      "live_verified": false
+    },
+    "semantic_kernel": {
+      "kind": "orchestration_framework",
+      "support": "partial",
+      "mechanisms": [
+        "Semantic Kernel MCPStreamableHttpPlugin",
+        "Microsoft Agent Framework MCPStreamableHTTPTool",
+        "Remote Streamable HTTP MCP"
+      ],
+      "repository_artifacts": [
+        "docs/ORCHESTRATOR_INTEGRATIONS.md",
+        "docs/MCP_HOST_COMPATIBILITY.md"
+      ],
+      "current_gap": "A connection example is documented, but the Semantic Kernel successor transition, package pins, OAuth and live AUREN task lifecycle have not been validated.",
+      "next_steps": [
+        "Pin the chosen Semantic Kernel or Microsoft Agent Framework package and MCP SDK versions.",
+        "Verify bearer/OAuth header flow and plugin lifecycle.",
+        "Run live tool discovery, task lifecycle and approval acceptance."
+      ],
+      "live_verified": false
+    },
+    "haystack": {
+      "kind": "orchestration_framework",
+      "support": "partial",
+      "mechanisms": [
+        "mcp-haystack MCPTool/MCPToolset",
+        "Remote Streamable HTTP MCP"
+      ],
+      "repository_artifacts": [
+        "docs/ORCHESTRATOR_INTEGRATIONS.md",
+        "docs/MCP_HOST_COMPATIBILITY.md"
+      ],
+      "current_gap": "A connection example is documented. The exact installed mcp-haystack version's OAuth/header support and AUREN task lifecycle are not live-verified.",
+      "next_steps": [
+        "Pin mcp-haystack and mcp SDK versions.",
+        "Verify secure bearer/OAuth header injection without putting credentials in pipeline data.",
+        "Run live tool discovery and task lifecycle acceptance."
+      ],
+      "live_verified": false
+    },
+    "openhands_remote": {
+      "kind": "orchestration_framework",
+      "support": "not_wired",
+      "mechanisms": [
+        "No verified OpenHands Cloud MCP connection path"
+      ],
+      "repository_artifacts": [
+        "docs/ORCHESTRATOR_INTEGRATIONS.md",
+        "docs/MCP_HOST_COMPATIBILITY.md"
+      ],
+      "current_gap": "OpenHands documentation says MCP configuration is local-only and not available on OpenHands Cloud.",
+      "next_steps": [
+        "Revisit only when OpenHands Cloud exposes a supported managed remote MCP client path."
       ],
       "live_verified": false
     }
+  },
+  "remote_mcp": {
+    "status": "implemented_not_deployed",
+    "endpoint": "/mcp",
+    "transport": "stateless_streamable_http_asgi",
+    "protocol_versions": [
+      "2025-11-25",
+      "2025-06-18",
+      "2025-03-26"
+    ],
+    "authentication": "external_oauth_2_1_authorization_server_with_pkce_and_resource_server_token_introspection",
+    "tools": [
+      "auren.get_profile",
+      "auren.service_status",
+      "auren.submit_task",
+      "auren.list_tasks",
+      "auren.get_task",
+      "auren.cancel_task",
+      "auren.get_evidence",
+      "auren.list_approvals",
+      "auren.get_approval",
+      "auren.decide_approval",
+      "auren.resume_provider_task",
+      "auren.pause_admissions",
+      "auren.resume_admissions"
+    ],
+    "protections": [
+      "server-side_tool_schema_validation",
+      "per-tool_oauth_scopes",
+      "host-bound_workspace_root",
+      "persistent_idempotency_via_durable_trigger",
+      "operator_identity_from_validated_token",
+      "approval_authorizer_fail_closed",
+      "origin_and_host_allowlists",
+      "https_required",
+      "body_limits",
+      "sqlite_rate_limit_buckets",
+      "append_only_operator_control_hash_chain",
+      "readiness_probe",
+      "caller_and_issuer_scoped_required_idempotency_keys",
+      "durable_workspace_queue_admission_cap",
+      "bounded_request_and_response_sizes",
+      "cross_instance_persistent_rate_limits",
+      "host_port_allowlists",
+      "credential_like_task_input_rejection",
+      "certificate_bound_access_tokens_rejected_without_mtls_validation",
+      "windows_case_insensitive_workspace_authorization",
+      "atomic_pending_queue_admission"
+    ],
+    "known_limits": [
+      "external_oauth_authorization_server_not_included",
+      "single_host_sqlite_state_only",
+      "no_live_vendor_client_acceptance",
+      "no_sse_or_mcp_session_affinity",
+      "MCP Tasks extension and server-sent event streaming are not implemented; long-running AUREN work uses explicit submit/status/evidence/cancel tools.",
+      "External OAuth provider must support the host-specific client registration and PKCE flow; no authorization server is bundled."
+    ],
+    "live_verified": false,
+    "local_stdio_runtime_factory_required": true
+  },
+  "llm_provider_adapters": {
+    "status": "partial",
+    "provider_fabric_cli": [
+      "claude",
+      "codex",
+      "gemini",
+      "copilot"
+    ],
+    "local_model_route": [
+      "ollama_compatible_loopback"
+    ],
+    "mcp_client_host_independent": true,
+    "direct_http_api_adapters": [
+      "openai_responses",
+      "anthropic_messages",
+      "gemini_openai_compatible",
+      "groq_chat_completions",
+      "xai_responses",
+      "openrouter",
+      "together",
+      "fireworks",
+      "deepseek",
+      "mistral",
+      "cerebras",
+      "perplexity",
+      "custom_openai_compatible"
+    ],
+    "not_wired": [
+      "azure_openai_native_auth_and_deployment_versioning",
+      "aws_bedrock_sigv4",
+      "google_vertex_ai_oauth_service_accounts",
+      "cohere_native_api",
+      "huggingface_native_inference"
+    ],
+    "current_gap": "Direct adapters cover OpenAI Responses, Anthropic Messages, Gemini, Groq, xAI, OpenRouter, Together, Fireworks, DeepSeek, Mistral, Cerebras and Perplexity. Custom OpenAI-compatible HTTPS endpoints are supported with explicit hostname allowlisting. Live vendor credentials, model IDs, pricing, latency, streaming and provider-specific tool/schema behavior are not yet conformance-verified. Azure OpenAI native auth/deployment versioning, AWS Bedrock SigV4, Vertex AI OAuth/service accounts, Cohere native API and Hugging Face native inference require dedicated adapters. The direct adapters are used by HybridModelRouter/dashboard model routing; main graph-team crew adapters still require host-registered provider invokers and per-crew read-only tool scopes. MCP host credentials are not silently imported into AUREN. Provider order is deployment-level environment configuration, not a per-user setting; MCP host model selection remains in the host, and host API credentials are not imported into AUREN.",
+    "next_steps": [
+      "Bridge the direct provider pool into the trusted graph-team crew bootstrap with per-crew privacy policy, provider selection, tool scopes and shared supervisor-budget receipts.",
+      "Run opt-in read-only live canaries for each configured provider and store provider/model/build evidence.",
+      "Add native adapters for Azure OpenAI, AWS Bedrock, Vertex AI, Cohere and Hugging Face where the OpenAI-compatible adapter is insufficient.",
+      "Add streaming, model catalog, price/latency observations and per-provider retention/residency metadata.",
+      "Keep private and restricted task routing local-only and keep every remote provider attempt within the supervisor budget.",
+      "Add tenant-scoped provider credentials and per-user provider preferences with explicit authorization, audit receipts and no secret exposure to task context."
+    ],
+    "live_verified": false
   }
 }

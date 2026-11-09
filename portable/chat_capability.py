@@ -12,10 +12,7 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from portable.adaptive_runtime import AdaptiveRuntime
-from portable.identity_compat import canonical_runtime_home
 from portable.adaptive_trigger import AdaptiveTrigger
-from portable.agent_capabilities import AutomationScheduler
-from portable.orchestration import Graph
 
 
 CAPABILITY_NAME = "adaptive_runtime.trigger"
@@ -65,8 +62,19 @@ def descriptor() -> ChatCapabilityDescriptor:
     return _DESCRIPTOR
 
 
-def invoke(runtime: AdaptiveRuntime, arguments: Mapping[str, Any]):
+def invoke(
+    runtime: AdaptiveRuntime,
+    arguments: Mapping[str, Any],
+    *,
+    allowed_project_root: Path | str | None = None,
+):
     """Validate and durably enqueue one chat-triggered AdaptiveRuntime task."""
+    if not isinstance(runtime, AdaptiveRuntime):
+        raise TypeError("runtime must be a configured AdaptiveRuntime")
+    graph = getattr(getattr(runtime, "orchestrator", None), "graph", None)
+    graph_order = getattr(graph, "order", None)
+    if not callable(graph_order) or not graph_order():
+        raise ValueError("chat capability requires a configured runtime with a non-empty reviewed agent graph")
     if not isinstance(arguments, Mapping):
         raise TypeError("capability arguments must be an object")
     task = arguments.get("task")
@@ -87,9 +95,14 @@ def invoke(runtime: AdaptiveRuntime, arguments: Mapping[str, Any]):
     event_id = arguments.get("event_id")
     if event_id is not None and (not isinstance(event_id, str) or not event_id.strip()):
         raise ValueError("event_id must be a non-empty string when supplied")
+    requested_root = Path(project_root).expanduser().resolve()
+    if allowed_project_root is not None:
+        configured_root = Path(allowed_project_root).expanduser().resolve()
+        if os.path.normcase(os.path.normpath(str(requested_root))) != os.path.normcase(os.path.normpath(str(configured_root))):
+            raise PermissionError("chat capability project_root must match the server-configured workspace")
     receipt = AdaptiveTrigger.for_runtime(runtime).trigger_adaptive_runtime(
         task,
-        project_root,
+        requested_root,
         context,
         priority=priority,
         event_id=event_id,
@@ -100,10 +113,15 @@ def invoke(runtime: AdaptiveRuntime, arguments: Mapping[str, Any]):
 
 
 def _default_runtime() -> AdaptiveRuntime:
-    """Build a process-local runtime using the canonical AUREN automation store."""
-    state = canonical_runtime_home()
-    scheduler = AutomationScheduler(state / "automation" / "automation.db")
-    return AdaptiveRuntime(Graph([]), automation_scheduler=scheduler)
+    """Load only a deployment-owned runtime factory; never start an empty graph."""
+    factory_path = os.environ.get("AUREN_MCP_RUNTIME_FACTORY", "").strip()
+    if not factory_path:
+        raise RuntimeError(
+            "Set AUREN_MCP_RUNTIME_FACTORY to a trusted module:function runtime factory"
+        )
+    project_root = Path(os.environ.get("AUREN_PROJECT_ROOT", Path.cwd())).expanduser().resolve()
+    from portable.remote_mcp_server import _load_runtime
+    return _load_runtime(factory_path, project_root)
 
 
 def _jsonrpc_response(request_id: Any, result: Any) -> dict[str, Any]:
@@ -124,6 +142,7 @@ def _tool_definition() -> dict[str, Any]:
 
 def serve_mcp(runtime: AdaptiveRuntime | None = None) -> int:
     """Serve the capability through a minimal stdio MCP JSON-RPC loop."""
+    project_root = Path(os.environ.get("AUREN_PROJECT_ROOT", Path.cwd())).expanduser().resolve()
     runtime = runtime or _default_runtime()
     for raw in sys.stdin:
         raw = raw.strip()
@@ -150,7 +169,7 @@ def serve_mcp(runtime: AdaptiveRuntime | None = None) -> int:
             elif method == "tools/call":
                 if params.get("name") != "adaptive_runtime_trigger":
                     raise ValueError("unknown tool")
-                result = invoke(runtime, params.get("arguments") or {})
+                result = invoke(runtime, params.get("arguments") or {}, allowed_project_root=project_root)
                 response = _jsonrpc_response(
                     request_id,
                     {"content": [{"type": "text", "text": json.dumps(result, sort_keys=True)}]},
