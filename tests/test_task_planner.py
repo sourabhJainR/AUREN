@@ -49,35 +49,45 @@ class TaskPlannerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "finite JSON-compatible"):
             plan.digest()
 
-    def test_engineering_task_waits_for_evidence_bound_readiness_receipt(self) -> None:
-        from types import SimpleNamespace
+    def _readiness_assessment(self, task_id: str):
+        import tempfile
+        from pathlib import Path
+        from portable.engineering_readiness import EngineeringReadinessGate
+        from portable.progress_journal import ProgressJournal
 
+        axes = {
+            "technology": {"status": "ready", "summary": "Runtime verified.", "evidence_refs": ["runtime:verified"]},
+            "intent": {"status": "ready", "summary": "Acceptance is explicit.", "evidence_refs": ["plan:acceptance"]},
+            "cognitive": {"status": "ready", "summary": "Context is complete.", "evidence_refs": ["context:verified"]},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            gate = EngineeringReadinessGate(ProgressJournal(Path(tmp) / "progress.jsonl"))
+            return gate.assess(
+                task_id=task_id, work_key="work:" + task_id,
+                intent_digest="a" * 64, repository_snapshot_digest="b" * 64,
+                axes=axes, context_plan_digest="c" * 64,
+            )
+
+    def test_engineering_task_waits_for_evidence_bound_readiness_receipt(self) -> None:
         task = Task("implement", "Implement feature", tags=["engineering"])
         plan = TaskPlan([task])
         self.assertEqual([], plan.ready())
-        ready_receipt = {
-            "schema_version": "auren-engineering-readiness-v1",
-            "task_id": "implement",
-            "status": "ready",
-            "assessment_digest": "a" * 64,
-            "envelope_digest": "b" * 64,
-        }
-        plan.bind_engineering_readiness(
-            "implement", SimpleNamespace(to_dict=lambda: ready_receipt),
-        )
+        plan.bind_engineering_readiness("implement", self._readiness_assessment("implement"))
         self.assertEqual(["implement"], [item.id for item in plan.ready()])
+        task.metadata["engineering_readiness"]["assessment_digest"] = "forged"
+        self.assertEqual([], plan.ready())
 
     def test_engineering_task_rejects_receipt_for_another_task(self) -> None:
+        plan = TaskPlan([Task("implement", "Implement feature", tags=["engineering"])])
+        with self.assertRaisesRegex(ValueError, "different task"):
+            plan.bind_engineering_readiness("implement", self._readiness_assessment("different-task"))
+
+    def test_engineering_task_rejects_forged_receipt_object(self) -> None:
         from types import SimpleNamespace
 
         plan = TaskPlan([Task("implement", "Implement feature", tags=["engineering"])])
-        receipt = {
-            "schema_version": "auren-engineering-readiness-v1",
-            "task_id": "different-task", "status": "ready",
-            "assessment_digest": "a" * 64, "envelope_digest": "b" * 64,
-        }
-        with self.assertRaisesRegex(ValueError, "different task"):
-            plan.bind_engineering_readiness("implement", SimpleNamespace(to_dict=lambda: receipt))
+        with self.assertRaisesRegex(TypeError, "supervisor-generated"):
+            plan.bind_engineering_readiness("implement", SimpleNamespace(to_dict=lambda: {}))
 
 
     def test_task_plan_retains_department_owner_and_remediation(self) -> None:
