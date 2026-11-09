@@ -189,6 +189,87 @@ Do not make a workflow report completion from the submit receipt. Poll `auren.ge
 
 Official docs: https://docs.n8n.io/
 
+## CrewAI
+
+CrewAI supports remote Streamable HTTP MCP servers through the `mcps` agent field. Install the MCP support for the installed CrewAI version and pass the AUREN endpoint and a per-user bearer token through the host's secret store:
+
+```python
+import os
+from crewai import Agent
+from crewai.mcp import MCPServerHTTP
+
+operator = Agent(
+    role="AUREN operator",
+    goal="Coordinate governed engineering work and verify its evidence",
+    backstory="AUREN owns task execution, approvals and completion evidence.",
+    mcps=[MCPServerHTTP(
+        url=os.environ["AUREN_MCP_URL"],
+        headers={"Authorization": f"Bearer {os.environ['AUREN_MCP_ACCESS_TOKEN']}"},
+        streamable=True,
+        cache_tools_list=True,
+    )],
+)
+```
+
+Use CrewAI tool filters to expose only the required AUREN tools to each agent. Keep approval for write, cancel, approval-decision and admission-control operations. Do not let a CrewAI task report completion from the submit receipt.
+
+Official reference: https://docs.crewai.com/en/mcp/overview/
+
+## Microsoft Semantic Kernel / Microsoft Agent Framework
+
+Semantic Kernel Python exposes remote Streamable HTTP MCP through `MCPStreamableHttpPlugin`. The Microsoft Agent Framework is the current successor path; check the installed SDK's API before pinning a version.
+
+```python
+import os
+from semantic_kernel.connectors.mcp import MCPStreamableHttpPlugin
+
+async def use_auren(kernel):
+    async with MCPStreamableHttpPlugin(
+        name="AUREN",
+        url=os.environ["AUREN_MCP_URL"],
+        headers={"Authorization": f"Bearer {os.environ['AUREN_MCP_ACCESS_TOKEN']}"},
+        request_timeout=30,
+    ) as plugin:
+        await plugin.connect()
+        kernel.add_plugin(plugin, plugin_name="AUREN")
+        # Invoke only the AUREN tools permitted for this principal.
+```
+
+Keep the MCP plugin lifetime scoped to the user/session and do not share bearer tokens across tenants.
+
+Official references: https://learn.microsoft.com/en-us/semantic-kernel/concepts/plugins/adding-mcp-plugins and https://learn.microsoft.com/en-us/agent-framework/agents/tools/local-mcp-tools
+
+## Haystack
+
+Haystack's `mcp-haystack` integration supports Streamable HTTP through `MCPTool` and `MCPToolset`. Use a per-user MCP connection and expose a filtered tool set. Verify bearer/OAuth header support in the exact installed integration version before treating the connection as production-ready; live AUREN auth acceptance is not recorded.
+
+```python
+from haystack_integrations.tools.mcp import MCPToolset, StreamableHttpServerInfo
+
+auren_tools = MCPToolset(
+    server_info=StreamableHttpServerInfo(url="https://<your-auren-host>/mcp"),
+    tool_names=["auren.service_status", "auren.submit_task", "auren.get_task", "auren.get_evidence"],
+)
+```
+
+Official reference: https://docs.haystack.deepset.ai/docs/mcptool
+
+## Flowise
+
+Flowise provides Custom MCP client nodes for connecting to external MCP servers. In Agentflow, add a Custom MCP node, set the AUREN Streamable HTTP URL, configure the supported authentication credential, and select only the required tools. Keep consequential AUREN tools behind confirmation and do not enable blanket auto-approval. Flowise's OAuth behavior must be verified against the deployed version and the AUREN authorization server.
+
+Official reference: https://docs.flowiseai.com/tutorials/tools-and-mcp
+
+## OpenHands
+
+OpenHands local deployments can connect to remote SHTTP MCP servers through Settings → MCP or the `[mcp]` section of `config.toml`. OpenHands Cloud currently does not expose this local MCP configuration path. The documented SHTTP settings use an API-key field; AUREN's production OAuth flow needs a verified compatible token path, so do not substitute the development-only static bearer mode for production.
+
+Official reference: https://docs.openhands.dev/usage/mcp
+
+## Dify and other plugin-first orchestrators
+
+Dify is plugin/API-first rather than a verified native AUREN Streamable HTTP MCP client in this integration pass. Use a dedicated Dify plugin that calls a narrowly scoped AUREN API facade, or wait for a supported MCP client plugin. Do not pass the raw AUREN operator token into model-visible prompts or untrusted workflow variables. A dedicated Dify plugin, credential vault wiring and end-to-end acceptance remain open.
+
 ## IDE and chat hosts
 
 The same remote endpoint and OAuth registration can be reused by MCP-capable hosts:
@@ -204,7 +285,7 @@ Use the host-specific configuration templates in `integrations/mcp/` and the set
 
 ## Provider choice and multi-provider routing
 
-AUREN's direct inference adapters currently cover OpenAI Responses, Anthropic Messages, Gemini, Groq, xAI, OpenRouter, Together, Fireworks, DeepSeek, Mistral, Cerebras and Perplexity. A custom OpenAI-compatible endpoint can cover gateways and compatible services such as LiteLLM, vLLM, LM Studio or NVIDIA NIM when their endpoint and auth behavior match the adapter contract and the hostname is explicitly allowlisted.
+AUREN's direct inference adapters currently cover OpenAI Responses, Anthropic Messages, Gemini, Groq, xAI, OpenRouter, Together, Fireworks, DeepSeek, Mistral, Cerebras and Perplexity. The host configures the provider pool; `GET /api/providers` exposes only configured provider/model IDs and `POST /api/route` accepts a per-request ordered `provider_order` subset. A custom OpenAI-compatible endpoint can cover gateways and compatible services such as LiteLLM, vLLM, LM Studio or NVIDIA NIM when their endpoint and auth behavior match the adapter contract and the hostname is explicitly allowlisted.
 
 Configure provider priority with `AUREN_REMOTE_PROVIDER_ORDER` and each provider's API key/model through secret injection. Each remote attempt is charged to the supervisor budget. Private and restricted tasks remain local-only. The current adapter slice does not implement streaming, model-catalog discovery, automatic price calculation, arbitrary vendor tool execution, or every vendor-specific auth protocol.
 
