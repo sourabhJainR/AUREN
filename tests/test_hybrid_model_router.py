@@ -4,6 +4,7 @@ import unittest
 from threading import Event, Thread
 from portable.hybrid_model_router import HybridModelRouter, TaskRouteRequest
 from portable.runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
+from portable.remote_model_providers import RemoteModelResponse, RemoteProviderError
 
 class Discovery:
     def __init__(self, names):
@@ -169,6 +170,38 @@ class HybridRouterTests(unittest.TestCase):
                 TaskRouteRequest("public summary", "general", privacy="public"),
                 {"_auren_runtime_execution_guard": object()},
             )
+
+    def test_remote_provider_failover_uses_supervisor_attempt_charges_and_returns_provider_identity(self):
+        calls = []
+
+        class ProviderPool:
+            def __call__(self, request):
+                calls.append(request.provider_attempt)
+                if request.provider_attempt == 0:
+                    raise RemoteProviderError("openai", "temporary outage", status=503)
+                return RemoteModelResponse(
+                    provider="groq", model="model-b", content="answer",
+                    usage={"total_tokens": 12}, request_id="req-2",
+                    finish_reason="stop", latency_ms=25.0,
+                    response_digest="d" * 64,
+                )
+
+        guard = RuntimeExecutionGuard(max_steps=4, max_attempts=2)
+        router = HybridModelRouter(
+            discovery=Discovery([]), remote_executor=ProviderPool(), resource_reader=lambda: {},
+        )
+        result = router.route(
+            TaskRouteRequest("public summary", "general", privacy="public", max_attempts=2),
+            execution_guard=guard,
+        )
+        self.assertTrue(result.success)
+        self.assertEqual("groq", result.provider)
+        self.assertEqual("model-b", result.model)
+        self.assertEqual("answer", result.result)
+        self.assertEqual([0, 1], calls)
+        self.assertEqual(2, guard.attempts_used)
+        self.assertEqual(12, result.provider_metadata["usage"]["total_tokens"])
+        self.assertEqual("req-2", result.provider_metadata["request_id"])
 
     def test_attempts_are_clamped_to_three(self):
         calls = []
