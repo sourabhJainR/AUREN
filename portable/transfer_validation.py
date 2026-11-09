@@ -41,7 +41,7 @@ class TransferValidator:
         self.memory = transfer.memory
         self.project = transfer.target_project
         self.max_validations = max_validations
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS learning_transfer_validations(
                 project TEXT NOT NULL, validation_id TEXT NOT NULL, detail TEXT NOT NULL,
                 source_projects TEXT NOT NULL, similarity REAL NOT NULL, success INTEGER NOT NULL,
@@ -76,7 +76,7 @@ class TransferValidator:
             reasons.append(f"{type(exc).__name__}: {exc}"[:512])
         negative = not success
         now = datetime.now(timezone.utc).isoformat()
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             count = db.execute("SELECT COUNT(*) FROM learning_transfer_validations WHERE project=?", (self.project,)).fetchone()[0]
             if count >= self.max_validations:
                 raise ValueError("transfer validation budget exceeded")
