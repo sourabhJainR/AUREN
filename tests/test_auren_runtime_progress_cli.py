@@ -54,7 +54,6 @@ class ProgressCliTests(unittest.TestCase):
             self.assertEqual(payload["tasks"][0]["lifecycle"]["category"], "stale")
             self.assertTrue(payload["tasks"][0]["lifecycle"]["attention_required"])
             self.assertTrue(payload["tasks"][0]["next_action"])
-            self.assertIn("lifecycle: Stale (stale)", result.stdout) if False else None
 
     def test_missing_task_is_not_reported_as_success(self):
         with tempfile.TemporaryDirectory() as temp:
