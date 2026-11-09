@@ -50,6 +50,11 @@ class EngineeringPlanDispatch:
         self.store = store
         self.controller = controller
         self.recovery_bridge = recovery_bridge
+        from .engineering_readiness import (
+            EngineeringBudgetLedger, EngineeringReadinessGate,
+        )
+        self.readiness_gate = EngineeringReadinessGate(controller.progress_journal)
+        self.budget_ledger = EngineeringBudgetLedger(controller.progress_journal)
         registry = getattr(controller, "_engineering_plan_recovery_bridges", None)
         if registry is None:
             registry = {}
