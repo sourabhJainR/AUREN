@@ -246,7 +246,7 @@ def test_resumed_ci_cannot_override_a_later_failed_verification(tmp_path: Path):
     )
     assert company._state(unit.id)[0] == "failed"
     assert any(
-        event["kind"] == "execution" and "latest passing verification evidence" in event["detail"]
+        event["kind"] == "execution" and "current-iteration passing verification evidence" in event["detail"]
         for event in _events(company, unit.id)
     )
 
