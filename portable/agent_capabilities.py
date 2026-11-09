@@ -15,7 +15,7 @@ import threading
 import unicodedata
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -496,7 +496,7 @@ class Schedule:
 class AutomationScheduler:
     def __init__(self, path: Path | str) -> None:
         self.path = Path(path); self.path.parent.mkdir(parents=True, exist_ok=True); self._lock = threading.RLock()
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             db.execute("PRAGMA journal_mode=WAL")
             db.executescript("""CREATE TABLE IF NOT EXISTS schedules(
               id TEXT PRIMARY KEY,task TEXT NOT NULL,interval_seconds INTEGER NOT NULL,
@@ -509,19 +509,19 @@ class AutomationScheduler:
         if interval_seconds < 1 or max_attempts < 1:
             raise ValueError("interval_seconds and max_attempts must be positive")
         when = start or _utc(); sid = uuid.uuid4().hex; clean = sanitize_untrusted(task)
-        with self._lock, sqlite3.connect(self.path) as db:
+        with self._lock, closing(sqlite3.connect(self.path)) as db, db:
             db.execute("INSERT INTO schedules VALUES(?,?,?,?,?,?,?,NULL)", (sid, clean, interval_seconds, max_attempts, when.isoformat(), 1, 0))
         return Schedule(sid, task, interval_seconds, max_attempts, when.isoformat(), True, 0)
 
     def due(self, now: datetime | None = None) -> list[Schedule]:
         now = now or _utc()
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             rows = db.execute("SELECT id,task,interval_seconds,max_attempts,next_run,enabled,attempts FROM schedules WHERE enabled=1 AND claim IS NULL AND next_run<=? ORDER BY next_run,id", (now.isoformat(),)).fetchall()
         return [Schedule(r[0], r[1], int(r[2]), int(r[3]), r[4], bool(r[5]), int(r[6])) for r in rows]
 
     def claim(self, schedule_id: str, *, now: datetime | None = None) -> str | None:
         now = now or _utc(); claim = uuid.uuid4().hex
-        with self._lock, sqlite3.connect(self.path) as db:
+        with self._lock, closing(sqlite3.connect(self.path)) as db, db:
             row = db.execute("SELECT next_run,enabled,attempts,max_attempts,claim FROM schedules WHERE id=?", (schedule_id,)).fetchone()
             if not row or not row[1] or row[4] or datetime.fromisoformat(row[0]) > now or int(row[2]) >= int(row[3]):
                 return None
@@ -532,7 +532,7 @@ class AutomationScheduler:
         if status not in {"success", "retryable", "failed", "cancelled"}:
             raise ValueError("invalid run status")
         now = now or _utc()
-        with self._lock, sqlite3.connect(self.path) as db:
+        with self._lock, closing(sqlite3.connect(self.path)) as db, db:
             row = db.execute("SELECT interval_seconds,max_attempts,attempts FROM schedules WHERE id=? AND claim=?", (schedule_id, claim)).fetchone()
             if not row:
                 raise KeyError("invalid scheduler claim")
@@ -543,7 +543,7 @@ class AutomationScheduler:
             db.execute("INSERT INTO runs VALUES(?,?,?,?,?,?)", (uuid.uuid4().hex, schedule_id, now.isoformat(), now.isoformat(), status, redact(detail)))
 
     def recent_runs(self, schedule_id: str, limit: int = 20) -> list[dict[str, str | None]]:
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             rows = db.execute("SELECT id,schedule_id,started_at,finished_at,status,detail FROM runs WHERE schedule_id=? ORDER BY finished_at DESC LIMIT ?", (schedule_id, limit)).fetchall()
         return [dict(id=r[0], schedule_id=r[1], started_at=r[2], finished_at=r[3], status=r[4], detail=r[5]) for r in rows]
 
@@ -620,7 +620,7 @@ class CapabilityAuditLedger:
     def __init__(self, path: Path | str) -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(self.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
             db.execute("PRAGMA journal_mode=WAL")
             db.execute("""CREATE TABLE IF NOT EXISTS capability_inventory (
                 snapshot_id TEXT NOT NULL, run_id TEXT NOT NULL, stage TEXT NOT NULL,
@@ -690,7 +690,7 @@ class CapabilityAuditLedger:
             "resources": sorted((item.name, self._digest(desc)) for item, desc in rows),
         }).encode("utf-8")).hexdigest()
         now = _utc().isoformat()
-        with sqlite3.connect(self.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
             db.execute("PRAGMA busy_timeout=10000")
             db.executemany(
                 """INSERT OR IGNORE INTO capability_inventory
@@ -722,7 +722,7 @@ class CapabilityAuditLedger:
         }).encode("utf-8")).hexdigest()
         safe_cost = None if cost is None else max(0.0, min(float(cost), 1000000.0))
         safe_duration = None if duration_seconds is None else max(0.0, min(float(duration_seconds), 31536000.0))
-        with sqlite3.connect(self.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
             db.execute("PRAGMA busy_timeout=10000")
             db.execute(
                 """INSERT INTO capability_decisions
