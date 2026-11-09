@@ -42,6 +42,10 @@ from .agent_execution_guard import (
     validate_agent_assignment_for_dispatch,
 )
 from .agent_org_runtime import load_agent_org_registry
+from .engineering_readiness import (
+    EngineeringBudgetLedger, EngineeringReadinessBlocked,
+    EngineeringReadinessGate, infer_engineering_phase,
+)
 
 Handler = Callable[[Mapping[str, Any]], Any]
 
@@ -2396,6 +2400,38 @@ class ExecutionController:
         else:
             delegation_policy = None
         goal_text = goal or f"execute durable handler: {handler}"
+        if payload_copy.get("engineering_task") is True or payload_copy.get("_auren_engineering_task") is True:
+            if stable_work_key is None:
+                raise ValueError("engineering tasks require a stable work_key for durable readiness and budget records")
+            axes = payload_copy.pop("engineering_readiness", None)
+            payload_copy.pop("_auren_engineering_readiness", None)
+            payload_copy.pop("_auren_engineering_readiness_digest", None)
+            readiness_intent = hashlib.sha256(json.dumps(
+                {"handler": handler, "goal": goal_text, "payload": payload_copy},
+                sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
+            ).encode("utf-8")).hexdigest()
+            repository_identity = _git_repository_identity(self.root)
+            snapshot_digest = (
+                repository_identity[1] if repository_identity is not None
+                else hashlib.sha256(str(self.root).encode("utf-8")).hexdigest()
+            )
+            readiness = EngineeringReadinessGate(self.progress_journal).assess(
+                task_id=stable_work_key, work_key=stable_work_key,
+                intent_digest=readiness_intent,
+                repository_snapshot_digest=snapshot_digest,
+                axes=axes if isinstance(axes, Mapping) else {},
+            )
+            if not readiness.ready:
+                raise EngineeringReadinessBlocked(readiness)
+            payload_copy["_auren_engineering_task"] = True
+            payload_copy["_auren_engineering_readiness"] = readiness.to_dict()
+            payload_copy["_auren_engineering_readiness_digest"] = readiness.assessment_digest
+            payload_copy["_auren_engineering_phase"] = payload_copy.get("engineering_phase") or infer_engineering_phase(handler, goal_text)
+            payload_copy["_auren_engineering_department"] = str(payload_copy.get("department") or "Engineering")
+            payload_copy["_auren_engineering_remediation"] = list(payload_copy.get("remediation_steps", ()))
+            EngineeringBudgetLedger(self.progress_journal).begin(
+                stable_work_key, payload_copy["_auren_engineering_phase"],
+            )
         try:
             payload_json = json.dumps(
                 payload_copy, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
@@ -2808,6 +2844,12 @@ class ExecutionController:
                             deadline.set()
                             cancel.set()
                             return
+                    engineering_deadline = task.payload.get("_auren_engineering_deadline_epoch")
+                    if isinstance(engineering_deadline, (int, float)) and not isinstance(engineering_deadline, bool):
+                        if time.time() >= float(engineering_deadline):
+                            deadline.set()
+                            cancel.set()
+                            return
                     if self._cancellation_requested(task.id):
                         cancel.set()
                         return
@@ -2845,6 +2887,9 @@ class ExecutionController:
             payload["auren_cancel_event"] = cancel
             if task.deadline_at is not None:
                 payload["auren_deadline_epoch"] = datetime.fromisoformat(task.deadline_at).timestamp()
+            if isinstance(task.payload.get("_auren_engineering_deadline_epoch"), (int, float)):
+                payload["auren_engineering_deadline_epoch"] = task.payload["_auren_engineering_deadline_epoch"]
+                payload["auren_engineering_budget_phase"] = task.payload.get("_auren_engineering_budget_phase", "implementation")
             # Revalidate the durable assignment immediately before entering the
             # handler and bind its verified exact-path scope to guarded adapters.
             resource = payload.get("resource", payload.get("resource_id", payload.get("path", "")))
@@ -3629,6 +3674,8 @@ class ExecutionController:
             task.id, "preflight_started", state="running", stage="preflight",
             message="Checking dispatch policy, revision binding, and required evidence.",
         )
+        engineering_budget_receipt = None
+        engineering_budget_ledger = EngineeringBudgetLedger(self.progress_journal)
         try:
             if self._cancellation_requested(task.id):
                 raise TaskCancellationRequested("task cancellation requested before preflight")
@@ -3640,6 +3687,20 @@ class ExecutionController:
                 if deadline.tzinfo is None or datetime.now(timezone.utc) >= deadline.astimezone(timezone.utc):
                     raise TaskDeadlineExceeded("task deadline expired before preflight")
             self.heartbeat(task)
+            if task.payload.get("_auren_engineering_task") is True:
+                readiness = EngineeringReadinessGate(self.progress_journal).verify_payload(task.payload)
+                if not readiness.ready:
+                    raise EngineeringReadinessBlocked(readiness)
+                work_key = task.payload.get("work_key")
+                if not isinstance(work_key, str) or not work_key.strip():
+                    raise ValueError("engineering task lost its stable work_key")
+                phase = str(task.payload.get("_auren_engineering_phase", "implementation"))
+                engineering_budget_receipt = engineering_budget_ledger.begin(work_key, phase)
+                deadlines = [engineering_budget_receipt.cycle_deadline_epoch]
+                if engineering_budget_receipt.phase_deadline_epoch is not None:
+                    deadlines.append(engineering_budget_receipt.phase_deadline_epoch)
+                task.payload["_auren_engineering_deadline_epoch"] = min(deadlines)
+                task.payload["_auren_engineering_budget_phase"] = phase
             self._verify_engineering_plan_dispatch_checkpoint(task)
             self._verify_workflow_profile_binding(task)
             gates_passed, gate_detail, gate_evidence = self._preflight_gates(task)
@@ -3816,6 +3877,15 @@ class ExecutionController:
             raise LeaseLostError("task lease was lost; stale worker cannot finalize task outcome")
         self.company.record(task.work_unit_id, "execution", state, detail, evidence)
         score = self.company.finish(task.work_unit_id, success=success, reason=detail, evidence=evidence)
+        if engineering_budget_receipt is not None:
+            try:
+                engineering_budget_ledger.complete(
+                    engineering_budget_receipt,
+                    outcome="passed" if success else "failed",
+                    evidence_refs=tuple(str(item) for item in evidence if item),
+                )
+            except Exception as exc:
+                self._progress_journal_error = self._progress_journal_error or type(exc).__name__
         self._capture_terminal_event(
             "task_completed" if success else "task_failed",
             task,
