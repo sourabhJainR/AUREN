@@ -6,6 +6,7 @@ records outcomes only; it never grants permissions or execution authority.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextlib import closing
 import sqlite3
 
 from .persistent_memory import PersistentMemory
@@ -35,7 +36,7 @@ class SelfModel:
         self.memory = memory
         self.project = project.strip()
         self.max_outcomes = max_outcomes
-        with sqlite3.connect(memory.path, timeout=10) as db:
+        with closing(sqlite3.connect(memory.path, timeout=10)) as db, db:
             db.execute("""CREATE TABLE IF NOT EXISTS self_model_outcomes(
                 project TEXT NOT NULL, outcome_id TEXT NOT NULL, capability TEXT NOT NULL,
                 success INTEGER NOT NULL, context TEXT, difficulty INTEGER,
@@ -60,7 +61,7 @@ class SelfModel:
         context = self._validate_context(context)
         if difficulty is not None and (not isinstance(difficulty, int) or isinstance(difficulty, bool) or not 0 <= difficulty <= 10):
             raise ValueError("difficulty must be an integer between 0 and 10")
-        with sqlite3.connect(self.memory.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.memory.path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             existing = db.execute("SELECT capability,success,context,difficulty FROM self_model_outcomes WHERE project=? AND outcome_id=?", (self.project, outcome_id)).fetchone()
             expected = (capability, int(success), context, difficulty)
@@ -87,7 +88,7 @@ class SelfModel:
         if difficulty is not None:
             clauses.append("difficulty=?")
             params.append(difficulty)
-        with sqlite3.connect(self.memory.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.memory.path, timeout=10)) as db, db:
             row = db.execute(
                 "SELECT SUM(success),SUM(CASE WHEN success=0 THEN 1 ELSE 0 END),COUNT(*) FROM self_model_outcomes WHERE " + " AND ".join(clauses),
                 tuple(params),
