@@ -197,7 +197,11 @@ class RemoteModelProviderTests(unittest.TestCase):
             calls.append(url)
             return 200, json.dumps({
                 "id": "req-selected",
-                "choices": [{"message": {"content": "selected provider"}, "finish_reason": "stop"}],
+                "status": "completed",
+                "output": [{
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": "selected provider"}],
+                }],
             }).encode()
 
         pool = RemoteProviderPool([
