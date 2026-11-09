@@ -93,7 +93,18 @@ def test_projection_catalog_covers_authoritative_runtime_vocabularies():
     from portable.persistent_remediation_backlog import STATUSES as REMEDIATION_STATUSES
 
     vocabularies = (
-        ("workspace", ("running", "proposal_ready", "adopting", "adopted", "cleaned", "stopped", "cancel_requested", "failed")),
+        ("session", ("running", "waiting", "complete", "blocked", "failed", "cancelled", "stale", "unverified")),
+        ("plan_run", ("planned", "ready", "running", "completed", "failed", "blocked", "cancelled", "unknown")),
+        ("workspace", ("creating", "active", "running", "proposal_ready", "review_pending", "adopting", "adopted", "merged", "completed", "cleaned", "unknown", "stopped", "cancel_requested", "failed", "creation_failed", "blocked", "stale", "cancelled", "closed")),
+        ("side_effect", ("executing", "completed", "reconcile_required", "retry_authorized")),
+        ("provider_operation", ("dispatching", "completed", "reconcile_required", "blocked")),
+        ("agent_turn", ("idle", "planning", "acting", "observing", "verifying", "deciding", "repairing", "completed", "stopped", "failed")),
+        ("goal", ("open", "active", "blocked", "completed", "abandoned")),
+        ("experiment", ("queued", "assigned", "observed", "attributed")),
+        ("transfer_learning", ("promoted", "rolled_back")),
+        ("crew_handoff", ("queued", "claimed", "completed", "rejected")),
+        ("cognitive_phase", ("observe", "evaluate", "learn", "complete")),
+        ("legacy_task", ("pending", "in-progress", "blocked", "done", "cancelled")),
         ("learning_hypothesis", HYPOTHESIS_STATES),
         ("agency_execution", tuple(item.value for item in ExecutionState)),
         ("approval", APPROVAL_STATES),
@@ -111,7 +122,7 @@ def test_projection_catalog_covers_authoritative_runtime_vocabularies():
             "waiting_quota", "blocked_quota", "blocked_reconciliation", "blocked",
             "recovering", "completed", "failed", "cancelled",
         )),
-        ("trigger_task", ("pending", "claimed", "dispatched", "success", "complete", "completed", "failed", "cancelled")),
+        ("trigger_task", ("pending", "claimed", "dispatched", "retryable", "success", "complete", "completed", "failed", "cancelled")),
         ("workspace_adoption", ("applying", "completed", "failed")),
         ("ci_poll", (
             "pending", "running", "waiting_for_required_checks", "waiting_for_main_head",
