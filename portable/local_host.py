@@ -43,8 +43,10 @@ def ensure_local_observability_store() -> Path:
     if path.is_symlink():
         raise RuntimeError("local observability trace journal must not be a symlink")
     if path.exists():
-        if not path.is_file():
-            raise RuntimeError("local observability trace journal must be a regular file")
+        if not path.is_file() or path.is_symlink():
+            raise RuntimeError("local observability trace journal must be a regular non-symlink file")
+        if os.name != "nt":
+            path.chmod(0o600)
         return path
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     if hasattr(os, "O_NOFOLLOW"):
@@ -65,16 +67,27 @@ def local_token_path() -> Path:
 
 
 def _read_token_file(path: Path) -> str:
-    if path.is_symlink() or not path.is_file():
+    if path.is_symlink():
         raise RuntimeError("local MCP token path must be a regular, non-symlink file")
-    metadata = path.stat()
-    if os.name != "nt" and stat.S_IMODE(metadata.st_mode) & 0o077:
-        raise PermissionError("local MCP token file is readable by group or others; set permissions to 600")
-    token = path.read_text(encoding="utf-8").strip()
-    if len(token) < 32 or "\n" in token or "\r" in token:
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        if exc.errno in {getattr(os, "ELOOP", 40), getattr(os, "EMLINK", 31)}:
+            raise RuntimeError("local MCP token path must be a regular, non-symlink file") from exc
+        raise
+    with os.fdopen(descriptor, "r", encoding="utf-8") as stream:
+        metadata = os.fstat(stream.fileno())
+        if not stat.S_ISREG(metadata.st_mode):
+            raise RuntimeError("local MCP token path must be a regular, non-symlink file")
+        if os.name != "nt" and stat.S_IMODE(metadata.st_mode) & 0o077:
+            raise PermissionError("local MCP token file is readable by group or others; set permissions to 600")
+        token = stream.read(4097).strip()
+    if len(token) < 32 or len(token) > 4096 or "\n" in token or "\r" in token:
         raise RuntimeError("local MCP token file is malformed; remove it and restart the local host to rotate it")
     return token
-
 
 def load_or_create_local_token(path: Path | None = None) -> tuple[str, Path]:
     """Load a stable local credential or create it with owner-only permissions."""
@@ -336,7 +349,7 @@ def serve_local(
         if dashboard_thread is not None:
             dashboard_thread.join(timeout=5)
         if mcp_thread is not None:
-            mcp_thread.join(timeout=8)
+            mcp_thread.join(timeout=12)
         if dashboard is not None:
             dashboard.server_close()
         if mcp_socket is not None:
