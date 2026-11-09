@@ -32,6 +32,7 @@ class MCPHostAcceptanceContractTests(unittest.TestCase):
             with self.subTest(host=name):
                 host = self.hosts[name]
                 self.assertIn(host["support"], {"repository_configured", "partial"})
+                self.assertIn("live_verified", host)
                 self.assertIs(host["live_verified"], False)
                 self.assertTrue(host.get("current_gap"))
                 self.assertTrue(host.get("next_steps"))
