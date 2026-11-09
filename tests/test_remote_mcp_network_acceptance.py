@@ -45,7 +45,10 @@ class RemoteMCPNetworkAcceptanceTests(unittest.TestCase):
         )
 
         repository_root = Path(__file__).resolve().parents[1]
-        environment = os.environ.copy()
+        environment = {
+            key: value for key, value in os.environ.items()
+            if not key.startswith("AUREN_MCP_") and key != "AUREN_PROJECT_ROOT"
+        }
         environment.update({
             "PYTHONPATH": os.pathsep.join(
                 value for value in (str(self.root), str(repository_root), environment.get("PYTHONPATH", ""))
