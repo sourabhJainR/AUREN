@@ -493,6 +493,31 @@ def test_session_status_projection_marks_derived_state_source(tmp_path):
     assert row["status_source"] == "checkpoint_stage_error_and_heartbeat_projection"
 
 
+def test_session_error_without_explicit_error_stage_is_unverified(tmp_path):
+    project_key = SessionStore.project_key(tmp_path)
+    cases = (
+        ("unknown-error", "future-stage", "provider failed", "unverified"),
+        ("active-error", "running", "provider failed", "unverified"),
+        ("completed-error", "completed", "late conflicting error", "unverified"),
+        ("explicit-block", "blocked", "approval required", "blocked"),
+        ("explicit-failure", "failed", "provider failed", "failed"),
+    )
+    for session_id, stage, error, expected in cases:
+        checkpoint = SessionCheckpoint(
+            session_id=session_id,
+            task_id=f"task-{session_id}",
+            project_key=project_key,
+            stage=stage,
+            last_error=error,
+            project_root=str(tmp_path),
+        )
+        row = MuxinSessionAdapter._session_record(checkpoint)
+        assert row["status"] == expected
+        if expected == "unverified":
+            assert row["lifecycle"]["category"] == "unknown"
+            assert row["lifecycle"]["attention_required"] is True
+
+
 class TestLegacyProgressLifecycleFallback(unittest.TestCase):
     def test_adds_read_only_lifecycle_without_mutating_source(self):
         source = [{"task_id": "fallback-task", "state": "blocked", "stage": "approval"}]
