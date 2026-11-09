@@ -228,7 +228,7 @@ class AdaptiveTrigger:
             self._futures.clear()
             # Break the runtime/service reference chain after graceful shutdown.
             # A closed adapter is recreated by for_runtime() if the runtime is reused.
-            self.runner = None
+            self.runner = lambda _request, _trigger_id: None
 
 
 def trigger_adaptive_runtime(
