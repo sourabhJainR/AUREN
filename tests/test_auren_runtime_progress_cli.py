@@ -33,7 +33,7 @@ class ProgressCliTests(unittest.TestCase):
             self.assertEqual(payload["tasks"][0]["state"], "queued")
             self.assertEqual(payload["tasks"][0]["lifecycle"]["domain"], "progress_task")
             self.assertEqual(payload["tasks"][0]["lifecycle"]["category"], "ready")
-            self.assertEqual(payload["task_lifecycle_counts"], {"ready": 1})
+            self.assertEqual(payload["returned_task_lifecycle_counts"], {"ready": 1})
             self.assertNotIn("Engineering HTML report", result.stdout)
 
     def test_stale_progress_is_explicit_and_includes_next_action(self):
