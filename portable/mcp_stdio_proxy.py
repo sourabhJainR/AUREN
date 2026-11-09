@@ -46,16 +46,19 @@ def _rpc_error(request_id, code: int, message: str) -> bytes:
     ).encode("utf-8")
 
 
-def post_message(url: str, token: str, payload: bytes, *, timeout_seconds: float = 60.0) -> bytes | None:
+def post_message(
+    url: str, token: str, payload: bytes, *,
+    protocol_version: str | None = None, timeout_seconds: float = 60.0,
+) -> bytes | None:
+    headers = {
+        "Authorization": "Bearer " + token,
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+    }
+    if protocol_version:
+        headers["MCP-Protocol-Version"] = protocol_version
     request = urllib.request.Request(
-        url,
-        data=payload,
-        method="POST",
-        headers={
-            "Authorization": "Bearer " + token,
-            "Content-Type": "application/json",
-            "Accept": "application/json, text/event-stream",
-        },
+        url, data=payload, method="POST", headers=headers,
     )
     opener = urllib.request.build_opener(_NoRedirect())
     try:
@@ -93,6 +96,7 @@ def run_proxy(
     source = stdin or sys.stdin.buffer
     target = stdout or sys.stdout.buffer
     diagnostics = stderr or sys.stderr
+    negotiated_protocol: str | None = None
     while True:
         line = source.readline(_MAX_REQUEST_BYTES + 1)
         if not line:
@@ -108,8 +112,17 @@ def run_proxy(
             response = post_message(
                 endpoint, token,
                 json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8"),
+                protocol_version=negotiated_protocol if payload.get("method") != "initialize" else None,
             )
             if response is not None:
+                try:
+                    decoded = json.loads(response.decode("utf-8"))
+                    result = decoded.get("result") if isinstance(decoded, dict) else None
+                    version = result.get("protocolVersion") if isinstance(result, dict) else None
+                    if payload.get("method") == "initialize" and isinstance(version, str):
+                        negotiated_protocol = version
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    pass
                 target.write(response.rstrip(b"\r\n") + b"\n")
                 target.flush()
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
