@@ -4,6 +4,7 @@ import tempfile
 import json
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from portable.adaptive_experiment_controller import ExperimentController, ExperimentReplication
 from portable.campaign_intervention_loop import CampaignInterventionPlanner
@@ -237,6 +238,52 @@ class ExperimentLearningCycleTests(unittest.TestCase):
                     retest_contract=contract, baseline_score=0.50,
                     evidence_refs=(),
                 )
+
+
+    def test_learning_trace_closes_failed_phase_without_leaking_exception_text(self):
+        scenarios = (
+            ("aggregate", "learning_aggregate"),
+            ("signal", "learning_signal_derivation"),
+            ("persist", "learning_evidence_persist"),
+        )
+        for stage, expected_span in scenarios:
+            with self.subTest(stage=stage), tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+                cycle, _ = make_cycle(tmp)
+                i = intervention()
+                m = manifest()
+                contract = CampaignInterventionPlanner().retest_contract("p" * 64, i)
+                trace_path = Path(tmp) / "learning-failure-trace.jsonl"
+                tracer = Tracer(LocalExporter(trace_path, enabled=True))
+                trace = tracer.start("learning-failure-run", run_id="learning-failure-run", task_id="learning-task")
+                parent = trace.span("supervisor", phase="supervisor")
+
+                target, method = {
+                    "aggregate": (cycle.controller, "aggregate"),
+                    "signal": (cycle.bridge, "derive"),
+                    "persist": (cycle.learning_store, "record"),
+                }[stage]
+                with patch.object(target, method, side_effect=RuntimeError("private injected failure")):
+                    with self.assertRaisesRegex(RuntimeError, "private injected failure"):
+                        cycle.run(
+                            manifest=m, intervention=i, replications=replications(),
+                            retest_contract=contract, baseline_score=0.50,
+                            evidence_refs=("arena-run:campaign-1",),
+                            trace=trace, parent_span_id=parent.span_id,
+                        )
+
+                parent.finish({"cycle_failed": True}, "error")
+                tracer.end(trace, "error")
+                records = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+                finished = [
+                    record["span"] for record in records
+                    if record.get("event_type") == "span_updated"
+                    and (record.get("span") or {}).get("name") == expected_span
+                    and (record.get("span") or {}).get("end") is not None
+                ]
+                self.assertEqual(1, len(finished))
+                self.assertEqual("error", finished[0]["status"])
+                self.assertEqual("RuntimeError", finished[0]["output"]["error_type"])
+                self.assertNotIn("private injected failure", json.dumps(records))
 
 
 if __name__ == "__main__":
