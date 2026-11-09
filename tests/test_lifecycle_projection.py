@@ -117,7 +117,8 @@ def test_projection_catalog_covers_authoritative_runtime_vocabularies():
             "pending", "running", "waiting_for_required_checks", "waiting_for_main_head",
             "observed_complete_unverified", "success", "failure", "poll_error",
         )),
-        ("ci_repair", ("queued", "claimed", "repairing", "validating", "resolved", "blocked")),
+        ("ci_repair", ("observed", "triaged", "queued", "claimed", "repairing", "validating", "resolved", "blocked")),
+        ("continuous_execution", ("running", "stop_requested", "stopped", "failed")),
         ("goal_reconciliation", (
             "reconciled", "blocked", "waiting_for_approval", "waiting_external_dependency",
             "paused", "cancelled", "cancel_requested", "user_cancelled", "retry_budget_exhausted",
