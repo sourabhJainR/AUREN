@@ -5,6 +5,7 @@ import threading
 import unittest
 from pathlib import Path
 from urllib.request import urlopen, Request
+from urllib.error import HTTPError
 
 from portable.dashboard_server import _Handler, serve
 from portable.engineering_dashboard import EngineeringDashboard
@@ -106,9 +107,10 @@ class ControlCenterApiTests(unittest.TestCase):
             headers={"Content-Type": "application/json", "Origin": "http://attacker.example"},
             method="POST",
         )
-        with self.assertRaises(Exception) as caught:
+        with self.assertRaises(HTTPError) as caught:
             urlopen(request, timeout=2)
         self.assertEqual(403, caught.exception.code)
+        self.assertEqual("close", caught.exception.headers.get("Connection"))
 
     def test_learning_retrieval_failure_is_not_reported_as_empty(self):
         def unavailable():
