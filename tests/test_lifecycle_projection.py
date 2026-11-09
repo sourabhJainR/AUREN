@@ -10,6 +10,7 @@ def test_known_domains_have_stable_projection_and_unknown_states_fail_closed():
         "evidence_outbox", "graph_worker", "continuous_execution", "release",
         "engineering_gate", "worktree", "remediation", "goal_planning",
         "transfer_learning", "crew_handoff", "cognitive_phase",
+        "controller_task", "trigger_task",
     } <= set(lifecycle_domains())
 
     unknown = project_lifecycle("session", "future-state")
@@ -75,6 +76,12 @@ def test_projection_catalog_covers_authoritative_runtime_vocabularies():
         ("worktree", ("creating", "active", "creation_failed", "cleaned")),
         ("capability", ("canary", "promotion_blocked", "promoted", "rolled_back")),
         ("invention", ("candidate", "promoted", "blocked", "rejected")),
+        ("controller_task", (
+            "pending", "queued", "running", "waiting_approval", "blocked_approval",
+            "waiting_quota", "blocked_quota", "blocked_reconciliation", "blocked",
+            "recovering", "completed", "failed", "cancelled",
+        )),
+        ("trigger_task", ("pending", "claimed", "dispatched", "retryable", "success", "failed", "cancelled")),
     )
     for domain, states in vocabularies:
         for state in states:
