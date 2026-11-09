@@ -297,17 +297,24 @@ def _run_continuous(args: list[str]) -> int:
     if not root.is_dir():
         parser.error(f"project root is not an existing directory: {root}")
     controller = ExecutionController(root)
+    from portable.lifecycle_projection import project_lifecycle
+
+    def with_supervisor_lifecycle(value):
+        snapshot = dict(value)
+        snapshot["lifecycle"] = project_lifecycle(
+            "continuous_execution", snapshot.get("state")
+        )
+        return snapshot
+
     try:
         if options.action == "stop":
             supervisor = ContinuousExecutionSupervisor(controller)
-            print(json.dumps(supervisor.request_stop(options.reason), indent=2, sort_keys=True))
+            result = with_supervisor_lifecycle(supervisor.request_stop(options.reason))
+            print(json.dumps(result, indent=2, sort_keys=True))
             return 0
         if options.action == "status":
-            from portable.lifecycle_projection import project_lifecycle
-
-            snapshot = ContinuousExecutionSupervisor(controller).status()
-            snapshot["lifecycle"] = project_lifecycle(
-                "continuous_execution", snapshot.get("state")
+            snapshot = with_supervisor_lifecycle(
+                ContinuousExecutionSupervisor(controller).status()
             )
             raw_counts = snapshot.get("task_counts") or {}
             lifecycle_counts = {}
@@ -387,6 +394,7 @@ def _run_continuous(args: list[str]) -> int:
         finally:
             for signum, handler in prior_handlers.items():
                 signal.signal(signum, handler)
+        result = with_supervisor_lifecycle(result)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result.get("state") == "stopped" and result.get("audit_chain_valid") else 1
     finally:
