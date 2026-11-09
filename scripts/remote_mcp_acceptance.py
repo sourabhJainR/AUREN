@@ -72,6 +72,14 @@ def run_acceptance(
     if health.get("status") != "ok":
         raise AcceptanceFailure("health check did not report status=ok")
 
+    ready_status, ready_raw = transport(
+        origin + "/readyz", allowed_hosts=host_allowlist,
+        method="GET", headers=headers, timeout=10, max_bytes=16 * 1024,
+    )
+    readiness = _json_response(ready_status, ready_raw, "readiness check")
+    if readiness.get("status") != "ok":
+        raise AcceptanceFailure("readiness check did not report status=ok")
+
     metadata_url = origin + "/.well-known/oauth-protected-resource/mcp"
     metadata_status, metadata_raw = transport(
         metadata_url, allowed_hosts=host_allowlist,
