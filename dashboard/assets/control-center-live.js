@@ -55,7 +55,7 @@
   const safe = value => String(value ?? "").replace(/[&<>"']/g, c =>
     ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   const number = value => value === null || value === undefined || value === "" || !Number.isFinite(Number(value)) ? "—" : Number(value).toLocaleString();
-  const actionLabel = value => String(value || "").replaceAll("_", " ").replace(/\\b\\w/g, character => character.toUpperCase());
+  const actionLabel = value => String(value || "").replaceAll("_", " ").replace(/\b\w/g, character => character.toUpperCase());
   let timer = null;
   let inFlight = false;
   let lastSuccess = 0;
