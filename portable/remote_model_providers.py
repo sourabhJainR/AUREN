@@ -52,11 +52,11 @@ class RemoteProviderError(RuntimeError):
 
 
 PROVIDER_SPECS: dict[str, ProviderSpec] = {
-    "openai": ProviderSpec("openai", "https://api.openai.com/v1/chat/completions", "api.openai.com", "OPENAI_API_KEY", "OPENAI_MODEL"),
+    "openai": ProviderSpec("openai", "https://api.openai.com/v1/responses", "api.openai.com", "OPENAI_API_KEY", "OPENAI_MODEL", "responses"),
     "anthropic": ProviderSpec("anthropic", "https://api.anthropic.com/v1/messages", "api.anthropic.com", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "anthropic"),
     "gemini": ProviderSpec("gemini", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", "generativelanguage.googleapis.com", "GEMINI_API_KEY", "GEMINI_MODEL"),
     "groq": ProviderSpec("groq", "https://api.groq.com/openai/v1/chat/completions", "api.groq.com", "GROQ_API_KEY", "GROQ_MODEL"),
-    "xai": ProviderSpec("xai", "https://api.x.ai/v1/chat/completions", "api.x.ai", "XAI_API_KEY", "XAI_MODEL"),
+    "xai": ProviderSpec("xai", "https://api.x.ai/v1/responses", "api.x.ai", "XAI_API_KEY", "XAI_MODEL", "responses"),
     "openrouter": ProviderSpec("openrouter", "https://openrouter.ai/api/v1/chat/completions", "openrouter.ai", "OPENROUTER_API_KEY", "OPENROUTER_MODEL"),
     "together": ProviderSpec("together", "https://api.together.xyz/v1/chat/completions", "api.together.xyz", "TOGETHER_API_KEY", "TOGETHER_MODEL"),
     "fireworks": ProviderSpec("fireworks", "https://api.fireworks.ai/inference/v1/chat/completions", "api.fireworks.ai", "FIREWORKS_API_KEY", "FIREWORKS_MODEL"),
@@ -225,6 +225,19 @@ class OpenAICompatibleProvider:
                 "content-type": "application/json",
                 "accept": "application/json",
             }
+        elif self.spec.protocol == "responses":
+            payload = {
+                "model": self.model,
+                "instructions": system,
+                "input": prompt,
+                "max_output_tokens": MAX_OUTPUT_TOKENS,
+                "stream": False,
+            }
+            headers = {
+                "authorization": "Bearer " + self._api_key,
+                "content-type": "application/json",
+                "accept": "application/json",
+            }
         else:
             payload = {"model": self.model, "messages": messages, "max_tokens": MAX_OUTPUT_TOKENS, "stream": False}
             headers = {
@@ -276,6 +289,27 @@ class OpenAICompatibleProvider:
                 and isinstance(block.get("name"), str) and isinstance(block.get("input", {}), Mapping)
             ) if isinstance(blocks, list) else ()
             finish_reason = decoded.get("stop_reason")
+            usage = _usage(decoded.get("usage"))
+            request_id = decoded.get("id")
+        elif self.spec.protocol == "responses":
+            output = decoded.get("output", [])
+            text_parts = []
+            calls = []
+            if isinstance(output, list):
+                for item in output:
+                    if not isinstance(item, Mapping):
+                        continue
+                    if item.get("type") == "message" and isinstance(item.get("content"), list):
+                        text_parts.append(_text_content(item["content"]))
+                    elif item.get("type") == "function_call":
+                        calls.extend(_tool_calls([{
+                            "id": item.get("call_id", item.get("id", "")),
+                            "name": item.get("name", ""),
+                            "arguments": item.get("arguments", {}),
+                        }]))
+            content = "".join(text_parts) or _text_content(decoded.get("output_text"))
+            tool_calls = tuple(calls)
+            finish_reason = decoded.get("status")
             usage = _usage(decoded.get("usage"))
             request_id = decoded.get("id")
         else:
