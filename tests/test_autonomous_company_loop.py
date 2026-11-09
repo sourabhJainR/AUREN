@@ -1,5 +1,7 @@
 import sqlite3
 import tempfile
+import inspect
+import unittest
 from pathlib import Path
 
 from portable.autonomous_company import AutonomousCompany
@@ -244,6 +246,80 @@ def test_resumed_ci_cannot_override_a_later_failed_verification(tmp_path: Path):
     )
     assert company._state(unit.id)[0] == "failed"
     assert any(
-        event["kind"] == "execution" and "latest passing verification evidence" in event["detail"]
+        event["kind"] == "execution" and "current-iteration passing verification evidence" in event["detail"]
         for event in _events(company, unit.id)
     )
+
+
+
+def test_review_success_without_evidence_cannot_complete_work():
+    with tempfile.TemporaryDirectory() as tmp:
+        company = AutonomousCompany(Path(tmp))
+        unit = company.start("require evidence from the review gate")
+
+        company.iterate(
+            unit.id,
+            execute=lambda _iteration: ("passed", "built", ("execution:passed",)),
+            review=lambda _iteration: (True, "review claimed success", ()),
+            max_steps=1,
+        )
+
+        assert company._state(unit.id)[0] == "failed"
+        assert any(
+            event["kind"] == "verification"
+            and event["status"] == "failed"
+            and "without evidence references" in event["detail"]
+            for event in _events(company, unit.id)
+        )
+
+
+def test_resumed_ci_requires_non_empty_current_iteration_verification():
+    for stale_iteration, verification_refs in ((False, ()), (True, ("verification:old",))):
+        with tempfile.TemporaryDirectory() as tmp:
+            company = AutonomousCompany(Path(tmp))
+            unit = company.start("resume CI only with current evidence")
+            company.record(
+                unit.id, "verification", "passed", "previous review claimed success",
+                verification_refs,
+            )
+            current_iteration = 1 if stale_iteration else 0
+            company._transition(unit.id, "waiting_ci", current_iteration)
+
+            company.iterate(
+                unit.id,
+                execute=lambda _iteration: (_ for _ in ()).throw(
+                    AssertionError("resumed CI must not re-execute completed work")
+                ),
+                review=lambda _iteration: (_ for _ in ()).throw(
+                    AssertionError("resumed CI must not repeat review")
+                ),
+                ci=lambda _iteration: ("passed", "CI passed", ("ci:passed",)),
+                max_ci_polls=1,
+            )
+
+            assert company._state(unit.id)[0] == "failed"
+
+
+
+def load_tests(loader, tests, pattern):
+    """Expose pytest-style function tests to AUREN's unittest shard runner.
+
+    The repository's deterministic CI sharder uses unittest discovery. Plain
+    pytest functions are otherwise silently omitted, so bridge each function
+    into a FunctionTestCase while retaining pytest's normal collection path.
+    """
+    suite = unittest.TestSuite(tests)
+    for name, function in sorted(globals().items()):
+        if not name.startswith("test_") or not callable(function):
+            continue
+        parameters = inspect.signature(function).parameters
+        if parameters and tuple(parameters) != ("tmp_path",):
+            raise TypeError(f"unsupported unittest fixture for {name}: {tuple(parameters)}")
+        if parameters:
+            def invoke(function=function):
+                with tempfile.TemporaryDirectory() as temporary:
+                    function(Path(temporary))
+        else:
+            invoke = function
+        suite.addTest(unittest.FunctionTestCase(invoke, description=name))
+    return suite

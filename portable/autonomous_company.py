@@ -416,15 +416,24 @@ class AutonomousCompany:
             if ci_status == "passed":
                 with self._db() as db:
                     row = db.execute(
-                        "SELECT status,evidence FROM events WHERE work_unit_id=? AND kind='verification' ORDER BY rowid DESC LIMIT 1",
+                        "SELECT status,evidence,iteration FROM events "
+                        "WHERE work_unit_id=? AND kind='verification' ORDER BY rowid DESC LIMIT 1",
                         (wid,),
                     ).fetchone()
-                if row is None or row[0] != "passed":
+                evidence = tuple(json.loads(row[1])) if row else ()
+                if (
+                    row is None
+                    or row[0] != "passed"
+                    or int(row[2]) != initial_iteration
+                    or not evidence
+                ):
                     return self.finish(
                         wid, success=False,
-                        reason="resumed CI cannot promote without the latest passing verification evidence",
+                        reason=(
+                            "resumed CI cannot promote without current-iteration "
+                            "passing verification evidence"
+                        ),
                     )
-                evidence = tuple(json.loads(row[1]))
                 return self.finish(wid, success=True, reason="resumed CI passed after durable wait", evidence=evidence)
             if ci_status == "failed":
                 if recover:
@@ -485,6 +494,16 @@ class AutonomousCompany:
                         continue
                 return self.finish(wid, success=False, reason="review failed without a verified recovery path", evidence=refs)
 
+            refs = tuple(dict.fromkeys(str(item).strip() for item in refs if str(item).strip()))
+            if not refs:
+                self.record(
+                    wid, "verification", "failed",
+                    "review reported success without evidence references", (),
+                )
+                return self.finish(
+                    wid, success=False,
+                    reason="review passed without verification evidence",
+                )
             self.record(wid, "verification", "passed", review_detail, refs)
             if ci:
                 ci_status = self.wait_for_ci(
