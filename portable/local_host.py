@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import secrets
+import signal
 import socket
 import stat
 import sys
@@ -151,6 +152,8 @@ def serve_local(
     from .dashboard_server import create_server
     from .remote_mcp_server import _load_runtime
 
+    if str(root) not in sys.path:
+        sys.path.append(str(root))
     runtime = _load_runtime(factory_path, root)
     dashboard = create_server(root, "127.0.0.1", dashboard_port)
     mcp_socket = None
@@ -158,7 +161,18 @@ def serve_local(
     dashboard_thread = None
     mcp_thread = None
     stop = threading.Event()
+    shutdown_requested = threading.Event()
     failures: list[tuple[str, BaseException]] = []
+    previous_handlers = {}
+
+    def request_shutdown(_signum, _frame) -> None:
+        shutdown_requested.set()
+        stop.set()
+
+    if threading.current_thread() is threading.main_thread():
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            previous_handlers[signum] = signal.getsignal(signum)
+            signal.signal(signum, request_shutdown)
 
     try:
         mcp_socket = _bound_loopback_socket(mcp_port)
@@ -230,19 +244,21 @@ def serve_local(
             if not dashboard_thread.is_alive() or not mcp_thread.is_alive():
                 stop.set()
                 break
-        if failures:
+        if failures and not shutdown_requested.is_set():
             raise RuntimeError(f"{failures[0][0]} service stopped unexpectedly: {failures[0][1]}")
         return 0
     except KeyboardInterrupt:
+        shutdown_requested.set()
         return 0
     finally:
         stop.set()
         if "mcp_server" in locals():
             mcp_server.should_exit = True
-        try:
-            dashboard.shutdown()
-        except Exception:
-            pass
+        if dashboard_thread is not None and dashboard_thread.is_alive():
+            try:
+                dashboard.shutdown()
+            except Exception:
+                pass
         if dashboard_thread is not None:
             dashboard_thread.join(timeout=5)
         if mcp_thread is not None:
@@ -255,6 +271,8 @@ def serve_local(
                 pass
         if service is not None:
             service.close()
+        for signum, previous in previous_handlers.items():
+            signal.signal(signum, previous)
 
 
 def main(argv: list[str] | None = None) -> int:
