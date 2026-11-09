@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .identity_compat import canonical_auren_home
+from .identity_compat import canonical_auren_home, canonical_runtime_home
 from .remote_mcp import AurenMCPASGI, AurenMCPService, StaticBearerTokenVerifier
 
 _LOCAL_SCOPES = (
@@ -27,6 +27,35 @@ _LOCAL_SCOPES = (
     "auren:approvals:decide",
     "auren:admin",
 )
+
+
+def ensure_local_observability_store() -> Path:
+    """Create an empty, private trace journal so first-run dashboard readiness is truthful."""
+    root = canonical_runtime_home()
+    directory = root / "observability"
+    directory.mkdir(parents=True, exist_ok=True)
+    if directory.is_symlink():
+        raise RuntimeError("local observability directory must not be a symlink")
+    if os.name != "nt":
+        directory.chmod(0o700)
+    path = directory / "traces.jsonl"
+    if path.is_symlink():
+        raise RuntimeError("local observability trace journal must not be a symlink")
+    if path.exists():
+        if not path.is_file():
+            raise RuntimeError("local observability trace journal must be a regular file")
+        return path
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags, 0o600)
+    except FileExistsError:
+        if path.is_symlink() or not path.is_file():
+            raise RuntimeError("local observability trace journal must be a regular file")
+    else:
+        os.close(descriptor)
+    return path
 
 
 def local_token_path() -> Path:
@@ -169,6 +198,7 @@ def serve_local(
         sys.path.remove(str(root))
     sys.path.insert(0, str(root))
     runtime = _load_runtime(factory_path, root)
+    ensure_local_observability_store()
     dashboard = None
     mcp_socket = None
     service = None
