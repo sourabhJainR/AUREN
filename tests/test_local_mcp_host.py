@@ -217,7 +217,11 @@ class LocalMCPHostTests(unittest.TestCase):
             self.assertEqual("127.0.0.1", server.server_address[0])
             self.assertGreater(server.server_address[1], 0)
         finally:
+            registry_path = self.project / ".auren" / "response_delivery_registry.sqlite3"
             server.server_close()
+            # Windows cannot remove a SQLite file while an initialization
+            # connection is still open; this guards deterministic close.
+            registry_path.unlink()
 
 
 @unittest.skipUnless(
