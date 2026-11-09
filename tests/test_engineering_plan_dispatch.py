@@ -14,6 +14,7 @@ from portable.engineering_plan_store import EngineeringPlanStore
 from portable.engineering_plan_recovery import EngineeringPlanRecoveryBridge, EngineeringPlanCheckpointMismatch
 from portable.engineering_recovery import EngineeringRecoveryLedger
 from portable.execution_controller import ExecutionController
+from portable.engineering_readiness import EngineeringReadinessBlocked
 
 
 DISPATCH_HANDLER_CALLS = []
@@ -464,3 +465,31 @@ class DurableTaskIntentBindingTests(unittest.TestCase):
                 bridge.dispatch(run_id=plan.run_id, task_id='implement', dispatch_key='missing-budget-digest',
                                 handler='dispatch-test', packet=packet,
                                 shared_budget_binding={'budget_id': 'crew-budget-1'})
+
+
+    def test_three_axis_entry_gate_blocks_dispatch_and_records_owned_gaps(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            plan, run, packet, _, store, controller, bridge = prepared(tmp)
+            with self.assertRaises(EngineeringReadinessBlocked) as raised:
+                bridge.dispatch(
+                    run_id=plan.run_id, task_id="implement",
+                    dispatch_key="blocked-readiness", handler="dispatch-test",
+                    packet=packet, payload={
+                        "engineering_readiness": {
+                            "technology": {
+                                "status": "gap",
+                                "summary": "The required build tool is not available.",
+                                "remediation": ["Provision the approved build tool."],
+                                "acceptance_criteria": ["A signed tool capability receipt is attached."],
+                            },
+                        },
+                    },
+                )
+            self.assertEqual(3, len(raised.exception.gap_ids))
+            with sqlite3.connect(controller.db_path) as db:
+                self.assertEqual(0, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
+            events = controller.progress_journal._events()
+            gaps = [row["metadata"] for row in events if row["event"] == "engineering_gap_recorded"]
+            self.assertEqual(3, len(gaps))
+            self.assertEqual({"technology", "intent", "cognitive"}, {row["axis"] for row in gaps})
+            self.assertTrue(all(row["department"] and row["owner_role_id"] for row in gaps))
