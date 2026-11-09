@@ -322,6 +322,7 @@ _DOMAIN_STATES: dict[str, dict[str, _Semantics]] = {
         "dispatched": _s("active", "Dispatched", action="observe_runtime_task_and_completion_receipt"),
         "retryable": _s("ready", "Retryable", action="retry_only_after_durable_retry_deadline"),
         "success": _s("succeeded", "Succeeded", terminal=True, resume="never", action="retain_trigger_completion_receipt"),
+        "complete": _s("succeeded", "Complete", terminal=True, resume="never", action="retain_trigger_completion_receipt"),
         "completed": _s("succeeded", "Completed", terminal=True, resume="never", action="retain_trigger_completion_receipt"),
         "failed": _s("failed", "Failed", terminal=True, attention=True, resume="never", action="inspect_trigger_failure_before_new_submission"),
         "cancelled": _s("cancelled", "Cancelled", terminal=True, resume="never", action="preserve_trigger_cancellation"),
