@@ -30,6 +30,7 @@ from portable.mcp_stdio_proxy import run_proxy, validate_local_url
 from portable.remote_mcp import AurenMCPASGI, AurenMCPService, StaticBearerTokenVerifier
 from portable.orchestration import Graph, Node, NodeKind
 from portable.dashboard_server import create_server
+from portable.onboarding import initialize_repository, set_runtime_mode
 
 
 class LocalMCPHostTests(unittest.TestCase):
@@ -241,6 +242,11 @@ class LocalMCPHostProcessTests(unittest.TestCase):
                 encoding="utf-8",
             )
             state_home = root / "auren-home"
+            initialize_repository(project)
+            set_runtime_mode(
+                project, "managed", apply=True,
+                runtime_factory="auren_runtime_factory:create_runtime",
+            )
             factory = project / "auren_runtime_factory.py"
             factory.write_text(
                 "from pathlib import Path\n"
