@@ -18,6 +18,7 @@ AUREN separates model inference from execution authority. The model can change b
 | Mistral | OpenAI-compatible Chat Completions | `MISTRAL_API_KEY` | `MISTRAL_MODEL` or `AUREN_MODEL_MISTRAL` |
 | Cerebras | OpenAI-compatible Chat Completions | `CEREBRAS_API_KEY` | `CEREBRAS_MODEL` or `AUREN_MODEL_CEREBRAS` |
 | Perplexity | OpenAI-compatible Chat Completions | `PERPLEXITY_API_KEY` | `PERPLEXITY_MODEL` or `AUREN_MODEL_PERPLEXITY` |
+| Custom OpenAI-compatible API | Chat Completions | `AUREN_CUSTOM_PROVIDER_API_KEY` | `AUREN_CUSTOM_PROVIDER_MODEL` |
 
 Model IDs are explicit configuration. AUREN does not hard-code a model catalogue that can silently become stale.
 
@@ -36,6 +37,21 @@ export XAI_MODEL="<current-model-id>"
 ```
 
 Use the secret manager for credentials in deployed environments. Do not commit a `.env` file containing secrets. Do not place API keys in task descriptions, model context, approval metadata, evidence, or logs.
+
+### Custom OpenAI-compatible endpoint
+
+For a provider not in the built-in catalog, configure a Chat Completions endpoint and explicitly allowlist its hostname:
+
+```bash
+export AUREN_REMOTE_PROVIDER_ORDER=custom,groq,openai
+export AUREN_CUSTOM_PROVIDER_URL=https://models.example.net/v1/chat/completions
+export AUREN_CUSTOM_PROVIDER_ALLOWED_HOSTS=models.example.net
+export AUREN_CUSTOM_PROVIDER_API_KEY="<secret-manager-injected-value>"
+export AUREN_CUSTOM_PROVIDER_MODEL="<current-model-id>"
+```
+
+Custom endpoints must use HTTPS, port 443, a `/chat/completions` path, no URL credentials/query/fragment, and an exact hostname present in `AUREN_CUSTOM_PROVIDER_ALLOWED_HOSTS`. DNS answers are still checked and pinned by guarded transport. This path is for OpenAI-compatible Chat Completions APIs only; native provider protocols need a reviewed adapter.
+
 
 The router creates a remote provider pool only when `AUREN_REMOTE_PROVIDER_ORDER` is explicitly configured. Providers without both a key and model ID are skipped. Unknown provider names and duplicate configured providers fail closed.
 
