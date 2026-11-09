@@ -287,14 +287,14 @@ class LocalMCPHostProcessTests(unittest.TestCase):
                         and any(item.startswith("MCP endpoint: ") for item in output)
                     ):
                         break
-                self.assertIn("AUREN local services are ready.", output, "\\n".join(output))
+                self.assertIn("AUREN local services are ready.", output, "\n".join(output))
                 self.assertTrue(
                     any(line.startswith("Observation console: ") for line in output),
-                    "dashboard endpoint was not printed: " + "\\n".join(output),
+                    "dashboard endpoint was not printed: " + "\n".join(output),
                 )
                 self.assertTrue(
                     any(line.startswith("MCP endpoint: ") for line in output),
-                    "MCP endpoint was not printed: " + "\\n".join(output),
+                    "MCP endpoint was not printed: " + "\n".join(output),
                 )
                 dashboard_line = next(line for line in output if line.startswith("Observation console: "))
                 mcp_line = next(line for line in output if line.startswith("MCP endpoint: "))
@@ -337,7 +337,7 @@ class LocalMCPHostProcessTests(unittest.TestCase):
                 reader.join(timeout=2)
                 if process.stdout is not None:
                     process.stdout.close()
-            self.assertEqual(0, process.returncode, "\\n".join(output))
+            self.assertEqual(0, process.returncode, "\n".join(output))
 
 
 class LocalMCPStdioProxyTests(unittest.TestCase):
