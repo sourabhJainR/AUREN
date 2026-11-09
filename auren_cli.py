@@ -618,6 +618,24 @@ def _run_onboarding(command: str, args: list[str]) -> int:
         except (OSError, ValueError, RuntimeError) as exc:
             print(f"auren init blocked: {exc}", file=sys.stderr)
             return 2
+    if command == "mode":
+        parser = argparse.ArgumentParser(description="Choose single-user local or optional managed runtime mode.")
+        parser.add_argument("--project-root", default=".")
+        parser.add_argument("--mode", choices=("single_user_local", "managed"), required=True)
+        parser.add_argument("--runtime-factory", help="Advanced managed-mode factory in module.path:function form.")
+        parser.add_argument("--apply", action="store_true", help="Back up and persist the selected mode.")
+        options = parser.parse_args(args)
+        try:
+            result = onboarding.set_runtime_mode(
+                options.project_root, options.mode, apply=options.apply,
+                runtime_factory=options.runtime_factory,
+            )
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+        except (OSError, ValueError, RuntimeError) as exc:
+            print(f"auren mode blocked: {exc}", file=sys.stderr)
+            return 2
+
     if command == "doctor":
         parser = argparse.ArgumentParser(description="Check AUREN runtime, repository and provider prerequisites.")
         parser.add_argument("--project-root", default=".")
@@ -647,7 +665,7 @@ def main(argv: list[str] | None = None) -> int:
         args = ["install", *args, "--skill", "auto"]
     elif args and args[0] in {"install", "update"} and not _has_flag(args, "--skill"):
         args = [*args, "--skill", "auto"]
-    if args and args[0] in {"init", "doctor", "connect"}:
+    if args and args[0] in {"init", "doctor", "connect", "mode"}:
         return _run_onboarding(args[0], args[1:])
     if args and args[0] == "deliver":
         return _run_delivery(args[1:])
