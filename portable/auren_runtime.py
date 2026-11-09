@@ -129,7 +129,7 @@ def _print_progress(args) -> int:
     if args.json:
         print(json.dumps({
             "status": status, "tasks": rows,
-            "task_lifecycle_counts": dict(sorted(lifecycle_counts.items())),
+            "returned_task_lifecycle_counts": dict(sorted(lifecycle_counts.items())),
         }, indent=2, sort_keys=True))
     elif not rows:
         print("No durable task progress recorded.")
