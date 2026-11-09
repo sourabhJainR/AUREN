@@ -224,23 +224,35 @@
     byId("sessions-updated").textContent = "Updated " + new Date(data.generated_at).toLocaleTimeString();
   }
   async function refresh() {
+    if (document.visibilityState === "hidden") return;
     if (state.busy) { state.refreshAgain = true; return; }
     state.busy = true;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 8000);
     try {
       const params = new URLSearchParams({offset:String(state.offset),limit:String(state.limit),q:state.query,status:state.filter});
-      const response = await fetch("/api/sessions?" + params.toString(), {cache:"no-store"});
+      const response = await fetch("/api/sessions?" + params.toString(), {cache:"no-store", signal:controller.signal});
       if (!response.ok) throw new Error("HTTP " + response.status);
-      state.snapshot = await response.json();
+      const snapshot = await response.json();
+      if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) throw new Error("Invalid session snapshot");
+      state.snapshot = snapshot;
       state.offset = state.snapshot.pagination?.offset ?? state.offset;
       render();
     } catch (error) {
-      byId("sessions-updated").textContent = "Session data unavailable";
-      byId("session-list").innerHTML = '<div class="empty session-empty">The durable session service could not be read. Existing data is not cleared or marked complete.</div>';
+      if (state.snapshot) {
+        byId("sessions-updated").textContent = "Refresh failed · last good session sample retained";
+      } else {
+        byId("sessions-updated").textContent = "Session data unavailable";
+        byId("session-list").innerHTML = '<div class="empty session-empty">The durable session service could not be read. No session is marked complete.</div>';
+      }
     } finally {
+      window.clearTimeout(timeout);
       state.busy = false;
-      if (state.refreshAgain) {
+      if (state.refreshAgain && document.visibilityState !== "hidden") {
         state.refreshAgain = false;
         refresh();
+      } else if (document.visibilityState === "hidden") {
+        state.refreshAgain = false;
       }
     }
   }
@@ -259,6 +271,13 @@
   byId("session-refresh").addEventListener("click", refresh);
   byId("session-page-prev").addEventListener("click", () => { state.offset = Math.max(0, state.offset - state.limit); refresh(); });
   byId("session-page-next").addEventListener("click", () => { state.offset += state.limit; refresh(); });
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refresh(); });
+  window.addEventListener("online", refresh);
+  window.addEventListener("offline", () => {
+    byId("sessions-updated").textContent = state.snapshot
+      ? "Offline · last good session sample retained"
+      : "Offline · no session sample received";
+  });
   refresh();
   window.setInterval(refresh, 4000);
 })();
