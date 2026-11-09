@@ -115,7 +115,7 @@ def _print_progress(args) -> int:
     if args.task_id:
         rows = [row for row in rows if row.get("task_id") == args.task_id]
     if args.task_id and not rows and not degraded:
-        payload = {"status": "not_found", "task_id": args.task_id, "tasks": []}
+        payload = {"status": "not_found", "task_id": args.task_id, "tasks": [], "returned_task_lifecycle_counts": {}}
         if args.json:
             print(json.dumps(payload, indent=2, sort_keys=True))
         else:
