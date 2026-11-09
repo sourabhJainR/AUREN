@@ -80,7 +80,7 @@ class LearningTransfer:
     def __init__(self, memory: PersistentMemory, target_project: str) -> None:
         self.memory = memory
         self.target_project = _clean(target_project, "target_project")
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS learning_experiences(
                 id TEXT PRIMARY KEY,
                 source_project TEXT NOT NULL,
@@ -130,7 +130,7 @@ class LearningTransfer:
         if experience.verified and not evidence:
             raise ValueError("verified learning requires evidence_ids")
         created_at = datetime.now(timezone.utc).isoformat()
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             existing = db.execute("SELECT source_project,task_family,capability,outcome,detail,evidence_ids,confidence,verified FROM learning_experiences WHERE id=?", (experience.id,)).fetchone()
             if existing:
                 incoming = (experience.source_project, experience.task_family, experience.capability, experience.outcome,
@@ -170,7 +170,7 @@ class LearningTransfer:
         from datetime import datetime, timezone
         key = hashlib.sha256(("\0".join((self.target_project, problem, dont, "|".join(evidence)))).encode()).hexdigest()
         constraint = FailureConstraint(problem, dont, evidence, confidence, self.target_project)
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             db.execute("INSERT OR IGNORE INTO failure_constraints VALUES(?,?,?,?,?,?,?)",
                        (key, self.target_project, problem, dont, json.dumps(evidence),
                         confidence, datetime.now(timezone.utc).isoformat()))
@@ -185,7 +185,7 @@ class LearningTransfer:
         problem = _clean(problem, "problem")
         if limit < 1:
             raise ValueError("limit must be positive")
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             rows = db.execute("""SELECT problem,dont,evidence_ids,confidence,project
                 FROM failure_constraints WHERE project=? AND problem LIKE ?
                 ORDER BY confidence DESC,created_at DESC LIMIT ?""",
@@ -204,7 +204,7 @@ class LearningTransfer:
         capability = _clean(capability, "capability")
         if limit < 1:
             raise ValueError("limit must be positive")
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             rows = db.execute("""SELECT detail,source_project,evidence_ids,confidence
                 FROM learning_experiences
                 WHERE task_family=? AND capability=? AND outcome='worked' AND verified=1
@@ -236,7 +236,7 @@ class LearningTransfer:
             raise ValueError("min_similarity must be between 0 and 1")
         if limit < 1:
             raise ValueError("limit must be positive")
-        with self.memory._lock, self.memory._connect() as db:
+        with self.memory._lock, self.memory._connection() as db:
             rows = db.execute("""SELECT e.id,e.detail,e.source_project,e.evidence_ids,e.confidence,
                                        s.structure_signature,s.negative_conditions
                 FROM learning_experiences e
