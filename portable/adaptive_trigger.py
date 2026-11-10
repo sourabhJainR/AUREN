@@ -143,11 +143,25 @@ class AdaptiveTrigger:
     @staticmethod
     def _result_metadata(result: Any) -> dict[str, Any]:
         status = getattr(result, "status", None)
+        metadata: dict[str, Any] = {}
         if hasattr(status, "value"):
-            return {"result_status": str(status.value)}
-        if status is not None:
-            return {"result_status": str(status)}
-        return {"result_type": type(result).__name__}
+            metadata["result_status"] = str(status.value)
+        elif status is not None:
+            metadata["result_status"] = str(status)
+        else:
+            metadata["result_type"] = type(result).__name__
+        task_id = getattr(result, "task_id", None)
+        if isinstance(task_id, str) and task_id:
+            metadata["controller_task_id"] = task_id[:200]
+        evidence_refs = getattr(result, "evidence_refs", None)
+        if isinstance(evidence_refs, (tuple, list)) and len(evidence_refs) <= 100:
+            clean_refs = [ref for ref in evidence_refs if isinstance(ref, str) and ref.strip() and len(ref) <= 500]
+            if len(clean_refs) == len(evidence_refs):
+                metadata["evidence_refs"] = clean_refs
+        next_action = getattr(result, "next_action", None)
+        if isinstance(next_action, str) and next_action:
+            metadata["next_action"] = next_action[:500]
+        return metadata
 
     def _dispatch_event(self, event_id: str) -> TriggerOutcome | None:
         claim = self.trigger_runtime.claim(event_id)
