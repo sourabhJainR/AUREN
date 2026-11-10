@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from portable.adaptive_trigger import AdaptiveTriggerRequest
 from portable.local_composition import (
     LocalProviderOperationLedger,
     LocalProviderOutcomeUnknown,
@@ -134,6 +135,18 @@ def test_local_mcp_submission_recovers_after_host_restart_without_factory_or_dup
         plan_after_restart, run_after_restart = third.recovery_bridge.load_verified("local-" + task_id)
         assert plan_after_restart.digest == plan.digest
         assert run_after_restart.tasks[0].status == "passed"
+        event_after_restart = third.runtime.trigger_runtime.get_event(task_id)
+        assert event_after_restart is not None
+        replay = third.run_trigger(
+            AdaptiveTriggerRequest(
+                task=task,
+                project_root=str(project),
+                context=event_after_restart.payload["context"],
+            ),
+            task_id,
+        )
+        assert replay.status == "completed"
+        assert replay.evidence_refs == run_after_restart.tasks[0].evidence_refs
         assert len(provider.calls) == 1
     finally:
         third.close()
