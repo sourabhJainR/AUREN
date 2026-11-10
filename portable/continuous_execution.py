@@ -361,7 +361,7 @@ class ContinuousExecutionSupervisor:
                 raise ValueError("pollers require non-empty names and callable values")
         self.lease_seconds = lease_seconds
         self.owner_id = uuid4().hex
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS control(
                     id INTEGER PRIMARY KEY CHECK(id=1),
@@ -414,7 +414,7 @@ class ContinuousExecutionSupervisor:
 
     def _event(self, run_id: str, event_type: str, payload: Mapping[str, Any]) -> None:
         body = _canonical(_safe_value(dict(payload)))
-        with sqlite3.connect(self.path, timeout=5) as db:
+        with closing(sqlite3.connect(self.path, timeout=5)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             previous = db.execute("SELECT digest FROM events ORDER BY sequence DESC LIMIT 1").fetchone()
             prev_digest = str(previous[0]) if previous else "0" * 64
@@ -432,7 +432,7 @@ class ContinuousExecutionSupervisor:
     def request_stop(self, reason: str = "operator_stop_command") -> dict[str, Any]:
         if not isinstance(reason, str) or not reason.strip() or len(reason) > 200:
             raise ValueError("stop reason must be non-empty text of at most 200 characters")
-        with sqlite3.connect(self.path, timeout=5) as db:
+        with closing(sqlite3.connect(self.path, timeout=5)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT state FROM control WHERE id=1").fetchone()
             prior = row[0] if row else "stopped"
@@ -669,7 +669,7 @@ class ContinuousExecutionSupervisor:
         # Supervisor lifecycle and its audit chain live in the supervisor DB.
         # Durable task state is owned by ExecutionController and must be read
         # from that canonical task store, not inferred from the supervisor DB.
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             row = db.execute(
                 "SELECT state,owner_id,lease_until,cycle_count,last_cycle_at,stop_reason,updated_at FROM control WHERE id=1"
             ).fetchone()
@@ -677,7 +677,7 @@ class ContinuousExecutionSupervisor:
                 "SELECT sequence,event_type,payload_json,digest,created_at FROM events ORDER BY sequence DESC LIMIT ?",
                 (event_limit,),
             ).fetchall()
-        with sqlite3.connect(self.controller.db_path) as task_db:
+        with closing(sqlite3.connect(self.controller.db_path)) as task_db, task_db:
             counts = {str(state): int(count) for state, count in task_db.execute(
                 "SELECT state,COUNT(*) FROM tasks GROUP BY state"
             ).fetchall()} if self._table_exists(task_db, "tasks") else {}
@@ -723,7 +723,7 @@ class ContinuousExecutionSupervisor:
         return db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone() is not None
 
     def verify_audit_chain(self) -> bool:
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             rows = db.execute(
                 "SELECT run_id,event_type,payload_json,previous_digest,digest,created_at FROM events ORDER BY sequence"
             ).fetchall()
@@ -742,7 +742,7 @@ class ContinuousExecutionSupervisor:
         return True
 
     def _should_stop(self) -> tuple[bool, str | None]:
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             row = db.execute("SELECT state,stop_reason FROM control WHERE id=1").fetchone()
         return (row[0] == "stop_requested", row[1])
 
@@ -751,7 +751,7 @@ class ContinuousExecutionSupervisor:
         now = datetime.now(timezone.utc)
         lease_until = (now + timedelta(seconds=self.lease_seconds)).isoformat()
         resumed_run = False
-        with sqlite3.connect(self.path, timeout=5) as db:
+        with closing(sqlite3.connect(self.path, timeout=5)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 "SELECT state,owner_id,lease_until,run_id,cycle_count FROM control WHERE id=1"
@@ -805,7 +805,7 @@ class ContinuousExecutionSupervisor:
         if not isinstance(operator_id, str) or not operator_id.strip() or len(operator_id) > 256 or not operator_id.isprintable():
             raise PermissionError("operator authentication did not return a verified identity; durable stop remains active")
         now = datetime.now(timezone.utc)
-        with sqlite3.connect(self.path, timeout=5) as db:
+        with closing(sqlite3.connect(self.path, timeout=5)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 "SELECT state,owner_id,lease_until,run_id,stop_reason FROM control WHERE id=1"
@@ -832,7 +832,7 @@ class ContinuousExecutionSupervisor:
 
     def _heartbeat(self, run_id: str, cycle: int) -> None:
         lease_until = (datetime.now(timezone.utc) + timedelta(seconds=self.lease_seconds)).isoformat()
-        with sqlite3.connect(self.path, timeout=5) as db:
+        with closing(sqlite3.connect(self.path, timeout=5)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT state,owner_id FROM control WHERE id=1").fetchone()
             if row[0] == "stop_requested":
@@ -1201,14 +1201,14 @@ class ContinuousExecutionSupervisor:
                         time.sleep(wait_slice)
             state, stop_reason = self._should_stop()
             if state:
-                with sqlite3.connect(self.path, timeout=5) as db:
+                with closing(sqlite3.connect(self.path, timeout=5)) as db, db:
                     db.execute(
                         "UPDATE control SET state='stopped',owner_id=NULL,lease_until=NULL,updated_at=? WHERE id=1",
                         (_now(),),
                     )
                 self._event(run_id, "supervisor_stopped", {"reason": stop_reason or "stop_requested", "cycles": cycles})
             elif max_cycles is not None and cycles_this_run >= max_cycles:
-                with sqlite3.connect(self.path, timeout=5) as db:
+                with closing(sqlite3.connect(self.path, timeout=5)) as db, db:
                     db.execute(
                         "UPDATE control SET state='stopped',owner_id=NULL,lease_until=NULL,updated_at=? WHERE id=1",
                         (_now(),),
@@ -1216,7 +1216,7 @@ class ContinuousExecutionSupervisor:
                 self._event(run_id, "supervisor_stopped", {"reason": "cycle_budget_exhausted", "cycles": cycles})
             return {**self.status(), "run_id": run_id, "cycles_this_run": cycles_this_run, "audit_chain_valid": self.verify_audit_chain()}
         except Exception as exc:
-            with sqlite3.connect(self.path, timeout=5) as db:
+            with closing(sqlite3.connect(self.path, timeout=5)) as db, db:
                 db.execute(
                     "UPDATE control SET state='failed',owner_id=NULL,lease_until=NULL,updated_at=? WHERE id=1 AND owner_id=?",
                     (_now(), self.owner_id),
