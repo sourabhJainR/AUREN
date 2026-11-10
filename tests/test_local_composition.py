@@ -171,6 +171,17 @@ class LocalRuntimeCompositionTests(unittest.TestCase):
                     self.assertEqual(event_after_recovery.outcome.get("result_status"), "completed")
                     self.assertTrue(event_after_recovery.outcome.get("evidence_refs"))
                     self.assertTrue(event_after_recovery.outcome.get("controller_task_id"))
+                    service3 = _service(third, project, token_path, 43145)
+                    try:
+                        principal3 = service3.token_verifier.verify(token)
+                        mcp_summary = service3.call_tool(
+                            "auren.get_task", {"task_id": task_id}, principal3,
+                        )
+                        self.assertEqual(mcp_summary["status"], "completed")
+                        self.assertTrue(mcp_summary["completion_verified"])
+                        self.assertTrue(mcp_summary["outcome"]["evidence_refs"])
+                    finally:
+                        service3.close()
                     replay = third.run_trigger(
                         AdaptiveTriggerRequest(
                             task=task,
