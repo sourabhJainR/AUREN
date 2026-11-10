@@ -193,6 +193,19 @@ def run_local_provider_task(payload: Mapping[str, Any]) -> Mapping[str, Any]:
         raise LocalProviderNotConfigured(
             "configure a direct API provider with AUREN_REMOTE_PROVIDER_ORDER, its API key and model ID"
         )
+    providers = getattr(pool, "providers", ())
+    if not providers:
+        raise LocalProviderNotConfigured("configured provider adapter does not expose a reviewed provider identity")
+    selected_provider = providers[0]
+    selected_name = getattr(getattr(selected_provider, "spec", None), "name", None)
+    selected_model = getattr(selected_provider, "model", None)
+    binding = payload.get("_auren_local_provider")
+    if (
+        not isinstance(binding, Mapping)
+        or binding.get("name") != selected_name
+        or binding.get("model") != selected_model
+    ):
+        raise LocalProviderNotConfigured("configured provider selection changed after local task admission")
     ledger = LocalProviderOperationLedger(_provider_ledger_path(state_root))
     cached = ledger.begin(work_key)
     if cached is not None:
@@ -491,7 +504,7 @@ class LocalRuntimeComposition:
     def provider_ready(self) -> bool:
         return self.provider_pool is not None
 
-    def admit_task(self, principal: Any, task: str, context: Mapping[str, Any]) -> None:
+    def admit_task(self, principal: Any, task: str, context: Mapping[str, Any]) -> Mapping[str, Any]:
         if not self.operator.verify_principal(principal):
             raise PermissionError("local operator identity is not authorized for this workspace")
         if self.provider_pool is None:
@@ -511,6 +524,19 @@ class LocalRuntimeComposition:
         )
         if decision.allowed is not True:
             raise PermissionError("current Guard policy denied local task admission: " + decision.reason)
+        source_revision = self._source_revision()
+        providers = getattr(self.provider_pool, "providers", ())
+        if not providers:
+            raise LocalProviderNotConfigured("configured provider pool has no reviewed provider adapter")
+        selected = providers[0]
+        name = getattr(getattr(selected, "spec", None), "name", None)
+        model = getattr(selected, "model", None)
+        if not isinstance(name, str) or not name or not isinstance(model, str) or not model:
+            raise LocalProviderNotConfigured("configured provider identity or model is incomplete")
+        return {
+            "_auren_local_source_revision": source_revision,
+            "_auren_local_provider": {"name": name, "model": model},
+        }
 
     def _source_revision(self) -> str:
         try:
@@ -525,7 +551,9 @@ class LocalRuntimeComposition:
             raise RuntimeError("Git returned an invalid source revision")
         return revision
 
-    def _plan_for(self, trigger_id: str, task: str) -> EngineeringPlan:
+    def _plan_for(self, trigger_id: str, task: str, source_revision: str) -> EngineeringPlan:
+        if not re.fullmatch(r"[0-9a-f]{40}", source_revision):
+            raise ValueError("local task is missing its host-bound Git source revision")
         return EngineeringPlan(
             run_id="local-" + trigger_id,
             goal=task.strip(),
@@ -542,7 +570,7 @@ class LocalRuntimeComposition:
                 owner_role_id="BE-01",
                 manager_role_id="EM-ENG-01",
             ),),
-            source_revision=self._source_revision(),
+            source_revision=source_revision,
             budget={"attempts": 1, "dispatches": 1, "tokens": 4096, "wall_seconds": 300},
         )
 
@@ -575,7 +603,15 @@ class LocalRuntimeComposition:
             raise PermissionError("persisted MCP event is not bound to the host-owned local operator")
         if self.provider_pool is None:
             raise LocalProviderNotConfigured("provider configuration is unavailable")
-        plan = self._plan_for(trigger_id, request.task)
+        source_revision = request.context.get("_auren_local_source_revision")
+        provider_binding = request.context.get("_auren_local_provider")
+        if (
+            not isinstance(source_revision, str)
+            or not re.fullmatch(r"[0-9a-f]{40}", source_revision)
+            or not isinstance(provider_binding, Mapping)
+        ):
+            raise PermissionError("persisted MCP event lacks host-bound source and provider selection")
+        plan = self._plan_for(trigger_id, request.task, source_revision)
         try:
             stored_plan, run = self.plan_store.load(plan.run_id)
             if stored_plan.digest != plan.digest:
@@ -616,6 +652,7 @@ class LocalRuntimeComposition:
             "resource": "task-intent",
             "work_key": dispatch_key,
             "_auren_local_state_root": str(self.state_root),
+            "_auren_local_provider": dict(provider_binding),
         }
         task = self.dispatch_root.dispatch(
             run_id=plan.run_id,
