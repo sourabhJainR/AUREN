@@ -164,3 +164,44 @@ def test_provider_operation_ledger_never_replays_an_ambiguous_dispatch(tmp_path:
         LocalProviderOperationLedger(tmp_path / "provider-operations.sqlite3").begin(
             "local-mcp:stable-operation-key-0001",
         )
+
+
+def test_remote_provider_requires_explicit_public_workspace_opt_in(tmp_path: Path, monkeypatch):
+    project = tmp_path / "workspace"
+    _git_workspace(project)
+    monkeypatch.delenv("AUREN_LOCAL_REMOTE_INFERENCE", raising=False)
+    monkeypatch.delenv("AUREN_LOCAL_DATA_CLASSIFICATION", raising=False)
+    provider = FakeProvider()
+    composition = create_local_composition(
+        project, state_root=tmp_path / "state", provider_pool=provider,
+    )
+    service = _service(composition, project, tmp_path / "token", 43144)
+    try:
+        principal = service.token_verifier.verify((tmp_path / "token").read_text(encoding="utf-8").strip())
+        with pytest.raises(Exception, match="remote inference is disabled by default"):
+            service.call_tool(
+                "auren.submit_task",
+                {"task": "Summarize this public sample.", "idempotency_key": "local-public-optin-test-0001"},
+                principal,
+            )
+        assert composition.runtime.trigger_runtime.list_events(kind="adaptive_runtime", limit=10) == []
+        assert provider.calls == []
+    finally:
+        service.close()
+        composition.close()
+
+
+def test_local_operator_approval_authority_is_role_and_scope_bound(tmp_path: Path):
+    project = tmp_path / "workspace"
+    _git_workspace(project)
+    composition = create_local_composition(
+        project, state_root=tmp_path / "state", provider_pool=FakeProvider(),
+    )
+    try:
+        authorize = composition.operator.authorize_approver
+        assert authorize("local-operator", "engineering_manager", "repo:write", ("engineering_manager",))
+        assert not authorize("BE-01", "engineering_manager", "repo:write", ("engineering_manager",))
+        assert not authorize("local-operator", "engineering_manager", "global:admin", ("engineering_manager",))
+        assert not authorize("local-operator", "release_manager", "repo:write", ("release_manager",))
+    finally:
+        composition.close()
