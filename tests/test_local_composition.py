@@ -286,8 +286,14 @@ os._exit(87)
             second.runtime.trigger_runtime.retry_delay_seconds = 1
             try:
                 time.sleep(1.2)
-                self.assertTrue(second.trigger.dispatch_once(limit=1))
                 task_id = counter_path.with_suffix(".task-id").read_text(encoding="utf-8").strip()
+                before_recovery = second.runtime.trigger_runtime.get_event(task_id)
+                due_before_recovery = second.runtime.trigger_runtime.due(kind="adaptive_runtime")
+                recovered = second.trigger.dispatch_once(limit=1)
+                self.assertTrue(
+                    recovered,
+                    f"event_before={before_recovery!r}; due_before={due_before_recovery!r}",
+                )
                 event = second.runtime.trigger_runtime.get_event(task_id)
                 self.assertIsNotNone(event)
                 self.assertEqual(event.status, "success")
