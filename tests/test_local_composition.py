@@ -120,11 +120,25 @@ class LocalRuntimeCompositionTests(unittest.TestCase):
                 principal2 = service2.token_verifier.verify(token)
                 receipt2 = service2.call_tool("auren.submit_task", arguments, principal2)
                 self.assertEqual(receipt2["task_id"], task_id)
-                self.assertTrue(second.trigger.dispatch_once(limit=1))
+                second.runtime.trigger_runtime.retry_delay_seconds = 0
+                original_complete = second.runtime.trigger_runtime.complete
+                failed_terminal_ack = {"value": False}
+
+                def lose_first_terminal_ack(event_id, claim_id, status, detail="", **kwargs):
+                    if status == "success" and not failed_terminal_ack["value"]:
+                        failed_terminal_ack["value"] = True
+                        raise RuntimeError("simulated interruption after durable controller completion")
+                    return original_complete(event_id, claim_id, status, detail, **kwargs)
+
+                second.runtime.trigger_runtime.complete = lose_first_terminal_ack
+                try:
+                    second.trigger.dispatch_once(limit=1)
+                finally:
+                    second.runtime.trigger_runtime.complete = original_complete
                 event = second.runtime.trigger_runtime.get_event(task_id)
                 self.assertIsNotNone(event)
-                self.assertEqual(event.status, "success")
-                self.assertEqual(event.outcome.get("result_status"), "completed")
+                self.assertEqual(event.status, "pending")
+                self.assertTrue(failed_terminal_ack["value"])
                 self.assertTrue(event.outcome.get("evidence_refs"))
                 self.assertTrue(event.outcome.get("controller_task_id"))
 
@@ -148,6 +162,11 @@ class LocalRuntimeCompositionTests(unittest.TestCase):
                     self.assertEqual(run_after_restart.tasks[0].status, "passed")
                     event_after_restart = third.runtime.trigger_runtime.get_event(task_id)
                     self.assertIsNotNone(event_after_restart)
+                    self.assertEqual(event_after_restart.status, "pending")
+                    self.assertTrue(third.trigger.dispatch_once(limit=1))
+                    event_after_recovery = third.runtime.trigger_runtime.get_event(task_id)
+                    self.assertIsNotNone(event_after_recovery)
+                    self.assertEqual(event_after_recovery.status, "success")
                     replay = third.run_trigger(
                         AdaptiveTriggerRequest(
                             task=task,
