@@ -290,11 +290,12 @@ os._exit(87)
                 before_recovery = second.runtime.trigger_runtime.get_event(task_id)
                 due_before_recovery = second.runtime.trigger_runtime.due(kind="adaptive_runtime")
                 recovered = second.trigger.dispatch_once(limit=1)
+                event = second.runtime.trigger_runtime.get_event(task_id)
                 self.assertTrue(
                     recovered,
-                    f"event_before={before_recovery!r}; due_before={due_before_recovery!r}",
+                    f"event_before={before_recovery!r}; due_before={due_before_recovery!r}; "
+                    f"event_after={event!r}",
                 )
-                event = second.runtime.trigger_runtime.get_event(task_id)
                 self.assertIsNotNone(event)
                 self.assertEqual(event.status, "success")
                 self.assertEqual(event.outcome.get("result_status"), "completed")
