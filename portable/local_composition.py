@@ -227,9 +227,10 @@ def run_local_provider_task(payload: Mapping[str, Any]) -> Mapping[str, Any]:
 class LocalOperatorAuthority:
     """Persistent host-owned operator identity and role authorization."""
 
-    def __init__(self, path: Path, project_root: Path) -> None:
+    def __init__(self, path: Path, project_root: Path, policy_path: Path | None = None) -> None:
         self.path = Path(path)
         self.project_root = Path(project_root).resolve()
+        self.policy_path = Path(policy_path) if policy_path is not None else self.project_root / ".auren" / "guard_policy.json"
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.principal_digest = _digest(_LOCAL_ISSUER + "\0" + _OPERATOR_ID)
         with sqlite3.connect(self.path, timeout=10) as db:
@@ -306,7 +307,7 @@ class LocalOperatorAuthority:
         )
 
     def approval_context(self, request: Any) -> Mapping[str, str]:
-        policy = load_guard_policy(self.project_root / ".auren" / "guard_policy.json")
+        policy = load_guard_policy(self.policy_path)
         evidence = _canonical(list(getattr(request, "evidence_refs", ())))
         return {
             "artifact_digest": _digest(str(getattr(request, "target", ""))),
@@ -399,7 +400,9 @@ class LocalRuntimeComposition:
             pass
 
         self.operator = LocalOperatorAuthority(
-            self.state_root / "operator.sqlite3", self.project_root,
+            self.state_root / "operator.sqlite3",
+            self.project_root,
+            self.state_root / "adaptive-runtime" / "executive" / ".auren" / "guard_policy.json",
         )
         self.provider_pool = (
             provider_pool if provider_pool is not None
