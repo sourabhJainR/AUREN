@@ -114,6 +114,7 @@ def test_local_mcp_submission_recovers_after_host_restart_without_factory_or_dup
 
     controller_task = second.controller.task_by_work_key("local-mcp:" + task_id)
     assert controller_task is not None and controller_task.state == "completed"
+    assert second.supervisor.verify_audit_chain()
     plan, run = second.recovery_bridge.load_verified("local-" + task_id)
     assert plan.source_revision
     assert run.tasks[0].status == "passed"
