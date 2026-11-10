@@ -179,8 +179,11 @@ def run_local_provider_task(payload: Mapping[str, Any]) -> Mapping[str, Any]:
         or not isinstance(raw_state_root, str) or not Path(raw_state_root).is_absolute()
     ):
         raise ValueError("host-bound local provider task fields are invalid")
-    state_root = Path(raw_state_root).resolve()
-    if state_root.is_symlink() or not state_root.is_dir():
+    supplied_state_root = Path(raw_state_root).expanduser()
+    if supplied_state_root.is_symlink():
+        raise PermissionError("local provider state root must not be a symlink")
+    state_root = supplied_state_root.resolve()
+    if not state_root.is_dir():
         raise PermissionError("local provider state root is unavailable or unsafe")
     with _PROVIDER_POOLS_LOCK:
         pool = _PROVIDER_POOLS.get(str(state_root))
@@ -211,7 +214,7 @@ def run_local_provider_task(payload: Mapping[str, Any]) -> Mapping[str, Any]:
             "provider": str(getattr(response, "provider", "unknown")),
             "model": str(getattr(response, "model", "unknown")),
             "content": content[:100_000],
-            "usage": dict(getattr(response, "usage", {}) or {}),
+            "usage": dict(getattr(response, "usage", {}) or {}) if isinstance(getattr(response, "usage", {}), Mapping) else {},
             "response_digest": str(getattr(response, "response_digest", "")),
         }
         ledger.complete(work_key, result)
@@ -494,6 +497,17 @@ class LocalRuntimeComposition:
             )
         if not isinstance(task, str) or not task.strip():
             raise ValueError("task text is required")
+        policy = load_guard_policy(self.controller.root / ".auren" / "guard_policy.json")
+        decision = evaluate_guard_policy(
+            policy,
+            {
+                "action": "task.submit", "tool": "local-mcp",
+                "resource": "task-intent", "risk": "standard",
+            },
+            mandatory_authorized=True,
+        )
+        if decision.allowed is not True:
+            raise PermissionError("current Guard policy denied local task admission: " + decision.reason)
 
     def _source_revision(self) -> str:
         try:
@@ -564,7 +578,7 @@ class LocalRuntimeComposition:
             if stored_plan.digest != plan.digest:
                 raise PermissionError("stable local task ID was reused for different plan content or source revision")
         except KeyError:
-            self.plan_store.create(plan)
+            pass
         run = self.recovery_bridge.start(plan)
         if run.tasks[0].status == "passed":
             evidence = run.tasks[0].evidence_refs
@@ -610,7 +624,7 @@ class LocalRuntimeComposition:
             goal=plan.goal,
             deadline_seconds=300,
         )
-        deadline = time.monotonic() + 90.0
+        deadline = time.monotonic() + 330.0
         while time.monotonic() < deadline:
             current = self.controller.task(task.id)
             if current is None:
