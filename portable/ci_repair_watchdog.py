@@ -9,6 +9,7 @@ import hashlib
 import json
 import re
 import sqlite3
+from contextlib import closing
 from datetime import datetime
 from typing import Any, Mapping
 
@@ -62,7 +63,7 @@ class CIRepairWatchdog:
 
         # The controller's SQLite tasks table is the deduplication authority;
         # repeated polling must not create another task for the same head/check.
-        with sqlite3.connect(self.controller.db_path) as db:
+        with closing(sqlite3.connect(self.controller.db_path)) as db, db:
             rows = db.execute("SELECT id,payload,state FROM tasks").fetchall()
         for task_id, raw_payload, state in rows:
             try:
@@ -113,7 +114,7 @@ class CIRepairWatchdog:
 
     def finalize_terminal_tasks(self) -> list[Mapping[str, Any]]:
         """Close repair budgets from terminal supervisor state; missing validation evidence blocks."""
-        with sqlite3.connect(self.controller.db_path) as db:
+        with closing(sqlite3.connect(self.controller.db_path)) as db, db:
             rows = db.execute("SELECT id,payload,state FROM tasks WHERE state IN ('completed','failed','cancelled','blocked_reconciliation')").fetchall()
         journal_events = self.controller.progress_journal._events()
         finalized = []
@@ -157,7 +158,7 @@ class CIRepairWatchdog:
         if stale_after_seconds <= 0:
             raise ValueError("stale_after_seconds must be positive")
         current = time.time() if now is None else now
-        with sqlite3.connect(self.controller.db_path) as db:
+        with closing(sqlite3.connect(self.controller.db_path)) as db, db:
             rows = db.execute(
                 "SELECT id,state,heartbeat_at,lease_until,updated_at FROM tasks "
                 "WHERE state IN ('pending','running','recovering')"
