@@ -670,7 +670,7 @@ class LocalRuntimeComposition:
                 run_id, "execute", "passed",
                 reason="provider response and durable digest verified",
                 evidence_refs=(evidence_ref,),
-                next_safe_action="goal_acceptance_evidence_recorded",
+                next_safe_action="local_provider_response_recorded",
             )
 
     def run_trigger(self, request: AdaptiveTriggerRequest, trigger_id: str) -> LocalTaskOutcome:
@@ -777,7 +777,7 @@ class LocalRuntimeComposition:
                 digest = str(response.get("response_digest") or _digest(_canonical(response)))
                 evidence_ref = "sha256:" + digest if re.fullmatch(r"[0-9a-f]{64}", digest) else "sha256:" + _digest(_canonical(response))
                 self._mark_plan_complete(plan.run_id, evidence_ref)
-                return LocalTaskOutcome("completed", task.id, (evidence_ref,), "acceptance_evidence_recorded")
+                return LocalTaskOutcome("completed", task.id, (evidence_ref,), "provider_response_evidence_recorded")
             if current.state in {"failed", "cancelled", "blocked_approval"}:
                 try:
                     _stored_plan, current_run = self.recovery_bridge.load_verified(plan.run_id)
