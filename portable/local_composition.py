@@ -243,13 +243,19 @@ def run_local_provider_task(payload: Mapping[str, Any]) -> Mapping[str, Any]:
         content = getattr(response, "content", None)
         if not isinstance(content, str) or not content.strip():
             raise ValueError("configured provider returned no usable text")
+        if len(content) > 100_000:
+            raise ValueError("configured provider response exceeded the local evidence size limit")
+        computed_response_digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        supplied_response_digest = str(getattr(response, "response_digest", "") or "")
+        if supplied_response_digest and supplied_response_digest != computed_response_digest:
+            raise LocalProviderOutcomeUnknown("provider response digest did not match returned content")
         result = {
             "status": "completed",
             "provider": str(getattr(response, "provider", "unknown")),
             "model": str(getattr(response, "model", "unknown")),
-            "content": content[:100_000],
+            "content": content,
             "usage": dict(getattr(response, "usage", {}) or {}) if isinstance(getattr(response, "usage", {}), Mapping) else {},
-            "response_digest": str(getattr(response, "response_digest", "")),
+            "response_digest": computed_response_digest,
         }
         ledger.complete(work_key, result)
         return result
@@ -693,14 +699,18 @@ class LocalRuntimeComposition:
             response = LocalProviderOperationLedger(
                 _provider_ledger_path(self.state_root)
             ).response(work_key)
-            if not isinstance(response, Mapping):
-                return {"verified": False, "reason": "durable provider response is unavailable"}
-            response_digest = str(response.get("response_digest") or _digest(_canonical(response)))
-            evidence_ref = (
-                "sha256:" + response_digest
-                if re.fullmatch(r"[0-9a-f]{64}", response_digest)
-                else "sha256:" + _digest(_canonical(response))
-            )
+            if (
+                not isinstance(response, Mapping)
+                or not isinstance(response.get("content"), str)
+                or not response.get("content", "").strip()
+                or response.get("provider") != provider_binding.get("name")
+                or response.get("model") != provider_binding.get("model")
+            ):
+                return {"verified": False, "reason": "durable provider response or selected provider identity is unavailable"}
+            response_digest = hashlib.sha256(response["content"].encode("utf-8")).hexdigest()
+            if response.get("response_digest") != response_digest:
+                return {"verified": False, "reason": "provider response digest failed content verification"}
+            evidence_ref = "sha256:" + response_digest
             return {"verified": True, "evidence_refs": (evidence_ref,)}
 
         reconciler = EngineeringPlanGoalReconciler(
@@ -781,12 +791,17 @@ class LocalRuntimeComposition:
                 ).response(work_key)
                 if durable is None or durable.state != "completed" or response is None:
                     raise RuntimeError("passed local goal is missing its completed controller task or provider receipt")
-                response_digest = str(response.get("response_digest") or _digest(_canonical(response)))
-                expected_evidence = (
-                    "sha256:" + response_digest
-                    if re.fullmatch(r"[0-9a-f]{64}", response_digest)
-                    else "sha256:" + _digest(_canonical(response))
-                )
+                if (
+                    not isinstance(response.get("content"), str)
+                    or not response.get("content", "").strip()
+                    or response.get("provider") != provider_binding.get("name")
+                    or response.get("model") != provider_binding.get("model")
+                ):
+                    raise RuntimeError("completed provider receipt does not match the admitted provider identity")
+                response_digest = hashlib.sha256(response["content"].encode("utf-8")).hexdigest()
+                if response.get("response_digest") != response_digest:
+                    raise RuntimeError("completed provider response digest failed content verification")
+                expected_evidence = "sha256:" + response_digest
                 if expected_evidence not in progress.evidence_refs:
                     raise RuntimeError("completed local goal evidence does not match its durable provider response")
                 return LocalTaskOutcome(
