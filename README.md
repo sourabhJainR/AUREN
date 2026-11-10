@@ -26,7 +26,7 @@ Runtime profiles are explicit:
 - **Single-user local (default):** no external runtime factory, OAuth server, remote MCP or administrator-managed identity. AUREN owns local state and the execution boundary.
 - **Managed (opt-in):** an advanced user or administrator can enable a trusted host runtime factory and later shared/deployment services. Use `auren mode --mode managed --runtime-factory module:function --apply` to opt in; use `auren mode --mode single_user_local --apply` to opt out. Mode changes are backed up.
 
-The mode selector is implemented, but the factory-free local composition root is not complete yet. The current local MCP host still runs only with an explicitly trusted factory in managed mode; it must not silently load a project factory while the profile is single-user local.
+The factory-free local composition root is now implemented on the local MCP path. It owns the canonical controller, durable plan/recovery stores, trusted plan dispatch, Guard, local operator assignment, approvals, persisted budgets and continuous supervisor. Its current provider-backed task handler is proposal-only: it does not write repository files or perform releases. Direct API inference is disabled by default and requires an explicit public-data opt-in. Local coding CLI execution remains gated until a scoped subprocess/workspace executor is integrated and tested.
 The intended first-run experience is:
 
 1. Install AUREN once for the current user.
@@ -35,7 +35,7 @@ The intended first-run experience is:
 4. Run `auren connect` to preview and apply supported client configuration changes.
 5. Start the managed local service and connect a local MCP-capable client.
 
-The managed runtime must be built into the AUREN distribution. A standard user must not need to write or supply `auren_runtime_factory.py`. Custom runtime factories remain an advanced, explicitly trusted extension point. The built-in composition root must construct a reviewed, non-empty agent graph, the canonical execution controller, durable trigger runtime, workspace binding, Guard and approval dependencies, and configured provider invokers. If a required dependency is missing, AUREN must report the exact missing capability and remain safely unavailable; it must never substitute an empty graph, a no-op provider or an implicit permission grant.
+The managed runtime must be built into the AUREN distribution. A standard user must not need to write or supply `auren_runtime_factory.py`. Custom runtime factories remain an advanced, explicitly trusted extension point. The built-in composition root constructs a non-empty intake graph, canonical execution controller, durable trigger runtime, workspace binding, trusted plan dispatch, Guard and approval dependencies, persisted budgets and the continuous supervisor. A task is admitted only when the local operator and current Guard policy pass and an explicit provider is configured. Remote inference additionally requires the operator to declare the workspace public and enable remote inference. The current MCP handler is read-only proposal work; repository mutation remains blocked until a scoped coding executor is available. A missing dependency is reported as a blocker; AUREN never substitutes a no-op provider or implicit permission grant.
 
 ### Local MCP security
 
@@ -54,7 +54,7 @@ For a new repository, AUREN creates a minimal project profile and offers a suita
 
 ### Providers and AI clients
 
-AUREN distinguishes MCP clients from model API providers. Connecting Claude Code, Codex, Gemini CLI, VS Code Copilot, Visual Studio, Cursor or another local MCP client does not transfer that host's private model credentials to AUREN. Users can choose a detected local CLI/host, a local model, or configure one or more direct API providers. Provider selection is explicit, privacy-aware and bounded by the same supervisor attempt/deadline budget. Private or restricted tasks never fall back to remote inference.
+AUREN distinguishes MCP clients from model API providers. Connecting Claude Code, Codex, Gemini CLI, VS Code Copilot, Visual Studio, Cursor or another local MCP client does not transfer that host's private model credentials to AUREN. The built-in local MCP task path currently supports explicitly configured direct API inference for proposal-only work in workspaces the operator has declared public. Remote inference is off by default and requires both AUREN_LOCAL_REMOTE_INFERENCE=enabled and AUREN_LOCAL_DATA_CLASSIFICATION=public. Provider identity, model, source revision and Guard policy are bound to each accepted task. Local CLI discovery is not execution readiness; scoped CLI invocation remains gated until process and workspace isolation are integrated. Private or restricted tasks must not be sent to remote inference.
 
 Hosted ChatGPT web and hosted Claude surfaces cannot reach a workstation loopback endpoint. They require the separately configured remote MCP option; local-first does not imply exposing a local service to the internet.
 
