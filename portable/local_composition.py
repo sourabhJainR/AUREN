@@ -494,6 +494,15 @@ class LocalRuntimeComposition:
             approval_resolver=lambda _run_id, _task_id, _handler: None,
             assignment_resolver=assignment_resolver,
         )
+        self._supervisor_lock = threading.Lock()
+        self.supervisor = self.runtime.create_continuous_supervisor(
+            operator_authorizer=lambda principal_id: (
+                principal_id
+                if principal_id == _OPERATOR_ID
+                and self.operator.verify_digest(self.operator.principal_digest)
+                else None
+            ),
+        )
         self.trigger = AdaptiveTrigger(
             self.runtime.trigger_runtime,
             runner=self.run_trigger,
@@ -727,7 +736,19 @@ class LocalRuntimeComposition:
                     "blocked", task.id, (),
                     "inspect controller evidence; provider operations with unknown outcomes are not replayed",
                 )
-            self.controller.run_once(task.id)
+            try:
+                with self._supervisor_lock:
+                    self.supervisor.run(
+                        poll_seconds=0.1,
+                        batch_size=10,
+                        max_cycles=1,
+                    )
+            except RuntimeError as exc:
+                if "another AUREN continuous supervisor holds the live lease" not in str(exc):
+                    return LocalTaskOutcome(
+                        "blocked", task.id, (),
+                        "continuous supervisor is stopped or requires an explicit operator recovery action",
+                    )
             time.sleep(0.2)
         return LocalTaskOutcome(
             "blocked", task.id, (),
