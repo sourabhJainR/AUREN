@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import sys
 import time
 from types import SimpleNamespace
 import unittest
