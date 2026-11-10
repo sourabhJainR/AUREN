@@ -689,7 +689,7 @@ class LocalRuntimeComposition:
         run = self.recovery_bridge.start(plan)
         if run.tasks[0].status == "passed":
             evidence = run.tasks[0].evidence_refs
-            return LocalTaskOutcome("accepted", "local-" + trigger_id, evidence, "already_verified")
+            return LocalTaskOutcome("completed", "local-" + trigger_id, evidence, "already_verified")
         if run.tasks[0].status == "pending":
             run = self.recovery_bridge.transition_task(
                 plan.run_id, "execute", "ready", reason="local operator and provider admission passed",
@@ -748,7 +748,7 @@ class LocalRuntimeComposition:
                 digest = str(response.get("response_digest") or _digest(_canonical(response)))
                 evidence_ref = "sha256:" + digest if re.fullmatch(r"[0-9a-f]{64}", digest) else "sha256:" + _digest(_canonical(response))
                 self._mark_plan_complete(plan.run_id, evidence_ref)
-                return LocalTaskOutcome("accepted", task.id, (evidence_ref,), "acceptance_evidence_recorded")
+                return LocalTaskOutcome("completed", task.id, (evidence_ref,), "acceptance_evidence_recorded")
             if current.state in {"failed", "cancelled", "blocked_approval"}:
                 try:
                     _stored_plan, current_run = self.recovery_bridge.load_verified(plan.run_id)
