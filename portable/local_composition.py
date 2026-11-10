@@ -6,6 +6,7 @@ through this composition; it never calls AdaptiveRuntime.run directly.
 """
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import dataclass
 import hashlib
 import json
@@ -99,7 +100,7 @@ class LocalProviderOperationLedger:
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        with sqlite3.connect(self.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
             db.execute("PRAGMA journal_mode=WAL")
             db.execute("""
                 CREATE TABLE IF NOT EXISTS provider_operations(
@@ -116,7 +117,7 @@ class LocalProviderOperationLedger:
             pass
 
     def begin(self, work_key: str) -> Mapping[str, Any] | None:
-        with sqlite3.connect(self.path, timeout=10, isolation_level=None) as db:
+        with closing(sqlite3.connect(self.path, timeout=10, isolation_level=None)) as db, db:
             db.execute("PRAGMA busy_timeout=10000")
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
@@ -152,7 +153,7 @@ class LocalProviderOperationLedger:
     def complete(self, work_key: str, response: Mapping[str, Any]) -> None:
         encoded = _canonical(dict(response))
         digest = _digest(encoded)
-        with sqlite3.connect(self.path, timeout=10, isolation_level=None) as db:
+        with closing(sqlite3.connect(self.path, timeout=10, isolation_level=None)) as db, db:
             db.execute("PRAGMA busy_timeout=10000")
             cursor = db.execute(
                 "UPDATE provider_operations SET status='completed',response_json=?,response_digest=?,updated_at=? "
@@ -163,7 +164,7 @@ class LocalProviderOperationLedger:
                 raise LocalProviderOutcomeUnknown("provider operation state changed before its result was committed")
 
     def mark_unknown(self, work_key: str) -> None:
-        with sqlite3.connect(self.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
             db.execute(
                 "UPDATE provider_operations SET status='outcome_unknown',updated_at=? "
                 "WHERE work_key=? AND status='dispatching'",
@@ -171,7 +172,7 @@ class LocalProviderOperationLedger:
             )
 
     def response(self, work_key: str) -> Mapping[str, Any] | None:
-        with sqlite3.connect(self.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
             row = db.execute(
                 "SELECT status,response_json,response_digest FROM provider_operations WHERE work_key=?",
                 (work_key,),
@@ -273,7 +274,7 @@ class LocalOperatorAuthority:
         self.policy_path = Path(policy_path) if policy_path is not None else self.project_root / ".auren" / "guard_policy.json"
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.principal_digest = _digest(_LOCAL_ISSUER + "\0" + _OPERATOR_ID)
-        with sqlite3.connect(self.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
             db.execute("PRAGMA journal_mode=WAL")
             db.execute("""
                 CREATE TABLE IF NOT EXISTS local_operator(
@@ -302,7 +303,7 @@ class LocalOperatorAuthority:
     def verify_digest(self, principal_digest: str) -> bool:
         if principal_digest != self.principal_digest:
             return False
-        with sqlite3.connect(self.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
             row = db.execute(
                 "SELECT operator_id,issuer,principal_digest,project_root,active "
                 "FROM local_operator WHERE singleton=1"
@@ -368,7 +369,7 @@ class LocalBudgetResolver:
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        with sqlite3.connect(self.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
             db.execute("PRAGMA journal_mode=WAL")
             db.execute("""
                 CREATE TABLE IF NOT EXISTS local_budgets(
@@ -389,7 +390,7 @@ class LocalBudgetResolver:
     def resolve(self, run_id: str, task_id: str, handler: str) -> Mapping[str, Any]:
         policy_digest = _digest("auren-local-budget-v1|max_steps=8|max_attempts=4|deadline=300")
         budget_id = "local:" + _digest(run_id + "\0" + task_id + "\0" + handler)[:40]
-        with sqlite3.connect(self.path, timeout=10, isolation_level=None) as db:
+        with closing(sqlite3.connect(self.path, timeout=10, isolation_level=None)) as db, db:
             db.execute("PRAGMA busy_timeout=10000")
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
