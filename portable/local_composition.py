@@ -430,11 +430,6 @@ class LocalRuntimeComposition:
         except OSError:
             pass
 
-        self.operator = LocalOperatorAuthority(
-            self.state_root / "operator.sqlite3",
-            self.project_root,
-            self.state_root / "adaptive-runtime" / "executive" / ".auren" / "guard_policy.json",
-        )
         self.provider_pool = (
             provider_pool if provider_pool is not None
             else provider_pool_from_environment()
@@ -461,6 +456,11 @@ class LocalRuntimeComposition:
             max_total_attempts=8,
         )
         self.controller = self.runtime.execution_controller
+        self.operator = LocalOperatorAuthority(
+            self.state_root / "operator.sqlite3",
+            self.project_root,
+            self.controller.root / ".auren" / "guard_policy.json",
+        )
         self.controller.register_handler(
             _HANDLER,
             "portable.local_composition:run_local_provider_task",
