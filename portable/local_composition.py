@@ -68,6 +68,15 @@ def _digest(value: Any) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def _remote_policy_digest() -> str:
+    """Remote inference is opt-in and restricted to explicitly public workspaces."""
+    enabled = os.environ.get("AUREN_LOCAL_REMOTE_INFERENCE", "").strip().lower()
+    classification = os.environ.get("AUREN_LOCAL_DATA_CLASSIFICATION", "").strip().lower()
+    if enabled != "enabled" or classification != "public":
+        return ""
+    return _digest("auren-local-remote-inference-v1|enabled|public")
+
+
 def _local_intake_node(state: Mapping[str, Any]) -> Mapping[str, Any]:
     """Deterministic graph boundary; provider work is dispatched by the controller."""
     intent = state.get("local_task_intent")
@@ -193,6 +202,9 @@ def run_local_provider_task(payload: Mapping[str, Any]) -> Mapping[str, Any]:
         raise LocalProviderNotConfigured(
             "configure a direct API provider with AUREN_REMOTE_PROVIDER_ORDER, its API key and model ID"
         )
+    remote_policy_digest = _remote_policy_digest()
+    if not remote_policy_digest or payload.get("_auren_local_remote_policy_digest") != remote_policy_digest:
+        raise LocalProviderNotConfigured("remote inference is not enabled for an explicitly public local workspace")
     providers = getattr(pool, "providers", ())
     if not providers:
         raise LocalProviderNotConfigured("configured provider adapter does not expose a reviewed provider identity")
@@ -546,17 +558,25 @@ class LocalRuntimeComposition:
                 or not isinstance(existing_context.get("_auren_local_source_revision"), str)
                 or not isinstance(existing_context.get("_auren_local_provider"), Mapping)
                 or not isinstance(existing_context.get("_auren_local_policy_digest"), str)
+                or not isinstance(existing_context.get("_auren_local_remote_policy_digest"), str)
             ):
                 raise PermissionError("existing task is missing its immutable host admission binding")
             return {
                 "_auren_local_source_revision": existing_context["_auren_local_source_revision"],
                 "_auren_local_provider": dict(existing_context["_auren_local_provider"]),
                 "_auren_local_policy_digest": existing_context["_auren_local_policy_digest"],
+                "_auren_local_remote_policy_digest": existing_context["_auren_local_remote_policy_digest"],
             }
 
         if self.provider_pool is None:
             raise LocalProviderNotConfigured(
                 "no provider is configured; set AUREN_REMOTE_PROVIDER_ORDER and the selected provider key/model before submitting tasks"
+            )
+        remote_policy_digest = _remote_policy_digest()
+        if not remote_policy_digest:
+            raise LocalProviderNotConfigured(
+                "remote inference is disabled by default; explicitly set AUREN_LOCAL_REMOTE_INFERENCE=enabled "
+                "and AUREN_LOCAL_DATA_CLASSIFICATION=public only for work approved for external processing"
             )
         source_revision = self._source_revision()
         providers = getattr(self.provider_pool, "providers", ())
@@ -570,7 +590,10 @@ class LocalRuntimeComposition:
         return {
             "_auren_local_source_revision": source_revision,
             "_auren_local_provider": {"name": name, "model": model},
-            "_auren_local_policy_digest": guard_policy_fingerprint(policy),
+            "_auren_local_policy_digest": _digest(
+                guard_policy_fingerprint(policy) + "|" + remote_policy_digest
+            ),
+            "_auren_local_remote_policy_digest": remote_policy_digest,
         }
 
     def _source_revision(self) -> str:
@@ -644,15 +667,18 @@ class LocalRuntimeComposition:
         source_revision = request.context.get("_auren_local_source_revision")
         provider_binding = request.context.get("_auren_local_provider")
         policy_digest = request.context.get("_auren_local_policy_digest")
+        remote_policy_digest = _remote_policy_digest()
         current_policy = load_guard_policy(self.controller.root / ".auren" / "guard_policy.json")
         if (
             not isinstance(source_revision, str)
             or not re.fullmatch(r"[0-9a-f]{40}", source_revision)
             or not isinstance(provider_binding, Mapping)
             or not isinstance(policy_digest, str)
-            or policy_digest != guard_policy_fingerprint(current_policy)
+            or not remote_policy_digest
+            or request.context.get("_auren_local_remote_policy_digest") != remote_policy_digest
+            or policy_digest != _digest(guard_policy_fingerprint(current_policy) + "|" + remote_policy_digest)
         ):
-            raise PermissionError("persisted MCP event lacks current host-bound source, provider or Guard policy evidence")
+            raise PermissionError("persisted MCP event lacks current host-bound source, provider or remote-data policy evidence")
         plan = self._plan_for(trigger_id, request.task, source_revision, policy_digest)
         try:
             stored_plan, run = self.plan_store.load(plan.run_id)
@@ -696,6 +722,7 @@ class LocalRuntimeComposition:
             "_auren_local_state_root": str(self.state_root),
             "_auren_local_provider": dict(provider_binding),
             "_auren_local_policy_digest": policy_digest,
+            "_auren_local_remote_policy_digest": remote_policy_digest,
         }
         task = self.dispatch_root.dispatch(
             run_id=plan.run_id,
