@@ -234,7 +234,6 @@ def serve_local(
         raise SystemExit("Install the local HTTP runtime with: python -m pip install 'uvicorn[standard]'") from exc
 
     from .dashboard_server import create_server
-    from .remote_mcp_server import _load_runtime
 
     # Keep the installed AUREN payload ahead of the workspace on sys.path.
     # A project may itself contain a package named portable; it must not
@@ -257,6 +256,7 @@ def serve_local(
         )
         runtime = composition.runtime
     else:
+        from .remote_mcp_server import _load_runtime
         runtime = _load_runtime(factory_path, root)
     ensure_local_observability_store()
     dashboard = None
