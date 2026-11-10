@@ -23,8 +23,8 @@ from .adaptive_runtime import AdaptiveRuntime
 from .adaptive_trigger import AdaptiveTrigger, AdaptiveTriggerRequest
 from .agent_org_runtime import REGISTRY_PATH, authorize_agent_assignment
 from .durable_approval import DurableApprovalStore
-from .engineering_context_packet import build_context_packet
 from .engineering_plan import EngineeringPlan, PlanTask
+from .engineering_plan_goal_reconciler import EngineeringPlanGoalReconciler
 from .engineering_plan_recovery import EngineeringPlanRecoveryBridge
 from .engineering_plan_store import EngineeringPlanStore
 from .organization_guard import (
@@ -650,28 +650,78 @@ class LocalRuntimeComposition:
             budget={"attempts": 1, "dispatches": 1, "tokens": 4096, "wall_seconds": 300},
         )
 
-    def _mark_plan_complete(self, run_id: str, evidence_ref: str) -> None:
-        _plan, run = self.recovery_bridge.load_verified(run_id)
-        status = run.tasks[0].status
-        if status == "passed":
-            return
-        if status == "ready":
-            run = self.recovery_bridge.transition_task(
-                run_id, "execute", "running", reason="canonical controller task started",
+    def _goal_reconciler_for(
+        self,
+        plan: EngineeringPlan,
+        request: AdaptiveTriggerRequest,
+        provider_binding: Mapping[str, Any],
+        policy_digest: str,
+        remote_policy_digest: str,
+    ) -> EngineeringPlanGoalReconciler:
+        holder: dict[str, EngineeringPlanGoalReconciler] = {}
+
+        def payload_resolver(_plan: EngineeringPlan, task: PlanTask) -> Mapping[str, Any]:
+            return {
+                "task": task.title,
+                "resource": "task-intent",
+                "_auren_local_state_root": str(self.state_root),
+                "_auren_local_provider": dict(provider_binding),
+                "_auren_local_policy_digest": policy_digest,
+                "_auren_local_remote_policy_digest": remote_policy_digest,
+            }
+
+        def budget_resolver(
+            current_plan: EngineeringPlan, _run: Any, _task: PlanTask,
+        ) -> Mapping[str, int]:
+            return {
+                "attempts": min(1, int(current_plan.budget.get("attempts", 1))),
+                "steps": 1,
+                "tool_calls": 1,
+                "tokens": min(4096, int(current_plan.budget.get("tokens", 4096))),
+            }
+
+        def completion_verifier(
+            current_plan: EngineeringPlan, task: PlanTask, durable: Any,
+        ) -> Mapping[str, Any]:
+            if getattr(durable, "state", None) != "completed":
+                return {"verified": False, "reason": "canonical controller task is not complete"}
+            _stored_plan, current_run = self.recovery_bridge.load_verified(current_plan.run_id)
+            progress = next(
+                item for item in current_run.tasks if item.task_id == task.task_id
             )
-            status = "running"
-        if status == "running":
-            run = self.recovery_bridge.transition_task(
-                run_id, "execute", "verifying", reason="provider result returned by canonical controller",
+            reconciler = holder["reconciler"]
+            work_key = reconciler.work_key(task, progress.replan_generation)
+            response = LocalProviderOperationLedger(
+                _provider_ledger_path(self.state_root)
+            ).response(work_key)
+            if not isinstance(response, Mapping):
+                return {"verified": False, "reason": "durable provider response is unavailable"}
+            response_digest = str(response.get("response_digest") or _digest(_canonical(response)))
+            evidence_ref = (
+                "sha256:" + response_digest
+                if re.fullmatch(r"[0-9a-f]{64}", response_digest)
+                else "sha256:" + _digest(_canonical(response))
             )
-            status = "verifying"
-        if status == "verifying":
-            self.recovery_bridge.transition_task(
-                run_id, "execute", "passed",
-                reason="provider response and durable digest verified",
-                evidence_refs=(evidence_ref,),
-                next_safe_action="local_provider_response_recorded",
-            )
+            return {"verified": True, "evidence_refs": (evidence_ref,)}
+
+        reconciler = EngineeringPlanGoalReconciler(
+            run_id=plan.run_id,
+            controller=self.controller,
+            recovery_bridge=self.recovery_bridge,
+            trusted_dispatch_root=self.dispatch_root,
+            handler_resolver=lambda _plan, _task: _HANDLER,
+            payload_resolver=payload_resolver,
+            budget_resolver=budget_resolver,
+            completion_verifier=completion_verifier,
+            policy_constraints=(
+                "Provider inference is proposal-only and has no repository write tools.",
+                "No merge, release, deployment, publication or other external action is authorized.",
+                "The canonical ExecutionController and current Guard policy remain authoritative.",
+            ),
+        )
+        holder["reconciler"] = reconciler
+        self.supervisor.goal_reconcilers[reconciler.goal_key] = reconciler
+        return reconciler
 
     def run_trigger(self, request: AdaptiveTriggerRequest, trigger_id: str) -> LocalTaskOutcome:
         principal_digest = request.context.get("_auren_mcp_subject")
@@ -694,104 +744,20 @@ class LocalRuntimeComposition:
             or policy_digest != _digest(guard_policy_fingerprint(current_policy) + "|" + remote_policy_digest)
         ):
             raise PermissionError("persisted MCP event lacks current host-bound source, provider or remote-data policy evidence")
+
         plan = self._plan_for(trigger_id, request.task, source_revision, policy_digest)
-        dispatch_key = "local-mcp:" + trigger_id
         try:
-            stored_plan, run = self.plan_store.load(plan.run_id)
+            stored_plan, _stored_run = self.plan_store.load(plan.run_id)
             if stored_plan.digest != plan.digest:
                 raise PermissionError("stable local task ID was reused for different plan content or source revision")
         except KeyError:
             pass
-        run = self.recovery_bridge.start(plan)
-        if run.tasks[0].status == "passed":
-            existing_task = self.controller.task_by_work_key(dispatch_key)
-            response = LocalProviderOperationLedger(
-                _provider_ledger_path(self.state_root)
-            ).response(dispatch_key)
-            if existing_task is None or existing_task.state != "completed" or response is None:
-                raise RuntimeError("passed local plan is missing its completed controller task or provider receipt")
-            response_digest = str(response.get("response_digest") or _digest(_canonical(response)))
-            expected_evidence = (
-                "sha256:" + response_digest
-                if re.fullmatch(r"[0-9a-f]{64}", response_digest)
-                else "sha256:" + _digest(_canonical(response))
-            )
-            evidence = run.tasks[0].evidence_refs
-            if expected_evidence not in evidence:
-                raise RuntimeError("completed local plan evidence does not match its durable provider response")
-            return LocalTaskOutcome("completed", existing_task.id, evidence, "already_verified")
-        if run.tasks[0].status == "pending":
-            run = self.recovery_bridge.transition_task(
-                plan.run_id, "execute", "ready", reason="local operator and provider admission passed",
-                next_safe_action="dispatch_provider_task",
-            )
-        elif run.tasks[0].status in {"blocked", "failed", "cancelled"}:
-            return LocalTaskOutcome(
-                "blocked", "local-" + trigger_id, run.tasks[0].evidence_refs,
-                "explicit operator reauthorization or replanning is required",
-            )
-
-        packet = build_context_packet(
-            plan=plan,
-            run=run,
-            task_id="execute",
-            policy_constraints=(
-                "Provider inference only; this handler has no repository write tools.",
-                "No merge, release, deployment, publication or other external action is authorized.",
-                "The canonical ExecutionController and current Guard policy remain authoritative.",
-            ),
-            budget_remaining={"attempts": 1, "steps": 8, "tool_calls": 1, "tokens": 4096},
-            next_safe_action="dispatch_read_only_provider_inference",
-            max_bytes=16_384,
-        )
-        payload = {
-            "task": request.task.strip(),
-            "resource": "task-intent",
-            "work_key": dispatch_key,
-            "_auren_local_state_root": str(self.state_root),
-            "_auren_local_provider": dict(provider_binding),
-            "_auren_local_policy_digest": policy_digest,
-            "_auren_local_remote_policy_digest": remote_policy_digest,
-        }
-        task = self.dispatch_root.dispatch(
-            run_id=plan.run_id,
-            task_id="execute",
-            dispatch_key=dispatch_key,
-            handler=_HANDLER,
-            packet=packet,
-            payload=payload,
-            goal=plan.goal,
-            deadline_seconds=300,
+        self.recovery_bridge.start(plan)
+        reconciler = self._goal_reconciler_for(
+            plan, request, provider_binding, policy_digest, remote_policy_digest,
         )
         deadline = time.monotonic() + 330.0
         while time.monotonic() < deadline:
-            current = self.controller.task(task.id)
-            if current is None:
-                raise RuntimeError("canonical controller lost the dispatched local task")
-            if current.state == "completed":
-                response = LocalProviderOperationLedger(
-                    _provider_ledger_path(self.state_root)
-                ).response(dispatch_key)
-                if not isinstance(response, Mapping):
-                    raise RuntimeError("completed provider task has no verified durable response")
-                digest = str(response.get("response_digest") or _digest(_canonical(response)))
-                evidence_ref = "sha256:" + digest if re.fullmatch(r"[0-9a-f]{64}", digest) else "sha256:" + _digest(_canonical(response))
-                self._mark_plan_complete(plan.run_id, evidence_ref)
-                return LocalTaskOutcome("completed", task.id, (evidence_ref,), "provider_response_evidence_recorded")
-            if current.state in {"failed", "cancelled", "blocked_approval"}:
-                try:
-                    _stored_plan, current_run = self.recovery_bridge.load_verified(plan.run_id)
-                    if current_run.tasks[0].status == "ready":
-                        self.recovery_bridge.transition_task(
-                            plan.run_id, "execute", "blocked",
-                            reason="canonical controller did not complete the provider task",
-                        )
-                except Exception:
-                    pass
-                return LocalTaskOutcome(
-                    "blocked", task.id, (),
-                    "inspect controller evidence; provider operations with unknown outcomes are not replayed",
-                )
             try:
                 with self._supervisor_lock:
                     self.supervisor.run(
@@ -802,13 +768,41 @@ class LocalRuntimeComposition:
             except RuntimeError as exc:
                 if "another AUREN continuous supervisor holds the live lease" not in str(exc):
                     return LocalTaskOutcome(
-                        "blocked", task.id, (),
+                        "blocked", "local-" + trigger_id, (),
                         "continuous supervisor is stopped or requires an explicit operator recovery action",
                     )
+
+            _current_plan, current_run = self.recovery_bridge.load_verified(plan.run_id)
+            progress = current_run.tasks[0]
+            if progress.status == "passed":
+                work_key = reconciler.work_key(plan.tasks[0], progress.replan_generation)
+                durable = self.controller.task_by_work_key(work_key)
+                response = LocalProviderOperationLedger(
+                    _provider_ledger_path(self.state_root)
+                ).response(work_key)
+                if durable is None or durable.state != "completed" or response is None:
+                    raise RuntimeError("passed local goal is missing its completed controller task or provider receipt")
+                response_digest = str(response.get("response_digest") or _digest(_canonical(response)))
+                expected_evidence = (
+                    "sha256:" + response_digest
+                    if re.fullmatch(r"[0-9a-f]{64}", response_digest)
+                    else "sha256:" + _digest(_canonical(response))
+                )
+                if expected_evidence not in progress.evidence_refs:
+                    raise RuntimeError("completed local goal evidence does not match its durable provider response")
+                return LocalTaskOutcome(
+                    "completed", durable.id, progress.evidence_refs,
+                    "provider_response_evidence_recorded",
+                )
+            if progress.status in {"blocked", "failed", "cancelled"}:
+                return LocalTaskOutcome(
+                    "blocked", "local-" + trigger_id, progress.evidence_refs,
+                    "inspect the durable blocker; explicit operator reauthorization or replanning is required",
+                )
             time.sleep(0.2)
         return LocalTaskOutcome(
-            "blocked", task.id, (),
-            "controller task is still active; wait for its durable lease and status to reconcile",
+            "blocked", "local-" + trigger_id, (),
+            "local goal remains active; inspect the supervisor and durable plan before resuming",
         )
 
     def close(self) -> None:
