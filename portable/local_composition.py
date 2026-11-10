@@ -504,13 +504,11 @@ class LocalRuntimeComposition:
     def provider_ready(self) -> bool:
         return self.provider_pool is not None
 
-    def admit_task(self, principal: Any, task: str, context: Mapping[str, Any]) -> Mapping[str, Any]:
+    def admit_task(
+        self, principal: Any, task: str, context: Mapping[str, Any], event_id: str,
+    ) -> Mapping[str, Any]:
         if not self.operator.verify_principal(principal):
             raise PermissionError("local operator identity is not authorized for this workspace")
-        if self.provider_pool is None:
-            raise LocalProviderNotConfigured(
-                "no provider is configured; set AUREN_REMOTE_PROVIDER_ORDER and the selected provider key/model before submitting tasks"
-            )
         if not isinstance(task, str) or not task.strip():
             raise ValueError("task text is required")
         policy = load_guard_policy(self.controller.root / ".auren" / "guard_policy.json")
@@ -524,6 +522,31 @@ class LocalRuntimeComposition:
         )
         if decision.allowed is not True:
             raise PermissionError("current Guard policy denied local task admission: " + decision.reason)
+
+        # A caller retry must reuse the original host-bound source/provider metadata.
+        # Re-resolving either value after a workspace or configuration change would
+        # turn the same idempotency key into a different task intent.
+        existing = self.runtime.trigger_runtime.get_event(event_id)
+        if existing is not None:
+            if existing.payload.get("task") != task.strip():
+                raise PermissionError("idempotency key is already bound to different task content")
+            existing_context = existing.payload.get("context", {})
+            if (
+                not isinstance(existing_context, Mapping)
+                or existing_context.get("_auren_mcp_subject") != self.operator.principal_digest
+                or not isinstance(existing_context.get("_auren_local_source_revision"), str)
+                or not isinstance(existing_context.get("_auren_local_provider"), Mapping)
+            ):
+                raise PermissionError("existing task is missing its immutable host admission binding")
+            return {
+                "_auren_local_source_revision": existing_context["_auren_local_source_revision"],
+                "_auren_local_provider": dict(existing_context["_auren_local_provider"]),
+            }
+
+        if self.provider_pool is None:
+            raise LocalProviderNotConfigured(
+                "no provider is configured; set AUREN_REMOTE_PROVIDER_ORDER and the selected provider key/model before submitting tasks"
+            )
         source_revision = self._source_revision()
         providers = getattr(self.provider_pool, "providers", ())
         if not providers:
