@@ -686,6 +686,7 @@ class LocalRuntimeComposition:
         ):
             raise PermissionError("persisted MCP event lacks current host-bound source, provider or remote-data policy evidence")
         plan = self._plan_for(trigger_id, request.task, source_revision, policy_digest)
+        dispatch_key = "local-mcp:" + trigger_id
         try:
             stored_plan, run = self.plan_store.load(plan.run_id)
             if stored_plan.digest != plan.digest:
@@ -694,8 +695,14 @@ class LocalRuntimeComposition:
             pass
         run = self.recovery_bridge.start(plan)
         if run.tasks[0].status == "passed":
+            existing_task = self.controller.task_by_work_key(dispatch_key)
+            response = LocalProviderOperationLedger(
+                _provider_ledger_path(self.state_root)
+            ).response(dispatch_key)
+            if existing_task is None or existing_task.state != "completed" or response is None:
+                raise RuntimeError("passed local plan is missing its completed controller task or provider receipt")
             evidence = run.tasks[0].evidence_refs
-            return LocalTaskOutcome("completed", "local-" + trigger_id, evidence, "already_verified")
+            return LocalTaskOutcome("completed", existing_task.id, evidence, "already_verified")
         if run.tasks[0].status == "pending":
             run = self.recovery_bridge.transition_task(
                 plan.run_id, "execute", "ready", reason="local operator and provider admission passed",
@@ -720,7 +727,6 @@ class LocalRuntimeComposition:
             next_safe_action="dispatch_read_only_provider_inference",
             max_bytes=16_384,
         )
-        dispatch_key = "local-mcp:" + trigger_id
         payload = {
             "task": request.task.strip(),
             "resource": "task-intent",
