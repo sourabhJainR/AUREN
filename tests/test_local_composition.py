@@ -67,7 +67,7 @@ def _git_workspace(path: Path) -> None:
 
 def _service(composition, project: Path, token_path: Path, port: int):
     from unittest.mock import patch
-    with patch("portable.local_host.canonical_auren_home", return_value=token_path.parent.parent / "auren-home"):
+    with patch("portable.local_host.canonical_auren_home", return_value=token_path.parent / "auren-home"):
         return create_local_mcp_service(
             composition.runtime,
             project,
