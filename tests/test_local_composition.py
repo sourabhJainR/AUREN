@@ -258,6 +258,10 @@ os._exit(87)
             environment["AUREN_LOCAL_REMOTE_INFERENCE"] = "enabled"
             environment["AUREN_LOCAL_DATA_CLASSIFICATION"] = "public"
             repository_root = Path(__file__).resolve().parents[1]
+            existing_pythonpath = environment.get("PYTHONPATH", "")
+            environment["PYTHONPATH"] = str(repository_root) + (
+                os.pathsep + existing_pythonpath if existing_pythonpath else ""
+            )
             completed = subprocess.run(
                 [
                     sys.executable, str(script), str(project), str(state_root),
