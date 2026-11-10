@@ -905,9 +905,21 @@ class AurenMCPService:
             idempotency = arguments.get("idempotency_key")
             if not isinstance(idempotency, str) or not 16 <= len(idempotency) <= 200:
                 raise ValueError("idempotency_key must contain 16 to 200 characters")
+            host_context: Mapping[str, Any] = {}
             if self.task_admission is not None:
                 try:
-                    self.task_admission(principal, task.strip(), context)
+                    admission = self.task_admission(principal, task.strip(), context)
+                    if admission is not None:
+                        bounded_admission = _bounded_json(admission, limit=4096)
+                        if not isinstance(bounded_admission, Mapping):
+                            raise TypeError("host task admission must return an object")
+                        if any(
+                            not isinstance(key, str) or not key.startswith("_auren_local_")
+                            or key in context
+                            for key in bounded_admission
+                        ):
+                            raise ValueError("host task admission returned invalid or caller-colliding fields")
+                        host_context = dict(bounded_admission)
                 except MCPServiceError:
                     raise
                 except Exception as exc:
@@ -918,7 +930,7 @@ class AurenMCPService:
             event_id = hashlib.sha256(
                 (self._principal_key(principal) + "\0" + idempotency).encode("utf-8")
             ).hexdigest()[:40]
-            task_context = dict(context)
+            task_context = {**dict(context), **dict(host_context)}
             task_context["_auren_mcp_subject"] = self._principal_key(principal)
             try:
                 receipt = self.trigger.trigger_adaptive_runtime(
