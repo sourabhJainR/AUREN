@@ -113,6 +113,9 @@ def test_local_mcp_submission_recovers_after_host_restart_without_factory_or_dup
     assert second.trigger.dispatch_once(limit=1)
     event = second.runtime.trigger_runtime.get_event(task_id)
     assert event is not None and event.status == "success"
+    assert event.outcome.get("result_status") == "completed"
+    assert event.outcome.get("evidence_refs")
+    assert event.outcome.get("controller_task_id")
 
     controller_task = second.controller.task_by_work_key("local-mcp:" + task_id)
     assert controller_task is not None and controller_task.state == "completed"
