@@ -278,46 +278,50 @@ os._exit(87)
             self.assertEqual(completed.returncode, 86, completed.stdout + completed.stderr)
             self.assertEqual(counter_path.read_text(encoding="utf-8").splitlines(), ["provider-dispatch"])
 
-            provider_after_restart = FakeProvider()
-            second = create_local_composition(
-                project, state_root=state_root, provider_pool=provider_after_restart,
-            )
-            second.runtime.trigger_runtime.claim_lease_seconds = 1
-            second.runtime.trigger_runtime.retry_delay_seconds = 1
-            try:
-                time.sleep(1.2)
-                task_id = counter_path.with_suffix(".task-id").read_text(encoding="utf-8").strip()
-                before_recovery = second.runtime.trigger_runtime.get_event(task_id)
-                due_before_recovery = second.runtime.trigger_runtime.due(kind="adaptive_runtime")
-                recovered = second.trigger.dispatch_once(limit=1)
-                event = second.runtime.trigger_runtime.get_event(task_id)
-                self.assertTrue(
-                    recovered,
-                    f"event_before={before_recovery!r}; due_before={due_before_recovery!r}; "
-                    f"event_after={event!r}",
+            with patch.dict(os.environ, {
+                "AUREN_LOCAL_REMOTE_INFERENCE": "enabled",
+                "AUREN_LOCAL_DATA_CLASSIFICATION": "public",
+            }):
+                provider_after_restart = FakeProvider()
+                second = create_local_composition(
+                    project, state_root=state_root, provider_pool=provider_after_restart,
                 )
-                self.assertIsNotNone(event)
-                self.assertEqual(event.status, "success")
-                self.assertEqual(event.outcome.get("result_status"), "completed")
-                self.assertEqual(provider_after_restart.calls, [])
-                self.assertEqual(counter_path.read_text(encoding="utf-8").splitlines(), ["provider-dispatch"])
-                service = _service(second, project, token_path, 43148)
+                second.runtime.trigger_runtime.claim_lease_seconds = 1
+                second.runtime.trigger_runtime.retry_delay_seconds = 1
                 try:
-                    token = token_path.read_text(encoding="utf-8").strip()
-                    principal = service.token_verifier.verify(token)
-                    summary = service.call_tool(
-                        "auren.get_task",
-                        {"task_id": task_id},
-                        principal,
+                    time.sleep(1.2)
+                    task_id = counter_path.with_suffix(".task-id").read_text(encoding="utf-8").strip()
+                    before_recovery = second.runtime.trigger_runtime.get_event(task_id)
+                    due_before_recovery = second.runtime.trigger_runtime.due(kind="adaptive_runtime")
+                    recovered = second.trigger.dispatch_once(limit=1)
+                    event = second.runtime.trigger_runtime.get_event(task_id)
+                    self.assertTrue(
+                        recovered,
+                        f"event_before={before_recovery!r}; due_before={due_before_recovery!r}; "
+                        f"event_after={event!r}",
                     )
-                    self.assertEqual(summary["status"], "completed")
-                    self.assertTrue(summary["completion_verified"])
-                    self.assertTrue(summary["outcome"]["evidence_refs"])
+                    self.assertIsNotNone(event)
+                    self.assertEqual(event.status, "success")
+                    self.assertEqual(event.outcome.get("result_status"), "completed")
+                    self.assertEqual(provider_after_restart.calls, [])
+                    self.assertEqual(counter_path.read_text(encoding="utf-8").splitlines(), ["provider-dispatch"])
+                    service = _service(second, project, token_path, 43148)
+                    try:
+                        token = token_path.read_text(encoding="utf-8").strip()
+                        principal = service.token_verifier.verify(token)
+                        summary = service.call_tool(
+                            "auren.get_task",
+                            {"task_id": task_id},
+                            principal,
+                        )
+                        self.assertEqual(summary["status"], "completed")
+                        self.assertTrue(summary["completion_verified"])
+                        self.assertTrue(summary["outcome"]["evidence_refs"])
+                    finally:
+                        service.close()
+                    self.assertTrue(second.supervisor.verify_audit_chain())
                 finally:
-                    service.close()
-                self.assertTrue(second.supervisor.verify_audit_chain())
-            finally:
-                second.close()
+                    second.close()
 
     def test_local_mcp_rejects_task_admission_when_no_provider_is_configured(self):
         with tempfile.TemporaryDirectory() as temporary:
