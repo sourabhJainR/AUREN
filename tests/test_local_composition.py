@@ -62,13 +62,15 @@ def _git_workspace(path: Path) -> None:
 
 
 def _service(composition, project: Path, token_path: Path, port: int):
-    return create_local_mcp_service(
-        composition.runtime,
-        project,
-        port,
-        token_path=token_path,
-        composition=composition,
-    )[0]
+    from unittest.mock import patch
+    with patch("portable.local_host.canonical_auren_home", return_value=token_path.parent.parent / "auren-home"):
+        return create_local_mcp_service(
+            composition.runtime,
+            project,
+            port,
+            token_path=token_path,
+            composition=composition,
+        )[0]
 
 
 def test_local_mcp_submission_recovers_after_host_restart_without_factory_or_duplicate_provider_call(tmp_path: Path):
