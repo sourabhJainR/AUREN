@@ -653,7 +653,6 @@ class LocalRuntimeComposition:
     def _goal_reconciler_for(
         self,
         plan: EngineeringPlan,
-        request: AdaptiveTriggerRequest,
         provider_binding: Mapping[str, Any],
         policy_digest: str,
         remote_policy_digest: str,
@@ -754,7 +753,7 @@ class LocalRuntimeComposition:
             pass
         self.recovery_bridge.start(plan)
         reconciler = self._goal_reconciler_for(
-            plan, request, provider_binding, policy_digest, remote_policy_digest,
+            plan, provider_binding, policy_digest, remote_policy_digest,
         )
         deadline = time.monotonic() + 330.0
         while time.monotonic() < deadline:
