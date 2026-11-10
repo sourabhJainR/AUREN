@@ -124,6 +124,15 @@ class LocalProviderOperationLedger:
                 (work_key,),
             ).fetchone()
             if row is not None:
+                if row[0] == "dispatching":
+                    db.execute(
+                        "UPDATE provider_operations SET status='outcome_unknown',updated_at=? WHERE work_key=? AND status='dispatching'",
+                        (time.time(), work_key),
+                    )
+                    db.commit()
+                    raise LocalProviderOutcomeUnknown(
+                        "provider operation was interrupted after dispatch; outcome is unknown and automatic replay is blocked"
+                    )
                 db.commit()
                 if row[0] == "completed":
                     response = json.loads(row[1])
@@ -131,7 +140,7 @@ class LocalProviderOperationLedger:
                         raise LocalProviderOutcomeUnknown("stored provider response failed digest verification")
                     return dict(response)
                 raise LocalProviderOutcomeUnknown(
-                    "provider operation was already dispatched; automatic replay is blocked"
+                    "provider operation has an unknown outcome; automatic replay is blocked"
                 )
             db.execute(
                 "INSERT INTO provider_operations(work_key,status,updated_at) VALUES(?,?,?)",
