@@ -139,8 +139,7 @@ class LocalRuntimeCompositionTests(unittest.TestCase):
                 self.assertIsNotNone(event)
                 self.assertEqual(event.status, "pending")
                 self.assertTrue(failed_terminal_ack["value"])
-                self.assertTrue(event.outcome.get("evidence_refs"))
-                self.assertTrue(event.outcome.get("controller_task_id"))
+                self.assertEqual(event.outcome.get("error_type"), "RuntimeError")
 
                 controller_task = second.controller.task_by_work_key("local-mcp:" + task_id)
                 self.assertIsNotNone(controller_task)
@@ -167,6 +166,9 @@ class LocalRuntimeCompositionTests(unittest.TestCase):
                     event_after_recovery = third.runtime.trigger_runtime.get_event(task_id)
                     self.assertIsNotNone(event_after_recovery)
                     self.assertEqual(event_after_recovery.status, "success")
+                    self.assertEqual(event_after_recovery.outcome.get("result_status"), "completed")
+                    self.assertTrue(event_after_recovery.outcome.get("evidence_refs"))
+                    self.assertTrue(event_after_recovery.outcome.get("controller_task_id"))
                     replay = third.run_trigger(
                         AdaptiveTriggerRequest(
                             task=task,
@@ -198,7 +200,7 @@ class LocalRuntimeCompositionTests(unittest.TestCase):
                         principal,
                     )
                 self.assertEqual(
-                    composition.runtime.trigger_runtime.list_events(kind="adaptive_runtime", limit=10), [],
+                    composition.runtime.trigger_runtime.list_events(kind="adaptive_runtime", limit=10), (),
                 )
             finally:
                 service.close()
@@ -236,7 +238,7 @@ class LocalRuntimeCompositionTests(unittest.TestCase):
                             principal,
                         )
                     self.assertEqual(
-                        composition.runtime.trigger_runtime.list_events(kind="adaptive_runtime", limit=10), [],
+                        composition.runtime.trigger_runtime.list_events(kind="adaptive_runtime", limit=10), (),
                     )
                     self.assertEqual(provider.calls, [])
                 finally:
