@@ -18,6 +18,10 @@ from portable.local_host import create_local_mcp_service
 class FakeProvider:
     def __init__(self):
         self.calls = []
+        self.providers = [SimpleNamespace(
+            spec=SimpleNamespace(name="test-provider"),
+            model="test-model",
+        )]
 
     def __call__(self, request):
         self.calls.append(request.task)
