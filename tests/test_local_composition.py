@@ -196,6 +196,114 @@ class LocalRuntimeCompositionTests(unittest.TestCase):
                 finally:
                     third.close()
 
+    def test_local_mcp_recovers_after_real_process_death_without_replaying_provider(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            project = root / "workspace"
+            _git_workspace(project)
+            state_root = root / "local-state"
+            token_path = root / "credentials" / "local-operator.token"
+            counter_path = root / "provider-calls.txt"
+            task = "Review the repository architecture and return a bounded implementation plan."
+            script = root / "crash_worker.py"
+            script.write_text(
+                """
+import os
+import sys
+from pathlib import Path
+from tests.test_local_composition import FakeProvider, DeferredTrigger, _service
+from portable.local_composition import create_local_composition
+
+project, state_root, token_path, counter_path, task = map(Path, sys.argv[1:6])
+class CountingProvider(FakeProvider):
+    def __call__(self, request):
+        result = super().__call__(request)
+        with counter_path.open("a", encoding="utf-8") as stream:
+            stream.write("provider-dispatch\\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        return result
+
+composition = create_local_composition(
+    project, state_root=state_root, provider_pool=CountingProvider(),
+)
+composition.runtime.trigger_runtime.claim_lease_seconds = 1
+composition.trigger = DeferredTrigger(composition.trigger)
+service = _service(composition, project, token_path, 43147)
+token = token_path.read_text(encoding="utf-8").strip()
+principal = service.token_verifier.verify(token)
+receipt = service.call_tool(
+    "auren.submit_task",
+    {"task": task.read_text(encoding="utf-8"), "idempotency_key": "local-process-crash-0001"},
+    principal,
+)
+if receipt.get("status") != "accepted":
+    raise SystemExit(70)
+original_complete = composition.runtime.trigger_runtime.complete
+def crash_after_controller_completion(event_id, claim_id, status, detail="", **kwargs):
+    if status == "success":
+        os._exit(86)
+    return original_complete(event_id, claim_id, status, detail, **kwargs)
+composition.runtime.trigger_runtime.complete = crash_after_controller_completion
+composition.trigger.dispatch_once(limit=1)
+os._exit(87)
+""",
+                encoding="utf-8",
+            )
+            task_file = root / "task.txt"
+            task_file.write_text(task, encoding="utf-8")
+            environment = dict(os.environ)
+            environment["AUREN_LOCAL_REMOTE_INFERENCE"] = "enabled"
+            environment["AUREN_LOCAL_DATA_CLASSIFICATION"] = "public"
+            repository_root = Path(__file__).resolve().parents[1]
+            completed = subprocess.run(
+                [
+                    sys.executable, str(script), str(project), str(state_root),
+                    str(token_path), str(counter_path), str(task_file),
+                ],
+                cwd=repository_root,
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 86, completed.stdout + completed.stderr)
+            self.assertEqual(counter_path.read_text(encoding="utf-8").splitlines(), ["provider-dispatch"])
+
+            provider_after_restart = FakeProvider()
+            second = create_local_composition(
+                project, state_root=state_root, provider_pool=provider_after_restart,
+            )
+            second.runtime.trigger_runtime.claim_lease_seconds = 1
+            second.runtime.trigger_runtime.retry_delay_seconds = 1
+            try:
+                time.sleep(1.2)
+                self.assertTrue(second.trigger.dispatch_once(limit=1))
+                event = second.runtime.trigger_runtime.get_event("local-process-crash-0001")
+                self.assertIsNotNone(event)
+                self.assertEqual(event.status, "success")
+                self.assertEqual(event.outcome.get("result_status"), "completed")
+                self.assertEqual(provider_after_restart.calls, [])
+                self.assertEqual(counter_path.read_text(encoding="utf-8").splitlines(), ["provider-dispatch"])
+                service = _service(second, project, token_path, 43148)
+                try:
+                    token = token_path.read_text(encoding="utf-8").strip()
+                    principal = service.token_verifier.verify(token)
+                    summary = service.call_tool(
+                        "auren.get_task",
+                        {"task_id": "local-process-crash-0001"},
+                        principal,
+                    )
+                    self.assertEqual(summary["status"], "completed")
+                    self.assertTrue(summary["completion_verified"])
+                    self.assertTrue(summary["outcome"]["evidence_refs"])
+                finally:
+                    service.close()
+                self.assertTrue(second.supervisor.verify_audit_chain())
+            finally:
+                second.close()
+
     def test_local_mcp_rejects_task_admission_when_no_provider_is_configured(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
