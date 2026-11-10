@@ -84,7 +84,6 @@ def test_local_mcp_submission_recovers_after_host_restart_without_factory_or_dup
     }
 
     first = create_local_composition(project, state_root=state_root, provider_pool=provider)
-    first.trigger.close()
     first.trigger = DeferredTrigger(first.trigger)
     service1 = _service(first, project, token_path, 43141)
     token = token_path.read_text(encoding="utf-8").strip()
@@ -98,7 +97,6 @@ def test_local_mcp_submission_recovers_after_host_restart_without_factory_or_dup
     first.close()
 
     second = create_local_composition(project, state_root=state_root, provider_pool=provider)
-    second.trigger.close()
     second.trigger = DeferredTrigger(second.trigger)
     service2 = _service(second, project, token_path, 43142)
     principal2 = service2.token_verifier.verify(token)
@@ -132,7 +130,9 @@ def test_local_mcp_submission_recovers_after_host_restart_without_factory_or_dup
 def test_local_mcp_rejects_task_admission_when_no_provider_is_configured(tmp_path: Path):
     project = tmp_path / "workspace"
     _git_workspace(project)
-    composition = create_local_composition(project, state_root=tmp_path / "state", provider_pool=None)
+    from unittest.mock import patch
+    with patch("portable.local_composition.provider_pool_from_environment", return_value=None):
+        composition = create_local_composition(project, state_root=tmp_path / "state")
     service = _service(composition, project, tmp_path / "token", 43143)
     try:
         principal = service.token_verifier.verify((tmp_path / "token").read_text(encoding="utf-8").strip())
