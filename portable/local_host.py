@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import secrets
@@ -125,6 +126,7 @@ def load_or_create_local_token(path: Path | None = None) -> tuple[str, Path]:
 
 def create_local_mcp_service(
     runtime: Any, project_root: Path | str, port: int, *, token_path: Path | None = None,
+    composition: Any | None = None,
 ) -> tuple[AurenMCPService, Path]:
     """Create a loopback-only MCP service with a per-user local bearer token."""
     root = Path(project_root).expanduser().resolve()
@@ -133,11 +135,13 @@ def create_local_mcp_service(
     if type(port) is not int or not 1 <= port <= 65535:
         raise ValueError("local MCP port must be a bound TCP port")
     token, credential_path = load_or_create_local_token(token_path)
+    if composition is not None and getattr(composition, "runtime", None) is not runtime:
+        raise ValueError("local MCP runtime must be the runtime owned by its composition root")
     verifier = StaticBearerTokenVerifier([{
         "token": token,
         "subject": "local-operator",
         "issuer": "auren-local",
-        "roles": ["local-operator"],
+        "roles": ["local-operator", "engineering_manager"] if composition is not None else ["local-operator"],
         "projects": [str(root)],
         "scopes": list(_LOCAL_SCOPES),
     }])
@@ -152,6 +156,9 @@ def create_local_mcp_service(
         allowed_origins=(),
         require_https=False,
         control_store_path=state_root / "local-operator-control.sqlite3",
+        approval_store=getattr(composition, "approval_store", None),
+        trigger=getattr(composition, "trigger", None),
+        task_admission=getattr(composition, "admit_task", None),
     )
     return service, credential_path
 
@@ -203,28 +210,24 @@ def serve_local(
     except OnboardingError as exc:
         raise SystemExit(f"AUREN project profile is required; run 'auren init' first. {exc}") from exc
     runtime_mode = profile.get("runtime_mode", "single_user_local")
-    if runtime_mode == "single_user_local":
-        if runtime_factory:
-            raise SystemExit(
-                "A runtime factory is not part of single-user local setup. "
-                "The built-in factory-free composition root is not available in this release."
-            )
+    if runtime_mode == "single_user_local" and runtime_factory:
         raise SystemExit(
-            "Single-user local mode is selected. The built-in factory-free runtime composition "
-            "is not available in this release yet; run 'auren doctor' for readiness. "
-            "To use an advanced factory-backed host, explicitly opt into managed mode with "
-            "'auren mode --mode managed --runtime-factory module:function --apply'."
+            "A runtime factory is not part of single-user local setup. "
+            "Switch explicitly to managed mode before using a trusted factory."
         )
-    if runtime_mode != "managed" or profile.get("managed_runtime", {}).get("enabled") is not True:
+    if runtime_mode not in {"single_user_local", "managed"}:
         raise SystemExit("AUREN runtime profile is invalid; refusing to start.")
-    configured_factory = profile.get("managed_runtime", {}).get("runtime_factory")
-    if runtime_factory and configured_factory and runtime_factory != configured_factory:
-        raise SystemExit("CLI runtime factory does not match the project profile's managed factory.")
-    requested_factory = runtime_factory or configured_factory
-    try:
-        factory_path = resolve_runtime_factory(root, requested_factory)
-    except RuntimeError as exc:
-        raise SystemExit(str(exc)) from exc
+    if runtime_mode == "managed":
+        if profile.get("managed_runtime", {}).get("enabled") is not True:
+            raise SystemExit("AUREN managed runtime profile is invalid; refusing to start.")
+        configured_factory = profile.get("managed_runtime", {}).get("runtime_factory")
+        if runtime_factory and configured_factory and runtime_factory != configured_factory:
+            raise SystemExit("CLI runtime factory does not match the project profile's managed factory.")
+        requested_factory = runtime_factory or configured_factory
+        try:
+            factory_path = resolve_runtime_factory(root, requested_factory)
+        except RuntimeError as exc:
+            raise SystemExit(str(exc)) from exc
     try:
         import uvicorn
     except ImportError as exc:
@@ -234,7 +237,7 @@ def serve_local(
     from .remote_mcp_server import _load_runtime
 
     # Keep the installed AUREN payload ahead of the workspace on sys.path.
-    # A project may itself contain a package named "portable"; it must not
+    # A project may itself contain a package named portable; it must not
     # shadow AUREN's runtime modules when the project factory is imported.
     auren_root = str(Path(__file__).resolve().parents[1])
     for entry in (auren_root, str(root)):
@@ -243,7 +246,18 @@ def serve_local(
     sys.path.insert(0, auren_root)
     if str(root) != auren_root:
         sys.path.insert(1, str(root))
-    runtime = _load_runtime(factory_path, root)
+
+    composition = None
+    if runtime_mode == "single_user_local":
+        from .local_composition import create_local_composition
+        project_key = hashlib.sha256(str(root).encode("utf-8")).hexdigest()[:24]
+        composition = create_local_composition(
+            root,
+            state_root=canonical_auren_home() / "local-runtime" / project_key,
+        )
+        runtime = composition.runtime
+    else:
+        runtime = _load_runtime(factory_path, root)
     ensure_local_observability_store()
     dashboard = None
     mcp_socket = None
@@ -269,7 +283,7 @@ def serve_local(
         mcp_socket = _bound_loopback_socket(mcp_port)
         actual_mcp_port = int(mcp_socket.getsockname()[1])
         service, credential_path = create_local_mcp_service(
-            runtime, root, actual_mcp_port,
+            runtime, root, actual_mcp_port, composition=composition,
         )
         app = AurenMCPASGI(service)
         config = uvicorn.Config(
@@ -400,6 +414,8 @@ def serve_local(
                 "AUREN MCP shutdown exceeded 35 seconds; the daemon host thread will be terminated with the process.",
                 file=sys.stderr, flush=True,
             )
+        if composition is not None and (mcp_thread is None or not mcp_thread.is_alive()):
+            composition.close()
         for signum, previous in previous_handlers.items():
             signal.signal(signum, previous)
 
