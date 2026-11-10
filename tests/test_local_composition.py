@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -239,6 +240,7 @@ receipt = service.call_tool(
 )
 if receipt.get("status") != "accepted":
     raise SystemExit(70)
+counter_path.with_suffix(".task-id").write_text(receipt["task_id"], encoding="utf-8")
 original_complete = composition.runtime.trigger_runtime.complete
 def crash_after_controller_completion(event_id, claim_id, status, detail="", **kwargs):
     if status == "success":
@@ -280,7 +282,8 @@ os._exit(87)
             try:
                 time.sleep(1.2)
                 self.assertTrue(second.trigger.dispatch_once(limit=1))
-                event = second.runtime.trigger_runtime.get_event("local-process-crash-0001")
+                task_id = counter_path.with_suffix(".task-id").read_text(encoding="utf-8").strip()
+                event = second.runtime.trigger_runtime.get_event(task_id)
                 self.assertIsNotNone(event)
                 self.assertEqual(event.status, "success")
                 self.assertEqual(event.outcome.get("result_status"), "completed")
@@ -292,7 +295,7 @@ os._exit(87)
                     principal = service.token_verifier.verify(token)
                     summary = service.call_tool(
                         "auren.get_task",
-                        {"task_id": "local-process-crash-0001"},
+                        {"task_id": task_id},
                         principal,
                     )
                     self.assertEqual(summary["status"], "completed")
