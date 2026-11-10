@@ -536,11 +536,13 @@ class LocalRuntimeComposition:
                 or existing_context.get("_auren_mcp_subject") != self.operator.principal_digest
                 or not isinstance(existing_context.get("_auren_local_source_revision"), str)
                 or not isinstance(existing_context.get("_auren_local_provider"), Mapping)
+                or not isinstance(existing_context.get("_auren_local_policy_digest"), str)
             ):
                 raise PermissionError("existing task is missing its immutable host admission binding")
             return {
                 "_auren_local_source_revision": existing_context["_auren_local_source_revision"],
                 "_auren_local_provider": dict(existing_context["_auren_local_provider"]),
+                "_auren_local_policy_digest": existing_context["_auren_local_policy_digest"],
             }
 
         if self.provider_pool is None:
@@ -559,6 +561,7 @@ class LocalRuntimeComposition:
         return {
             "_auren_local_source_revision": source_revision,
             "_auren_local_provider": {"name": name, "model": model},
+            "_auren_local_policy_digest": guard_policy_fingerprint(policy),
         }
 
     def _source_revision(self) -> str:
@@ -574,7 +577,9 @@ class LocalRuntimeComposition:
             raise RuntimeError("Git returned an invalid source revision")
         return revision
 
-    def _plan_for(self, trigger_id: str, task: str, source_revision: str) -> EngineeringPlan:
+    def _plan_for(
+        self, trigger_id: str, task: str, source_revision: str, policy_digest: str,
+    ) -> EngineeringPlan:
         if not re.fullmatch(r"[0-9a-f]{40}", source_revision):
             raise ValueError("local task is missing its host-bound Git source revision")
         return EngineeringPlan(
@@ -594,6 +599,7 @@ class LocalRuntimeComposition:
                 manager_role_id="EM-ENG-01",
             ),),
             source_revision=source_revision,
+            policy_digest=policy_digest,
             budget={"attempts": 1, "dispatches": 1, "tokens": 4096, "wall_seconds": 300},
         )
 
@@ -628,13 +634,17 @@ class LocalRuntimeComposition:
             raise LocalProviderNotConfigured("provider configuration is unavailable")
         source_revision = request.context.get("_auren_local_source_revision")
         provider_binding = request.context.get("_auren_local_provider")
+        policy_digest = request.context.get("_auren_local_policy_digest")
+        current_policy = load_guard_policy(self.controller.root / ".auren" / "guard_policy.json")
         if (
             not isinstance(source_revision, str)
             or not re.fullmatch(r"[0-9a-f]{40}", source_revision)
             or not isinstance(provider_binding, Mapping)
+            or not isinstance(policy_digest, str)
+            or policy_digest != guard_policy_fingerprint(current_policy)
         ):
-            raise PermissionError("persisted MCP event lacks host-bound source and provider selection")
-        plan = self._plan_for(trigger_id, request.task, source_revision)
+            raise PermissionError("persisted MCP event lacks current host-bound source, provider or Guard policy evidence")
+        plan = self._plan_for(trigger_id, request.task, source_revision, policy_digest)
         try:
             stored_plan, run = self.plan_store.load(plan.run_id)
             if stored_plan.digest != plan.digest:
@@ -676,6 +686,7 @@ class LocalRuntimeComposition:
             "work_key": dispatch_key,
             "_auren_local_state_root": str(self.state_root),
             "_auren_local_provider": dict(provider_binding),
+            "_auren_local_policy_digest": policy_digest,
         }
         task = self.dispatch_root.dispatch(
             run_id=plan.run_id,
