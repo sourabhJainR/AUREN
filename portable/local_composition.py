@@ -701,7 +701,15 @@ class LocalRuntimeComposition:
             ).response(dispatch_key)
             if existing_task is None or existing_task.state != "completed" or response is None:
                 raise RuntimeError("passed local plan is missing its completed controller task or provider receipt")
+            response_digest = str(response.get("response_digest") or _digest(_canonical(response)))
+            expected_evidence = (
+                "sha256:" + response_digest
+                if re.fullmatch(r"[0-9a-f]{64}", response_digest)
+                else "sha256:" + _digest(_canonical(response))
+            )
             evidence = run.tasks[0].evidence_refs
+            if expected_evidence not in evidence:
+                raise RuntimeError("completed local plan evidence does not match its durable provider response")
             return LocalTaskOutcome("completed", existing_task.id, evidence, "already_verified")
         if run.tasks[0].status == "pending":
             run = self.recovery_bridge.transition_task(
