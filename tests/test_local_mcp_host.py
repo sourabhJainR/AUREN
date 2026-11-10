@@ -133,14 +133,23 @@ class LocalMCPHostTests(unittest.TestCase):
             self.assertEqual(0o600, stat.S_IMODE(trace_path.stat().st_mode))
 
     def test_single_user_local_mode_never_loads_a_project_runtime_factory(self):
+        from portable.local_composition import create_local_composition
         from portable.onboarding import initialize_repository
         initialize_repository(self.project)
         (self.project / "auren_runtime_factory.py").write_text(
             "raise RuntimeError('project factory must not be imported in local mode')\\n",
             encoding="utf-8",
         )
-        with self.assertRaisesRegex(SystemExit, "factory-free runtime composition"):
-            serve_local(self.project)
+        composition = create_local_composition(
+            self.project, state_root=self.root / "factory-free-state",
+        )
+        try:
+            self.assertIsNotNone(composition.dispatch_root)
+            self.assertIs(composition.runtime.execution_controller, composition.controller)
+            self.assertTrue(composition.runtime.orchestrator.graph.order())
+            self.assertNotIn("auren_runtime_factory", sys.modules)
+        finally:
+            composition.close()
 
     def test_single_user_local_mode_rejects_explicit_factory(self):
         from portable.onboarding import initialize_repository
