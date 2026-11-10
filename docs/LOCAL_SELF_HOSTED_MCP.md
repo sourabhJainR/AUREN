@@ -14,7 +14,7 @@ python auren_cli.py init --project-root /absolute/path/to/your/project
 python auren_cli.py doctor --project-root /absolute/path/to/your/project
 ```
 
-Single-user local mode is the default and does not use a runtime factory. The built-in factory-free runtime composition is not available yet, so this mode will report a readiness blocker rather than import a project factory. To run the currently available factory-backed host, explicitly opt into managed mode using the instructions below.
+Single-user local mode is the default and does not use or discover a runtime factory. It constructs AUREN's built-in composition with the canonical controller, durable plan/recovery stores, trusted plan dispatch, Guard, host-owned operator and assignment authorization, durable approvals, persisted budgets and continuous supervisor. The MCP host can start without a provider; task submission remains blocked until a provider is explicitly configured and the remote-data policy is enabled.
 
 After managed-mode opt-in, the command starts both services and prints their actual addresses:
 
@@ -38,7 +38,7 @@ Omit both port options for automatic selection. A port collision is reported at 
 
 ## Runtime profiles
 
-AUREN project profiles default to single-user local mode. This mode must use AUREN's built-in composition root and must not require or discover `auren_runtime_factory.py`. The current built-in composition root is still under implementation.
+AUREN project profiles default to single-user local mode. This mode uses AUREN's built-in composition root and never requires or discovers `auren_runtime_factory.py`. The root owns the canonical controller, durable stores, trusted plan dispatch and continuous supervisor.
 
 The existing factory-backed startup is an advanced managed-mode path. Opt in explicitly:
 
@@ -53,8 +53,24 @@ Return to the local profile with:
 python auren_cli.py mode --project-root /path/to/project --mode single_user_local --apply
 ```
 
-The profile change creates a backup and clears the managed factory reference when switching back to local. Do not run a factory-backed host from a single-user local profile. The mode selector is available now; the factory-free local composition root and its end-to-end acceptance remain open.
+The profile change creates a backup and clears the managed factory reference when switching back to local. Do not run a factory-backed host from a single-user local profile. The built-in MCP execution path is currently proposal-only; it does not write repository files or perform release actions.
 
+
+## Optional provider setup
+
+The local host starts without model credentials. Its current built-in task adapter uses direct API providers for read-only proposal work only. Remote inference is disabled by default and is permitted only when the operator explicitly declares the workspace public:
+
+```bash
+export AUREN_REMOTE_PROVIDER_ORDER=openai
+export OPENAI_API_KEY="<injected-from-a-secret-manager>"
+export OPENAI_MODEL="your-approved-model-id"
+export AUREN_LOCAL_REMOTE_INFERENCE=enabled
+export AUREN_LOCAL_DATA_CLASSIFICATION=public
+```
+
+Use the provider-specific environment names in [Model Provider Integration](MODEL_PROVIDER_INTEGRATION.md). Never place API keys in project profiles, task context, MCP arguments or repository files. The accepted task binds the provider name/model, Git HEAD and Guard policy digest. If the provider or policy changes before dispatch/recovery, the task is blocked rather than silently rerouted.
+
+The provider receives only the submitted task text. It has no repository tools and cannot modify files, merge, release or deploy. Local CLI discovery is not execution readiness; Codex, Claude Code and Gemini CLI invocation remains disabled until the scoped subprocess and workspace boundary is integrated.
 
 ## 3. Local authentication and safety
 
