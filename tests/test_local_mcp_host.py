@@ -145,6 +145,7 @@ class LocalMCPHostTests(unittest.TestCase):
         )
         try:
             self.assertIsNotNone(composition.dispatch_root)
+            self.assertIsNotNone(composition.supervisor)
             self.assertIs(composition.runtime.execution_controller, composition.controller)
             self.assertTrue(composition.runtime.orchestrator.graph.order())
             self.assertNotIn("auren_runtime_factory", sys.modules)
