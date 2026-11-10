@@ -126,6 +126,28 @@ Offer three explicit choices:
 
 Provider capability is per role and operation. Routing must honor user order, provider allowlists, privacy classification, cost/time budgets, cancellation and no-fallback rules. Unknown or unavailable providers fail visibly; they are not silently replaced.
 
+## Built-in local MCP composition
+
+The single-user local host now constructs its own runtime; it does not import or discover a project runtime factory. The composition installs the canonical AdaptiveRuntime, ExecutionController, durable trigger runtime, engineering-plan store/recovery bridge, trusted plan-dispatch root, continuous supervisor, host-owned local operator identity, assignment authorizer, durable approval store and persisted execution-budget resolver before MCP starts accepting tasks.
+
+Local MCP task submission is routed through that host composition. It captures the Git HEAD, Guard policy digest and selected provider/model at admission, then dispatches a role-assigned plan task through the trusted plan-dispatch root and canonical controller. The continuous supervisor claims and resumes queued controller work. Provider operation receipts are persisted before/after invocation; an interrupted ambiguous provider call is not repeated automatically.
+
+The currently implemented provider path is direct API inference only. It is deliberately proposal-only: it receives the submitted task text, has no repository tools, and cannot modify files, merge, release or deploy. It is not equivalent to a full coding-agent executor.
+
+Remote inference is disabled by default. To enable it, the operator must explicitly configure a provider and declare that the submitted work is public:
+
+```bash
+export AUREN_REMOTE_PROVIDER_ORDER=openai
+export OPENAI_API_KEY="<injected-from-a-secret-manager>"
+export OPENAI_MODEL="your-approved-model-id"
+export AUREN_LOCAL_REMOTE_INFERENCE=enabled
+export AUREN_LOCAL_DATA_CLASSIFICATION=public
+```
+
+Use the provider-specific key/model names documented in `MODEL_PROVIDER_INTEGRATION.md`. Do not place credentials in project files, MCP arguments or task context. If the public-data declaration or remote-inference opt-in is absent, local MCP starts but task admission is denied before a durable task is queued. Provider identity, model, source revision and Guard-policy digest are bound to the accepted task; changing them requires a new task identity.
+
+Local coding-agent CLI invocation is not enabled by this composition yet. Detection/configuration of Codex, Claude Code and Gemini CLI is not treated as execution readiness. They remain blocked until a reviewed scoped subprocess/workspace executor can enforce assignment paths, environment allowlists, process cancellation, output limits and recovery semantics. A local CLI must never be launched as an unscoped subprocess merely because it is installed.
+
 ## State ownership and storage
 
 - Machine runtime, provider references, local MCP credential and service metadata: user-owned AUREN home.
