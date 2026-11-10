@@ -77,9 +77,11 @@ def _service(composition, project: Path, token_path: Path, port: int):
         )[0]
 
 
-def test_local_mcp_submission_recovers_after_host_restart_without_factory_or_duplicate_provider_call(tmp_path: Path):
+def test_local_mcp_submission_recovers_after_host_restart_without_factory_or_duplicate_provider_call(tmp_path: Path, monkeypatch):
     project = tmp_path / "workspace"
     _git_workspace(project)
+    monkeypatch.setenv("AUREN_LOCAL_REMOTE_INFERENCE", "enabled")
+    monkeypatch.setenv("AUREN_LOCAL_DATA_CLASSIFICATION", "public")
     state_root = tmp_path / "local-state"
     token_path = tmp_path / "credentials" / "local-operator.token"
     provider = FakeProvider()
