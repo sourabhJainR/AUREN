@@ -289,9 +289,15 @@ class LocalOperatorAuthority:
             return False
         with sqlite3.connect(self.path, timeout=10) as db:
             row = db.execute(
-                "SELECT active,project_root FROM local_operator WHERE singleton=1"
+                "SELECT operator_id,issuer,principal_digest,project_root,active "
+                "FROM local_operator WHERE singleton=1"
             ).fetchone()
-        return bool(row and row[0] == 1 and row[1] == str(self.project_root))
+        return bool(
+            row == (
+                _OPERATOR_ID, _LOCAL_ISSUER, self.principal_digest,
+                str(self.project_root), 1,
+            )
+        )
 
     def verify_principal(self, principal: Any) -> bool:
         return bool(
