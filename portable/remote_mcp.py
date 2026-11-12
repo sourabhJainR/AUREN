@@ -1163,7 +1163,7 @@ class AurenMCPService:
                 raise ValueError("decision and reason are required")
             record = self.approval_store.get(approval_id)
             decided = self.approval_store.decide(
-                approval_id, decision, approver_id=principal.subject,
+                approval_id, decision, approver_id=self._principal_key(principal),
                 roles=principal.roles, scope=record.scope, reason=reason,
             )
             return self._approval_summary(decided)
