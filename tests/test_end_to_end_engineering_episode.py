@@ -11,7 +11,7 @@ from portable.end_to_end_engineering_episode import (
 )
 from portable.model_topology_benchmark import ModelEvaluation
 from portable.performance_budget import PerformanceBudget, PerformanceObservation
-from portable.requirement_contract import Requirement, RequirementContractEngine
+from portable.requirement_contract import Requirement, RequirementConflict, RequirementContractEngine
 from portable.security_engineering_gate import Threat
 from portable.whole_system_engineering import EngineeringEvaluation
 
@@ -102,6 +102,46 @@ class EndToEndEngineeringEpisodeTests(unittest.TestCase):
                 trace_links=(),
                 engineering_evaluator=self._engineering,
             )
+
+
+    def test_unresolved_material_conflict_blocks_executor_before_side_effect(self):
+        engine = RequirementContractEngine()
+        requirements = (
+            Requirement("R1", "quotes are live", ("fresh quotes",)),
+            Requirement("R2", "provider is free", ("no paid subscription",)),
+        )
+        contract = engine.build(
+            "build market research app",
+            requirements,
+            conflicts=(RequirementConflict(
+                "C1", ("R1", "R2"),
+                "Live quotes require a paid provider.",
+                "Provider choice changes cost and freshness.",
+                ("live-paid", "delayed-free"),
+                "live-paid",
+            ),),
+        )
+        request = self._request()
+        blocked_request = EngineeringEpisodeRequest(
+            request.intent, contract, request.architecture,
+            request.implementation_plan, request.full_stack,
+        )
+        executed = []
+        kwargs = dict(
+            quality_gates=(QualityGate("tests", True, ("test:e2e",)),),
+            threats=(Threat("T1", "backend", "input attack", "validation", True),),
+            performance_budget=PerformanceBudget(100, 10, 512, 80),
+            performance_observation=PerformanceObservation(50, 20, 256, 40),
+            trace_links=(TraceLink("R1", ("impl:1",), ("test:1",), ("e:R1",)),),
+            engineering_evaluator=self._engineering,
+        )
+        with self.assertRaisesRegex(ValueError, "blocking requirement conflicts remain"):
+            EndToEndEngineeringEpisode().run(
+                blocked_request,
+                executor=lambda value: executed.append(value),
+                **kwargs,
+            )
+        self.assertEqual([], executed)
 
 
 if __name__ == "__main__":
