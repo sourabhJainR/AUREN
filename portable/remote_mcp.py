@@ -818,14 +818,15 @@ class AurenMCPService:
             active = current_trace_context()
             if active is not None and isinstance(name, str) and len(name) <= 200:
                 trace, parent_span_id = active
+                safe_tool_name = name if re.fullmatch(r"[A-Za-z0-9_.-]{1,200}", name) else "untrusted"
                 argument_bytes = _canonical_json(_safe_value(arguments)).encode("utf-8")
                 subject = self._principal_key(principal) if principal is not None else "anonymous"
                 span = trace.span(
-                    "mcp.tool." + name,
+                    "mcp.tool." + safe_tool_name,
                     kind="tool",
                     input={"argument_bytes": len(argument_bytes)},
                     metadata={
-                        "tool": name,
+                        "tool": safe_tool_name,
                         "argument_digest": hashlib.sha256(argument_bytes).hexdigest(),
                         "principal_digest": hashlib.sha256(subject.encode("utf-8")).hexdigest(),
                     },
