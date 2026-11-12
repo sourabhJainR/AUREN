@@ -14,10 +14,10 @@ from typing import Any
 from .engineering_quality_gate import EngineeringQualityGate, QualityGate, QualityReport
 from .engineering_traceability import EngineeringTraceability, TraceLink, TraceabilityReport
 from .full_stack_contract import FullStackContract
-from .implementation_plan import ImplementationPlan
+from .implementation_plan import ImplementationPlan, ImplementationPlanner
 from .model_topology_benchmark import ModelBenchmarkReport, ModelTopologyBenchmark
 from .performance_budget import PerformanceBudget, PerformanceBudgetGate, PerformanceObservation, PerformanceReport
-from .requirement_contract import RequirementContract, RequirementContractEngine
+from .requirement_contract import RequirementContract, RequirementContractEngine, RequirementDecision
 from .security_engineering_gate import SecurityEngineeringGate, SecurityReport, Threat
 from .verified_repair_loop import RepairAttempt, RepairReport, VerifiedRepairLoop
 from .whole_system_engineering import EngineeringCoverage, EngineeringEvaluation, EngineeringTask, WholeSystemEngineeringEvaluator
@@ -64,11 +64,16 @@ class EndToEndEngineeringEpisode:
         engineering_evaluator: WholeSystemEngineeringEvaluator | None = None,
         repair_loop: VerifiedRepairLoop | None = None,
         benchmark: ModelTopologyBenchmark | None = None,
+        requirement_decision_verifier: Callable[[RequirementDecision], bool] | None = None,
     ) -> None:
         self.requirements = requirement_engine or RequirementContractEngine()
+        self.plans = ImplementationPlanner()
         self.engineering = engineering_evaluator or WholeSystemEngineeringEvaluator()
         self.repair = repair_loop or VerifiedRepairLoop()
         self.benchmark = benchmark or ModelTopologyBenchmark()
+        if requirement_decision_verifier is not None and not callable(requirement_decision_verifier):
+            raise TypeError("requirement_decision_verifier must be callable")
+        self.requirement_decision_verifier = requirement_decision_verifier
         self.quality = EngineeringQualityGate()
         self.security = SecurityEngineeringGate()
         self.performance = PerformanceBudgetGate()
@@ -97,10 +102,24 @@ class EndToEndEngineeringEpisode:
             raise TypeError("request must be an EngineeringEpisodeRequest")
         if not callable(executor):
             raise TypeError("executor must be callable")
+        if not isinstance(request.intent, str) or request.intent.strip() != request.requirements.intent.strip():
+            raise ValueError("engineering episode intent must match the requirement contract")
 
         contract_issues = self.requirements.validate(request.requirements)
         if contract_issues:
             raise ValueError("requirement contract is not executable: " + "; ".join(contract_issues))
+        if request.requirements.revision > 1 or request.requirements.conflicts:
+            self.plans.validate_binding(request.implementation_plan, request.requirements)
+        if request.requirements.decisions:
+            if self.requirement_decision_verifier is None:
+                raise PermissionError("requirement decision authority verifier is required before execution")
+            for decision in request.requirements.decisions:
+                try:
+                    verified = self.requirement_decision_verifier(decision)
+                except Exception as exc:
+                    raise PermissionError("requirement decision authority verification failed") from exc
+                if verified is not True:
+                    raise PermissionError("requirement decision lacks verified operator authority")
 
         implementation_result = executor(request)
 
