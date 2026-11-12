@@ -676,6 +676,9 @@ class LocalRuntimeComposition:
             self.runtime.trigger_runtime,
             runner=self.run_trigger,
         )
+        if self.vibe_host_status.get("status") == "ready":
+            current_lease = getattr(self.runtime.trigger_runtime, "claim_lease_seconds", 120)
+            self.runtime.trigger_runtime.claim_lease_seconds = max(int(current_lease), 3700)
         self._closed = False
         with _LOCAL_COMPOSITIONS_LOCK:
             _LOCAL_COMPOSITIONS[str(self.state_root)] = self
