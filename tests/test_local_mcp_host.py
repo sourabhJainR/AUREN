@@ -25,11 +25,13 @@ from portable.local_host import (
     ensure_local_observability_store,
     load_or_create_local_token,
     resolve_runtime_factory,
+    serve_local,
 )
 from portable.mcp_stdio_proxy import run_proxy, validate_local_url
 from portable.remote_mcp import AurenMCPASGI, AurenMCPService, StaticBearerTokenVerifier
 from portable.orchestration import Graph, Node, NodeKind
 from portable.dashboard_server import create_server
+from portable.onboarding import initialize_repository, set_runtime_mode
 
 
 class LocalMCPHostTests(unittest.TestCase):
@@ -129,6 +131,32 @@ class LocalMCPHostTests(unittest.TestCase):
         if os.name != "nt":
             self.assertEqual(0o700, stat.S_IMODE(trace_path.parent.stat().st_mode))
             self.assertEqual(0o600, stat.S_IMODE(trace_path.stat().st_mode))
+
+    def test_single_user_local_mode_never_loads_a_project_runtime_factory(self):
+        from portable.local_composition import create_local_composition
+        from portable.onboarding import initialize_repository
+        initialize_repository(self.project)
+        (self.project / "auren_runtime_factory.py").write_text(
+            "raise RuntimeError('project factory must not be imported in local mode')\\n",
+            encoding="utf-8",
+        )
+        composition = create_local_composition(
+            self.project, state_root=self.root / "factory-free-state",
+        )
+        try:
+            self.assertIsNotNone(composition.dispatch_root)
+            self.assertIsNotNone(composition.supervisor)
+            self.assertIs(composition.runtime.execution_controller, composition.controller)
+            self.assertTrue(composition.runtime.orchestrator.graph.order())
+            self.assertNotIn("auren_runtime_factory", sys.modules)
+        finally:
+            composition.close()
+
+    def test_single_user_local_mode_rejects_explicit_factory(self):
+        from portable.onboarding import initialize_repository
+        initialize_repository(self.project)
+        with self.assertRaisesRegex(SystemExit, "not part of single-user local setup"):
+            serve_local(self.project, runtime_factory="auren_runtime_factory:create_runtime")
 
     def test_project_local_runtime_factory_is_auto_discovered(self):
         with self.assertRaisesRegex(RuntimeError, "No AUREN runtime factory"):
@@ -241,6 +269,11 @@ class LocalMCPHostProcessTests(unittest.TestCase):
                 encoding="utf-8",
             )
             state_home = root / "auren-home"
+            initialize_repository(project)
+            set_runtime_mode(
+                project, "managed", apply=True,
+                runtime_factory="auren_runtime_factory:create_runtime",
+            )
             factory = project / "auren_runtime_factory.py"
             factory.write_text(
                 "from pathlib import Path\n"

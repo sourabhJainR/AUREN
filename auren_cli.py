@@ -602,12 +602,71 @@ def _run_delivery(args: list[str]) -> int:
         return 2
 
 
+
+def _run_onboarding(command: str, args: list[str]) -> int:
+    """Run repository discovery, doctor or explicit client configuration."""
+    from portable import onboarding
+    if command == "init":
+        parser = argparse.ArgumentParser(description="Inspect a repository and create its minimal AUREN profile.")
+        parser.add_argument("--project-root", default=".")
+        parser.add_argument("--dry-run", action="store_true")
+        options = parser.parse_args(args)
+        try:
+            result = onboarding.initialize_repository(options.project_root, apply=not options.dry_run)
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+        except (OSError, ValueError, RuntimeError) as exc:
+            print(f"auren init blocked: {exc}", file=sys.stderr)
+            return 2
+    if command == "mode":
+        parser = argparse.ArgumentParser(description="Choose single-user local or optional managed runtime mode.")
+        parser.add_argument("--project-root", default=".")
+        parser.add_argument("--mode", choices=("single_user_local", "managed"), required=True)
+        parser.add_argument("--runtime-factory", help="Advanced managed-mode factory in module.path:function form.")
+        parser.add_argument("--apply", action="store_true", help="Back up and persist the selected mode.")
+        options = parser.parse_args(args)
+        try:
+            result = onboarding.set_runtime_mode(
+                options.project_root, options.mode, apply=options.apply,
+                runtime_factory=options.runtime_factory,
+            )
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+        except (OSError, ValueError, RuntimeError) as exc:
+            print(f"auren mode blocked: {exc}", file=sys.stderr)
+            return 2
+
+    if command == "doctor":
+        parser = argparse.ArgumentParser(description="Check AUREN runtime, repository and provider prerequisites.")
+        parser.add_argument("--project-root", default=".")
+        options = parser.parse_args(args)
+        try:
+            print(json.dumps(onboarding.doctor(options.project_root), indent=2, sort_keys=True))
+            return 0
+        except (OSError, ValueError, RuntimeError) as exc:
+            print(f"auren doctor failed: {exc}", file=sys.stderr)
+            return 2
+    parser = argparse.ArgumentParser(description="Preview or configure supported local MCP clients.")
+    parser.add_argument("--url", default="http://127.0.0.1:8765/mcp")
+    parser.add_argument("--token-file", default=str(Path.home() / ".auren" / "mcp" / "local-operator.token"))
+    parser.add_argument("--apply", action="store_true", help="Back up and write the AUREN MCP entry.")
+    options = parser.parse_args(args)
+    try:
+        result = onboarding.configure_clients(mcp_url=options.url, token_file=options.token_file, apply=options.apply)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    except (OSError, ValueError, RuntimeError) as exc:
+        print(f"auren connect blocked: {exc}", file=sys.stderr)
+        return 2
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if len(args) == 1 and Path(args[0]).suffix.lower() == ".zip":
         args = ["install", *args, "--skill", "auto"]
     elif args and args[0] in {"install", "update"} and not _has_flag(args, "--skill"):
         args = [*args, "--skill", "auto"]
+    if args and args[0] in {"init", "doctor", "connect", "mode"}:
+        return _run_onboarding(args[0], args[1:])
     if args and args[0] == "deliver":
         return _run_delivery(args[1:])
     if args and args[0] == "dashboard":

@@ -313,6 +313,8 @@ class AurenMCPService:
         dispatcher_poll_seconds: float = 2.0,
         control_store_path: str | Path | None = None,
         max_pending_tasks: int = 1000,
+        trigger: Any | None = None,
+        task_admission: Any | None = None,
     ):
         self.runtime = runtime
         self.controller = getattr(runtime, "execution_controller", None)
@@ -408,8 +410,13 @@ class AurenMCPService:
         self.rate_limit = rate_limit
         self.rate_window_seconds = rate_window_seconds
         self.max_pending_tasks = max_pending_tasks
+        if trigger is not None and not callable(getattr(trigger, "trigger_adaptive_runtime", None)):
+            raise TypeError("host trigger must implement trigger_adaptive_runtime")
+        if task_admission is not None and not callable(task_admission):
+            raise TypeError("task_admission must be a host-owned callable")
+        self.task_admission = task_admission
         self.approval_store = approval_store or DurableApprovalStore(self.controller)
-        self.trigger = AdaptiveTrigger.for_runtime(runtime)
+        self.trigger = trigger if trigger is not None else AdaptiveTrigger.for_runtime(runtime)
         self._stop = threading.Event()
         self._worker: threading.Thread | None = None
         self._closed = False
@@ -901,7 +908,29 @@ class AurenMCPService:
             event_id = hashlib.sha256(
                 (self._principal_key(principal) + "\0" + idempotency).encode("utf-8")
             ).hexdigest()[:40]
-            task_context = dict(context)
+            host_context: Mapping[str, Any] = {}
+            if self.task_admission is not None:
+                try:
+                    admission = self.task_admission(principal, task.strip(), context, event_id)
+                    if admission is not None:
+                        bounded_admission = _bounded_json(admission, limit=4096)
+                        if not isinstance(bounded_admission, Mapping):
+                            raise TypeError("host task admission must return an object")
+                        if any(
+                            not isinstance(key, str) or not key.startswith("_auren_local_")
+                            or key in context
+                            for key in bounded_admission
+                        ):
+                            raise ValueError("host task admission returned invalid or caller-colliding fields")
+                        host_context = dict(bounded_admission)
+                except MCPServiceError:
+                    raise
+                except Exception as exc:
+                    detail = str(exc).strip()
+                    if not detail or len(detail) > 300:
+                        detail = "host local task admission denied the request"
+                    raise MCPServiceError(detail, code=-32054, status=403) from exc
+            task_context = {**dict(context), **dict(host_context)}
             task_context["_auren_mcp_subject"] = self._principal_key(principal)
             try:
                 receipt = self.trigger.trigger_adaptive_runtime(

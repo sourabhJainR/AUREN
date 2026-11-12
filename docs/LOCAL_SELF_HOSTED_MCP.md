@@ -6,14 +6,17 @@ This is a local development/operator host, not a public deployment recipe. Do no
 
 ## 1. Install and start
 
-From an AUREN checkout or portable bundle:
+From an AUREN checkout or portable bundle, initialize and inspect the repository first:
 
 ```bash
 python -m pip install "uvicorn[standard]>=0.35,<1"
-python auren_cli.py local --project-root /absolute/path/to/your/project
+python auren_cli.py init --project-root /absolute/path/to/your/project
+python auren_cli.py doctor --project-root /absolute/path/to/your/project
 ```
 
-The command starts both services and prints their actual addresses:
+Single-user local mode is the default and does not use or discover a runtime factory. It constructs AUREN's built-in composition with the canonical controller, durable plan/recovery stores, trusted plan dispatch, Guard, host-owned operator and assignment authorization, durable approvals, persisted budgets and continuous supervisor. The MCP host can start without a provider; task submission remains blocked until a provider is explicitly configured and the remote-data policy is enabled.
+
+After managed-mode opt-in, the command starts both services and prints their actual addresses:
 
 - Observation console: `http://127.0.0.1:<assigned-dashboard-port>/control-center`
 - Dashboard health: `http://127.0.0.1:<assigned-dashboard-port>/api/health`
@@ -33,25 +36,41 @@ python auren_cli.py local \
 
 Omit both port options for automatic selection. A port collision is reported at startup; AUREN does not silently bind to a different port when a fixed port was requested.
 
-## 2. Configure the project runtime once
+## Runtime profiles
 
-MCP tools operate on the configured AUREN runtime, not on a placeholder graph. The host requires a factory that returns an initialized runtime with:
+AUREN project profiles default to single-user local mode. This mode uses AUREN's built-in composition root and never requires or discovers `auren_runtime_factory.py`. The root owns the canonical controller, durable stores, trusted plan dispatch and continuous supervisor.
 
-- a non-empty, reviewed agent graph;
-- the canonical execution controller; and
-- the durable trigger runtime.
-
-The host automatically discovers `auren_runtime_factory.py:create_runtime` in the project root. The factory must accept `project_root` as a keyword argument. If your project uses another module or function, supply it explicitly:
+The existing factory-backed startup is an advanced managed-mode path. Opt in explicitly:
 
 ```bash
-python auren_cli.py local \
-  --project-root /absolute/path/to/your/project \
-  --runtime-factory my_package.auren_host:create_runtime
+python auren_cli.py mode --project-root /path/to/project --mode managed --runtime-factory my_package.auren_host:create_runtime --apply
+python auren_cli.py local --project-root /path/to/project --runtime-factory my_package.auren_host:create_runtime
 ```
 
-You can also set `AUREN_MCP_RUNTIME_FACTORY=my_package.auren_host:create_runtime` once in the host environment. Keep the factory and its provider credentials under your normal source-control and secret-management rules. Do not commit credentials.
+Return to the local profile with:
 
-AUREN deliberately refuses to create an empty graph or a pretend default runtime. This is the only project-specific setup step; ports, local token creation, HTTP binding, readiness checks and coordinated shutdown are automatic.
+```bash
+python auren_cli.py mode --project-root /path/to/project --mode single_user_local --apply
+```
+
+The profile change creates a backup and clears the managed factory reference when switching back to local. Do not run a factory-backed host from a single-user local profile. The built-in MCP execution path is currently proposal-only; it does not write repository files or perform release actions.
+
+
+## Optional provider setup
+
+The local host starts without model credentials. Its current built-in task adapter uses direct API providers for read-only proposal work only. Remote inference is disabled by default and is permitted only when the operator explicitly declares the workspace public:
+
+```bash
+export AUREN_REMOTE_PROVIDER_ORDER=openai
+export OPENAI_API_KEY="<injected-from-a-secret-manager>"
+export OPENAI_MODEL="your-approved-model-id"
+export AUREN_LOCAL_REMOTE_INFERENCE=enabled
+export AUREN_LOCAL_DATA_CLASSIFICATION=public
+```
+
+Use the provider-specific environment names in [Model Provider Integration](MODEL_PROVIDER_INTEGRATION.md). Never place API keys in project profiles, task context, MCP arguments or repository files. The accepted task binds the provider name/model, Git HEAD and Guard policy digest. If the provider or policy changes before dispatch/recovery, the task is blocked rather than silently rerouted.
+
+The provider receives only the submitted task text. It has no repository tools and cannot modify files, merge, release or deploy. Local CLI discovery is not execution readiness; Codex, Claude Code and Gemini CLI invocation remains disabled until the scoped subprocess and workspace boundary is integrated.
 
 ## 3. Local authentication and safety
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import math
 import sqlite3
+from contextlib import closing
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
@@ -75,7 +76,7 @@ class EngineeringPlanDispatch:
             controller._engineering_plan_recovery_bridges = registry
         registry[str(store.database_path.resolve())] = recovery_bridge
         self.database_path = controller.db_path
-        with sqlite3.connect(self.database_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.database_path, timeout=10)) as db, db:
             db.execute("PRAGMA busy_timeout=10000")
             db.execute("""
                 CREATE TABLE IF NOT EXISTS engineering_dispatch_intents (
@@ -105,14 +106,14 @@ class EngineeringPlanDispatch:
         the company's separate SQLite database. Only untouched, still-running
         units with no durable task reference are eligible for cleanup.
         """
-        with sqlite3.connect(self.database_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.database_path, timeout=10)) as db, db:
             referenced = db.execute(
                 "SELECT 1 FROM tasks WHERE work_unit_id=? LIMIT 1", (work_unit_id,)
             ).fetchone()
         if referenced is not None:
             return
         company_db_path = self.controller.company.db_path
-        with sqlite3.connect(company_db_path, timeout=10) as db:
+        with closing(sqlite3.connect(company_db_path, timeout=10)) as db, db:
             db.execute("PRAGMA busy_timeout=10000")
             db.execute("BEGIN IMMEDIATE")
             state = db.execute(
@@ -358,7 +359,7 @@ class EngineeringPlanDispatch:
         self._bind_workflow_profile(safe_payload)
         self._validate_payload_keys(safe_payload)
         encoded_payload = _dispatch_payload_digest_json(safe_payload)
-        with sqlite3.connect(self.database_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.database_path, timeout=10)) as db, db:
             db.row_factory = sqlite3.Row
             existing = db.execute(
                 "SELECT * FROM engineering_dispatch_intents WHERE dispatch_key=?", (key,)
@@ -460,7 +461,7 @@ class EngineeringPlanDispatch:
         ).hexdigest()
 
         # Fast replay path. The transaction below repeats this check to serialize races.
-        with sqlite3.connect(self.database_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.database_path, timeout=10)) as db, db:
             db.row_factory = sqlite3.Row
             existing = db.execute(
                 "SELECT * FROM engineering_dispatch_intents WHERE dispatch_key=?", (key,)
@@ -469,7 +470,7 @@ class EngineeringPlanDispatch:
                 return self._replay_or_conflict(existing, binding, handler_name, encoded_payload)
 
         # Reject known duplicate/budget failures before creating even a bookkeeping work unit.
-        with sqlite3.connect(self.database_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.database_path, timeout=10)) as db, db:
             db.row_factory = sqlite3.Row
             db.execute("PRAGMA busy_timeout=10000")
             collision = db.execute(
@@ -511,7 +512,7 @@ class EngineeringPlanDispatch:
         task_json = json.dumps(task_payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
         timestamp = self.controller._now() if hasattr(self.controller, "_now") else __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
 
-        with sqlite3.connect(self.database_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.database_path, timeout=10)) as db, db:
             db.row_factory = sqlite3.Row
             db.execute("PRAGMA busy_timeout=10000")
             db.execute("BEGIN IMMEDIATE")
@@ -611,7 +612,7 @@ class EngineeringPlanDispatch:
         """Cancel only a queued task; running side effects require cooperative recovery."""
         key = self._nonempty(dispatch_key, "dispatch_key")
         why = self._nonempty(reason, "reason")
-        with sqlite3.connect(self.database_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.database_path, timeout=10)) as db, db:
             db.row_factory = sqlite3.Row
             db.execute("PRAGMA busy_timeout=10000")
             db.execute("BEGIN IMMEDIATE")

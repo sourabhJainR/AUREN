@@ -2910,10 +2910,20 @@ class ExecutionController:
             handler_error = exc
         finally:
             stop.set()
-            lease_thread.join(timeout=2)
-            cancel_thread.join(timeout=2)
-            with self._cancellation_events_lock:
-                self._cancellation_events.pop(task.id, None)
+            # The monitor threads may be inside bounded SQLite operations when
+            # the handler returns. Do not let them outlive the task and retain
+            # the controller database handle (notably on Windows). Their DB
+            # operations have finite timeouts, so give them a bounded shutdown
+            # window longer than the maximum connection timeout and fail closed
+            # if either monitor cannot be joined.
+            try:
+                lease_thread.join(timeout=15)
+                cancel_thread.join(timeout=15)
+                if lease_thread.is_alive() or cancel_thread.is_alive():
+                    raise RuntimeError("execution lease/cancellation monitor did not stop after handler exit")
+            finally:
+                with self._cancellation_events_lock:
+                    self._cancellation_events.pop(task.id, None)
         if lease_errors:
             raise LeaseLostError(
                 "task lease was lost while handler was running; result cannot be committed"
