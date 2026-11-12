@@ -467,6 +467,7 @@ def doctor(project_root: str | Path = ".") -> dict[str, Any]:
             "available": False, "provider": "ollama-compatible",
             "models": [], "status": "not_probed",
         },
+        "vibe_coding_host": {"status": "not_configured"},
         "remote_inference_policy": {
             "enabled": os.environ.get("AUREN_LOCAL_REMOTE_INFERENCE", "").strip().lower() == "enabled",
             "data_classification": os.environ.get("AUREN_LOCAL_DATA_CLASSIFICATION", "").strip().lower() or None,
@@ -499,6 +500,24 @@ def doctor(project_root: str | Path = ".") -> dict[str, Any]:
         report["remote_model_providers"] = provider_configuration_report()
     except Exception as exc:
         report["remote_provider_configuration_error"] = type(exc).__name__
+    try:
+        from .identity_compat import canonical_auren_home
+        from .vibe_coding_host import load_host_config
+        host_config_path = canonical_auren_home() / "vibe-coding" / "host.json"
+        host_config = load_host_config(host_config_path)
+        provider_command = {"codex": "codex", "claude": "claude"}.get(host_config.provider)
+        if host_config.allow_workspace_writes is not True:
+            report["vibe_coding_host"] = {"status": "blocked", "reason": "isolated_worktree_writes_not_enabled"}
+        elif provider_command is None:
+            report["vibe_coding_host"] = {"status": "blocked", "reason": "unsupported_provider_cli"}
+        elif shutil.which(provider_command) is None:
+            report["vibe_coding_host"] = {"status": "provider_missing", "provider": host_config.provider}
+        else:
+            report["vibe_coding_host"] = {"status": "ready", "provider": host_config.provider}
+    except FileNotFoundError:
+        report["vibe_coding_host"] = {"status": "not_configured"}
+    except Exception as exc:
+        report["vibe_coding_host"] = {"status": "blocked", "reason": type(exc).__name__}
     try:
         from .muxin_session_adapter import LocalModelDiscovery
         local = LocalModelDiscovery().discover()
