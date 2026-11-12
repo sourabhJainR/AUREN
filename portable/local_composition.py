@@ -988,6 +988,7 @@ class LocalRuntimeComposition:
                         or len(stage_statuses) != 18
                         or report.get("run_status") != "accepted"
                         or report.get("base_revision") != current_plan.source_revision
+                        or report.get("workspace_head") != current_plan.source_revision
                         or report.get("merge_or_publish_performed") is not False
                         or report.get("production_deployment_performed") is not False
                         or workspace_root == worktree_root
@@ -1359,7 +1360,9 @@ def run_local_vibe_coding_task(payload: Mapping[str, Any]) -> Mapping[str, Any]:
         or _canonical_report_digest(report_without_digest) != recorded_digest
         or report.get("workflow_id") != workflow_id
         or report.get("base_revision") != source_revision
+        or report.get("workspace_head") != source_revision
         or report.get("run_status") != "accepted"
+        or not isinstance(report.get("stage_statuses"), Mapping)
         or len(report.get("stage_statuses", {})) != 18
         or report.get("merge_or_publish_performed") is not False
         or report.get("production_deployment_performed") is not False
