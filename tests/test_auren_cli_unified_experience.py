@@ -103,3 +103,15 @@ def test_task_status_maps_to_the_canonical_mcp_get_task_tool(monkeypatch, capsys
     assert _run_task(["status", "task-42"]) == 0
     capsys.readouterr()
     assert captured == {"tool": "auren.get_task", "arguments": {"task_id": "task-42"}}
+
+def test_task_approvals_omits_optional_status_when_not_selected(monkeypatch, capsys):
+    from portable import mcp_local_client
+
+    captured = {}
+    def fake_call(tool_name, arguments, **kwargs):
+        captured.update({"tool": tool_name, "arguments": arguments})
+        return {"content": [{"type": "text", "text": "[]"}]}
+    monkeypatch.setattr(mcp_local_client, "call_local_tool", fake_call)
+    assert _run_task(["approvals"]) == 0
+    capsys.readouterr()
+    assert captured == {"tool": "auren.list_approvals", "arguments": {"limit": 30}}

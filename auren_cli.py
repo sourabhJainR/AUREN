@@ -307,8 +307,10 @@ def _run_task(args: list[str]) -> int:
         }, None
     elif options.action == "approvals":
         tool_name, arguments, idempotency_key = "auren.list_approvals", {
-            "limit": options.limit, "status": options.status,
+            "limit": options.limit,
         }, None
+        if options.status is not None:
+            arguments["status"] = options.status
     else:
         tool_name, arguments, idempotency_key = "auren.decide_approval", {
             "approval_id": options.approval_id, "decision": options.decision,
