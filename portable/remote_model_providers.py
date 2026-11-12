@@ -308,6 +308,14 @@ class OpenAICompatibleProvider:
             raise
         if span is not None:
             try:
+                raw_finish_reason = result.finish_reason
+                safe_finish_reason = (
+                    raw_finish_reason
+                    if isinstance(raw_finish_reason, str)
+                    and 0 < len(raw_finish_reason) <= 40
+                    and all(char.isalnum() or char in "._-" for char in raw_finish_reason)
+                    else ("other" if raw_finish_reason else None)
+                )
                 span.finish(
                     output={
                         "outcome": "completed",
@@ -315,7 +323,7 @@ class OpenAICompatibleProvider:
                         "response_bytes": len(result.content.encode("utf-8")),
                         "usage": dict(result.usage),
                         "latency_ms": result.latency_ms,
-                        "finish_reason": result.finish_reason,
+                        "finish_reason": safe_finish_reason,
                         "tool_call_count": len(result.tool_calls),
                     },
                     status="ok",
