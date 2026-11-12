@@ -52,16 +52,22 @@ Tool schemas are validated again by the server. Unknown arguments are rejected. 
 
 ## Runtime host contract
 
-Do not start the service with an empty graph or an unconfigured provider runtime. Supply a trusted Python factory that returns an initialized AdaptiveRuntime-compatible host with:
+The default remote launcher creates AUREN's built-in single-host composition without a custom factory. It uses the same canonical ExecutionController, TriggerRuntime, supervisor, Guard, plan store, approval store, durable side-effect ledger and host-owned operator identity as the local MCP host.
 
-1. A non-empty, reviewed agent graph.
-2. The canonical ExecutionController and TriggerRuntime.
-3. Configured provider adapters and secret-broker integration.
-4. The correct project/workspace root and repository policy.
-5. Host-side approver authorization, evidence verification and provider-resume authorization callbacks.
-6. Durable state rooted on persistent local storage.
+The built-in composition connects the existing 18-stage Vibe Coding host when its user config is valid and the Codex CLI is installed. The handler is registered as approval-gated. It creates a durable approval request before starting the host, runs only in an isolated Git worktree, and returns a report that AUREN verifies against the admitted source revision. The source checkout is not modified, and merge/publish/release/production deployment are not part of this handler.
 
-The factory must have this signature:
+The Vibe host config is read from ~/.auren/vibe-coding/host.json. It must explicitly enable isolated-worktree writes, use the Codex CLI workspace-write sandbox, define test commands and retain the required security/browser QA gates. If the host is not ready, remote task admission fails closed. The local host can still use its proposal-only model path when no Vibe host is configured.
+
+Remote task admission additionally requires:
+- AUREN_MCP_REMOTE_EXECUTION_ENABLED=1 on the AUREN host.
+- An introspected HTTPS issuer and subject.
+- The auren:tasks:write scope and engineering_manager role.
+- An explicit projects claim containing the exact server-side project path.
+- A separate approved identity for remote repository-edit approvals. Configure its issuer/subject digest in AUREN_MCP_APPROVER_SUBJECT_DIGESTS.
+
+Local single-user requests can be approved by the host's local operator identity. Remote requests enforce separation of duties and cannot be approved by the same principal that submitted them.
+
+A custom runtime factory remains available for an explicitly managed deployment. It must return an initialized AdaptiveRuntime-compatible host with a non-empty reviewed graph, the canonical ExecutionController and TriggerRuntime, configured provider adapters, host-side authorization and evidence verification, and durable state on persistent local storage. Its signature is:
 
 ~~~python
 def create_runtime(*, project_root: Path) -> AdaptiveRuntime:
@@ -76,11 +82,10 @@ Install the optional ASGI runner:
 python -m pip install "uvicorn[standard]"
 ~~~
 
-Configure the runtime factory, project root and resource server:
+Configure the project and resource server. The built-in canonical composition is the default; set AUREN_MCP_RUNTIME_FACTORY only when using an explicitly managed custom runtime:
 
 ~~~bash
 export AUREN_PROJECT_ROOT=/srv/auren/workspaces/main
-export AUREN_MCP_RUNTIME_FACTORY=company_auren.runtime:create_runtime
 export AUREN_MCP_RESOURCE_URL=https://mcp.example.com/mcp
 export AUREN_MCP_AUTHORIZATION_SERVER=https://identity.example.com/
 export AUREN_MCP_INTROSPECTION_URL=https://identity.example.com/oauth/introspect
@@ -89,12 +94,15 @@ export AUREN_MCP_INTROSPECTION_CLIENT_SECRET="$(secret-manager read auren/mcp/in
 export AUREN_MCP_ALLOWED_HOSTS=mcp.example.com
 export AUREN_MCP_ALLOWED_ORIGINS=https://your-approved-browser-origin.example
 export AUREN_MCP_CONTROL_DB=/var/lib/auren/mcp/operator-control.sqlite3
+export AUREN_MCP_REMOTE_EXECUTION_ENABLED=1
+export AUREN_MCP_APPROVER_SUBJECT_DIGESTS=<approved-approver-digest>
 
 python -m portable.remote_mcp_server \
   --project-root "$AUREN_PROJECT_ROOT" \
-  --runtime-factory "$AUREN_MCP_RUNTIME_FACTORY" \
   --host 127.0.0.1 --port 8765
 ~~~
+
+For remote execution, provision the Vibe host config at ~/.auren/vibe-coding/host.json on this server and install/authenticate Codex CLI. The OAuth token must contain the exact project path, engineering_manager role and auren:tasks:write scope. The separate approver digest is SHA-256 of issuer.rstrip("/") + NUL + subject; calculate it from the identity provider's exact claims and keep only the digest in the host environment.
 
 The shell command illustrates environment names. Replace the browser-origin placeholder with exact origins observed and approved for your clients; native MCP clients may not send an Origin header. Do not guess vendor origins. Use the secret manager supplied by the deployment. Do not put tokens or client secrets in repository files, MCP client configuration, command-line arguments or logs.
 
@@ -112,7 +120,9 @@ Do not bind to 0.0.0.0 or :: unless AUREN_MCP_ALLOW_PUBLIC_BIND=1 is explicitly 
 
 | Variable | Required | Purpose |
 |---|---:|---|
-| AUREN_MCP_RUNTIME_FACTORY | Yes | Trusted module:function factory for a configured runtime |
+| AUREN_MCP_RUNTIME_FACTORY | No | Optional trusted module:function factory; omitted for the built-in canonical composition |
+| AUREN_MCP_REMOTE_EXECUTION_ENABLED | Remote writes | Must be 1 before remote task submission can use the Vibe Coding host |
+| AUREN_MCP_APPROVER_SUBJECT_DIGESTS | Remote writes | Comma-separated SHA-256 issuer/subject digests for separate engineering-manager approvers |
 | AUREN_PROJECT_ROOT | Yes | Workspace root fixed by the host |
 | AUREN_MCP_RESOURCE_URL | Yes | Canonical HTTPS MCP resource URL and token audience |
 | AUREN_MCP_AUTHORIZATION_SERVER | OAuth | External OAuth issuer URL |
@@ -138,7 +148,7 @@ export AUREN_MCP_STATIC_TOKENS='[
     "token": "<random-secret-at-least-32-characters>",
     "subject": "developer-1",
     "scopes": ["auren:tasks:read", "auren:tasks:write"],
-    "roles": [],
+    "roles": ["engineering_manager"],
     "projects": ["/srv/auren/workspaces/main"]
   }
 ]'
