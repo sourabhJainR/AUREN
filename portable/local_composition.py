@@ -989,12 +989,23 @@ class LocalRuntimeComposition:
                         or _canonical_report_digest(report) != recorded_digest
                     ):
                         return {"verified": False, "reason": "Vibe Coding report failed stage, isolation, source or digest verification"}
-                    approval_events = self.approval_store.events()
-                    matching_approval = any(
-                        event.get("event_type") == "operation_completed"
-                        and self.approval_store.get(str(event.get("approval_id", ""))).operation_id == work_key
-                        for event in approval_events
-                    )
+                    if not self.approval_store.verify_audit_chain():
+                        return {"verified": False, "reason": "durable approval audit chain is invalid"}
+                    matching_approval = False
+                    for event in self.approval_store.events():
+                        if event.get("event_type") != "operation_completed":
+                            continue
+                        approval_id = event.get("approval_id")
+                        if not isinstance(approval_id, str) or not approval_id:
+                            continue
+                        approval_record = self.approval_store.get(approval_id)
+                        if (
+                            approval_record.operation_id == work_key
+                            and approval_record.status == "completed"
+                            and re.fullmatch(r"[0-9a-f]{64}", approval_record.receipt_digest)
+                        ):
+                            matching_approval = True
+                            break
                     if not matching_approval:
                         return {"verified": False, "reason": "Vibe Coding durable approval receipt is missing"}
                 except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
