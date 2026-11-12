@@ -64,11 +64,12 @@ PROVIDER_SPECS: dict[str, ProviderSpec] = {
     "mistral": ProviderSpec("mistral", "https://api.mistral.ai/v1/chat/completions", "api.mistral.ai", "MISTRAL_API_KEY", "MISTRAL_MODEL"),
     "cerebras": ProviderSpec("cerebras", "https://api.cerebras.ai/v1/chat/completions", "api.cerebras.ai", "CEREBRAS_API_KEY", "CEREBRAS_MODEL"),
     "perplexity": ProviderSpec("perplexity", "https://api.perplexity.ai/chat/completions", "api.perplexity.ai", "PERPLEXITY_API_KEY", "PERPLEXITY_MODEL"),
+    "cohere": ProviderSpec("cohere", "https://api.cohere.com/v2/chat", "api.cohere.com", "COHERE_API_KEY", "COHERE_MODEL", "cohere"),
 }
 
 DEFAULT_PROVIDER_ORDER = (
     "openai", "anthropic", "gemini", "groq", "xai", "openrouter",
-    "together", "fireworks", "deepseek", "mistral", "cerebras", "perplexity",
+    "together", "fireworks", "deepseek", "mistral", "cerebras", "perplexity", "cohere",
 )
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 MAX_OUTPUT_TOKENS = 4096
@@ -217,7 +218,19 @@ class OpenAICompatibleProvider:
             "Do not execute or authorize actions. AUREN owns all tools, approvals, verification and execution."
         )
         messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
-        if self.spec.protocol == "anthropic":
+        if self.spec.protocol == "cohere":
+            payload = {
+                "model": self.model,
+                "messages": messages,
+                "max_tokens": MAX_OUTPUT_TOKENS,
+                "stream": False,
+            }
+            headers = {
+                "authorization": "Bearer " + self._api_key,
+                "content-type": "application/json",
+                "accept": "application/json",
+            }
+        elif self.spec.protocol == "anthropic":
             payload = {"model": self.model, "max_tokens": MAX_OUTPUT_TOKENS, "messages": messages[1:], "system": system}
             headers = {
                 "x-api-key": self._api_key,
@@ -279,7 +292,20 @@ class OpenAICompatibleProvider:
         if not isinstance(decoded, Mapping):
             raise RemoteProviderError(self.spec.name, "provider response must be a JSON object", status=status, retryable=False)
 
-        if self.spec.protocol == "anthropic":
+        if self.spec.protocol == "cohere":
+            message = decoded.get("message", {})
+            blocks = message.get("content", []) if isinstance(message, Mapping) else []
+            content = _text_content(blocks)
+            tool_calls = ()
+            finish_reason = decoded.get("finish_reason")
+            usage_value = decoded.get("usage", {})
+            billed = usage_value.get("billed_units", {}) if isinstance(usage_value, Mapping) else {}
+            usage = _usage({
+                "input_tokens": billed.get("input_tokens"),
+                "output_tokens": billed.get("output_tokens"),
+            })
+            request_id = decoded.get("id")
+        elif self.spec.protocol == "anthropic":
             blocks = decoded.get("content", [])
             content = _text_content(blocks)
             tool_calls = tuple(

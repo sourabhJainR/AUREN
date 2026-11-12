@@ -98,6 +98,7 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
             self.assertEqual(plan.digest, first.payload["auren_dispatch"]["plan_digest"])
             self.assertEqual(run.revision, first.payload["auren_dispatch"]["run_revision"])
             self.assertEqual(packet.packet_digest, first.payload["auren_dispatch"]["packet_digest"])
+            self.assertIsNone(first.payload["auren_dispatch"]["requirement_contract_digest"])
 
     def test_deadline_policy_is_persisted_and_replay_bound(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:

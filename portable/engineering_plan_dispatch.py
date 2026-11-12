@@ -400,6 +400,7 @@ class EngineeringPlanDispatch:
                 raise DispatchConflict("idempotency key replay changed immutable plan or packet inputs")
             binding = {
                 "run_id": run_id, "task_id": task_id, "plan_digest": plan.digest,
+                "requirement_contract_digest": plan.requirement_contract_digest,
                 "run_revision": int(existing["run_revision"]), "source_revision": plan.source_revision,
                 "packet_digest": packet.packet_digest, "handler": handler_name,
                 "deadline_policy_seconds": deadline_policy_seconds,
@@ -447,6 +448,7 @@ class EngineeringPlanDispatch:
         self.controller._load_handler(handler_name)
         binding = {
             "run_id": run_id, "task_id": task_id, "plan_digest": plan.digest,
+            "requirement_contract_digest": plan.requirement_contract_digest,
             "run_revision": run.revision, "source_revision": plan.source_revision,
             "packet_digest": packet.packet_digest, "handler": handler_name,
             "deadline_policy_seconds": deadline_policy_seconds,

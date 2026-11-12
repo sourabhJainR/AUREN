@@ -3224,6 +3224,8 @@ class ExecutionController:
         plan, run = bridge.load_verified(run_id)
         if (
             plan.digest != metadata.get("plan_digest")
+            or ("requirement_contract_digest" in metadata
+                and metadata.get("requirement_contract_digest") != plan.requirement_contract_digest)
             or plan.source_revision != metadata.get("source_revision")
             or type(metadata.get("run_revision")) is not int
             or run.revision != metadata.get("run_revision")
@@ -3280,6 +3282,11 @@ class ExecutionController:
             "handler": task.handler,
             "payload_digest": payload_digest,
         }
+        # Requirement contracts are part of the immutable canonical plan binding.
+        # Preserve the historical digest shape for queued intents created before this field.
+        if "requirement_contract_digest" in metadata:
+            binding["requirement_contract_digest"] = plan.requirement_contract_digest
+
         # New dispatch intents also bind the host-resolved budget and approval
         # receipts. Recompute that exact shape at worker preflight so a trusted-root
         # dispatch is not rejected before its handler starts. Preserve the historical

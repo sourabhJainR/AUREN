@@ -130,6 +130,29 @@ class RemoteModelProviderTests(unittest.TestCase):
         self.assertEqual("test-anthropic-secret", seen["headers"]["x-api-key"])
         self.assertEqual("2023-06-01", seen["headers"]["anthropic-version"])
 
+    def test_cohere_v2_chat_uses_fixed_host_and_normalizes_response(self):
+        seen = {}
+        def transport(url, **kwargs):
+            seen["url"] = url
+            seen.update(kwargs)
+            return 200, json.dumps({
+                "id": "cohere-req-1",
+                "finish_reason": "COMPLETE",
+                "message": {"content": [{"type": "text", "text": "Cohere answer"}]},
+                "usage": {"billed_units": {"input_tokens": 8, "output_tokens": 5}},
+            }).encode()
+        provider = OpenAICompatibleProvider(
+            PROVIDER_SPECS["cohere"], api_key="cohere-secret-value",
+            model="command-test", transport=transport,
+        )
+        result = provider.complete("public task")
+        self.assertEqual("https://api.cohere.com/v2/chat", seen["url"])
+        self.assertEqual(("api.cohere.com",), tuple(seen["allowed_hosts"]))
+        self.assertEqual("Cohere answer", result.content)
+        self.assertEqual(8, result.usage["input_tokens"])
+        self.assertEqual(5, result.usage["output_tokens"])
+        self.assertNotIn("cohere-secret-value", str(result))
+
     def test_http_error_is_redacted_and_classified(self):
         def transport(url, **kwargs):
             return 429, b'{"error":"private vendor diagnostic"}'

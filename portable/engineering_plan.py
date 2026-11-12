@@ -129,6 +129,7 @@ class EngineeringPlan:
     source_revision: str = ""
     policy_digest: str = ""
     budget: Mapping[str, int] = field(default_factory=dict)
+    requirement_contract: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         _nonempty(self.run_id, "run_id")
@@ -175,6 +176,20 @@ class EngineeringPlan:
                 if not isinstance(name, str) or not name.strip() or type(amount) is not int or amount < 1:
                     raise ValueError("budget entries require named positive integer limits")
         object.__setattr__(self, "budget", MappingProxyType(dict(sorted(self.budget.items()))))
+        if self.requirement_contract is not None:
+            if not isinstance(self.requirement_contract, Mapping):
+                raise ValueError("requirement_contract must be a serialized contract mapping")
+            from .requirement_contract import RequirementContract, RequirementContractEngine
+            contract = RequirementContract.from_dict(self.requirement_contract)
+            issues = RequirementContractEngine().validate(contract)
+            if issues:
+                raise ValueError("requirement contract is not approved for planning: " + "; ".join(issues))
+            if contract.intent != self.goal:
+                raise ValueError("requirement contract intent must match the engineering plan goal")
+            statements = tuple(item.statement for item in contract.requirements)
+            if tuple(self.requirements) != statements:
+                raise ValueError("plan requirements must match the versioned requirement contract")
+            object.__setattr__(self, "requirement_contract", _freeze_json(contract.to_dict()))
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -183,6 +198,8 @@ class EngineeringPlan:
             "tasks": [task.to_dict() for task in self.tasks],
             "source_revision": self.source_revision, "policy_digest": self.policy_digest,
             "budget": dict(sorted(self.budget.items())),
+            **({"requirement_contract": _thaw_json(self.requirement_contract)}
+               if self.requirement_contract is not None else {}),
         }
 
     @classmethod
@@ -212,6 +229,7 @@ class EngineeringPlan:
                 source_revision=payload["source_revision"],
                 policy_digest=payload.get("policy_digest", ""),
                 budget=payload.get("budget", {}),
+                requirement_contract=payload.get("requirement_contract"),
             )
         except (KeyError, TypeError) as exc:
             raise ValueError("invalid serialized engineering plan") from exc
@@ -219,6 +237,13 @@ class EngineeringPlan:
     @property
     def digest(self) -> str:
         return _digest(self.to_dict())
+
+    @property
+    def requirement_contract_digest(self) -> str | None:
+        if self.requirement_contract is None:
+            return None
+        from .requirement_contract import RequirementContract
+        return RequirementContract.from_dict(_thaw_json(self.requirement_contract)).digest
 
     def ready_tasks(self, completed_task_ids: set[str] | frozenset[str]) -> tuple[str, ...]:
         known = {task.task_id for task in self.tasks}

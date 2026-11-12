@@ -41,6 +41,38 @@ class EngineeringPlanTests(unittest.TestCase):
         )
         self.assertNotEqual(plan.digest, changed.digest)
 
+    def test_requirement_contract_is_bound_into_plan_digest_and_round_trips(self):
+        from portable.requirement_contract import Requirement, RequirementContractEngine
+        contract = RequirementContractEngine().build(
+            "Ship a verified feature",
+            (
+                Requirement("R1", "feature behaves correctly", ("unit tests pass",)),
+                Requirement("R2", "rollback is possible", ("rollback is rehearsed",)),
+            ),
+        )
+        plan = EngineeringPlan(
+            run_id="contract-bound", goal=contract.intent,
+            requirements=tuple(item.statement for item in contract.requirements),
+            tasks=(PlanTask(
+                task_id="implement", title="Implement",
+                acceptance_criteria=("tests pass",), rollback_plan="revert",
+            ),),
+            source_revision="abc123",
+            requirement_contract=contract.to_dict(),
+        )
+        restored = EngineeringPlan.from_dict(plan.to_dict())
+        self.assertEqual(plan.digest, restored.digest)
+        self.assertEqual(contract.digest, restored.requirement_contract_digest)
+        changed = dict(contract.to_dict())
+        changed["intent"] = "different goal"
+        with self.assertRaisesRegex(ValueError, "intent must match"):
+            EngineeringPlan(
+                run_id="bad", goal="Ship a verified feature",
+                requirements=tuple(item.statement for item in contract.requirements),
+                tasks=plan.tasks, source_revision="abc123",
+                requirement_contract=changed,
+            )
+
     def test_rejects_unknown_schema_and_empty_acceptance_criteria(self):
         with self.assertRaisesRegex(ValueError, "unsupported plan schema"):
             EngineeringPlan(
