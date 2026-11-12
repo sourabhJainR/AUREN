@@ -34,6 +34,8 @@ from .organization_guard import (
 )
 from .orchestration import Graph, Node, NodeKind
 from .remote_model_providers import provider_pool_from_environment
+from .muxin_session_adapter import LocalModelDiscovery
+from .hybrid_model_router import HybridModelRouter
 from .runtime_recovery import RuntimeExecutionGuard
 
 
@@ -186,17 +188,38 @@ class LocalProviderOperationLedger:
         return dict(value)
 
 
+class _BoundLocalModelDiscovery:
+    """Re-discover one admission-bound local model without selecting a substitute."""
+
+    def __init__(self, model: str) -> None:
+        from .muxin_session_adapter import LocalModelDiscovery
+        self.delegate = LocalModelDiscovery()
+        self.base_url = self.delegate.base_url
+        self.model = model
+
+    def discover(self) -> Mapping[str, Any]:
+        report = self.delegate.discover()
+        models = report.get("models", []) if isinstance(report, Mapping) else []
+        selected = [
+            item for item in models
+            if isinstance(item, Mapping) and item.get("name") == self.model
+        ]
+        return {**dict(report), "models": selected, "available": bool(selected)}
+
+
 def run_local_provider_task(payload: Mapping[str, Any]) -> Mapping[str, Any]:
-    """Controller-owned, read-only provider task handler with durable replay fencing."""
+    """Run one admission-bound local or remote model call with durable replay fencing."""
     if not isinstance(payload, Mapping):
         raise TypeError("local provider payload must be a mapping")
     task = payload.get("task")
     work_key = payload.get("work_key")
     raw_state_root = payload.get("_auren_local_state_root")
+    binding = payload.get("_auren_local_provider")
     if (
         not isinstance(task, str) or not task.strip() or len(task) > 20_000
         or not isinstance(work_key, str) or not re.fullmatch(r"[A-Za-z0-9:_-]{16,200}", work_key)
         or not isinstance(raw_state_root, str) or not Path(raw_state_root).is_absolute()
+        or not isinstance(binding, Mapping)
     ):
         raise ValueError("host-bound local provider task fields are invalid")
     supplied_state_root = Path(raw_state_root).expanduser()
@@ -205,30 +228,45 @@ def run_local_provider_task(payload: Mapping[str, Any]) -> Mapping[str, Any]:
     state_root = supplied_state_root.resolve()
     if not state_root.is_dir():
         raise PermissionError("local provider state root is unavailable or unsafe")
-    with _PROVIDER_POOLS_LOCK:
-        pool = _PROVIDER_POOLS.get(str(state_root))
-    if pool is None:
-        pool = provider_pool_from_environment()
-    if pool is None:
-        raise LocalProviderNotConfigured(
-            "configure a direct API provider with AUREN_REMOTE_PROVIDER_ORDER, its API key and model ID"
-        )
-    remote_policy_digest = _remote_policy_digest()
-    if not remote_policy_digest or payload.get("_auren_local_remote_policy_digest") != remote_policy_digest:
-        raise LocalProviderNotConfigured("remote inference is not enabled for an explicitly public local workspace")
-    providers = getattr(pool, "providers", ())
-    if not providers:
-        raise LocalProviderNotConfigured("configured provider adapter does not expose a reviewed provider identity")
-    selected_provider = providers[0]
-    selected_name = getattr(getattr(selected_provider, "spec", None), "name", None)
-    selected_model = getattr(selected_provider, "model", None)
-    binding = payload.get("_auren_local_provider")
+
+    kind = binding.get("kind", "remote")
+    name = binding.get("name")
+    model = binding.get("model")
     if (
-        not isinstance(binding, Mapping)
-        or binding.get("name") != selected_name
-        or binding.get("model") != selected_model
+        kind not in {"local", "remote"}
+        or not isinstance(name, str) or not name
+        or not isinstance(model, str) or not model
     ):
-        raise LocalProviderNotConfigured("configured provider selection changed after local task admission")
+        raise ValueError("admission-bound model identity is invalid")
+    remote_policy_digest = _remote_policy_digest()
+    pool = None
+    if kind == "remote":
+        if (
+            not remote_policy_digest
+            or payload.get("_auren_local_remote_policy_digest") != remote_policy_digest
+        ):
+            raise LocalProviderNotConfigured(
+                "remote inference is not enabled for an explicitly public local workspace"
+            )
+        with _PROVIDER_POOLS_LOCK:
+            pool = _PROVIDER_POOLS.get(str(state_root))
+        if pool is None:
+            pool = provider_pool_from_environment()
+        if pool is None:
+            raise LocalProviderNotConfigured("the admission-bound remote provider is no longer configured")
+        providers = getattr(pool, "providers", ())
+        selected = next((
+            item for item in providers
+            if getattr(getattr(item, "spec", None), "name", None) == name
+            and getattr(item, "model", None) == model
+        ), None)
+        if selected is None:
+            raise LocalProviderNotConfigured(
+                "the admission-bound remote provider or model changed; submit a new task"
+            )
+    elif name != "ollama-compatible":
+        raise LocalProviderNotConfigured("local model provider identity is not supported")
+
     ledger = LocalProviderOperationLedger(_provider_ledger_path(state_root))
     cached = ledger.begin(work_key)
     if cached is not None:
@@ -239,24 +277,43 @@ def run_local_provider_task(payload: Mapping[str, Any]) -> Mapping[str, Any]:
         "User task:\n" + task.strip()
     )
     try:
-        response = pool(SimpleNamespace(
-            task=prompt, timeout_seconds=120.0, provider_attempt=0,
-        ))
-        content = getattr(response, "content", None)
-        if not isinstance(content, str) or not content.strip():
-            raise ValueError("configured provider returned no usable text")
+        from .hybrid_model_router import HybridModelRouter, TaskRouteRequest
+        discovery = _BoundLocalModelDiscovery(model) if kind == "local" else None
+        router = HybridModelRouter(discovery=discovery, remote_executor=pool)
+        request = TaskRouteRequest(
+            task=prompt,
+            capability="general",
+            privacy="private" if kind == "local" else "public",
+            max_attempts=1,
+            timeout_seconds=120.0,
+            provider_order=(name,) if kind == "remote" else None,
+        )
+        routed = router.route_supervised(request, execution_payload=payload)
+        content = routed.result
+        if not routed.success or not isinstance(content, str) or not content.strip():
+            raise LocalProviderNotConfigured(
+                routed.error or "selected model route returned no usable text"
+            )
+        if kind == "local" and (routed.provider != "local" or routed.model != model):
+            raise LocalProviderNotConfigured(
+                "local model route did not use the model bound at task admission"
+            )
+        if kind == "remote" and (routed.provider != name or routed.model != model):
+            raise LocalProviderNotConfigured(
+                "remote model route did not use the provider bound at task admission"
+            )
         if len(content) > 100_000:
-            raise ValueError("configured provider response exceeded the local evidence size limit")
+            raise ValueError("local model response exceeded the local evidence size limit")
         computed_response_digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
-        supplied_response_digest = str(getattr(response, "response_digest", "") or "")
-        if supplied_response_digest and supplied_response_digest != computed_response_digest:
-            raise LocalProviderOutcomeUnknown("provider response digest did not match returned content")
         result = {
             "status": "completed",
-            "provider": str(getattr(response, "provider", "unknown")),
-            "model": str(getattr(response, "model", "unknown")),
+            "provider": name,
+            "model": model,
             "content": content,
-            "usage": dict(getattr(response, "usage", {}) or {}) if isinstance(getattr(response, "usage", {}), Mapping) else {},
+            "usage": dict(routed.provider_metadata.get("usage", {}))
+            if isinstance(routed.provider_metadata, Mapping)
+            and isinstance(routed.provider_metadata.get("usage"), Mapping) else {},
+            "latency_ms": routed.latency_ms,
             "response_digest": computed_response_digest,
         }
         ledger.complete(work_key, result)
@@ -264,7 +321,6 @@ def run_local_provider_task(payload: Mapping[str, Any]) -> Mapping[str, Any]:
     except BaseException:
         ledger.mark_unknown(work_key)
         raise
-
 
 class LocalOperatorAuthority:
     """Persistent host-owned operator identity and role authorization."""
@@ -447,6 +503,7 @@ class LocalRuntimeComposition:
         except OSError:
             pass
 
+        self.local_model_discovery = LocalModelDiscovery()
         self.provider_pool = (
             provider_pool if provider_pool is not None
             else provider_pool_from_environment()
@@ -546,7 +603,16 @@ class LocalRuntimeComposition:
 
     @property
     def provider_ready(self) -> bool:
-        return self.provider_pool is not None
+        if self._local_model_candidates():
+            return True
+        return self.provider_pool is not None and bool(_remote_policy_digest())
+
+    def _local_model_candidates(self) -> list[str]:
+        report = self.local_model_discovery.discover()
+        return HybridModelRouter._ranked_candidates(
+            report.get("models") if isinstance(report, Mapping) else None,
+            "general",
+        )
 
     def admit_task(
         self, principal: Any, task: str, context: Mapping[str, Any], event_id: str,
@@ -591,32 +657,41 @@ class LocalRuntimeComposition:
                 "_auren_local_remote_policy_digest": existing_context["_auren_local_remote_policy_digest"],
             }
 
-        if self.provider_pool is None:
-            raise LocalProviderNotConfigured(
-                "no provider is configured; set AUREN_REMOTE_PROVIDER_ORDER and the selected provider key/model before submitting tasks"
-            )
         remote_policy_digest = _remote_policy_digest()
-        if not remote_policy_digest:
-            raise LocalProviderNotConfigured(
-                "remote inference is disabled by default; explicitly set AUREN_LOCAL_REMOTE_INFERENCE=enabled "
-                "and AUREN_LOCAL_DATA_CLASSIFICATION=public only for work approved for external processing"
-            )
+        local_models = self._local_model_candidates()
+        if local_models:
+            provider_binding = {
+                "kind": "local", "name": "ollama-compatible", "model": local_models[0],
+            }
+            bound_remote_policy_digest = ""
+        else:
+            if self.provider_pool is None:
+                raise LocalProviderNotConfigured(
+                    "no provider is configured and no capable local model is available"
+                )
+            if not remote_policy_digest:
+                raise LocalProviderNotConfigured(
+                    "no capable local model is available; remote inference is disabled unless "
+                    "AUREN_LOCAL_REMOTE_INFERENCE=enabled and AUREN_LOCAL_DATA_CLASSIFICATION=public"
+                )
+            providers = getattr(self.provider_pool, "providers", ())
+            if not providers:
+                raise LocalProviderNotConfigured("configured provider pool has no reviewed provider adapter")
+            selected = providers[0]
+            name = getattr(getattr(selected, "spec", None), "name", None)
+            model = getattr(selected, "model", None)
+            if not isinstance(name, str) or not name or not isinstance(model, str) or not model:
+                raise LocalProviderNotConfigured("configured provider identity or model is incomplete")
+            provider_binding = {"kind": "remote", "name": name, "model": model}
+            bound_remote_policy_digest = remote_policy_digest
         source_revision = self._source_revision()
-        providers = getattr(self.provider_pool, "providers", ())
-        if not providers:
-            raise LocalProviderNotConfigured("configured provider pool has no reviewed provider adapter")
-        selected = providers[0]
-        name = getattr(getattr(selected, "spec", None), "name", None)
-        model = getattr(selected, "model", None)
-        if not isinstance(name, str) or not name or not isinstance(model, str) or not model:
-            raise LocalProviderNotConfigured("configured provider identity or model is incomplete")
         return {
             "_auren_local_source_revision": source_revision,
-            "_auren_local_provider": {"name": name, "model": model},
+            "_auren_local_provider": provider_binding,
             "_auren_local_policy_digest": _digest(
-                guard_policy_fingerprint(policy) + "|" + remote_policy_digest
+                guard_policy_fingerprint(policy) + "|" + bound_remote_policy_digest
             ),
-            "_auren_local_remote_policy_digest": remote_policy_digest,
+            "_auren_local_remote_policy_digest": bound_remote_policy_digest,
         }
 
     def _source_revision(self) -> str:
@@ -642,7 +717,7 @@ class LocalRuntimeComposition:
             (Requirement(
                 requirement_id="R1", statement=task.strip(),
                 acceptance_criteria=(
-                    "The configured provider returns a non-empty response.",
+                    "The admission-bound local or remote model returns a non-empty response.",
                     "The response digest is durably recorded and replay-safe.",
                 ),
             ),),
@@ -659,7 +734,7 @@ class LocalRuntimeComposition:
                 task_id="execute",
                 title=task.strip(),
                 acceptance_criteria=(
-                    "The configured provider returns a non-empty response.",
+                    "The admission-bound local or remote model returns a non-empty response.",
                     "The response digest is durably recorded and replay-safe.",
                 ),
                 rollback_plan="This provider task is read-only and must not modify the repository.",
@@ -752,23 +827,26 @@ class LocalRuntimeComposition:
         principal_digest = request.context.get("_auren_mcp_subject")
         if not self.operator.verify_digest(str(principal_digest or "")):
             raise PermissionError("persisted MCP event is not bound to the host-owned local operator")
-        if self.provider_pool is None:
-            raise LocalProviderNotConfigured("provider configuration is unavailable")
         source_revision = request.context.get("_auren_local_source_revision")
         provider_binding = request.context.get("_auren_local_provider")
         policy_digest = request.context.get("_auren_local_policy_digest")
         remote_policy_digest = _remote_policy_digest()
         current_policy = load_guard_policy(self.controller.root / ".auren" / "guard_policy.json")
+        provider_kind = provider_binding.get("kind", "remote") if isinstance(provider_binding, Mapping) else None
+        bound_remote_policy_digest = remote_policy_digest if provider_kind == "remote" else ""
         if (
             not isinstance(source_revision, str)
             or not re.fullmatch(r"[0-9a-f]{40}", source_revision)
             or not isinstance(provider_binding, Mapping)
+            or provider_kind not in {"local", "remote"}
             or not isinstance(policy_digest, str)
-            or not remote_policy_digest
-            or request.context.get("_auren_local_remote_policy_digest") != remote_policy_digest
-            or policy_digest != _digest(guard_policy_fingerprint(current_policy) + "|" + remote_policy_digest)
+            or request.context.get("_auren_local_remote_policy_digest") != bound_remote_policy_digest
+            or (provider_kind == "remote" and not remote_policy_digest)
+            or policy_digest != _digest(
+                guard_policy_fingerprint(current_policy) + "|" + bound_remote_policy_digest
+            )
         ):
-            raise PermissionError("persisted MCP event lacks current host-bound source, provider or remote-data policy evidence")
+            raise PermissionError("persisted MCP event lacks current host-bound source, provider or model-policy evidence")
 
         plan = self._plan_for(trigger_id, request.task, source_revision, policy_digest)
         try:
