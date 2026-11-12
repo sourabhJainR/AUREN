@@ -55,7 +55,8 @@ class RemoteMCPServiceTests(unittest.TestCase):
         kwargs = service_factory.call_args.kwargs
         self.assertIs(kwargs["approval_store"], composition.approval_store)
         self.assertIs(kwargs["trigger"], composition.trigger)
-        self.assertIs(kwargs["task_admission"], composition.admit_task)
+        self.assertIs(kwargs["task_admission"].__self__, composition)
+        self.assertEqual(kwargs["task_admission"].__func__, composition.admit_task.__func__)
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
