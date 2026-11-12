@@ -51,6 +51,26 @@ class BoundedSubprocessFaultInjectionTests(unittest.TestCase):
                 "a descendant must not survive cancellation and commit output afterward",
             )
 
+    def test_input_text_is_delivered_to_child_and_closed(self):
+        result = run_bounded_command(
+            [sys.executable, "-c", "import sys; print(sys.stdin.read())"],
+            timeout_seconds=2,
+            input_text="AUREN bounded input",
+        )
+        self.assertTrue(result.succeeded, result.stderr)
+        self.assertEqual("AUREN bounded input", result.stdout.strip())
+
+    def test_oversized_input_is_rejected_before_process_launch(self):
+        with patch("portable.bounded_subprocess.subprocess.Popen") as popen:
+            with self.assertRaisesRegex(ValueError, "input_text exceeds"):
+                run_bounded_command(
+                    [sys.executable, "-c", "raise SystemExit(99)"],
+                    timeout_seconds=1,
+                    input_text="12345",
+                    max_input_bytes=4,
+                )
+            popen.assert_not_called()
+
     def test_output_capture_is_bounded_and_marks_truncation(self):
         result=run_bounded_command([sys.executable,"-c","print('x'*200000); print('e'*200000,file=__import__('sys').stderr)"],timeout_seconds=3,max_output_bytes=1024)
         self.assertEqual("completed",result.status); self.assertEqual(0,result.returncode)

@@ -39,6 +39,7 @@ from portable.vibe_coding_host import (
     VerifiedResearchTool,
     fingerprint_worktree,
     load_host_config,
+    _run,
     _build_provider_operation_lookups,
     _read_bounded_mcp_stdout_frame,
     _drain_bounded_mcp_stderr_line,
@@ -172,6 +173,30 @@ for line in sys.stdin:
 
 
 class VibeCodingHostTests(unittest.TestCase):
+    def test_host_command_runner_delivers_input_and_kills_descendants_on_timeout(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            marker = root / "descendant-survived.txt"
+            child = (
+                "import pathlib,sys,time; time.sleep(1.0); "
+                "pathlib.Path(sys.argv[1]).write_text('survived', encoding='utf-8')"
+            )
+            parent = (
+                "import subprocess,sys,time; "
+                "subprocess.Popen([sys.executable, '-c', " + repr(child) + ", "
+                + repr(str(marker)) + "], stdin=subprocess.DEVNULL, "
+                "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
+                "sys.stdout.write(sys.stdin.read()); sys.stdout.flush(); time.sleep(10)"
+            )
+            echoed = _run((sys.executable, "-c", "import sys; print(sys.stdin.read())"),
+                          cwd=root, timeout=2, input_text="bounded-host-input")
+            self.assertIn("bounded-host-input", echoed.stdout)
+            with self.assertRaises(subprocess.TimeoutExpired):
+                _run((sys.executable, "-c", parent), cwd=root, timeout=0.25,
+                     input_text="bounded-host-input")
+            time.sleep(1.2)
+            self.assertFalse(marker.exists(), "host command descendants must not survive timeout")
+
     def test_assigned_mcp_resource_scope_denies_before_process_launch(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
