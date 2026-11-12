@@ -874,10 +874,10 @@ def main(argv: list[str] | None = None) -> int:
     if args and args[0] == "plugin":
         if len(args) < 2 or args[1] in {"-h", "--help", "help"}:
             print(
-                "Usage: auren plugin <install|status|connect> [options]\\n"
-                "  install  Start the local AUREN runtime and configure supported MCP clients.\\n"
-                "  status   Check local runtime prerequisites and provider readiness.\\n"
-                "  connect  Preview or apply the AUREN MCP entry in supported local clients.\\n"
+                "Usage: auren plugin <install|status|connect> [options]\n"
+                "  install  Start the local AUREN runtime and configure supported MCP clients.\n"
+                "  status   Check local runtime prerequisites and provider readiness.\n"
+                "  connect  Preview or apply the AUREN MCP entry in supported local clients.\n"
                 "Use 'auren plugin install --help' for install options."
             )
             return 0
