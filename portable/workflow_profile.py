@@ -1,7 +1,9 @@
 """Validated, versioned workflow preferences for AUREN.
 
-A profile describes user workflow preferences. It is not an authorization grant:
-repository policy, approvals, and the execution controller remain authoritative.
+The default scoped-autonomy preference avoids repeated prompts for actions
+explicitly included in a task. It is not an authorization grant: task scope,
+repository policy, Guard, action approvals, and the execution controller remain
+authoritative.
 """
 from __future__ import annotations
 
@@ -105,7 +107,7 @@ class WorkflowProfileError(ValueError):
 class WorkflowProfile:
     delivery_mode: str = "pull_request"
     execution_mode: str = "checkpointed"
-    approval_mode: str = "before_push_or_pr"
+    approval_mode: str = "scoped_autonomy"
     review_mode: str = "all_applicable"
     communication_mode: str = "concise"
     recovery_mode: str = "preserve_work"
