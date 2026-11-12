@@ -759,10 +759,10 @@ class RemoteMCPASGITests(unittest.TestCase):
             tracer = Tracer(LocalExporter(path, enabled=True))
             trace = tracer.start("mcp-observability", task_id="mcp-observability-task")
             parent = trace.span("supervisor", phase="supervisor")
-            private_argument = {"limit": 5, "private_note": "do-not-export"}
+            arguments = {"limit": 5}
             principal = MCPPrincipal("operator", frozenset({"auren:tasks:read"}), projects=(str(self.root),))
             with bind_trace_context(trace, parent.span_id):
-                result = self.service.call_tool("auren.list_tasks", private_argument, principal)
+                result = self.service.call_tool("auren.list_tasks", arguments, principal)
             parent.finish({"tool_returned": True})
             tracer.end(trace)
             self.assertIsInstance(result, dict)
@@ -784,16 +784,19 @@ class RemoteMCPASGITests(unittest.TestCase):
             trace = tracer.start("mcp-observability-error")
             parent = trace.span("supervisor", phase="supervisor")
             with bind_trace_context(trace, parent.span_id):
-                with self.assertRaises(KeyError):
-                    self.service.call_tool("auren.unknown", {}, MCPPrincipal("operator", frozenset({"auren:tasks:read"}), projects=(str(self.root),)))
+                with self.assertRaises(PermissionError):
+                    self.service.call_tool(
+                        "auren.get_task", {"task_id": "private-task-value"},
+                        MCPPrincipal("operator", frozenset({"auren:tasks:read"}), projects=(str(self.root),)),
+                    )
             parent.finish({"tool_rejected": True})
             tracer.end(trace, status="error")
             tool_spans = [item for item in trace.spans if item.kind == "tool"]
             self.assertEqual(1, len(tool_spans))
             self.assertEqual("error", tool_spans[0].status)
-            self.assertEqual("KeyError", tool_spans[0].terminal_reason)
+            self.assertEqual("PermissionError", tool_spans[0].terminal_reason)
             exported = path.read_text(encoding="utf-8")
-            self.assertNotIn("unknown or unauthorized", exported)
+            self.assertNotIn("private-task-value", exported)
 
     def test_path_specific_rfc9728_metadata_is_available(self):
         status, _, body = self.request(
