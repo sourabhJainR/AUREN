@@ -138,7 +138,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0
+          fetch-depth: 1
+      - name: Fetch exact comparison base for fail-closed optional test checks
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || github.sha }}
+        run: |
+          set -euo pipefail
+          if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          fi
+          git cat-file -e "${BASE_SHA}^{commit}"
       - uses: ./.github/actions/python-test-setup
         with:
           python-version: ${{ matrix.python-version }}
