@@ -372,7 +372,7 @@ def configure_clients(
 
 
 def doctor(project_root: str | Path = ".") -> dict[str, Any]:
-    """Report runtime prerequisites without claiming missing providers are ready."""
+    """Report runtime, local-model and direct API configuration without exposing secrets."""
     root = Path(project_root).expanduser().resolve()
     runtime_profile: dict[str, Any] = {
         "mode": "single_user_local",
@@ -397,8 +397,23 @@ def doctor(project_root: str | Path = ".") -> dict[str, Any]:
         "python": {"executable": sys.executable, "version": sys.version.split()[0]},
         "local_http_dependency": {"available": False, "package": "uvicorn"},
         "providers": [],
-        "runtime_factory": {"required_for_single_user_local": False, "status": "advanced_managed_extension_only"},
-        "next_action": "Single-user local mode is the default profile; the factory-free local composition root remains under implementation.",
+        "remote_model_providers": {
+            "enabled": False, "status": "disabled", "provider_order": [],
+            "providers": [], "errors": [],
+        },
+        "local_model": {
+            "available": False, "provider": "ollama-compatible",
+            "models": [], "status": "not_probed",
+        },
+        "remote_inference_policy": {
+            "enabled": os.environ.get("AUREN_LOCAL_REMOTE_INFERENCE", "").strip().lower() == "enabled",
+            "data_classification": os.environ.get("AUREN_LOCAL_DATA_CLASSIFICATION", "").strip().lower() or None,
+        },
+        "runtime_factory": {
+            "required_for_single_user_local": False,
+            "status": "advanced_managed_extension_only",
+        },
+        "next_action": "Connect a local model or configure one or more direct API providers, then run a live conformance probe before using remote inference.",
     }
     try:
         import uvicorn  # noqa: F401
@@ -408,11 +423,31 @@ def doctor(project_root: str | Path = ".") -> dict[str, Any]:
     try:
         from .provider_fabric import ProviderFabric
         report["providers"] = [
-            {"id": name, "command": item.command, "version": item.version,
-             "capabilities": list(item.capabilities), "status": "detected_not_live_validated"}
+            {
+                "id": name, "command": item.command, "version": item.version,
+                "capabilities": list(item.capabilities),
+                "status": "detected_not_live_validated",
+            }
             for name, item in sorted(ProviderFabric().discover().items())
         ]
     except Exception as exc:
         report["provider_discovery_error"] = type(exc).__name__
+    try:
+        from .remote_model_providers import provider_configuration_report
+        report["remote_model_providers"] = provider_configuration_report()
+    except Exception as exc:
+        report["remote_provider_configuration_error"] = type(exc).__name__
+    try:
+        from .muxin_session_adapter import LocalModelDiscovery
+        local = LocalModelDiscovery().discover()
+        report["local_model"] = {
+            **local,
+            "status": "detected_not_quality_validated" if local.get("available") else "not_available",
+        }
+    except Exception as exc:
+        report["local_model"] = {
+            "available": False, "provider": "ollama-compatible",
+            "models": [], "status": "probe_failed", "reason": type(exc).__name__,
+        }
     report["repository"] = inspect_repository(root)
     return report
