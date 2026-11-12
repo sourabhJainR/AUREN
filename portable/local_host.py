@@ -199,6 +199,8 @@ def serve_local(
     runtime_factory: str | None = None,
     dashboard_port: int = 0,
     mcp_port: int = 8765,
+    auto_connect_clients: bool = False,
+    open_browser: bool = False,
 ) -> int:
     """Start the read-only console and full operator MCP service on free loopback ports."""
     root = Path(project_root).expanduser().resolve()
@@ -371,6 +373,23 @@ def serve_local(
         print(f"MCP endpoint: {mcp_url}", flush=True)
         print(f"MCP credential file: {credential_path}", flush=True)
         print("MCP clients without HTTP bearer-header support: use the AUREN stdio proxy.", flush=True)
+        if auto_connect_clients:
+            try:
+                from .onboarding import configure_clients
+                report = configure_clients(mcp_url=mcp_url, token_file=credential_path,
+                                           apply=True, best_effort=True)
+                print("Local client configuration: " + json.dumps(report, sort_keys=True), flush=True)
+            except Exception as exc:
+                print(f"Local client configuration blocked: {type(exc).__name__}: {exc}",
+                      file=sys.stderr, flush=True)
+        if open_browser:
+            try:
+                import webbrowser
+                opened = webbrowser.open(dashboard_url, new=2)
+                print("Desktop console browser: " + ("opened" if opened else "not_opened"), flush=True)
+            except Exception as exc:
+                print(f"Desktop console browser could not be opened: {type(exc).__name__}",
+                      file=sys.stderr, flush=True)
         print("AUREN local services are ready.", flush=True)
         print("Keep this process running. Press Ctrl+C to stop both services.", flush=True)
 
@@ -428,12 +447,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--runtime-factory", default=None)
     parser.add_argument("--dashboard-port", type=int, default=0, help="TCP port; 0 selects a free port")
     parser.add_argument("--mcp-port", type=int, default=8765, help="TCP port; 0 selects a free port")
+    parser.add_argument("--auto-connect", action="store_true", help="Back up and configure supported local MCP clients after startup.")
+    parser.add_argument("--open-browser", action="store_true", help="Open the local desktop console in the default browser.")
     args = parser.parse_args(argv)
     return serve_local(
-        args.project_root,
-        runtime_factory=args.runtime_factory,
-        dashboard_port=args.dashboard_port,
-        mcp_port=args.mcp_port,
+        args.project_root, runtime_factory=args.runtime_factory,
+        dashboard_port=args.dashboard_port, mcp_port=args.mcp_port,
+        auto_connect_clients=args.auto_connect, open_browser=args.open_browser,
     )
 
 
