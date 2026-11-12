@@ -811,6 +811,59 @@ class AurenMCPService:
                     AurenMCPService._validate_schema(value[key], child_schema, f"{path}.{key}")
 
     def call_tool(self, name: str, arguments: Mapping[str, Any], principal: MCPPrincipal | None) -> Any:
+        """Invoke an authenticated MCP tool and attach a privacy-safe span when available."""
+        span = None
+        try:
+            from .agency_observability import current_trace_context
+            active = current_trace_context()
+            if active is not None and isinstance(name, str) and len(name) <= 200:
+                trace, parent_span_id = active
+                argument_bytes = _canonical_json(_safe_value(arguments)).encode("utf-8")
+                subject = self._principal_key(principal) if principal is not None else "anonymous"
+                span = trace.span(
+                    "mcp.tool." + name,
+                    kind="tool",
+                    input={"argument_bytes": len(argument_bytes)},
+                    metadata={
+                        "tool": name,
+                        "argument_digest": hashlib.sha256(argument_bytes).hexdigest(),
+                        "principal_digest": hashlib.sha256(subject.encode("utf-8")).hexdigest(),
+                    },
+                    parent_id=parent_span_id,
+                    phase="tool",
+                )
+        except Exception:
+            span = None
+        try:
+            result = self._call_tool_untraced(name, arguments, principal)
+        except BaseException as exc:
+            if span is not None:
+                try:
+                    span.finish(
+                        output={"outcome": "error", "error_type": type(exc).__name__},
+                        status="error",
+                        terminal_reason=type(exc).__name__,
+                    )
+                except Exception:
+                    pass
+            raise
+        if span is not None:
+            try:
+                safe_result = _safe_value(result)
+                encoded_result = _canonical_json(safe_result).encode("utf-8")
+                span.finish(
+                    output={
+                        "outcome": "completed",
+                        "result_digest": hashlib.sha256(encoded_result).hexdigest(),
+                        "result_bytes": len(encoded_result),
+                    },
+                    status="ok",
+                )
+            except Exception:
+                pass
+        return result
+
+    def _call_tool_untraced(self, name: str, arguments: Mapping[str, Any], principal: MCPPrincipal | None) -> Any:
         if not isinstance(arguments, Mapping):
             raise TypeError("tool arguments must be an object")
         definition = next(
