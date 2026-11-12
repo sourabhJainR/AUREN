@@ -14,7 +14,7 @@ from typing import Any
 from .engineering_quality_gate import EngineeringQualityGate, QualityGate, QualityReport
 from .engineering_traceability import EngineeringTraceability, TraceLink, TraceabilityReport
 from .full_stack_contract import FullStackContract
-from .implementation_plan import ImplementationPlan
+from .implementation_plan import ImplementationPlan, ImplementationPlanner
 from .model_topology_benchmark import ModelBenchmarkReport, ModelTopologyBenchmark
 from .performance_budget import PerformanceBudget, PerformanceBudgetGate, PerformanceObservation, PerformanceReport
 from .requirement_contract import RequirementContract, RequirementContractEngine, RequirementDecision
@@ -67,6 +67,7 @@ class EndToEndEngineeringEpisode:
         requirement_decision_verifier: Callable[[RequirementDecision], bool] | None = None,
     ) -> None:
         self.requirements = requirement_engine or RequirementContractEngine()
+        self.plans = ImplementationPlanner()
         self.engineering = engineering_evaluator or WholeSystemEngineeringEvaluator()
         self.repair = repair_loop or VerifiedRepairLoop()
         self.benchmark = benchmark or ModelTopologyBenchmark()
@@ -105,6 +106,8 @@ class EndToEndEngineeringEpisode:
         contract_issues = self.requirements.validate(request.requirements)
         if contract_issues:
             raise ValueError("requirement contract is not executable: " + "; ".join(contract_issues))
+        if request.requirements.revision > 1 or request.requirements.conflicts:
+            self.plans.validate_binding(request.implementation_plan, request.requirements)
         if request.requirements.decisions:
             if self.requirement_decision_verifier is None:
                 raise PermissionError("requirement decision authority verifier is required before execution")
