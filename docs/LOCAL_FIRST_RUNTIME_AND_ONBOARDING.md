@@ -136,7 +136,7 @@ The single-user local host now constructs its own runtime; it does not import or
 
 Local MCP task submission is routed through that host composition. It captures the Git HEAD, Guard policy digest and selected provider/model at admission, then dispatches a role-assigned plan task through the trusted plan-dispatch root and canonical controller. The continuous supervisor claims and resumes queued controller work. Provider operation receipts are persisted before/after invocation; an interrupted ambiguous provider call is not repeated automatically.
 
-The currently implemented provider path is direct API inference only. It is deliberately proposal-only: it receives the submitted task text, has no repository tools, and cannot modify files, merge, release or deploy. It is not equivalent to a full coding-agent executor.
+The local MCP provider path uses an admission-bound Ollama-compatible model for private work when one is available. If no capable local model is present, a configured direct API provider may be used only when remote inference is explicitly enabled and the workspace is classified as public. Provider identity and model are fixed at admission; a failed local route does not fall back to a remote API. The path remains proposal-only: it receives task text, has no repository tools, and cannot modify files, merge, release or deploy. It is not equivalent to a full coding-agent executor.
 
 Remote inference is disabled by default. To enable it, the operator must explicitly configure a provider and declare that the submitted work is public:
 

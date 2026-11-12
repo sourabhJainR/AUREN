@@ -74,11 +74,11 @@ AUREN probes http://127.0.0.1:11434 without sending a prompt. To use another loo
     export AUREN_LOCAL_MODEL_URL=http://127.0.0.1:11434
     python auren_cli.py doctor --project-root /absolute/path/to/project
 
-The local discovery report confirms endpoint and model visibility, not model quality. The HybridModelRouter supports an Ollama-compatible local execution path, but the built-in local MCP proposal handler currently uses direct API inference only; discovery does not mean that this local MCP task path will select the Ollama model. AUREN rejects non-loopback local-model URLs by default. Do not expose an unauthenticated model endpoint to the LAN or internet.
+The local discovery report confirms endpoint and model visibility, not model quality. The built-in local MCP proposal path now prefers an admission-bound Ollama-compatible model for private work. If no capable local model is available, direct API inference is eligible only for explicitly public work after both remote-inference opt-ins are set. Provider identity is fixed at admission; AUREN does not silently switch providers after a task is accepted. Local model URLs must remain loopback-only.
 
 ## 4. Configure the local AUREN task path
 
-The built-in local composition is proposal-only today. It can produce model-assisted proposals for explicitly public work; it is not yet a full repository coding-agent executor.
+The built-in local composition is proposal-only. It uses a configured local Ollama-compatible model for private work when available. Direct API providers are used only when no capable local model is available and the workspace is explicitly declared public with remote inference enabled. The provider has no repository tools and cannot modify files; this is not yet a full repository coding-agent executor.
 
 Remote inference is disabled by default. For an explicitly public workspace only, configure both the provider and policy opt-in:
 
