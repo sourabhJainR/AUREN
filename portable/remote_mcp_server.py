@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import hashlib
 import os
 import sys
 from pathlib import Path
@@ -46,8 +47,6 @@ def main(argv: list[str] | None = None) -> int:
     project_root = args.project_root.expanduser().resolve()
     if not project_root.is_dir():
         raise SystemExit("AUREN project root must be an existing directory")
-    if not args.runtime_factory:
-        raise SystemExit("Set AUREN_MCP_RUNTIME_FACTORY to a trusted module:function runtime factory")
     if not 1 <= args.port <= 65535:
         raise SystemExit("AUREN_MCP_PORT must be between 1 and 65535")
     if args.host not in {"127.0.0.1", "::1", "0.0.0.0", "::"}:
@@ -58,14 +57,31 @@ def main(argv: list[str] | None = None) -> int:
         import uvicorn
     except ImportError as exc:
         raise SystemExit("Install the optional HTTP runtime with: pip install 'uvicorn[standard]'") from exc
-    runtime = _load_runtime(args.runtime_factory, project_root)
-    service = service_from_environment(runtime, project_root=project_root)
-    app = AurenMCPASGI(service)
-    uvicorn.run(
-        app, host=args.host, port=args.port, proxy_headers=True,
-        forwarded_allow_ips=os.environ.get("AUREN_MCP_FORWARDED_ALLOW_IPS", "127.0.0.1,::1"),
-        lifespan="on", access_log=False,
-    )
+    composition = None
+    if args.runtime_factory:
+        runtime = _load_runtime(args.runtime_factory, project_root)
+    else:
+        from .identity_compat import canonical_auren_home
+        from .local_composition import create_local_composition
+        project_key = hashlib.sha256(str(project_root).encode("utf-8")).hexdigest()[:24]
+        composition = create_local_composition(
+            project_root,
+            state_root=canonical_auren_home() / "remote-mcp-runtime" / project_key,
+        )
+        runtime = composition.runtime
+    try:
+        service = service_from_environment(
+            runtime, project_root=project_root, composition=composition,
+        )
+        app = AurenMCPASGI(service)
+        uvicorn.run(
+            app, host=args.host, port=args.port, proxy_headers=True,
+            forwarded_allow_ips=os.environ.get("AUREN_MCP_FORWARDED_ALLOW_IPS", "127.0.0.1,::1"),
+            lifespan="on", access_log=False,
+        )
+    finally:
+        if composition is not None:
+            composition.close()
     return 0
 
 
