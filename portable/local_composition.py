@@ -694,11 +694,41 @@ class LocalRuntimeComposition:
             "general",
         )
 
+    def _remote_principal_authorized(self, principal: Any) -> bool:
+        if os.environ.get("AUREN_MCP_REMOTE_EXECUTION_ENABLED") != "1":
+            return False
+        issuer = getattr(principal, "issuer", "")
+        subject = getattr(principal, "subject", "")
+        roles = tuple(getattr(principal, "roles", ()))
+        projects = tuple(getattr(principal, "projects", ()))
+        allows = getattr(principal, "allows", None)
+        if (
+            not isinstance(issuer, str) or not issuer.startswith("https://")
+            or not isinstance(subject, str) or not subject.strip()
+            or "engineering_manager" not in roles
+            or not callable(allows) or not allows("auren:tasks:write")
+            or not projects
+        ):
+            return False
+        for project in projects:
+            try:
+                candidate = Path(project).expanduser().resolve(strict=True)
+                if candidate.is_dir() and os.path.samefile(candidate, self.project_root):
+                    return True
+            except (OSError, RuntimeError, TypeError, ValueError):
+                continue
+        return False
+
     def admit_task(
         self, principal: Any, task: str, context: Mapping[str, Any], event_id: str,
     ) -> Mapping[str, Any]:
-        if not self.operator.verify_principal(principal):
-            raise PermissionError("local operator identity is not authorized for this workspace")
+        local_principal = self.operator.verify_principal(principal)
+        remote_principal = self._remote_principal_authorized(principal)
+        if not (local_principal or remote_principal):
+            raise PermissionError(
+                "task admission requires the local operator or an explicitly authorized remote project principal"
+            )
+        principal_digest = _principal_digest(principal)
         if not isinstance(task, str) or not task.strip():
             raise ValueError("task text is required")
         policy = load_guard_policy(self.controller.root / ".auren" / "guard_policy.json")
@@ -711,11 +741,9 @@ class LocalRuntimeComposition:
             mandatory_authorized=True,
         )
         if decision.allowed is not True:
-            raise PermissionError("current Guard policy denied local task admission: " + decision.reason)
+            raise PermissionError("current Guard policy denied task admission: " + decision.reason)
 
-        # A caller retry must reuse the original host-bound source/provider metadata.
-        # Re-resolving either value after a workspace or configuration change would
-        # turn the same idempotency key into a different task intent.
+        # Retries retain the exact principal, source, provider and Vibe host binding.
         existing = self.runtime.trigger_runtime.get_event(event_id)
         if existing is not None:
             if existing.payload.get("task") != task.strip():
@@ -723,55 +751,79 @@ class LocalRuntimeComposition:
             existing_context = existing.payload.get("context", {})
             if (
                 not isinstance(existing_context, Mapping)
-                or existing_context.get("_auren_mcp_subject") != self.operator.principal_digest
+                or existing_context.get("_auren_local_subject_digest") != principal_digest
                 or not isinstance(existing_context.get("_auren_local_source_revision"), str)
                 or not isinstance(existing_context.get("_auren_local_provider"), Mapping)
                 or not isinstance(existing_context.get("_auren_local_policy_digest"), str)
                 or not isinstance(existing_context.get("_auren_local_remote_policy_digest"), str)
+                or not isinstance(existing_context.get("_auren_local_admitted_at"), (int, float))
             ):
                 raise PermissionError("existing task is missing its immutable host admission binding")
             return {
+                "_auren_local_subject_digest": existing_context["_auren_local_subject_digest"],
                 "_auren_local_source_revision": existing_context["_auren_local_source_revision"],
                 "_auren_local_provider": dict(existing_context["_auren_local_provider"]),
                 "_auren_local_policy_digest": existing_context["_auren_local_policy_digest"],
                 "_auren_local_remote_policy_digest": existing_context["_auren_local_remote_policy_digest"],
+                "_auren_local_admitted_at": existing_context["_auren_local_admitted_at"],
+                "_auren_local_vibe_config_path": existing_context.get("_auren_local_vibe_config_path", ""),
+                "_auren_local_vibe_config_digest": existing_context.get("_auren_local_vibe_config_digest", ""),
             }
 
         remote_policy_digest = _remote_policy_digest()
-        local_models = self._local_model_candidates()
-        if local_models:
+        vibe_enabled = self.vibe_host_config is not None and self.vibe_host_status.get("status") == "ready"
+        if remote_principal and not vibe_enabled:
+            raise LocalProviderNotConfigured(
+                "remote task execution requires a configured Vibe Coding host and available coding-agent CLI"
+            )
+        if vibe_enabled:
             provider_binding = {
-                "kind": "local", "name": "ollama-compatible", "model": local_models[0],
+                "kind": "vibe", "name": self.vibe_host_config.provider, "model": "cli",
             }
             bound_remote_policy_digest = ""
         else:
-            if self.provider_pool is None:
-                raise LocalProviderNotConfigured(
-                    "no provider is configured and no capable local model is available"
-                )
-            if not remote_policy_digest:
-                raise LocalProviderNotConfigured(
-                    "no capable local model is available; remote inference is disabled unless "
-                    "AUREN_LOCAL_REMOTE_INFERENCE=enabled and AUREN_LOCAL_DATA_CLASSIFICATION=public"
-                )
-            providers = getattr(self.provider_pool, "providers", ())
-            if not providers:
-                raise LocalProviderNotConfigured("configured provider pool has no reviewed provider adapter")
-            selected = providers[0]
-            name = getattr(getattr(selected, "spec", None), "name", None)
-            model = getattr(selected, "model", None)
-            if not isinstance(name, str) or not name or not isinstance(model, str) or not model:
-                raise LocalProviderNotConfigured("configured provider identity or model is incomplete")
-            provider_binding = {"kind": "remote", "name": name, "model": model}
-            bound_remote_policy_digest = remote_policy_digest
+            local_models = self._local_model_candidates()
+            if local_models:
+                provider_binding = {
+                    "kind": "local", "name": "ollama-compatible", "model": local_models[0],
+                }
+                bound_remote_policy_digest = ""
+            else:
+                if self.provider_pool is None:
+                    raise LocalProviderNotConfigured(
+                        "no provider is configured and no capable local model is available"
+                    )
+                if not remote_policy_digest:
+                    raise LocalProviderNotConfigured(
+                        "no capable local model is available; remote inference is disabled unless "
+                        "AUREN_LOCAL_REMOTE_INFERENCE=enabled and AUREN_LOCAL_DATA_CLASSIFICATION=public"
+                    )
+                providers = getattr(self.provider_pool, "providers", ())
+                if not providers:
+                    raise LocalProviderNotConfigured("configured provider pool has no reviewed provider adapter")
+                selected = providers[0]
+                name = getattr(getattr(selected, "spec", None), "name", None)
+                model = getattr(selected, "model", None)
+                if not isinstance(name, str) or not name or not isinstance(model, str) or not model:
+                    raise LocalProviderNotConfigured("configured provider identity or model is incomplete")
+                provider_binding = {"kind": "remote", "name": name, "model": model}
+                bound_remote_policy_digest = remote_policy_digest
         source_revision = self._source_revision()
+        admitted_at = time.time()
+        vibe_config_path = str(self.vibe_host_config_path) if vibe_enabled else ""
+        vibe_config_digest = self.vibe_host_config_digest if vibe_enabled else ""
+        policy_material = guard_policy_fingerprint(policy) + "|" + bound_remote_policy_digest
+        if vibe_enabled:
+            policy_material += "|vibe:" + vibe_config_digest
         return {
+            "_auren_local_subject_digest": principal_digest,
             "_auren_local_source_revision": source_revision,
             "_auren_local_provider": provider_binding,
-            "_auren_local_policy_digest": _digest(
-                guard_policy_fingerprint(policy) + "|" + bound_remote_policy_digest
-            ),
+            "_auren_local_policy_digest": _digest(policy_material),
             "_auren_local_remote_policy_digest": bound_remote_policy_digest,
+            "_auren_local_admitted_at": admitted_at,
+            "_auren_local_vibe_config_path": vibe_config_path,
+            "_auren_local_vibe_config_digest": vibe_config_digest,
         }
 
     def _source_revision(self) -> str:
@@ -789,17 +841,29 @@ class LocalRuntimeComposition:
 
     def _plan_for(
         self, trigger_id: str, task: str, source_revision: str, policy_digest: str,
+        provider_binding: Mapping[str, Any],
     ) -> EngineeringPlan:
         if not re.fullmatch(r"[0-9a-f]{40}", source_revision):
             raise ValueError("local task is missing its host-bound Git source revision")
+        vibe_execution = provider_binding.get("kind") == "vibe"
+        acceptance = (
+            (
+                "The existing 18-stage Vibe Coding host reaches an accepted terminal run.",
+                "The host report is digest-verified and bound to the admitted source revision.",
+                "All repository changes remain in the isolated worktree; no merge, publish or production deployment occurs.",
+                "The durable approval and side-effect receipts are complete.",
+            )
+            if vibe_execution else
+            (
+                "The admission-bound local or remote model returns a non-empty response.",
+                "The response digest is durably recorded and replay-safe.",
+            )
+        )
         contract = RequirementContractEngine().build(
             task.strip(),
             (Requirement(
                 requirement_id="R1", statement=task.strip(),
-                acceptance_criteria=(
-                    "The admission-bound local or remote model returns a non-empty response.",
-                    "The response digest is durably recorded and replay-safe.",
-                ),
+                acceptance_criteria=acceptance,
             ),),
         )
         issues = RequirementContractEngine().validate(contract)
@@ -813,18 +877,23 @@ class LocalRuntimeComposition:
             tasks=(PlanTask(
                 task_id="execute",
                 title=task.strip(),
-                acceptance_criteria=(
-                    "The admission-bound local or remote model returns a non-empty response.",
-                    "The response digest is durably recorded and replay-safe.",
+                acceptance_criteria=acceptance,
+                rollback_plan=(
+                    "Discard or explicitly roll back the isolated Vibe Coding worktree; never alter the source checkout."
+                    if vibe_execution else
+                    "This provider task is read-only and must not modify the repository."
                 ),
-                rollback_plan="This provider task is read-only and must not modify the repository.",
-                risk="low",
+                risk="high" if vibe_execution else "low",
                 owner_role_id="BE-01",
                 manager_role_id="EM-ENG-01",
             ),),
             source_revision=source_revision,
             policy_digest=policy_digest,
-            budget={"attempts": 1, "dispatches": 1, "tokens": 4096, "wall_seconds": 300},
+            budget={
+                "attempts": 1, "dispatches": 1,
+                "tokens": 65536 if vibe_execution else 4096,
+                "wall_seconds": 3600 if vibe_execution else 300,
+            },
         )
 
     def _goal_reconciler_for(
@@ -833,6 +902,8 @@ class LocalRuntimeComposition:
         provider_binding: Mapping[str, Any],
         policy_digest: str,
         remote_policy_digest: str,
+        principal_digest: str,
+        admitted_at: float,
     ) -> EngineeringPlanGoalReconciler:
         holder: dict[str, EngineeringPlanGoalReconciler] = {}
 
