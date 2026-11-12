@@ -545,6 +545,36 @@ class LocalRuntimeComposition:
             with _PROVIDER_POOLS_LOCK:
                 _PROVIDER_POOLS[str(self.state_root)] = self.provider_pool
 
+        from .identity_compat import canonical_auren_home
+        from .vibe_coding_host import load_host_config
+        self.vibe_host_config_path = canonical_auren_home() / "vibe-coding" / "host.json"
+        self.vibe_host_config = None
+        self.vibe_host_config_digest = ""
+        self.vibe_host_status: dict[str, Any] = {"status": "not_configured"}
+        try:
+            config = load_host_config(self.vibe_host_config_path)
+            provider_command = {"codex": "codex", "claude": "claude"}.get(config.provider)
+            config_digest = hashlib.sha256(self.vibe_host_config_path.read_bytes()).hexdigest()
+            if config.allow_workspace_writes is not True:
+                self.vibe_host_status = {"status": "blocked", "reason": "isolated_worktree_writes_not_enabled"}
+            elif provider_command is None:
+                self.vibe_host_status = {"status": "blocked", "reason": "unsupported_provider_cli"}
+            elif shutil.which(provider_command) is None:
+                self.vibe_host_status = {"status": "provider_missing", "provider": config.provider}
+            else:
+                self.vibe_host_config = config
+                self.vibe_host_config_digest = config_digest
+                self.vibe_host_status = {
+                    "status": "ready", "provider": config.provider,
+                    "config_digest": config_digest,
+                }
+        except FileNotFoundError:
+            self.vibe_host_status = {"status": "not_configured"}
+        except Exception as exc:
+            self.vibe_host_status = {
+                "status": "blocked", "reason": type(exc).__name__,
+            }
+
         graph = Graph([
             Node(
                 name="local_task_intake",
@@ -575,6 +605,18 @@ class LocalRuntimeComposition:
             guard_action="provider.invoke",
             agent_action_class=_HANDLER_ACTION,
         )
+        self.controller.register_handler(
+            _VIBE_HANDLER,
+            "portable.local_composition:run_local_vibe_coding_task",
+            execution_class="approval_gated",
+            approval_gate_policy={
+                "approval_store": "DurableApprovalStore",
+                "gateway": "ActionGovernanceGateway",
+                "durable_side_effect_ledger": True,
+            },
+            guard_action="provider.invoke",
+            agent_action_class=_HANDLER_ACTION,
+        )
         self.plan_store = EngineeringPlanStore(self.state_root / "engineering-plans.sqlite3")
         self.recovery_bridge = EngineeringPlanRecoveryBridge(
             store=self.plan_store, ledger=self.runtime.recovery_ledger,
@@ -583,6 +625,9 @@ class LocalRuntimeComposition:
             self.controller,
             approver_authorizer=self.operator.authorize_approver,
             context_provider=self.operator.approval_context,
+            wake_callback=lambda task_id, approval_id: self.controller.resume_approved_task(
+                task_id, approval_id, approval_store=self.approval_store,
+            ),
         )
         self.budgets = LocalBudgetResolver(self.state_root / "budgets.sqlite3")
 
@@ -633,6 +678,8 @@ class LocalRuntimeComposition:
             runner=self.run_trigger,
         )
         self._closed = False
+        with _LOCAL_COMPOSITIONS_LOCK:
+            _LOCAL_COMPOSITIONS[str(self.state_root)] = self
 
     @property
     def provider_ready(self) -> bool:
