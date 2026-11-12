@@ -60,7 +60,7 @@ The common interaction path is:
 - **Desktop console:** the browser opens the same local Session Control Center and durable progress view.
 - **Hosted chat clients:** deploy the authenticated remote MCP service and configure its HTTPS endpoint and OAuth provider. A loopback URL cannot be used from a cloud-hosted chat service.
 
-AUREN uses the same host-owned task controller, durable progress journal, Guard, approvals and evidence stores across its local MCP and dashboard surfaces. Task acceptance is not task completion; check durable task state and evidence before treating work as done.
+AUREN uses the same host-owned task controller and project-scoped durable progress journal across its local MCP, CLI progress view and dashboard. The MCP service remains the authority for Guard, approvals, budgets and evidence; the dashboard is an observation surface, not a second execution authority. Task acceptance is not task completion; check durable task state and evidence before treating work as done.
 
 ## 2. Upgrade, rollback and uninstall
 

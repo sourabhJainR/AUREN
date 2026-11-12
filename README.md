@@ -42,7 +42,7 @@ The managed runtime must be built into the AUREN distribution. A standard user m
 - Local OAuth is optional. The default local mode uses a private per-user credential or supported OS-backed caller identity. A user may opt into stronger local authentication.
 - Authentication being optional does not make authorization optional. Every call remains scoped to the registered project, caller, tool, operation, approval state and execution budget.
 - Keep credentials outside repositories, task payloads, logs and model context. Use owner-only file permissions and safe rotation.
-- Local MCP is shared with the same managed runtime used by the dashboard and CLI. It must not create a second task store or independent execution authority.
+- Local MCP, dashboard and CLI progress use the same project-scoped durable task controller and progress journal. MCP remains the authority for Guard, approvals, budgets and evidence; the dashboard is an observation surface, not a second execution authority.
 - Remote MCP remains disabled until an operator explicitly enables it, configures HTTPS ingress and an OAuth 2.1 authorization server, and passes deployment acceptance.
 
 ### New and existing repositories
