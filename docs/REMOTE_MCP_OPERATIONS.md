@@ -95,7 +95,7 @@ export AUREN_MCP_ALLOWED_HOSTS=mcp.example.com
 export AUREN_MCP_ALLOWED_ORIGINS=https://your-approved-browser-origin.example
 export AUREN_MCP_CONTROL_DB=/var/lib/auren/mcp/operator-control.sqlite3
 export AUREN_MCP_REMOTE_EXECUTION_ENABLED=1
-export AUREN_MCP_APPROVER_SUBJECT_DIGESTS=<approved-approver-digest>
+export AUREN_MCP_APPROVER_SUBJECT_DIGESTS="$(secret-manager read auren/mcp/approver-subject-digests)"
 
 python -m portable.remote_mcp_server \
   --project-root "$AUREN_PROJECT_ROOT" \
