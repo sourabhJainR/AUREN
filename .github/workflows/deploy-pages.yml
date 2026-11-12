@@ -7,6 +7,7 @@ on:
     branches: [main]
     paths:
       - 'site/**'
+      - 'docs/downloads.html'
       - 'docs/index.html'
       - 'docs/404.html'
       - '.github/workflows/deploy-pages.yml'
@@ -41,10 +42,12 @@ jobs:
         run: |
           test -s site/index.html
           test -s site/404.html
+          test -s site/downloads.html
           test -s docs/index.html
           test -s docs/404.html
           grep -q '<title>AUREN' site/index.html
           grep -q '<title>AUREN' site/404.html
+          grep -q 'api.github.com/repos/sourabhJainR/AUREN/releases' site/downloads.html
           cmp -s site/index.html docs/index.html
           cmp -s site/404.html docs/404.html
 
@@ -54,7 +57,7 @@ jobs:
             echo "AUREN GitHub Pages deployment"
             echo "commit=${GITHUB_SHA}"
             echo "source=site"
-            sha256sum site/index.html site/404.html
+            sha256sum site/index.html site/404.html site/downloads.html
           } | tee pages-deployment-manifest.txt
 
       - name: Upload deployment manifest
