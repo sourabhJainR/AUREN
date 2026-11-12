@@ -38,6 +38,21 @@ class ImpactPolicyTests(unittest.TestCase):
                 self.assertTrue(required.issubset(set(impact.required_suites)))
                 self.assertTrue(impact.hardening_required)
 
+    def test_local_mcp_cli_client_has_mandatory_protocol_and_service_suites(self):
+        expected = {
+            "portable/mcp_local_client.py": {
+                "tests.test_mcp_local_client", "tests.test_remote_mcp_service",
+                "tests.test_local_mcp_host",
+            },
+            "tests/test_mcp_local_client.py": {"tests.test_mcp_local_client"},
+        }
+        for path, required in expected.items():
+            with self.subTest(path=path):
+                impact = classify_path(path)
+                self.assertIsNotNone(impact)
+                self.assertTrue(required.issubset(set(impact.required_suites)))
+                self.assertTrue(impact.hardening_required)
+
     def test_model_provider_adapter_changes_have_required_impact_suites(self):
         expected = {
             "portable/remote_model_providers.py": {
