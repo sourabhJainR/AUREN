@@ -45,10 +45,12 @@ jobs:
           test -s site/downloads.html
           test -s docs/index.html
           test -s docs/404.html
+          test -s docs/downloads.html
           grep -q '<title>AUREN' site/index.html
           grep -q '<title>AUREN' site/404.html
           grep -q 'api.github.com/repos/sourabhJainR/AUREN/releases' site/downloads.html
           cmp -s site/index.html docs/index.html
+          cmp -s site/downloads.html docs/downloads.html
           cmp -s site/404.html docs/404.html
 
       - name: Build deployment manifest

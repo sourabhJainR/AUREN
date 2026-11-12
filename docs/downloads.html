@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Download current AUREN builds and older immutable releases for Linux, macOS and Windows.">
+<title>AUREN | Downloads</title>
+<style>
+:root{color-scheme:dark;--panel:#101c2e;--text:#edf4ff;--muted:#9fb0c7;--line:#263850;--accent:#74b9ff;--good:#70d6a1}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#07101d,#0b1626 55%,#08111f);color:var(--text);font:16px/1.6 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:980px;margin:auto;padding:28px 22px}
+header{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line)}header a{font-size:14px}
+h1{font-size:clamp(34px,6vw,54px);line-height:1.1;margin:42px 0 12px}.lead,.muted{color:var(--muted)}section{margin:30px 0}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px}.card h3{margin:0 0 6px}.tag{font-family:ui-monospace,monospace;color:var(--good);font-size:13px}
+.links{display:flex;gap:12px;flex-wrap:wrap;margin-top:16px}.links a{display:inline-block;border:1px solid var(--line);border-radius:8px;padding:8px 11px;background:#14243a}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#050b14;border:1px solid var(--line);padding:14px;border-radius:8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.small{font-size:13px;color:var(--muted)}.status{padding:12px 0;color:var(--muted)}.error{color:#ffd166}footer{border-top:1px solid var(--line);margin-top:45px}
+</style>
+</head>
+<body>
+<header class="wrap"><strong>AUREN</strong><nav><a href="./">Home</a> · <a href="https://github.com/sourabhJainR/AUREN">Source</a> · <a href="https://github.com/sourabhJainR/AUREN/releases">All GitHub releases</a></nav></header>
+<main class="wrap">
+<h1>Download AUREN</h1>
+<p class="lead">Choose the current main build for the newest merged code, the latest stable release, or an older pinned version. Every published build includes a portable bundle and SHA-256 checksum.</p>
+<section>
+<h2>Install latest stable</h2>
+<div class="cards">
+<article class="card"><h3>Linux / macOS</h3><pre>curl -fsSL https://raw.githubusercontent.com/sourabhJainR/AUREN/main/install.sh | bash</pre></article>
+<article class="card"><h3>Windows PowerShell</h3><pre>irm https://raw.githubusercontent.com/sourabhJainR/AUREN/main/install.ps1 | iex</pre></article>
+</div>
+<p class="small">To pin an exact release, set AUREN_VERSION to its tag before running the installer. This also supports main snapshot tags.</p>
+</section>
+<section><h2>Current main build</h2><p class="muted">An immutable prerelease is published for each successful main-branch build and points to its exact source commit.</p><div id="current" class="status">Loading current build…</div></section>
+<section><h2>Latest stable release</h2><div id="stable" class="status">Loading latest stable release…</div></section>
+<section><h2>Previous stable versions</h2><div id="history" class="cards"><p class="status">Loading release history…</p></div></section>
+<section><h2>Older main snapshots</h2><div id="snapshots" class="cards"><p class="status">Loading main snapshots…</p></div></section>
+<section><h2>Install a specific version</h2><p class="muted">Copy the tag shown on a release card and set it before running the installer.</p>
+<pre>Linux / macOS:
+AUREN_VERSION=TAG curl -fsSL https://raw.githubusercontent.com/sourabhJainR/AUREN/main/install.sh | bash
+
+Windows PowerShell:
+$env:AUREN_VERSION = "TAG"
+irm https://raw.githubusercontent.com/sourabhJainR/AUREN/main/install.ps1 | iex</pre>
+</section>
+</main>
+<footer class="wrap"><p class="small">Release files are hosted by GitHub. Verify SHA256SUMS before installing if you need an integrity check. Stable version tags are immutable; main snapshots are separate prereleases.</p></footer>
+<script>
+const endpoint = "https://api.github.com/repos/sourabhJainR/AUREN/releases?per_page=100";
+const el = id => document.getElementById(id);
+function node(tag, cls, value) {
+  const item = document.createElement(tag);
+  if (cls) item.className = cls;
+  if (value !== undefined) item.textContent = value;
+  return item;
+}
+function card(release, label) {
+  const article = node("article", "card");
+  article.append(node("div", "tag", label));
+  article.append(node("h3", "", release.name || release.tag_name));
+  article.append(node("p", "small", release.tag_name + " · " + (release.published_at ? new Date(release.published_at).toLocaleDateString() : "date unavailable")));
+  const links = node("div", "links");
+  for (const filename of ["auren-portable.zip", "install.sh", "install.ps1", "SHA256SUMS"]) {
+    const asset = (release.assets || []).find(item => item.name === filename);
+    if (!asset) continue;
+    const link = node("a", "", filename);
+    link.href = asset.browser_download_url;
+    link.rel = "noopener";
+    links.append(link);
+  }
+  const page = node("a", "", "Release notes");
+  page.href = release.html_url;
+  page.rel = "noopener";
+  links.append(page);
+  article.append(links);
+  return article;
+}
+function show(container, release, label) {
+  if (!release) {
+    el(container).textContent = "No published build is available yet. Check GitHub Actions or the releases page.";
+    return;
+  }
+  el(container).replaceChildren(card(release, label));
+}
+async function load() {
+  try {
+    const response = await fetch(endpoint, {headers: {Accept: "application/vnd.github+json"}});
+    if (!response.ok) throw new Error("GitHub release listing returned HTTP " + response.status);
+    const releases = await response.json();
+    const published = releases.filter(item => !item.draft);
+    const snapshots = published.filter(item => item.tag_name.startsWith("main-")).sort((a,b) => new Date(b.published_at) - new Date(a.published_at));
+    const stable = published.filter(item => !item.prerelease && /^v\d+\.\d+\.\d+$/.test(item.tag_name)).sort((a,b) => new Date(b.published_at) - new Date(a.published_at));
+    show("current", snapshots[0], "Latest merged main snapshot");
+    show("stable", stable[0], "Latest stable version");
+    const history = el("history");
+    history.replaceChildren();
+    for (const release of stable.slice(1)) history.append(card(release, "Previous stable version"));
+    if (!history.children.length) history.append(node("p", "status", "No older stable versions were returned."));
+    const older = el("snapshots");
+    older.replaceChildren();
+    for (const release of snapshots.slice(1, 11)) older.append(card(release, "Earlier main snapshot"));
+    if (!older.children.length) older.append(node("p", "status", "No earlier main snapshots were returned."));
+  } catch (error) {
+    for (const id of ["current", "stable", "history", "snapshots"]) {
+      el(id).replaceChildren(node("p", "error", "Could not load releases: " + error.message));
+    }
+  }
+}
+load();
+</script>
+</body>
+</html>
