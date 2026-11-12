@@ -7,12 +7,57 @@ import hashlib
 import os
 import subprocess
 import sys
+import time
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+
+class _TimedTextTestResult(unittest.TextTestResult):
+    """Collect per-test timings without changing test selection or execution order."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._started: dict[int, float] = {}
+        self.test_durations: list[tuple[float, str]] = []
+        self.module_durations: dict[str, float] = {}
+
+    def startTest(self, test):
+        self._started[id(test)] = time.monotonic()
+        super().startTest(test)
+
+    def stopTest(self, test):
+        started = self._started.pop(id(test), None)
+        if started is not None:
+            elapsed = time.monotonic() - started
+            test_id = test.id()
+            module = test_id.split(".", 1)[0]
+            self.test_durations.append((elapsed, test_id))
+            self.module_durations[module] = self.module_durations.get(module, 0.0) + elapsed
+        super().stopTest(test)
+
+
+class _TimedTextTestRunner(unittest.TextTestRunner):
+    resultclass = _TimedTextTestResult
+
+    def run(self, test):
+        result = super().run(test)
+        print("\\nSlowest tests (execution time):", flush=True)
+        for elapsed, test_id in sorted(result.test_durations, reverse=True)[:10]:
+            print(f"  {elapsed:7.2f}s  {test_id}", flush=True)
+        print("Module execution totals (sum of test-case times; excludes module fixtures):", flush=True)
+        for module, elapsed in sorted(result.module_durations.items(), key=lambda item: item[1], reverse=True)[:10]:
+            print(f"  {elapsed:7.2f}s  {module}", flush=True)
+        return result
+
+
+def _run_unittest_modules(modules: list[str]) -> int:
+    suite = unittest.defaultTestLoader.loadTestsFromNames(modules)
+    result = _TimedTextTestRunner(verbosity=2).run(suite)
+    return 0 if result.wasSuccessful() else 1
 
 
 def _run_python(arguments: list[str], env_updates: dict[str, str] | None = None) -> int:
@@ -86,9 +131,9 @@ def _unittest_bucket(module: str, bucket: int, bucket_count: int) -> int:
 def _run_step(step: tuple, env: dict[str, str] | None = None) -> int:
     kind, arguments = step
     if kind == "unittest":
-        return _run_python(["-m", "unittest", *arguments, "-v"], env)
+        return _run_unittest_modules(arguments)
     if kind == "pytest":
-        return _run_python(["-m", "pytest", "-q", *arguments], env)
+        return _run_python(["-m", "pytest", "-q", "--durations=10", *arguments], env)
     if kind == "optional-unittest":
         return _optional_unittest(*arguments)
     if kind == "unittest-bucket":
@@ -254,7 +299,6 @@ def main() -> int:
     args = parser.parse_args()
 
     print(f"Running Runtime Resilience shard: {args.shard}", flush=True)
-    import time
     for index, (kind, arguments, env) in enumerate(SHARDS[args.shard], start=1):
         started = time.monotonic()
         print(f"Step {index}/{len(SHARDS[args.shard])}: {kind} {arguments}", flush=True)
