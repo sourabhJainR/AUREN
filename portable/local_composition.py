@@ -545,9 +545,8 @@ class LocalRuntimeComposition:
             with _PROVIDER_POOLS_LOCK:
                 _PROVIDER_POOLS[str(self.state_root)] = self.provider_pool
 
-        from .identity_compat import canonical_auren_home
         from .vibe_coding_host import load_host_config
-        self.vibe_host_config_path = canonical_auren_home() / "vibe-coding" / "host.json"
+        self.vibe_host_config_path = Path.home().expanduser() / ".auren" / "vibe-coding" / "host.json"
         self.vibe_host_config = None
         self.vibe_host_config_digest = ""
         self.vibe_host_status: dict[str, Any] = {"status": "not_configured"}
