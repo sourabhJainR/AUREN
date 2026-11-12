@@ -18,6 +18,7 @@ AUREN should feel like one engineering system whether a user enters through an L
 |---|---|---|
 | Chat / IDE / desktop MCP host | `auren.submit_task`, `auren.list_tasks`, `auren.get_task`, `auren.cancel_task`, `auren.get_evidence`, approval tools | Host-owned ExecutionController, durable trigger store, Guard, approval store and progress journal |
 | Local CLI | `auren task submit/list/status/cancel/evidence/approvals/decide-approval`, `auren progress --json`, `auren continuous status`, `auren providers` | The same authenticated local MCP service, task controller and project-scoped progress journal |
+| Python SDK | `AurenClient.submit`, `run_once`, `task`, `progress` and trusted plan dispatch | In-process facade over `ExecutionController`; inject the host-owned controller to share the same runtime object. For another process, use the local or remote MCP API rather than creating a parallel controller |
 | Desktop console | Session Control Center, task progress, evidence and delivery health | The canonical local runtime and progress journal |
 | Hosted chat | Authenticated remote Streamable HTTP MCP | Deployment-owned controller and durable stores |
 

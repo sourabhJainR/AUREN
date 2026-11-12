@@ -29,11 +29,16 @@ class AurenClient:
         memory_path: str | Path | None = None,
         dashboard_enabled: bool = True,
         agent_assignment_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
+        controller: ExecutionController | None = None,
     ) -> None:
         self.project_root = Path(project_root).expanduser().resolve()
         if not self.project_root.exists() or not self.project_root.is_dir():
             raise ValueError("project_root must be an existing directory")
-        self.controller = ExecutionController(
+        if controller is not None and not isinstance(controller, ExecutionController):
+            raise TypeError("controller must be an ExecutionController")
+        if controller is not None and agent_assignment_verifier is not None:
+            raise ValueError("agent_assignment_verifier belongs to the injected controller")
+        self.controller = controller or ExecutionController(
             self.project_root, agent_assignment_verifier=agent_assignment_verifier
         )
         self.controller._trusted_plan_dispatch_required = True
