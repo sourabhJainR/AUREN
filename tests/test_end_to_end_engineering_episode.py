@@ -191,12 +191,8 @@ class EndToEndEngineeringEpisodeTests(unittest.TestCase):
             evidence_ref="guard-approval://decision-C1",
         )
         request = self._request()
-        bound_plan = __import__(
-            "portable.implementation_plan", fromlist=["ImplementationPlanner", "WorkStep"]
-        ).ImplementationPlanner().build(
-            (__import__(
-                "portable.implementation_plan", fromlist=["WorkStep"]
-            ).WorkStep(
+        bound_plan = ImplementationPlanner().build(
+            (WorkStep(
                 "S1", "implement feature", (), ("test-feature",), ("R1", "R2")
             ),),
             requirement_contract=decided,
