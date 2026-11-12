@@ -104,6 +104,21 @@ class RemoteModelProviderTests(unittest.TestCase):
             result = provider.complete("public prompt")
         self.assertEqual("provider result survives", result.content)
 
+    def test_oversized_prompt_is_rejected_without_telemetry_copy_or_dispatch(self):
+        calls = []
+        provider = OpenAICompatibleProvider(
+            PROVIDER_SPECS["openai"], api_key="provider-secret-value",
+            model="model-a",
+            transport=lambda *_args, **_kwargs: calls.append("dispatched") or (200, b"{}"),
+        )
+        trace = Tracer().start("oversized-inference")
+        parent = trace.span("router", phase="routing")
+        with bind_trace_context(trace, parent.span_id):
+            with self.assertRaisesRegex(ValueError, "256 KiB"):
+                provider.complete("x" * (256 * 1024 + 1))
+        self.assertEqual([], calls)
+        self.assertEqual([parent], trace.spans)
+
     def test_direct_inference_without_trace_context_preserves_result_and_errors(self):
         provider = OpenAICompatibleProvider(
             PROVIDER_SPECS["openai"], api_key="provider-secret-value",
