@@ -385,7 +385,9 @@ def test_poller_error_backoff_persists_across_restart_and_resets_on_success(tmp_
         return {"status": "success", "head_sha": "f" * 40}
 
     first = ContinuousExecutionSupervisor(controller, pollers={"ci:owner/repo": poller})
-    first.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+    # Keep the persisted retry window long enough that slow Windows CI setup
+    # cannot consume the one-second minimum before the restarted supervisor checks it.
+    first.run(poll_seconds=30, batch_size=1, max_cycles=1)
     assert calls == [1]
     assert first._poller_retry_after("ci:owner/repo") > 0
 
