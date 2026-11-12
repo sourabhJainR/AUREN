@@ -125,6 +125,29 @@ def R(module: str, pattern: str, repeats: int) -> tuple:
 
 
 SHARDS = {
+    "durable-state-core": [
+        P("tests/test_continuous_execution.py"),
+        O("tests.test_durable_routines", "tests/test_durable_routines.py"),
+        U("tests.test_dashboard_sessions"),
+        P("tests/test_lifecycle_projection.py"),
+        O("tests.test_control_center_api", "tests/test_control_center_api.py"),
+        U("tests.test_graph_workspace_registry"),
+        U("tests.test_state_paths"),
+    ],
+    "durable-state-integration": [
+        U("tests.test_progress_journal", "tests.test_progress_journal_integration", "tests.test_autonomous_company", "tests.test_engineering_evidence_capture"),
+        P("tests/test_execution_controller_cancellation.py", "tests/test_execution_controller_restart.py"),
+        P(".ai-harness/tests/test_task_memory.py", env={"PYTHONPATH": ".ai-harness"}),
+    ],
+    "authority-core": [
+        U("tests.test_remote_mcp_service.OAuthIntrospectionVerifierTests", "tests.test_remote_mcp_service.RemoteMCPASGITests"),
+        U("tests.test_agent_execution_guard", "tests.test_guarded_filesystem", "tests.test_assigned_subprocess_scope", "tests.test_auren_sdk"),
+        U("tests.test_agent_profiles", "tests.test_agent_profile_registry_manager"),
+    ],
+    "authority-integration": [
+        U("tests.test_durable_approval", "tests.test_execution_boundary", "tests.test_governed_sandbox_execution", "tests.test_ai_coding_agency_bridge", "tests.test_agency_team_orchestrator", "tests.test_impact_policy"),
+        B("tests.test_trusted_plan_dispatch", 0, 3),
+    ],
     "durable-state": [
         P("tests/test_continuous_execution.py"),
         O("tests.test_durable_routines", "tests/test_durable_routines.py"),
@@ -231,8 +254,13 @@ def main() -> int:
     args = parser.parse_args()
 
     print(f"Running Runtime Resilience shard: {args.shard}", flush=True)
-    for kind, arguments, env in SHARDS[args.shard]:
+    import time
+    for index, (kind, arguments, env) in enumerate(SHARDS[args.shard], start=1):
+        started = time.monotonic()
+        print(f"Step {index}/{len(SHARDS[args.shard])}: {kind} {arguments}", flush=True)
         result = _run_step((kind, arguments), env)
+        elapsed = time.monotonic() - started
+        print(f"Step {index} completed in {elapsed:.1f}s (exit {result})", flush=True)
         if result:
             print(f"Shard failed: {args.shard}", file=sys.stderr, flush=True)
             return result
