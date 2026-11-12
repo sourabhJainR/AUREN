@@ -1302,12 +1302,22 @@ class VibeCodingHostTests(unittest.TestCase):
             path.write_text(json.dumps(config), encoding="utf-8")
             os.chmod(path, 0o600)
             loaded = load_host_config(path)
+            self.assertEqual(loaded.approval_mode, "owner_auto")
             self.assertFalse(loaded.mcp_tools["security"]["external_effects"])
             self.assertTrue(loaded.mcp_tools["repository"]["external_effects"])
 
             config["mcp_tools"]["repository"]["external_effects"] = False
             path.write_text(json.dumps(config), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "cannot disable mandatory execution authority binding"):
+                load_host_config(path)
+
+            config["mcp_tools"]["repository"]["external_effects"] = True
+            config["approval_mode"] = "manual"
+            path.write_text(json.dumps(config), encoding="utf-8")
+            self.assertEqual(load_host_config(path).approval_mode, "manual")
+            config["approval_mode"] = "unattended-anything"
+            path.write_text(json.dumps(config), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "approval_mode must be"):
                 load_host_config(path)
 
     def test_provider_operation_event_projection_is_idempotent(self):
