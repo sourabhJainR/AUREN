@@ -772,7 +772,6 @@ class LocalRuntimeComposition:
                 "_auren_local_remote_policy_digest": existing_context["_auren_local_remote_policy_digest"],
                 "_auren_local_admitted_at": existing_context["_auren_local_admitted_at"],
                 "_auren_local_separation_of_duties": existing_context.get("_auren_local_separation_of_duties", False),
-                "_auren_local_vibe_config_path": existing_context.get("_auren_local_vibe_config_path", ""),
                 "_auren_local_vibe_config_digest": existing_context.get("_auren_local_vibe_config_digest", ""),
             }
 
@@ -816,7 +815,6 @@ class LocalRuntimeComposition:
                 bound_remote_policy_digest = remote_policy_digest
         source_revision = self._source_revision()
         admitted_at = time.time()
-        vibe_config_path = str(self.vibe_host_config_path) if vibe_enabled else ""
         vibe_config_digest = self.vibe_host_config_digest if vibe_enabled else ""
         policy_material = guard_policy_fingerprint(policy) + "|" + bound_remote_policy_digest
         if vibe_enabled:
@@ -829,7 +827,6 @@ class LocalRuntimeComposition:
             "_auren_local_remote_policy_digest": bound_remote_policy_digest,
             "_auren_local_admitted_at": admitted_at,
             "_auren_local_separation_of_duties": bool(remote_principal),
-            "_auren_local_vibe_config_path": vibe_config_path,
             "_auren_local_vibe_config_digest": vibe_config_digest,
         }
 
@@ -1100,7 +1097,6 @@ class LocalRuntimeComposition:
         if provider_kind == "vibe":
             if (
                 self.vibe_host_config is None
-                or request.context.get("_auren_local_vibe_config_path") != str(self.vibe_host_config_path)
                 or vibe_config_digest != self.vibe_host_config_digest
             ):
                 raise PermissionError("admitted Vibe Coding host configuration changed or is unavailable")
