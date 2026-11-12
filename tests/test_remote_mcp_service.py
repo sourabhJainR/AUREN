@@ -23,6 +23,7 @@ from portable.remote_mcp import (
     StaticBearerTokenVerifier,
 )
 from portable.runtime_recovery import RuntimeExecutionGuard
+from portable.agency_observability import LocalExporter, Tracer, bind_trace_context
 
 
 def _mcp_private_test_handler(_payload):
@@ -751,6 +752,51 @@ class RemoteMCPASGITests(unittest.TestCase):
             scheme="http",
         )
         self.assertEqual(400, status)
+
+    def test_mcp_tool_call_emits_parented_privacy_safe_span(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "mcp-traces.jsonl"
+            tracer = Tracer(LocalExporter(path, enabled=True))
+            trace = tracer.start("mcp-observability", task_id="mcp-observability-task")
+            parent = trace.span("supervisor", phase="supervisor")
+            arguments = {"limit": 5}
+            principal = MCPPrincipal("operator", frozenset({"auren:tasks:read"}), projects=(str(self.root),))
+            with bind_trace_context(trace, parent.span_id):
+                result = self.service.call_tool("auren.list_tasks", arguments, principal)
+            parent.finish({"tool_returned": True})
+            tracer.end(trace)
+            self.assertIsInstance(result, dict)
+            tool_spans = [item for item in trace.spans if item.kind == "tool"]
+            self.assertEqual(1, len(tool_spans))
+            self.assertEqual(parent.span_id, tool_spans[0].parent_id)
+            self.assertEqual("tool", tool_spans[0].phase)
+            self.assertEqual("ok", tool_spans[0].status)
+            exported = path.read_text(encoding="utf-8")
+            self.assertNotIn("do-not-export", exported)
+            self.assertNotIn(principal.subject, exported)
+            self.assertIn("argument_digest", exported)
+            self.assertIn("result_digest", exported)
+
+    def test_mcp_tool_failure_emits_error_span_without_exception_text(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "mcp-error-traces.jsonl"
+            tracer = Tracer(LocalExporter(path, enabled=True))
+            trace = tracer.start("mcp-observability-error")
+            parent = trace.span("supervisor", phase="supervisor")
+            with bind_trace_context(trace, parent.span_id):
+                with self.assertRaises(PermissionError):
+                    self.service.call_tool(
+                        "auren.get_task", {"task_id": "private-task-value"},
+                        MCPPrincipal("operator", frozenset({"auren:tasks:read"}), projects=(str(self.root),)),
+                    )
+            parent.finish({"tool_rejected": True})
+            tracer.end(trace, status="error")
+            tool_spans = [item for item in trace.spans if item.kind == "tool"]
+            self.assertEqual(1, len(tool_spans))
+            self.assertEqual("error", tool_spans[0].status)
+            self.assertEqual("PermissionError", tool_spans[0].terminal_reason)
+            exported = path.read_text(encoding="utf-8")
+            self.assertNotIn("private-task-value", exported)
 
     def test_path_specific_rfc9728_metadata_is_available(self):
         status, _, body = self.request(

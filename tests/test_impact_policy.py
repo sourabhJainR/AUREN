@@ -8,6 +8,18 @@ from scripts.impact_policy import classify_changes, classify_path, final_status
 
 
 class ImpactPolicyTests(unittest.TestCase):
+    def test_runtime_resilience_workflow_requires_matrix_for_remote_provider_changes(self):
+        workflow = Path(".github/workflows/runtime-resilience.yml").read_text(encoding="utf-8")
+        for path in (
+            "portable/remote_model_providers.py",
+            "tests/test_remote_model_providers.py",
+        ):
+            with self.subTest(path=path):
+                self.assertIn(f'"{path}"', workflow)
+                impact = classify_path(path)
+                self.assertIsNotNone(impact)
+                self.assertTrue(impact.hardening_required)
+
     def test_remote_mcp_acceptance_probe_has_required_impact_suites(self):
         expected = {
             "scripts/remote_mcp_acceptance.py": {

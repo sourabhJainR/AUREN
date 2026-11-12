@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import json
 import unittest
+from pathlib import Path
+import tempfile
+
+from portable.agency_observability import LocalExporter, Tracer, bind_trace_context
 
 from portable.remote_model_providers import (
     OpenAICompatibleProvider,
@@ -14,6 +18,121 @@ from portable.remote_model_providers import (
 
 
 class RemoteModelProviderTests(unittest.TestCase):
+
+    def test_direct_inference_emits_privacy_safe_parented_provider_span(self):
+        payload = json.dumps({
+            "id": "private-request-id",
+            "choices": [{"message": {"content": "private completion body"}, "finish_reason": "sk-provider-secret-token"}],
+            "usage": {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18},
+        }).encode()
+        provider = OpenAICompatibleProvider(
+            PROVIDER_SPECS["groq"], api_key="provider-secret-value",
+            model="private-model-id", transport=lambda *_args, **_kwargs: (200, payload),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "traces.jsonl"
+            tracer = Tracer(LocalExporter(path, enabled=True))
+            trace = tracer.start("direct-inference", run_id="run-provider", task_id="task-provider")
+            parent = trace.span("model-router", phase="routing")
+            prompt = "private prompt content token=do-not-export"
+            with bind_trace_context(trace, parent.span_id):
+                result = provider.complete(prompt)
+            parent.finish({"provider_call_completed": True})
+            tracer.end(trace)
+
+            self.assertEqual("private completion body", result.content)
+            provider_spans = [span for span in trace.spans if span.kind == "provider"]
+            self.assertEqual(1, len(provider_spans))
+            span = provider_spans[0]
+            self.assertEqual(parent.span_id, span.parent_id)
+            self.assertEqual("provider", span.phase)
+            self.assertEqual("groq", span.provider)
+            self.assertEqual("private-model-id", span.model)
+            self.assertEqual("ok", span.status)
+            self.assertEqual("other", span.output["finish_reason"])
+            serialized = path.read_text(encoding="utf-8")
+            self.assertNotIn("sk-provider-secret-token", serialized)
+            for private_value in (
+                "private prompt content", "do-not-export", "private completion body",
+                "provider-secret-value", "private-request-id",
+            ):
+                self.assertNotIn(private_value, serialized)
+            self.assertIn(result.response_digest, serialized)
+
+    def test_direct_inference_failure_emits_error_span_without_provider_diagnostics(self):
+        provider = OpenAICompatibleProvider(
+            PROVIDER_SPECS["openai"], api_key="provider-secret-value",
+            model="model-a",
+            transport=lambda *_args, **_kwargs: (429, b'{"error":"private provider diagnostic"}'),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "traces.jsonl"
+            tracer = Tracer(LocalExporter(path, enabled=True))
+            trace = tracer.start("direct-inference-failure", task_id="task-provider-error")
+            parent = trace.span("model-router", phase="routing")
+            with bind_trace_context(trace, parent.span_id):
+                with self.assertRaises(RemoteProviderError):
+                    provider.complete("private prompt")
+            tracer.end(trace, status="error")
+            span = [item for item in trace.spans if item.kind == "provider"][0]
+            self.assertEqual("error", span.status)
+            self.assertEqual("RemoteProviderError", span.terminal_reason)
+            serialized = path.read_text(encoding="utf-8")
+            self.assertNotIn("private provider diagnostic", serialized)
+            self.assertNotIn("provider-secret-value", serialized)
+            self.assertNotIn("private prompt", serialized)
+
+    def test_observability_failures_never_change_provider_result(self):
+        provider = OpenAICompatibleProvider(
+            PROVIDER_SPECS["openai"], api_key="provider-secret-value",
+            model="model-a",
+            transport=lambda *_args, **_kwargs: (200, json.dumps({
+                "id": "req-observability-failure",
+                "output_text": "provider result survives",
+                "status": "completed",
+            }).encode()),
+        )
+        trace = Tracer().start("observability-failure")
+        parent = trace.span("router", phase="routing")
+        original_span = trace.span
+
+        def broken_span(*args, **kwargs):
+            span = original_span(*args, **kwargs)
+            span.finish = lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("telemetry unavailable"))
+            return span
+
+        trace.span = broken_span
+        with bind_trace_context(trace, parent.span_id):
+            result = provider.complete("public prompt")
+        self.assertEqual("provider result survives", result.content)
+
+    def test_oversized_prompt_is_rejected_without_telemetry_copy_or_dispatch(self):
+        calls = []
+        provider = OpenAICompatibleProvider(
+            PROVIDER_SPECS["openai"], api_key="provider-secret-value",
+            model="model-a",
+            transport=lambda *_args, **_kwargs: calls.append("dispatched") or (200, b"{}"),
+        )
+        trace = Tracer().start("oversized-inference")
+        parent = trace.span("router", phase="routing")
+        with bind_trace_context(trace, parent.span_id):
+            with self.assertRaisesRegex(ValueError, "256 KiB"):
+                provider.complete("x" * (256 * 1024 + 1))
+        self.assertEqual([], calls)
+        self.assertEqual([parent], trace.spans)
+
+    def test_direct_inference_without_trace_context_preserves_result_and_errors(self):
+        provider = OpenAICompatibleProvider(
+            PROVIDER_SPECS["openai"], api_key="provider-secret-value",
+            model="model-a",
+            transport=lambda *_args, **_kwargs: (200, json.dumps({
+                "id": "req-no-trace",
+                "output_text": "no trace answer",
+                "status": "completed",
+            }).encode()),
+        )
+        self.assertEqual("no trace answer", provider.complete("public prompt").content)
+
     def test_native_protocols_are_selected_for_provider_apis(self):
         self.assertEqual("responses", PROVIDER_SPECS["openai"].protocol)
         self.assertEqual("responses", PROVIDER_SPECS["xai"].protocol)
