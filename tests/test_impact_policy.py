@@ -38,6 +38,30 @@ class ImpactPolicyTests(unittest.TestCase):
                 self.assertTrue(required.issubset(set(impact.required_suites)))
                 self.assertTrue(impact.hardening_required)
 
+    def test_unified_experience_code_paths_have_explicit_regression_suites(self):
+        expected = {
+            "auren_cli.py": {
+                "tests.test_auren_cli_unified_experience",
+                "tests.test_mcp_local_client",
+                "tests.test_auren_runtime_progress_cli",
+            },
+            "portable/onboarding.py": {
+                "tests.test_local_first_onboarding",
+                "tests.test_local_mcp_host",
+            },
+            "portable/auren_runtime.py": {"tests.test_auren_runtime_progress_cli"},
+            "portable/dashboard_server.py": {"tests.test_control_center_api"},
+            "tests/test_local_first_onboarding.py": {"tests.test_local_first_onboarding"},
+            "tests/test_auren_cli_unified_experience.py": {"tests.test_auren_cli_unified_experience"},
+            "tests/test_auren_runtime_progress_cli.py": {"tests.test_auren_runtime_progress_cli"},
+        }
+        for path, required in expected.items():
+            with self.subTest(path=path):
+                impact = classify_path(path)
+                self.assertIsNotNone(impact)
+                self.assertTrue(required.issubset(set(impact.required_suites)))
+                self.assertTrue(impact.hardening_required)
+
     def test_local_mcp_cli_client_has_mandatory_protocol_and_service_suites(self):
         expected = {
             "portable/mcp_local_client.py": {
