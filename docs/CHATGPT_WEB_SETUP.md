@@ -50,6 +50,24 @@ python -m portable.remote_mcp_server \
 
 Do not bind the service publicly from the Python process. Terminate TLS and enforce ingress controls at the deployment boundary.
 
+## Interim use from ChatGPT web without remote MCP
+
+If the ChatGPT workspace has the GitHub app connected, you can use the repository's AUREN engineering contract before the remote MCP deployment is ready. Select the GitHub app for the conversation and ask ChatGPT to inspect `AGENTS.md`, `skills/ai-coding-orchestrator/SKILL.md`, and the relevant architecture/acceptance documents before changing code.
+
+Reusable task prompt:
+
+```text
+Use sourabhJainR/AUREN as the repository source of truth. Read AGENTS.md and
+skills/ai-coding-orchestrator/SKILL.md first, then inspect the current main SHA,
+open issues/PRs, relevant implementation and tests. Follow AUREN's canonical
+plan, Guard, budget, evidence, review, and exact-head CI rules. Make the
+smallest safe change, preserve unrelated files, and report the exact commit/PR,
+checks, evidence, blockers, and next safe action. Do not claim that the AUREN
+runtime executed a task unless a real AUREN runtime receipt proves it.
+```
+
+This is an instruction-guided GitHub workflow, not a live AUREN MCP session. It does not start AUREN's supervisor, use its durable task stores, or prove that the scoped coding executor is active. Do not treat it as equivalent to the hosted MCP integration.
+
 ## Connect it in ChatGPT web
 
 After the endpoint and OAuth provider are live, and the ChatGPT workspace permits custom MCP apps:
