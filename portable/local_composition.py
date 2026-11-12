@@ -1221,6 +1221,23 @@ class LocalRuntimeComposition:
         self._closed = True
 
 
+def _resolve_local_vibe_approval(composition: Any, approval: Any, config: Any) -> Any:
+    """Apply the persisted local-owner decision without prompting on single-user installs."""
+    if getattr(approval, "status", None) != "pending" or config.approval_mode != "owner_auto":
+        return approval
+    operator = composition.operator
+    if not operator.verify_digest(operator.principal_digest):
+        raise PermissionError("host-owned local operator identity failed verification")
+    return composition.approval_store.decide(
+        approval.approval_id,
+        "approve",
+        approver_id=operator.principal_digest,
+        roles=("engineering_manager",),
+        scope="repo:write",
+        reason="Automatically authorized by the configured single-user local project owner",
+    )
+
+
 def run_local_vibe_coding_task(payload: Mapping[str, Any]) -> Mapping[str, Any]:
     """Run the existing Vibe Coding host behind the canonical approval and action gates."""
     if not isinstance(payload, Mapping):
@@ -1320,9 +1337,12 @@ def run_local_vibe_coding_task(payload: Mapping[str, Any]) -> Mapping[str, Any]:
         scope="repo:write",
         expires_at=expires_at,
         required_approvals=1,
-        separation_of_duties=payload.get("separation_of_duties") is True,
+        separation_of_duties=(
+            payload.get("separation_of_duties") is True and config.approval_mode == "manual"
+        ),
         checkpoint=checkpoint,
     )
+    approval = _resolve_local_vibe_approval(composition, approval, config)
     report_path = composition.state_root / "vibe-coding" / "reports" / f"{workflow_id}.json"
     if approval.status == "pending":
         raise ApprovalPending(approval.approval_id, checkpoint)
