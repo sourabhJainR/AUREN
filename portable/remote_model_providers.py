@@ -561,7 +561,6 @@ def provider_configuration_report(*, environ: Mapping[str, str] | None = None) -
             key_present = bool(env.get("AUREN_CUSTOM_PROVIDER_API_KEY"))
             model = env.get("AUREN_CUSTOM_PROVIDER_MODEL", "").strip()
             endpoint = env.get("AUREN_CUSTOM_PROVIDER_URL", "").strip()
-            host = urlsplit(endpoint).hostname if endpoint else None
             allowed_hosts = {
                 item.strip().lower()
                 for item in env.get("AUREN_CUSTOM_PROVIDER_ALLOWED_HOSTS", "").split(",")
@@ -569,6 +568,7 @@ def provider_configuration_report(*, environ: Mapping[str, str] | None = None) -
             }
             try:
                 parsed = urlsplit(endpoint) if endpoint else None
+                host = parsed.hostname if parsed else None
                 endpoint_valid = bool(
                     parsed and parsed.scheme == "https" and host
                     and host.lower() in allowed_hosts
