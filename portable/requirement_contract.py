@@ -255,11 +255,17 @@ class RequirementContractEngine:
         for conflict in conflicts:
             if not isinstance(conflict, RequirementConflict):
                 raise TypeError("conflicts must contain RequirementConflict records")
-            if not isinstance(conflict.conflict_id, str) or not conflict.conflict_id.strip() or conflict.conflict_id in conflict_map:
+            if not isinstance(conflict.conflict_id, str) or not conflict.conflict_id.strip():
+                raise ValueError("conflict IDs must be non-empty and unique")
+            conflict_id = conflict.conflict_id.strip()
+            if conflict_id in conflict_map:
                 raise ValueError("conflict IDs must be non-empty and unique")
             if not isinstance(conflict.requirement_ids, (list, tuple)):
                 raise ValueError("conflict requirement IDs must be an array")
             linked = tuple(conflict.requirement_ids)
+            if any(not isinstance(item, str) or not item.strip() for item in linked):
+                raise ValueError("conflict requirement IDs must be non-empty text")
+            linked = tuple(item.strip() for item in linked)
             if len(linked) < 2 or len(linked) != len(set(linked)) or any(item not in requirement_ids for item in linked):
                 raise ValueError("conflicts must reference at least two distinct known requirements")
             if not isinstance(conflict.reason, str) or not conflict.reason.strip():
@@ -269,23 +275,31 @@ class RequirementContractEngine:
             if not isinstance(conflict.options, (list, tuple)):
                 raise ValueError("conflict options must be an array")
             options = tuple(conflict.options)
-            if len(options) < 2 or any(not isinstance(item, str) or not item.strip() for item in options) or len(options) != len(set(options)):
+            if len(options) < 2 or any(not isinstance(item, str) or not item.strip() for item in options):
                 raise ValueError("conflicts need at least two unique non-empty options")
-            if conflict.recommended_option not in options:
+            options = tuple(item.strip() for item in options)
+            if len(options) != len(set(options)):
+                raise ValueError("conflicts need at least two unique non-empty options")
+            if not isinstance(conflict.recommended_option, str) or conflict.recommended_option.strip() not in options:
                 raise ValueError("recommended option must be one of the declared options")
             if type(conflict.blocking) is not bool:
                 raise ValueError("conflict blocking flag must be boolean")
-            conflict_map[conflict.conflict_id] = conflict
+            conflict_map[conflict_id] = conflict
 
         decided: set[str] = set()
         for decision in decisions:
             if not isinstance(decision, RequirementDecision):
                 raise TypeError("decisions must contain RequirementDecision records")
-            if decision.conflict_id not in conflict_map:
+            if not isinstance(decision.conflict_id, str) or not decision.conflict_id.strip():
                 raise ValueError("decision references an unknown conflict")
-            if decision.conflict_id in decided:
+            decision_conflict_id = decision.conflict_id.strip()
+            if decision_conflict_id not in conflict_map:
+                raise ValueError("decision references an unknown conflict")
+            if decision_conflict_id in decided:
                 raise ValueError("each conflict can have only one active decision")
-            if decision.selected_option not in conflict_map[decision.conflict_id].options:
+            if not isinstance(decision.selected_option, str) or decision.selected_option.strip() not in tuple(
+                item.strip() for item in conflict_map[decision_conflict_id].options
+            ):
                 raise ValueError("decision selects an undeclared conflict option")
             if not isinstance(decision.rationale, str) or not decision.rationale.strip():
                 raise ValueError("decision rationale is required")
@@ -295,9 +309,9 @@ class RequirementContractEngine:
                 raise ValueError("decision revision must be bound to an existing contract revision")
             if not isinstance(decision.evidence_ref, str):
                 raise ValueError("decision evidence reference must be text")
-            if conflict_map[decision.conflict_id].blocking and not decision.evidence_ref.strip():
+            if conflict_map[decision_conflict_id].blocking and not decision.evidence_ref.strip():
                 raise ValueError("blocking conflict decisions require approval evidence")
-            decided.add(decision.conflict_id)
+            decided.add(decision_conflict_id)
 
     def decide(
         self,
