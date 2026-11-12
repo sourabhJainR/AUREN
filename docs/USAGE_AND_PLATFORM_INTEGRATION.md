@@ -36,7 +36,7 @@ python auren_cli.py verify auren-portable.zip
 python auren_cli.py install auren-portable.zip --skill auto
 ~~~
 
-## 2. One-command local start
+## One-command local start
 
 After installing AUREN, open any existing or new project and run:
 
