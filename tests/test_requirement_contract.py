@@ -109,11 +109,11 @@ def test_requirement_revision_invalidates_only_dependent_conflict_decisions():
     )
     contract = engine.decide(
         contract, "C1", "delayed-free",
-        rationale="MVP trade-off", actor_id="operator",
+        rationale="MVP trade-off", actor_id="operator", evidence_ref="approval://C1",
     )
     contract = engine.decide(
         contract, "C2", "live-paid",
-        rationale="Licensed news feed", actor_id="operator",
+        rationale="Licensed news feed", actor_id="operator", evidence_ref="approval://C2",
     )
     revised = engine.revise_requirement(
         contract, "R1",

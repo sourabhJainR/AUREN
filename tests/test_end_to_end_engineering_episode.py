@@ -144,5 +144,63 @@ class EndToEndEngineeringEpisodeTests(unittest.TestCase):
         self.assertEqual([], executed)
 
 
+    def test_decision_requires_verified_authority_before_executor(self):
+        engine = RequirementContractEngine()
+        requirements = (
+            Requirement("R1", "quotes are live", ("fresh quotes",)),
+            Requirement("R2", "provider is free", ("no paid subscription",)),
+        )
+        contract = engine.build(
+            "build market research app",
+            requirements,
+            conflicts=(RequirementConflict(
+                "C1", ("R1", "R2"),
+                "Live quotes require a paid provider.",
+                "Provider choice changes cost and freshness.",
+                ("live-paid", "delayed-free"),
+                "live-paid",
+            ),),
+        )
+        decided = engine.decide(
+            contract, "C1", "delayed-free",
+            rationale="Use delayed quotes for the MVP.",
+            actor_id="local-operator",
+            evidence_ref="guard-approval://decision-C1",
+        )
+        request = self._request()
+        authorized_request = EngineeringEpisodeRequest(
+            request.intent, decided, request.architecture,
+            request.implementation_plan, request.full_stack,
+        )
+        kwargs = dict(
+            quality_gates=(QualityGate("tests", True, ("test:e2e",)),),
+            threats=(Threat("T1", "backend", "input attack", "validation", True),),
+            performance_budget=PerformanceBudget(100, 10, 512, 80),
+            performance_observation=PerformanceObservation(50, 20, 256, 40),
+            trace_links=(TraceLink("R1", ("impl:1",), ("test:1",), ("e:R1",)),),
+            engineering_evaluator=self._engineering,
+        )
+        executed = []
+        with self.assertRaisesRegex(PermissionError, "authority verifier"):
+            EndToEndEngineeringEpisode().run(
+                authorized_request,
+                executor=lambda value: executed.append(value),
+                **kwargs,
+            )
+        self.assertEqual([], executed)
+        verified = EndToEndEngineeringEpisode(
+            requirement_decision_verifier=lambda decision: (
+                decision.actor_id == "local-operator"
+                and decision.evidence_ref == "guard-approval://decision-C1"
+            ),
+        ).run(
+            authorized_request,
+            executor=lambda value: executed.append(value) or {"accepted": True},
+            **kwargs,
+        )
+        self.assertEqual(1, len(executed))
+        self.assertTrue(verified.accepted)
+
+
 if __name__ == "__main__":
     unittest.main()

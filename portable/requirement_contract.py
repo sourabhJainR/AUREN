@@ -273,6 +273,8 @@ class RequirementContractEngine:
                 raise ValueError("decision revision must be bound to an existing contract revision")
             if not isinstance(decision.evidence_ref, str):
                 raise ValueError("decision evidence reference must be text")
+            if conflict_map[decision.conflict_id].blocking and not decision.evidence_ref.strip():
+                raise ValueError("blocking conflict decisions require approval evidence")
             decided.add(decision.conflict_id)
 
     def decide(
@@ -298,6 +300,8 @@ class RequirementContractEngine:
             raise ValueError("conflict already has a decision; revise its requirements before deciding again")
         if selected_option not in conflict.options:
             raise ValueError("selected option is not declared for this conflict")
+        if conflict.blocking and (not isinstance(evidence_ref, str) or not evidence_ref.strip()):
+            raise ValueError("blocking conflict decisions require approval evidence")
         if not isinstance(rationale, str) or not rationale.strip() or not isinstance(actor_id, str) or not actor_id.strip():
             raise ValueError("decision rationale and actor are required")
         next_revision = current.revision + 1
