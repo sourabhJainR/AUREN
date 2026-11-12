@@ -819,7 +819,8 @@ class AurenMCPService:
             if active is not None and isinstance(name, str) and len(name) <= 200:
                 trace, parent_span_id = active
                 safe_tool_name = name if re.fullmatch(r"[A-Za-z0-9_.-]{1,200}", name) else "untrusted"
-                argument_bytes = _canonical_json(_safe_value(arguments)).encode("utf-8")
+                argument_snapshot = _bounded_json(dict(arguments), limit=DEFAULT_MAX_BODY_BYTES)
+                argument_bytes = _canonical_json(argument_snapshot).encode("utf-8")
                 subject = self._principal_key(principal) if principal is not None else "anonymous"
                 span = trace.span(
                     "mcp.tool." + safe_tool_name,
@@ -850,8 +851,8 @@ class AurenMCPService:
             raise
         if span is not None:
             try:
-                safe_result = _safe_value(result)
-                encoded_result = _canonical_json(safe_result).encode("utf-8")
+                result_snapshot = _bounded_json(result, limit=self.max_response_bytes)
+                encoded_result = _canonical_json(result_snapshot).encode("utf-8")
                 span.finish(
                     output={
                         "outcome": "completed",
