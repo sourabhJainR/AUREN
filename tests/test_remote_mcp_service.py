@@ -760,8 +760,9 @@ class RemoteMCPASGITests(unittest.TestCase):
             trace = tracer.start("mcp-observability", task_id="mcp-observability-task")
             parent = trace.span("supervisor", phase="supervisor")
             private_argument = {"limit": 5, "private_note": "do-not-export"}
+            principal = MCPPrincipal("operator", frozenset({"auren:tasks:read"}), projects=(str(self.root),))
             with bind_trace_context(trace, parent.span_id):
-                result = self.service.call_tool("auren.list_tasks", private_argument, self.principal)
+                result = self.service.call_tool("auren.list_tasks", private_argument, principal)
             parent.finish({"tool_returned": True})
             tracer.end(trace)
             self.assertIsInstance(result, dict)
@@ -772,7 +773,7 @@ class RemoteMCPASGITests(unittest.TestCase):
             self.assertEqual("ok", tool_spans[0].status)
             exported = path.read_text(encoding="utf-8")
             self.assertNotIn("do-not-export", exported)
-            self.assertNotIn(self.principal.subject, exported)
+            self.assertNotIn(principal.subject, exported)
             self.assertIn("argument_digest", exported)
             self.assertIn("result_digest", exported)
 
@@ -784,7 +785,7 @@ class RemoteMCPASGITests(unittest.TestCase):
             parent = trace.span("supervisor", phase="supervisor")
             with bind_trace_context(trace, parent.span_id):
                 with self.assertRaises(KeyError):
-                    self.service.call_tool("auren.unknown", {}, self.principal)
+                    self.service.call_tool("auren.unknown", {}, MCPPrincipal("operator", frozenset({"auren:tasks:read"}), projects=(str(self.root),)))
             parent.finish({"tool_rejected": True})
             tracer.end(trace, status="error")
             tool_spans = [item for item in trace.spans if item.kind == "tool"]
