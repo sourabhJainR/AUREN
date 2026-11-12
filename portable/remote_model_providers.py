@@ -567,14 +567,18 @@ def provider_configuration_report(*, environ: Mapping[str, str] | None = None) -
                 for item in env.get("AUREN_CUSTOM_PROVIDER_ALLOWED_HOSTS", "").split(",")
                 if item.strip()
             }
-            endpoint_valid = bool(
-                endpoint and urlsplit(endpoint).scheme == "https" and host
-                and host.lower() in allowed_hosts
-                and urlsplit(endpoint).path.rstrip("/").endswith("/chat/completions")
-                and urlsplit(endpoint).port in {None, 443}
-                and not urlsplit(endpoint).username and not urlsplit(endpoint).password
-                and not urlsplit(endpoint).query and not urlsplit(endpoint).fragment
-            )
+            try:
+                parsed = urlsplit(endpoint) if endpoint else None
+                endpoint_valid = bool(
+                    parsed and parsed.scheme == "https" and host
+                    and host.lower() in allowed_hosts
+                    and parsed.path.rstrip("/").endswith("/chat/completions")
+                    and parsed.port in {None, 443}
+                    and not parsed.username and not parsed.password
+                    and not parsed.query and not parsed.fragment
+                )
+            except ValueError:
+                endpoint_valid = False
         else:
             spec = PROVIDER_SPECS.get(name)
             if spec is None:
