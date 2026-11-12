@@ -363,7 +363,13 @@ class LocalMCPHostProcessTests(unittest.TestCase):
                 with urllib.request.urlopen(mcp_url.rsplit("/", 1)[0] + "/readyz", timeout=3) as response:
                     self.assertEqual(200, response.status)
 
-                token = (state_home / "mcp" / "local-operator.token").read_text(encoding="utf-8").strip()
+                token_path = state_home / "mcp" / "local-operator.token"
+                token = token_path.read_text(encoding="utf-8").strip()
+                from portable.mcp_local_client import call_local_tool
+                cli_result = call_local_tool(
+                    "auren.get_profile", {}, url=mcp_url, token_file=token_path,
+                )
+                self.assertTrue(cli_result.get("content") or cli_result.get("structuredContent"))
                 request_body = json.dumps({
                     "jsonrpc": "2.0", "id": 1, "method": "initialize",
                     "params": {
