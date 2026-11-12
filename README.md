@@ -20,20 +20,19 @@ AUREN separates **execution authority from learning**. Active runs operate under
 
 AUREN is designed to run locally first. A normal workstation installation should own one managed AUREN runtime shared by the CLI, dashboard and local MCP endpoint. Remote MCP is an explicit deployment option, not a prerequisite for local development. OAuth is optional for local use and required for a properly secured remote deployment.
 
-The first-run experience is being delivered in phases. Repository onboarding and client configuration are available in this branch. `auren init` now selects **single-user local mode** by default; the managed runtime composition root is still under implementation. Run `auren doctor` to see the current blockers.
+The first-run path is `auren up`. It creates the minimal project profile only when missing, validates existing configuration without overwriting it, reports local and remote provider readiness, starts the canonical local runtime and MCP endpoint, backs up and configures detected supported local clients, and opens the browser-based Session Control Center. Use `auren up --no-connect` to leave client settings untouched or `auren up --no-browser` on a headless workstation. The individual `auren init`, `auren doctor`, `auren connect`, and `auren providers` commands remain available when you want to run one step alone. See the [Unified Interaction Contract](docs/UNIFIED_INTERACTION_CONTRACT.md) for the common task lifecycle across MCP, CLI, dashboard and hosted clients.
 
 Runtime profiles are explicit:
 - **Single-user local (default):** no external runtime factory, OAuth server, remote MCP or administrator-managed identity. AUREN owns local state and the execution boundary.
 - **Managed (opt-in):** an advanced user or administrator can enable a trusted host runtime factory and later shared/deployment services. Use `auren mode --mode managed --runtime-factory module:function --apply` to opt in; use `auren mode --mode single_user_local --apply` to opt out. Mode changes are backed up.
 
 The factory-free local composition root is now implemented on the local MCP path. It owns the canonical controller, durable plan/recovery stores, trusted plan dispatch, Guard, local operator assignment, approvals, persisted budgets and continuous supervisor. Its current provider-backed task handler is proposal-only: it does not write repository files or perform releases. Direct API inference is disabled by default and requires an explicit public-data opt-in. Local coding CLI execution remains gated until a scoped subprocess/workspace executor is integrated and tested.
-The intended first-run experience is:
+The shortest local path is:
 
 1. Install AUREN once for the current user.
-2. Run `auren init` in a new or existing repository to inspect the project and create only the minimal, reviewable AUREN project profile.
-3. Run `auren doctor` to check the runtime, provider availability, local MCP and client configuration.
-4. Run `auren connect` to preview and apply supported client configuration changes.
-5. Start the managed local service and connect a local MCP-capable client.
+2. Open the target repository and run `auren up`.
+3. Use `auren providers` or `auren doctor` for a separate readiness report when needed.
+4. For hosted chat clients, deploy the authenticated remote MCP endpoint and configure OAuth. A workstation loopback endpoint is not reachable from cloud services.
 
 The managed runtime must be built into the AUREN distribution. A standard user must not need to write or supply `auren_runtime_factory.py`. Custom runtime factories remain an advanced, explicitly trusted extension point. The built-in composition root constructs a non-empty intake graph, canonical execution controller, durable trigger runtime, workspace binding, trusted plan dispatch, Guard and approval dependencies, persisted budgets and the continuous supervisor. A task is admitted only when the local operator and current Guard policy pass and an explicit provider is configured. Remote inference additionally requires the operator to declare the workspace public and enable remote inference. The current MCP handler is read-only proposal work; repository mutation remains blocked until a scoped coding executor is available. A missing dependency is reported as a blocker; AUREN never substitutes a no-op provider or implicit permission grant.
 
@@ -98,7 +97,7 @@ python auren_cli.py progress --task-id <task-id> --json
 python auren_cli.py progress --project-root /path/to/repository --stale-after-seconds 120
 ```
 
-The command reads the project-local journal and the canonical executive journal, reports stale/unknown tasks explicitly, and returns a non-zero status for a missing task or unreadable journal. It is observational only; it does not imply that a task is running, successful, or safe to retry.
+The command reads the project-local journal, the project-scoped local-runtime journal, and the canonical executive journal; it reports stale/unknown tasks explicitly and returns a non-zero status for a missing task or unreadable journal. It is observational only; it does not imply that a task is running, successful, or safe to retry.
 
 ## Pre-implementation blind-spot review
 

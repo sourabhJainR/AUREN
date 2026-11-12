@@ -1,6 +1,6 @@
 # AUREN Usage and Platform Integration
 
-AUREN is a provider-neutral engineering runtime. For copy-and-run setup across multiple model APIs, local Ollama, MCP clients and orchestration frameworks, see the [Multi-LLM and AI Infrastructure Quickstart](MULTI_PROVIDER_QUICKSTART.md). The canonical runtime, state and package names are AUREN; no host integration is a hard dependency. See the [Cross-Platform Compatibility Matrix](PLATFORM_COMPATIBILITY_MATRIX.md) for verified repository artifacts, product-surface limitations and prioritized integration gaps.
+AUREN is a provider-neutral engineering runtime. Start a local project with `auren up`; use the [Unified Interaction Contract](UNIFIED_INTERACTION_CONTRACT.md) to understand the same task lifecycle across MCP, CLI, dashboard and hosted clients. For copy-and-run setup across multiple model APIs, local Ollama, MCP clients and orchestration frameworks, see the [Multi-LLM and AI Infrastructure Quickstart](MULTI_PROVIDER_QUICKSTART.md). The canonical runtime, state and package names are AUREN; no host integration is a hard dependency. See the [Cross-Platform Compatibility Matrix](PLATFORM_COMPATIBILITY_MATRIX.md) for verified repository artifacts, product-surface limitations and prioritized integration gaps.
 
 ## 1. Install AUREN
 
