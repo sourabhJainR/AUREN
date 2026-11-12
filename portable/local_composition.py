@@ -1249,7 +1249,7 @@ def run_local_vibe_coding_task(payload: Mapping[str, Any]) -> Mapping[str, Any]:
         target=str(project_root),
         risk="write",
         idempotency_key=work_key,
-        evidence_refs=("sha256:" + source_revision,),
+        evidence_refs=("git:sha1:" + source_revision,),
         task_id=controller_task_id,
     )
     approval_context = composition.operator.approval_context(request)
