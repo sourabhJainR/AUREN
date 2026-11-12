@@ -25,6 +25,7 @@ from .adaptive_trigger import AdaptiveTrigger, AdaptiveTriggerRequest
 from .agent_org_runtime import REGISTRY_PATH, authorize_agent_assignment
 from .durable_approval import DurableApprovalStore
 from .engineering_plan import EngineeringPlan, PlanTask
+from .requirement_contract import Requirement, RequirementContractEngine
 from .engineering_plan_goal_reconciler import EngineeringPlanGoalReconciler
 from .engineering_plan_recovery import EngineeringPlanRecoveryBridge
 from .engineering_plan_store import EngineeringPlanStore
@@ -636,10 +637,24 @@ class LocalRuntimeComposition:
     ) -> EngineeringPlan:
         if not re.fullmatch(r"[0-9a-f]{40}", source_revision):
             raise ValueError("local task is missing its host-bound Git source revision")
+        contract = RequirementContractEngine().build(
+            task.strip(),
+            (Requirement(
+                requirement_id="R1", statement=task.strip(),
+                acceptance_criteria=(
+                    "The configured provider returns a non-empty response.",
+                    "The response digest is durably recorded and replay-safe.",
+                ),
+            ),),
+        )
+        issues = RequirementContractEngine().validate(contract)
+        if issues:
+            raise ValueError("local requirement contract failed admission: " + "; ".join(issues))
         return EngineeringPlan(
             run_id="local-" + trigger_id,
             goal=task.strip(),
-            requirements=(task.strip(),),
+            requirements=tuple(item.statement for item in contract.requirements),
+            requirement_contract=contract.to_dict(),
             tasks=(PlanTask(
                 task_id="execute",
                 title=task.strip(),

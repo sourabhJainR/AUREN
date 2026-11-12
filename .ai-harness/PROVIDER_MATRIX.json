@@ -1167,6 +1167,27 @@
         "Revisit only when OpenHands Cloud exposes a supported managed remote MCP client path."
       ],
       "live_verified": false
+    },
+    "cohere_api": {
+      "kind": "model_api",
+      "support": "partial",
+      "mechanisms": [
+        "Cohere v2 Chat API",
+        "AUREN supervised provider failover",
+        "Per-request ordered provider selection"
+      ],
+      "repository_artifacts": [
+        "portable/remote_model_providers.py",
+        "portable/hybrid_model_router.py",
+        "tests/test_remote_model_providers.py"
+      ],
+      "current_gap": "A bounded native adapter is present. Live credential acceptance, current model-ID validation, pricing, latency, vendor-specific feature conformance and outage tests remain outstanding; no provider is marked live verified.",
+      "next_steps": [
+        "Set COHERE_API_KEY and an explicit current COHERE_MODEL through the deployment secret manager.",
+        "Run the read-only live provider conformance probe.",
+        "Measure cost, latency, rate limits, retention and outage behavior before enabling production routing."
+      ],
+      "live_verified": false
     }
   },
   "remote_mcp": {
@@ -1253,7 +1274,8 @@
       "mistral",
       "cerebras",
       "perplexity",
-      "custom_openai_compatible"
+      "custom_openai_compatible",
+      "cohere_v2_chat"
     ],
     "not_wired": [
       "azure_openai_native_auth_and_deployment_versioning",
