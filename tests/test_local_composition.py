@@ -115,6 +115,14 @@ class LocalRuntimeCompositionTests(unittest.TestCase):
                 ).hexdigest()
                 with patch.dict(os.environ, {
                     "AUREN_MCP_REMOTE_EXECUTION_ENABLED": "1",
+                    "AUREN_MCP_APPROVER_SUBJECT_DIGESTS": "",
+                }):
+                    with self.assertRaises(PermissionError):
+                        composition.admit_task(
+                            principal, "Implement a bounded feature", {}, "remote-vibe-no-approver-0001",
+                        )
+                with patch.dict(os.environ, {
+                    "AUREN_MCP_REMOTE_EXECUTION_ENABLED": "1",
                     "AUREN_MCP_APPROVER_SUBJECT_DIGESTS": approver_digest,
                 }):
                     admitted = composition.admit_task(
