@@ -22,7 +22,7 @@ class RemoteModelProviderTests(unittest.TestCase):
     def test_direct_inference_emits_privacy_safe_parented_provider_span(self):
         payload = json.dumps({
             "id": "private-request-id",
-            "choices": [{"message": {"content": "private completion body"}, "finish_reason": "stop"}],
+            "choices": [{"message": {"content": "private completion body"}, "finish_reason": "token=must-not-export"}],
             "usage": {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18},
         }).encode()
         provider = OpenAICompatibleProvider(
@@ -49,7 +49,9 @@ class RemoteModelProviderTests(unittest.TestCase):
             self.assertEqual("groq", span.provider)
             self.assertEqual("private-model-id", span.model)
             self.assertEqual("ok", span.status)
+            self.assertEqual("other", span.output["finish_reason"])
             serialized = path.read_text(encoding="utf-8")
+            self.assertNotIn("must-not-export", serialized)
             for private_value in (
                 "private prompt content", "do-not-export", "private completion body",
                 "provider-secret-value", "private-request-id",
