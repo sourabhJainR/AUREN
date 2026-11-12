@@ -40,6 +40,7 @@ class AurenClientTests(unittest.TestCase):
                 self.assertIs(client.controller.progress_journal, controller.progress_journal)
             finally:
                 client.close()
+                controller.close()
 
     def test_api_version_and_canonical_durable_submission(self):
         with tempfile.TemporaryDirectory() as tmp:
