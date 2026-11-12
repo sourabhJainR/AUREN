@@ -192,11 +192,13 @@ class RequirementContractEngine:
         if len(ids) != len(items) or any(not value for value in ids) or len(ids) != len(set(ids)):
             raise ValueError("requirement IDs must be non-empty and unique")
         for item in items:
-            if not isinstance(item.statement, str) or not item.statement.strip() or not item.acceptance_criteria:
+            if not isinstance(item.statement, str) or not item.statement.strip():
+                raise ValueError("every requirement needs a statement and acceptance criteria")
+            if not isinstance(item.acceptance_criteria, (list, tuple)) or not item.acceptance_criteria:
                 raise ValueError("every requirement needs a statement and acceptance criteria")
             if any(not isinstance(value, str) or not value.strip() for value in item.acceptance_criteria):
                 raise ValueError("acceptance criteria must be non-empty text")
-            if item.priority not in _PRIORITIES:
+            if not isinstance(item.priority, str) or item.priority not in _PRIORITIES:
                 raise ValueError("invalid priority")
             if not isinstance(item.source, str) or not item.source.strip():
                 raise ValueError("requirement source is required")
@@ -213,6 +215,8 @@ class RequirementContractEngine:
 
     @staticmethod
     def _text_tuple(values: Sequence[str], field_name: str) -> tuple[str, ...]:
+        if not isinstance(values, (list, tuple)):
+            raise ValueError(f"{field_name} must be an array")
         result = tuple(values)
         if any(not isinstance(value, str) or not value.strip() for value in result):
             raise ValueError(f"{field_name} must contain non-empty text")
