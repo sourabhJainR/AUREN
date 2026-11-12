@@ -663,7 +663,7 @@ class AurenMCPService:
         definitions = [
             ("auren.service_status", "Read AUREN service health, queue capacity and admission state.", _SCOPE_READ,
              {"type": "object", "properties": {}, "additionalProperties": False}),
-            ("auren.submit_task", "Durably submit an engineering task to the configured AUREN workspace. A caller-scoped idempotency key is required. Returns an acceptance receipt, not a completion claim.", _SCOPE_WRITE,
+            ("auren.submit_task", "Durably submit an engineering task to the configured AUREN workspace. A caller-scoped idempotency key is required. When the Vibe Coding host is configured, repository edits run in an isolated worktree only after AUREN's durable approval. Returns an acceptance receipt, not a completion claim.", _SCOPE_WRITE,
              {"type": "object", "required": ["task", "idempotency_key"], "properties": {
                  "task": {"type": "string", "minLength": 1, "maxLength": DEFAULT_MAX_TASK_CHARS},
                  "context": {"type": "object", "additionalProperties": True},
