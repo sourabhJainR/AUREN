@@ -25,13 +25,23 @@ def _encode_rpc(payload: Mapping[str, Any]) -> bytes:
 def _rpc_result(response: bytes | None, request_id: int) -> Mapping[str, Any]:
     if response is None:
         raise LocalMCPClientError("local MCP endpoint returned no response")
-    for line in response.splitlines():
-        if not line:
-            continue
-        try:
-            message = json.loads(line.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise LocalMCPClientError("local MCP endpoint returned invalid JSON-RPC") from exc
+    try:
+        raw = response.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise LocalMCPClientError("local MCP endpoint returned invalid UTF-8") from exc
+    try:
+        decoded = json.loads(raw)
+        messages = [decoded]
+    except json.JSONDecodeError:
+        messages = []
+        for line in raw.splitlines():
+            if not line.strip():
+                continue
+            try:
+                messages.append(json.loads(line))
+            except json.JSONDecodeError as exc:
+                raise LocalMCPClientError("local MCP endpoint returned invalid JSON-RPC") from exc
+    for message in messages:
         if not isinstance(message, dict) or message.get("jsonrpc") != "2.0":
             raise LocalMCPClientError("local MCP endpoint returned an invalid JSON-RPC message")
         if message.get("id") != request_id:

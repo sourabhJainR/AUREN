@@ -21,7 +21,7 @@ def test_local_cli_client_negotiates_stateless_mcp_and_calls_one_tool(tmp_path, 
         if request.get("method") == "initialize":
             response = {"jsonrpc": "2.0", "id": 1,
                         "result": {"protocolVersion": MODERN_PROTOCOL_VERSION}}
-            return json.dumps(response).encode("utf-8")
+            return json.dumps(response, indent=2).encode("utf-8")
         if request.get("method") == "notifications/initialized":
             return None
         response = {"jsonrpc": "2.0", "id": 2,
