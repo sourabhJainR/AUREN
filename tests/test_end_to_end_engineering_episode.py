@@ -220,6 +220,15 @@ class EndToEndEngineeringEpisodeTests(unittest.TestCase):
                 **kwargs,
             )
         self.assertEqual([], executed)
+        with self.assertRaisesRegex(PermissionError, "lacks verified operator authority"):
+            EndToEndEngineeringEpisode(
+                requirement_decision_verifier=lambda _decision: False,
+            ).run(
+                authorized_request,
+                executor=lambda value: executed.append(value),
+                **kwargs,
+            )
+        self.assertEqual([], executed)
         verified = EndToEndEngineeringEpisode(
             requirement_decision_verifier=lambda decision: (
                 decision.actor_id == "local-operator"
