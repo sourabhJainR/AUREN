@@ -201,6 +201,7 @@ def serve_local(
     mcp_port: int = 8765,
     auto_connect_clients: bool = False,
     open_browser: bool = False,
+    open_chatgpt: bool = False,
 ) -> int:
     """Start the read-only console and full operator MCP service on free loopback ports."""
     root = Path(project_root).expanduser().resolve()
@@ -397,6 +398,18 @@ def serve_local(
             except Exception as exc:
                 print(f"Desktop console browser could not be opened: {type(exc).__name__}",
                       file=sys.stderr, flush=True)
+        if open_chatgpt:
+            try:
+                import webbrowser
+                opened = webbrowser.open("https://chatgpt.com", new=2)
+                print(
+                    "ChatGPT Web: " + ("opened" if opened else "not_opened")
+                    + " (connect a deployed HTTPS AUREN MCP endpoint for web execution).",
+                    flush=True,
+                )
+            except Exception as exc:
+                print(f"ChatGPT Web could not be opened: {type(exc).__name__}",
+                      file=sys.stderr, flush=True)
         print("AUREN local services are ready.", flush=True)
         print("Keep this process running. Press Ctrl+C to stop both services.", flush=True)
 
@@ -456,11 +469,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--mcp-port", type=int, default=8765, help="TCP port; 0 selects a free port")
     parser.add_argument("--auto-connect", action="store_true", help="Back up and configure supported local MCP clients after startup.")
     parser.add_argument("--open-browser", action="store_true", help="Open the local desktop console in the default browser.")
+    parser.add_argument("--open-chatgpt", action="store_true", help="Open ChatGPT Web after AUREN services are ready.")
     args = parser.parse_args(argv)
     return serve_local(
         args.project_root, runtime_factory=args.runtime_factory,
         dashboard_port=args.dashboard_port, mcp_port=args.mcp_port,
         auto_connect_clients=args.auto_connect, open_browser=args.open_browser,
+        open_chatgpt=args.open_chatgpt,
     )
 
 
