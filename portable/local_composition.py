@@ -8,11 +8,13 @@ from __future__ import annotations
 
 from contextlib import closing
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import shutil
 import sqlite3
 import subprocess
 import threading
@@ -20,10 +22,12 @@ import time
 from types import SimpleNamespace
 from typing import Any, Mapping
 
+from .action_governance import ActionGovernanceGateway, ActionPolicy, ActionRequest
+
 from .adaptive_runtime import AdaptiveRuntime
 from .adaptive_trigger import AdaptiveTrigger, AdaptiveTriggerRequest
 from .agent_org_runtime import REGISTRY_PATH, authorize_agent_assignment
-from .durable_approval import DurableApprovalStore
+from .durable_approval import ApprovalConflict, ApprovalPending, DurableApprovalStore
 from .engineering_plan import EngineeringPlan, PlanTask
 from .requirement_contract import Requirement, RequirementContractEngine
 from .engineering_plan_goal_reconciler import EngineeringPlanGoalReconciler
@@ -37,15 +41,31 @@ from .remote_model_providers import provider_pool_from_environment
 from .muxin_session_adapter import LocalModelDiscovery
 from .hybrid_model_router import HybridModelRouter
 from .runtime_recovery import RuntimeExecutionGuard
+from .side_effect_ledger import DurableSideEffectLedger
 
 
 _OPERATOR_ID = "local-operator"
 _LOCAL_ISSUER = "auren-local"
 _HANDLER = "local_provider_task"
+_VIBE_HANDLER = "local_vibe_coding_task"
 _HANDLER_ACTION = "propose_changes"
 _ASSIGNMENT_SCOPE = ("task-intent",)
 _PROVIDER_POOLS: dict[str, Any] = {}
 _PROVIDER_POOLS_LOCK = threading.RLock()
+_LOCAL_COMPOSITIONS: dict[str, "LocalRuntimeComposition"] = {}
+_LOCAL_COMPOSITIONS_LOCK = threading.RLock()
+
+
+def _principal_digest(principal: Any) -> str:
+    issuer = getattr(principal, "issuer", None)
+    subject = getattr(principal, "subject", None)
+    if not isinstance(issuer, str) or not issuer.strip() or not isinstance(subject, str) or not subject.strip():
+        raise PermissionError("authenticated principal identity is incomplete")
+    return hashlib.sha256((issuer.rstrip("/") + "\0" + subject).encode("utf-8")).hexdigest()
+
+
+def _canonical_report_digest(report: Mapping[str, Any]) -> str:
+    return hashlib.sha256(_canonical(dict(report)).encode("utf-8")).hexdigest()
 
 
 class LocalProviderNotConfigured(RuntimeError):
@@ -402,8 +422,13 @@ class LocalOperatorAuthority:
         return decision.allowed is True
 
     def authorize_approver(self, approver_id: str, required_role: str, scope: str, roles: tuple[str, ...]) -> bool:
+        configured_remote_approvers = {
+            item.strip()
+            for item in os.environ.get("AUREN_MCP_APPROVER_SUBJECTS", "").split(",")
+            if item.strip()
+        }
         return bool(
-            approver_id == _OPERATOR_ID
+            (approver_id == _OPERATOR_ID or approver_id in configured_remote_approvers)
             and required_role == "engineering_manager"
             and scope in {"repo:write", "project:write"}
             and "engineering_manager" in roles
@@ -445,7 +470,12 @@ class LocalBudgetResolver:
             pass
 
     def resolve(self, run_id: str, task_id: str, handler: str) -> Mapping[str, Any]:
-        policy_digest = _digest("auren-local-budget-v1|max_steps=8|max_attempts=4|deadline=300")
+        if handler == _VIBE_HANDLER:
+            policy_digest = _digest("auren-local-vibe-budget-v1|max_steps=64|max_attempts=1|deadline=3600")
+            max_steps, max_attempts, deadline_seconds = 64, 1, 3600
+        else:
+            policy_digest = _digest("auren-local-budget-v1|max_steps=8|max_attempts=4|deadline=300")
+            max_steps, max_attempts, deadline_seconds = 8, 4, 300
         budget_id = "local:" + _digest(run_id + "\0" + task_id + "\0" + handler)[:40]
         with closing(sqlite3.connect(self.path, timeout=10, isolation_level=None)) as db, db:
             db.execute("PRAGMA busy_timeout=10000")
@@ -456,7 +486,10 @@ class LocalBudgetResolver:
                 (run_id, task_id, handler),
             ).fetchone()
             if row is None:
-                guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4, deadline_seconds=300)
+                guard = RuntimeExecutionGuard(
+                    max_steps=max_steps, max_attempts=max_attempts,
+                    deadline_seconds=deadline_seconds,
+                )
                 snapshot = guard.snapshot()
                 db.execute(
                     "INSERT INTO local_budgets VALUES(?,?,?,?,?,?)",
