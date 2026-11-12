@@ -261,6 +261,68 @@ class OpenAICompatibleProvider:
         return payload, headers
 
     def complete(self, prompt: str, *, timeout_seconds: float = 30.0) -> RemoteModelResponse:
+        """Run inference and emit a privacy-safe span when a canonical trace is bound.
+
+        Prompt and completion contents, credentials, and provider error text are
+        never copied into telemetry. Observability failures cannot change the
+        provider result or its caller-visible exception.
+        """
+        span = None
+        if isinstance(prompt, str):
+            try:
+                from .agency_observability import current_trace_context
+                active = current_trace_context()
+                if active is not None:
+                    trace, parent_span_id = active
+                    prompt_bytes = prompt.encode("utf-8")
+                    span = trace.span(
+                        "provider.inference." + self.spec.name,
+                        kind="provider",
+                        input={"prompt_bytes": len(prompt_bytes)},
+                        metadata={
+                            "provider": self.spec.name,
+                            "model": self.model,
+                            "prompt_digest": hashlib.sha256(prompt_bytes).hexdigest(),
+                        },
+                        parent_id=parent_span_id,
+                        phase="provider",
+                        provider=self.spec.name,
+                        model=self.model,
+                    )
+            except Exception:
+                span = None
+        try:
+            result = self._complete_untraced(prompt, timeout_seconds=timeout_seconds)
+        except BaseException as exc:
+            if span is not None:
+                try:
+                    span.finish(
+                        output={"outcome": "error", "error_type": type(exc).__name__},
+                        status="error",
+                        terminal_reason=type(exc).__name__,
+                    )
+                except Exception:
+                    pass
+            raise
+        if span is not None:
+            try:
+                span.finish(
+                    output={
+                        "outcome": "completed",
+                        "response_digest": result.response_digest,
+                        "response_bytes": len(result.content.encode("utf-8")),
+                        "usage": dict(result.usage),
+                        "latency_ms": result.latency_ms,
+                        "finish_reason": result.finish_reason,
+                        "tool_call_count": len(result.tool_calls),
+                    },
+                    status="ok",
+                )
+            except Exception:
+                pass
+        return result
+
+    def _complete_untraced(self, prompt: str, *, timeout_seconds: float = 30.0) -> RemoteModelResponse:
         if not isinstance(prompt, str) or not prompt.strip() or len(prompt.encode("utf-8")) > 256 * 1024:
             raise ValueError("prompt must be non-empty UTF-8 text within 256 KiB")
         if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, (int, float)) or not 0.1 <= float(timeout_seconds) <= 120:
