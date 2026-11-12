@@ -107,7 +107,7 @@ Remote task submission requires all of the following:
 - OAuth introspection returns an HTTPS issuer, subject, auren:tasks:write scope, engineering_manager role, and an explicit projects claim containing the exact server-side project path.
 - AUREN_MCP_REMOTE_EXECUTION_ENABLED=1 is set on the AUREN host.
 - The host's Vibe Coding config is valid and Codex CLI is available.
-- A separate approved identity can approve repository edits. Its principal digest must be in AUREN_MCP_APPROVER_SUBJECT_DIGESTS.
+- A separate approved identity can approve repository edits. It must have the engineering_manager role, auren:approvals:decide scope and the same exact project claim. Its principal digest must be in AUREN_MCP_APPROVER_SUBJECT_DIGESTS.
 
 Calculate an approver digest from the exact issuer and subject claims returned by the identity provider:
 
