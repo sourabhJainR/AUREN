@@ -24,7 +24,7 @@ The main gap is not the engineering workflow. It is the last-mile product integr
 3. Codex, Claude, Gemini, Cursor and VS Code remote MCP setup paths are documented. Client-specific OAuth and desktop/IDE acceptance remains open.
 4. Claude web and Claude Desktop support remote MCP connectors; this does not give those chat surfaces local filesystem access. AUREN executes tasks on its configured host.
 5. Cursor now has a project rule and remote MCP setup guide. Antigravity CLI/IDE and Visual Studio 2022 17.14+/2026 are also documented as remote MCP hosts; none has passed live AUREN acceptance yet.
-6. Direct inference adapters now cover Anthropic, OpenAI, Gemini, Groq, xAI, OpenRouter, Together, Fireworks, DeepSeek, Mistral, Cerebras, Perplexity and allowlisted custom OpenAI-compatible endpoints. Live vendor acceptance remains open.
+6. Direct inference adapters now cover Anthropic, OpenAI, Gemini, Groq, xAI, OpenRouter, Together, Fireworks, DeepSeek, Mistral, Cerebras, Perplexity, Cohere and allowlisted custom OpenAI-compatible endpoints. Live vendor acceptance remains open.
 7. The compatibility harness is static by default. Live checks for installed vendor clients and desktop/IDE workflows remain opt-in or manual.
 
 ## Compatibility matrix
@@ -59,6 +59,7 @@ The main gap is not the engineering workflow. It is the last-mile product integr
 | Mistral API | Partial | Native OpenAI-compatible adapter | Live credentials and model-ID acceptance remain unverified |
 | Cerebras API | Partial | Native OpenAI-compatible adapter | Live credentials and model-ID acceptance remain unverified |
 | Perplexity API | Partial | Native OpenAI-compatible adapter | Live credentials and model-ID acceptance remain unverified |
+| Cohere API | Partial | Native Cohere Chat API adapter | Live credentials and Cohere-specific feature conformance remain unverified |
 | Custom OpenAI-compatible API | Partial | Generic adapter with exact HTTPS hostname allowlist | Provider-specific behavior and live conformance remain unverified |
 | Cline IDE / CLI | Partial | Remote Streamable HTTP MCP and OAuth | No AUREN live host acceptance |
 | Roo Code | Partial | Project/global MCP configuration | No AUREN live host acceptance |
@@ -94,7 +95,7 @@ The framework examples use AUREN's remote endpoint, not a separate framework-spe
 
 ## Direct model API adapters
 
-AUREN includes fixed-host, bounded API adapters for Anthropic Messages, OpenAI Responses, xAI Responses and OpenAI-compatible Chat Completions providers: Gemini, Groq, OpenRouter, Together, Fireworks, DeepSeek, Mistral, Cerebras and Perplexity. They use guarded HTTPS, explicit model IDs, per-provider credentials and ordered failover charged against the existing supervisor budget.
+AUREN includes fixed-host, bounded API adapters for Anthropic Messages, OpenAI Responses, xAI Responses and OpenAI-compatible Chat Completions providers: Gemini, Groq, OpenRouter, Together, Fireworks, DeepSeek, Mistral, Cerebras, Perplexity and Cohere. They use guarded HTTPS, explicit model IDs, per-provider credentials and ordered failover charged against the existing supervisor budget.
 
 Configure `AUREN_REMOTE_PROVIDER_ORDER` to choose provider order, and set each selected provider's API key and model ID through the deployment secret/environment configuration. For example, Groq uses `GROQ_API_KEY` and `GROQ_MODEL`; xAI uses `XAI_API_KEY` and `XAI_MODEL`. A custom OpenAI-compatible endpoint requires `AUREN_CUSTOM_PROVIDER_URL`, `AUREN_CUSTOM_PROVIDER_ALLOWED_HOSTS`, `AUREN_CUSTOM_PROVIDER_API_KEY` and `AUREN_CUSTOM_PROVIDER_MODEL`. The adapter does not stream, discover model catalogs, calculate current prices, or execute model-returned tool calls. Live vendor credential acceptance remains unverified. Remote inference is opt-in and only eligible for tasks classified as public or non-sensitive; private and restricted tasks remain local-only.
 
@@ -152,7 +153,7 @@ Cursor supports `AGENTS.md`, project rules, Agent Skills and MCP. AUREN's shared
 
 ### Groq, xAI/Grok and other model APIs
 
-These are inference backends, not repository execution hosts. AUREN now has native API adapters for Groq and xAI alongside Anthropic, OpenAI, Gemini, OpenRouter, Together, Fireworks, DeepSeek, Mistral, Cerebras and Perplexity. A custom OpenAI-compatible endpoint can be added only with an explicit HTTPS hostname allowlist.
+These are inference backends, not repository execution hosts. AUREN now has native API adapters for Groq and xAI alongside Anthropic, OpenAI, Gemini, OpenRouter, Together, Fireworks, DeepSeek, Mistral, Cerebras, Perplexity and Cohere. A custom OpenAI-compatible endpoint can be added only with an explicit HTTPS hostname allowlist.
 
 The adapters:
 - Use guarded HTTPS with exact host allowlists for built-in vendors and explicit host allowlisting for custom endpoints.

@@ -16,7 +16,7 @@ python auren_cli.py doctor --project-root /absolute/path/to/your/project
 
 Single-user local mode is the default and does not use or discover a runtime factory. It constructs AUREN's built-in composition with the canonical controller, durable plan/recovery stores, trusted plan dispatch, Guard, host-owned operator and assignment authorization, durable approvals, persisted budgets and continuous supervisor. The MCP host can start without a provider; task submission remains blocked until a provider is explicitly configured and the remote-data policy is enabled.
 
-After managed-mode opt-in, the command starts both services and prints their actual addresses:
+In the default single-user local mode, start both services with:
 
 - Observation console: `http://127.0.0.1:<assigned-dashboard-port>/control-center`
 - Dashboard health: `http://127.0.0.1:<assigned-dashboard-port>/api/health`

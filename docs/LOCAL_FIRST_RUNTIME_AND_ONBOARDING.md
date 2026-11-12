@@ -1,6 +1,6 @@
 # Local-first Runtime and Repository Onboarding Architecture
 
-**Status:** Architecture initiative; implementation and acceptance are tracked independently.  
+**Status:** Architecture and acceptance register; implementation status reconciled against main on 2026-11-12.  
 **Product direction:** Local-first by default. Single-user local mode is the default profile. Managed runtime integration is optional and explicit. Remote MCP and local OAuth are separate optional choices.
 
 ### Runtime profiles
@@ -12,25 +12,27 @@
 
 The user can switch profiles with `auren mode --mode managed --apply` or `auren mode --mode single_user_local --apply`. An advanced factory can be named only while opting into managed mode: `auren mode --mode managed --runtime-factory module:function --apply`. Switching back to local mode clears the factory reference. Local setup must never prompt for, discover, or import a project runtime factory.
 
-The profile selector and persistence are implemented in this branch. The built-in single-user composition root is still a delivery gate: until it is complete, the local host must report that it is unavailable rather than silently falling back to a factory or an empty/no-op graph. The existing factory-backed host is the managed/advanced path only.
+The profile selector, built-in single-user composition root and local MCP startup are implemented on main. The factory-backed host is an advanced managed-mode extension only.
 
-### Implementation status (2026-11-10)
-### Implementation status (2026-11-10)
+### Implementation status (2026-11-12)
 
-**Implemented in this branch**
+**Implemented**
 - `auren init`: bounded, read-only repository discovery; creates only `.auren/project.json`; refuses overwrite and symlinked state roots.
-- `auren doctor`: reports Python/HTTP prerequisites, detected local provider CLIs and the current runtime-factory blocker. Detection is not live provider validation.
-- `auren connect`: previews by default; with `--apply`, backs up and atomically updates supported JSON MCP client configuration while preserving unrelated entries. Supported discovered formats currently include Claude Desktop, Claude Code, Gemini CLI, Cursor and VS Code.
-- Local MCP uses a stable default port of 8765 and remains loopback-only with a private per-user bearer credential. This is local token authentication, not OAuth.
+- `auren doctor`: reports runtime prerequisites, installed provider CLIs, configured direct API providers without exposing secrets, local Ollama-compatible endpoint/model discovery, and remote-inference policy. Presence checks are not live provider validation.
+- `auren connect`: previews by default; with `--apply`, backs up and atomically updates supported local JSON MCP client configuration while preserving unrelated entries.
+- Single-user local mode: factory-free composition root with canonical controller, durable plan/recovery stores, Guard, local operator identity, assignment authorization, durable approvals, persisted budgets and supervisor.
+- Local MCP and dashboard share the canonical runtime and bind to loopback. Direct API inference is explicit opt-in and proposal-only for public data.
+- Ordered direct API provider fallback and per-request provider subsets are implemented with bounded supervisor attempt/deadline controls.
 
 **Still blocked / not implemented**
-- The built-in managed runtime composition root and factory-free task execution.
-- Live provider-backed engineering graph and trusted host resolvers for plan dispatch, approval, assignment and shared budgets.
-- Readiness-gated local MCP task admission without a trusted runtime factory.
-- Tested auto-configuration for Codex TOML, Visual Studio and cloud-hosted ChatGPT/Claude surfaces.
-- Cross-platform user service registration, secure Windows credential ACL validation, macOS Keychain integration, and clean-machine upgrade/rollback/uninstall acceptance.
+- Scoped repository coding-agent executor with workspace/process isolation, cancellation, output bounds and restart reconciliation. The built-in local MCP task handler remains proposal-only.
+- Automatic provider invoker registration for every graph/crew role, per-role model preferences and persisted per-user provider selection.
+- Parallel multi-model voting/ensemble execution and provider-native cost accounting.
+- Tested client auto-configuration and live host acceptance for all listed IDEs, desktop clients and cloud hosts.
+- Cross-platform user-service registration, secure Windows credential ACL validation, macOS Keychain integration, and clean-machine upgrade/rollback/uninstall acceptance.
+- Live vendor credentials/model conformance, provider licensing/privacy acceptance and independent production deployment evidence.
 
-Do not treat the implemented onboarding commands as proof that the managed runtime is ready. The local MCP host still requires an explicitly trusted runtime factory; this is retained as a fail-closed boundary until the built-in composition root can supply all required authorities.
+Do not treat a configured key/model pair, detected CLI or mocked adapter test as live provider acceptance. Local MCP remains proposal-only until the scoped coding executor passes its own security and recovery gates.
 
 ## Objective
 

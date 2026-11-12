@@ -11,6 +11,7 @@ from portable.onboarding import (
     configure_clients,
     initialize_repository,
     inspect_repository,
+    doctor,
 )
 
 
@@ -105,3 +106,34 @@ def test_connect_refuses_duplicate_keys_and_symlinked_token(tmp_path: Path):
             mcp_url="http://127.0.0.1:8765/mcp", token_file=link,
             clients=clients, apply=False,
         )
+
+
+def test_doctor_reports_local_and_multiple_remote_provider_readiness_without_secrets(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("AUREN_REMOTE_PROVIDER_ORDER", "groq,openai")
+    monkeypatch.setenv("GROQ_API_KEY", "groq-secret-value")
+    monkeypatch.setenv("GROQ_MODEL", "llama-current")
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-secret-value")
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-current")
+    monkeypatch.setenv("AUREN_LOCAL_REMOTE_INFERENCE", "enabled")
+    monkeypatch.setenv("AUREN_LOCAL_DATA_CLASSIFICATION", "public")
+
+    from portable.muxin_session_adapter import LocalModelDiscovery
+    monkeypatch.setattr(
+        LocalModelDiscovery, "discover",
+        lambda self: {
+            "available": True, "provider": "ollama-compatible",
+            "models": [{"name": "qwen-coder", "size_bytes": 1024}],
+            "latency_ms": 1.0, "resource_usage": {}, "fallback": "not_attempted",
+        },
+    )
+
+    report = doctor(tmp_path)
+    assert report["remote_model_providers"]["status"] == "configured_not_live_validated"
+    assert report["remote_model_providers"]["provider_order"] == ["groq", "openai"]
+    assert report["local_model"]["status"] == "detected_not_quality_validated"
+    assert report["remote_inference_policy"] == {
+        "enabled": True, "data_classification": "public",
+    }
+    serialized = json.dumps(report)
+    assert "groq-secret-value" not in serialized
+    assert "openai-secret-value" not in serialized

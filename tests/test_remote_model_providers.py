@@ -369,6 +369,50 @@ class RemoteModelProviderTests(unittest.TestCase):
         with self.assertRaisesRegex(RemoteProviderError, "not configured"):
             pool(Request())
 
+    def test_provider_configuration_report_is_secret_safe_and_supports_multiple_providers(self):
+        from portable.remote_model_providers import provider_configuration_report
+
+        env = {
+            "AUREN_REMOTE_PROVIDER_ORDER": "groq,openai",
+            "GROQ_API_KEY": "groq-super-secret",
+            "GROQ_MODEL": "llama-current",
+            "OPENAI_API_KEY": "openai-super-secret",
+            "OPENAI_MODEL": "gpt-current",
+        }
+        report = provider_configuration_report(environ=env)
+        self.assertEqual("configured_not_live_validated", report["status"])
+        self.assertEqual(["groq", "openai"], report["provider_order"])
+        self.assertEqual(["configured_not_live_validated"] * 2, [item["status"] for item in report["providers"]])
+        serialized = json.dumps(report)
+        self.assertNotIn("groq-super-secret", serialized)
+        self.assertNotIn("openai-super-secret", serialized)
+
+    def test_provider_configuration_report_marks_missing_and_invalid_configuration(self):
+        from portable.remote_model_providers import provider_configuration_report
+
+        report = provider_configuration_report(environ={
+            "AUREN_REMOTE_PROVIDER_ORDER": "groq,custom,groq",
+            "GROQ_API_KEY": "groq-super-secret",
+            "AUREN_CUSTOM_PROVIDER_URL": "https://models.example.net:bad/v1/chat/completions",
+        })
+        self.assertEqual("incomplete", report["status"])
+        self.assertIn("provider_order_contains_duplicates", report["errors"])
+        self.assertEqual("incomplete", report["providers"][0]["status"])
+        self.assertIn("model_id", report["providers"][0]["missing"])
+        self.assertIn("valid_allowlisted_endpoint", report["providers"][1]["missing"])
+        self.assertNotIn("groq-super-secret", json.dumps(report))
+
+    def test_provider_configuration_report_disables_remote_inference_without_order(self):
+        from portable.remote_model_providers import provider_configuration_report
+
+        report = provider_configuration_report(environ={
+            "OPENAI_API_KEY": "configured-but-not-enabled",
+            "OPENAI_MODEL": "gpt-current",
+        })
+        self.assertFalse(report["enabled"])
+        self.assertEqual("disabled", report["status"])
+        self.assertEqual([], report["providers"])
+
     def test_environment_factory_requires_explicit_order_key_and_model(self):
         env = {
             "AUREN_REMOTE_PROVIDER_ORDER": "groq,xai",

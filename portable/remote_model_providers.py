@@ -533,8 +533,88 @@ def provider_pool_from_environment(*, environ: Mapping[str, str] | None = None):
     return RemoteProviderPool.from_environment(environ=env)
 
 
+def provider_configuration_report(*, environ: Mapping[str, str] | None = None) -> dict[str, Any]:
+    """Describe configured remote providers without returning credentials or secret values."""
+    env = os.environ if environ is None else environ
+    raw_order = env.get("AUREN_REMOTE_PROVIDER_ORDER", "").strip()
+    if not raw_order:
+        return {
+            "enabled": False,
+            "status": "disabled",
+            "provider_order": [],
+            "providers": [],
+            "errors": [],
+            "note": "Set AUREN_REMOTE_PROVIDER_ORDER explicitly to enable remote inference.",
+        }
+    order = [item.strip().lower() for item in raw_order.split(",") if item.strip()]
+    errors: list[str] = []
+    if not order:
+        errors.append("provider_order_empty")
+    if len(order) != len(set(order)):
+        errors.append("provider_order_contains_duplicates")
+    unknown = sorted(set(order) - (set(PROVIDER_SPECS) | {"custom"}))
+    if unknown:
+        errors.append("provider_order_contains_unsupported_ids")
+    providers: list[dict[str, Any]] = []
+    for name in order:
+        if name == "custom":
+            key_present = bool(env.get("AUREN_CUSTOM_PROVIDER_API_KEY"))
+            model = env.get("AUREN_CUSTOM_PROVIDER_MODEL", "").strip()
+            endpoint = env.get("AUREN_CUSTOM_PROVIDER_URL", "").strip()
+            allowed_hosts = {
+                item.strip().lower()
+                for item in env.get("AUREN_CUSTOM_PROVIDER_ALLOWED_HOSTS", "").split(",")
+                if item.strip()
+            }
+            try:
+                parsed = urlsplit(endpoint) if endpoint else None
+                host = parsed.hostname if parsed else None
+                endpoint_valid = bool(
+                    parsed and parsed.scheme == "https" and host
+                    and host.lower() in allowed_hosts
+                    and parsed.path.rstrip("/").endswith("/chat/completions")
+                    and parsed.port in {None, 443}
+                    and not parsed.username and not parsed.password
+                    and not parsed.query and not parsed.fragment
+                )
+            except ValueError:
+                endpoint_valid = False
+        else:
+            spec = PROVIDER_SPECS.get(name)
+            if spec is None:
+                providers.append({"id": name, "status": "unsupported"})
+                continue
+            key_present = bool(env.get(spec.api_key_env))
+            model = env.get("AUREN_MODEL_" + name.upper(), env.get(spec.model_env, "")).strip()
+            endpoint_valid = True
+        missing = []
+        if not key_present:
+            missing.append("credential")
+        if not model:
+            missing.append("model_id")
+        if not endpoint_valid:
+            missing.append("valid_allowlisted_endpoint")
+        providers.append({
+            "id": name,
+            "model": model or None,
+            "credential_configured": key_present,
+            "endpoint_configured": endpoint_valid,
+            "status": "configured_not_live_validated" if not missing else "incomplete",
+            "missing": missing,
+        })
+    ready = bool(providers) and not errors and all(item["status"] == "configured_not_live_validated" for item in providers)
+    return {
+        "enabled": True,
+        "status": "configured_not_live_validated" if ready else "incomplete",
+        "provider_order": order,
+        "providers": providers,
+        "errors": errors,
+        "note": "Configuration presence is not a live API, account, model, license, privacy or quality validation.",
+    }
+
+
 __all__ = [
     "DEFAULT_PROVIDER_ORDER", "OpenAICompatibleProvider", "PROVIDER_SPECS",
     "ProviderSpec", "RemoteModelResponse", "RemoteProviderError",
-    "RemoteProviderPool", "provider_pool_from_environment",
+    "RemoteProviderPool", "provider_pool_from_environment", "provider_configuration_report",
 ]
