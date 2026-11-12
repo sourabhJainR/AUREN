@@ -55,7 +55,15 @@ auren task status <task-id>
 auren task evidence <task-id>
 ```
 
-The current built-in local model task handler is proposal-only. It does not write repository files or run arbitrary commands. Repository-changing work remains gated behind the separately configured Vibe Coding host, isolated worktree and durable approval path.
+The built-in local model task handler remains proposal-only. To enable repository-changing work, configure the separate Vibe Coding executor in `~/.auren/vibe-coding/host.json`, install the Codex CLI, and set `allow_workspace_writes` to `true`. The executor works only in an isolated Git worktree. Single-user local installs use a durable host-owner approval record by default, without an interactive prompt; set `approval_mode` to `manual` if you want a separate approval step. It does not merge, publish, release or deploy to production.
+
+After configuration, restart the local AUREN host and submit a coding task:
+
+```powershell
+auren task submit --task "Implement the requested change, run the configured tests, and report the exact evidence"
+```
+
+Check readiness with `auren plugin status --project-root .`. A missing provider CLI, invalid host config, unclean project state, or unavailable security adapter blocks executor activation rather than falling back to unrestricted execution.
 
 ## Security and hosting boundary
 
