@@ -415,6 +415,9 @@ class AurenMCPService:
         if task_admission is not None and not callable(task_admission):
             raise TypeError("task_admission must be a host-owned callable")
         self.task_admission = task_admission
+        self.approver_identity_resolver = (
+            self._principal_key if task_admission is not None else lambda principal: principal.subject
+        )
         self.approval_store = approval_store or DurableApprovalStore(self.controller)
         self.trigger = trigger if trigger is not None else AdaptiveTrigger.for_runtime(runtime)
         self._stop = threading.Event()
@@ -1163,7 +1166,7 @@ class AurenMCPService:
                 raise ValueError("decision and reason are required")
             record = self.approval_store.get(approval_id)
             decided = self.approval_store.decide(
-                approval_id, decision, approver_id=self._principal_key(principal),
+                approval_id, decision, approver_id=self.approver_identity_resolver(principal),
                 roles=principal.roles, scope=record.scope, reason=reason,
             )
             return self._approval_summary(decided)
