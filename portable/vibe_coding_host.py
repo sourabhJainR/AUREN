@@ -2366,6 +2366,7 @@ class VibeHostConfig:
     preview_deployment_rationale: str = "No preview environment is configured; this validation remains local-only"
     security_tool_required: bool = True
     provider_capabilities: Mapping[str, Mapping[str, bool]] = field(default_factory=dict)
+    approval_mode: str = "owner_auto"
 
 
 def load_host_config(path: str | Path | None = None) -> VibeHostConfig:
@@ -2514,6 +2515,9 @@ def load_host_config(path: str | Path | None = None) -> VibeHostConfig:
                     f"mcp_tools.{lookup_capability}.operation_lookup"
                 )
         provider_capabilities[stage] = normalized
+    approval_mode = raw.get("approval_mode", "owner_auto")
+    if approval_mode not in {"owner_auto", "manual"}:
+        raise ValueError("approval_mode must be 'owner_auto' or 'manual'")
     return VibeHostConfig(
         provider=raw.get("provider"),
         reviewer_provider=raw.get("reviewer_provider"),
@@ -2529,6 +2533,7 @@ def load_host_config(path: str | Path | None = None) -> VibeHostConfig:
         preview_deployment_rationale=preview_rationale,
         security_tool_required=security_required,
         provider_capabilities=provider_capabilities,
+        approval_mode=approval_mode,
     )
 
 
@@ -2580,6 +2585,7 @@ class LocalVibeCodingHost:
             "agent_timeout_seconds": self.config.agent_timeout_seconds,
             "test_timeout_seconds": self.config.test_timeout_seconds,
             "allow_workspace_writes": self.config.allow_workspace_writes,
+            "approval_mode": self.config.approval_mode,
             "browser_qa_required": self.config.browser_qa_required,
             "browser_qa_rationale": self.config.browser_qa_rationale,
             "preview_deployment_required": self.config.preview_deployment_required,
