@@ -212,3 +212,37 @@ def test_doctor_reports_local_and_multiple_remote_provider_readiness_without_sec
     serialized = json.dumps(report)
     assert "groq-secret-value" not in serialized
     assert "openai-secret-value" not in serialized
+
+
+
+def test_discover_clients_includes_linux_claude_desktop_and_windsurf(tmp_path: Path):
+    claude = tmp_path / ".config" / "Claude" / "claude_desktop_config.json"
+    windsurf = tmp_path / ".codeium" / "windsurf" / "mcp_config.json"
+    claude.parent.mkdir(parents=True)
+    windsurf.parent.mkdir(parents=True)
+    claude.write_text('{"mcpServers": {}}', encoding="utf-8")
+    windsurf.write_text('{"mcpServers": {"existing": {"command": "keep"}}}', encoding="utf-8")
+    discovered = discover_clients(tmp_path)
+    claude_client = next(item for item in discovered if item["name"] == "Claude Desktop")
+    windsurf_client = next(item for item in discovered if item["name"] == "Windsurf")
+    assert claude_client["path"] == str(claude)
+    assert windsurf_client["path"] == str(windsurf)
+    assert windsurf_client["key"] == "mcpServers"
+
+
+def test_windsurf_auto_configuration_preserves_existing_mcp_servers(tmp_path: Path):
+    config = tmp_path / ".codeium" / "windsurf" / "mcp_config.json"
+    config.parent.mkdir(parents=True)
+    original = {"mcpServers": {"existing": {"command": "keep", "args": ["--safe"]}}}
+    config.write_text(json.dumps(original), encoding="utf-8")
+    token = tmp_path / "token"
+    token.write_text("x" * 64, encoding="utf-8")
+    token.chmod(0o600)
+    result = configure_clients(
+        mcp_url="http://127.0.0.1:8765/mcp", token_file=token, apply=True,
+        clients=[{"name": "Windsurf", "path": str(config), "key": "mcpServers"}],
+    )
+    saved = json.loads(config.read_text(encoding="utf-8"))
+    assert result["clients"][0]["status"] == "configured"
+    assert saved["mcpServers"]["existing"] == original["mcpServers"]["existing"]
+    assert saved["mcpServers"]["auren"]["args"][-1] == str(token)

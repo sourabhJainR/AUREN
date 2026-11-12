@@ -66,7 +66,8 @@ The main gap is not the engineering workflow. It is the last-mile product integr
 | Continue | Partial | MCP in Agent mode; remote Streamable HTTP | No AUREN live host acceptance |
 | Zed Agent | Partial | Remote MCP and OAuth; ACP external agents | No AUREN live host acceptance |
 | OpenHands local | Partial | Local Streamable HTTP MCP | Cloud support must not be assumed; no AUREN acceptance |
-| Windsurf / Devin Local | Partial | Version-specific MCP configuration | Product configuration changed; no AUREN acceptance |
+| Windsurf | Partial | Local `~/.codeium/windsurf/mcp_config.json` auto-configuration plus remote MCP | Version-specific config and live acceptance remain unverified |
+| Devin Local | Partial | Product-version-specific MCP configuration | Product configuration changed; no live acceptance |
 
 The machine-readable declarations live in `.ai-harness/PROVIDER_MATRIX.json`. The values there distinguish product integration from model-provider support.
 

@@ -254,10 +254,14 @@ def discover_clients(home: Path | None = None) -> list[dict[str, str]]:
     candidates = [
         ("Claude Desktop", base / "Library/Application Support/Claude/claude_desktop_config.json", "mcpServers"),
         ("Claude Desktop", base / "AppData/Roaming/Claude/claude_desktop_config.json", "mcpServers"),
+        ("Claude Desktop", base / ".config/Claude/claude_desktop_config.json", "mcpServers"),
         ("Claude Code", base / ".claude.json", "mcpServers"),
         ("Gemini CLI", base / ".gemini/settings.json", "mcpServers"),
         ("Cursor", base / ".cursor/mcp.json", "mcpServers"),
+        ("Windsurf", base / ".codeium/windsurf/mcp_config.json", "mcpServers"),
         ("VS Code", base / ".config/Code/User/settings.json", "mcp.servers"),
+        ("VS Code Insiders", base / ".config/Code - Insiders/User/settings.json", "mcp.servers"),
+        ("VS Code Insiders", base / "Library/Application Support/Code - Insiders/User/settings.json", "mcp.servers"),
         ("VS Code", base / "Library/Application Support/Code/User/settings.json", "mcp.servers"),
         ("VS Code", base / "AppData/Roaming/Code/User/settings.json", "mcp.servers"),
         ("VS Code Insiders", base / "AppData/Roaming/Code - Insiders/User/settings.json", "mcp.servers"),
@@ -266,7 +270,8 @@ def discover_clients(home: Path | None = None) -> list[dict[str, str]]:
     seen: set[str] = set()
     executable_by_name = {
         "Claude Code": "claude", "Gemini CLI": "gemini",
-        "Cursor": "cursor", "VS Code": "code", "VS Code Insiders": "code-insiders",
+        "Cursor": "cursor", "Windsurf": "windsurf",
+        "VS Code": "code", "VS Code Insiders": "code-insiders",
     }
     for name, path, key in candidates:
         executable = executable_by_name.get(name)
