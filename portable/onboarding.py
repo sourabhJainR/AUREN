@@ -501,9 +501,8 @@ def doctor(project_root: str | Path = ".") -> dict[str, Any]:
     except Exception as exc:
         report["remote_provider_configuration_error"] = type(exc).__name__
     try:
-        from .identity_compat import canonical_auren_home
         from .vibe_coding_host import load_host_config
-        host_config_path = canonical_auren_home() / "vibe-coding" / "host.json"
+        host_config_path = Path.home().expanduser() / ".auren" / "vibe-coding" / "host.json"
         host_config = load_host_config(host_config_path)
         provider_command = {"codex": "codex", "claude": "claude"}.get(host_config.provider)
         if host_config.allow_workspace_writes is not True:
