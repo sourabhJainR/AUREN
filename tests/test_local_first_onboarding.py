@@ -14,6 +14,7 @@ from portable.onboarding import (
     inspect_repository,
     doctor,
     discover_clients,
+    load_project_profile,
 )
 
 
@@ -39,6 +40,22 @@ def test_init_creates_only_project_profile_and_preserves_existing_files(tmp_path
     assert json.loads(profile.read_text(encoding="utf-8"))["execution_authority"] == "host_managed_only"
     with pytest.raises(OnboardingError, match="refusing to overwrite"):
         initialize_repository(tmp_path)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation may require elevated Windows privileges")
+def test_profile_load_refuses_symlinked_state_directory(tmp_path: Path):
+    project = tmp_path / "project"
+    outside = tmp_path / "outside"
+    project.mkdir()
+    outside.mkdir()
+    (outside / "project.json").write_text(json.dumps({
+        "schema_version": "auren-project-profile-v1",
+        "runtime_mode": "single_user_local",
+        "managed_runtime": {"enabled": False, "runtime_factory": None},
+    }), encoding="utf-8")
+    (project / ".auren").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(OnboardingError, match="must not be a symlink"):
+        load_project_profile(project)
 
 
 def test_init_dry_run_does_not_create_repository_state(tmp_path: Path):

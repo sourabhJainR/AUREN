@@ -183,7 +183,10 @@ _RUNTIME_MODES = {"single_user_local", "managed"}
 
 def load_project_profile(project_root: str | Path) -> tuple[Path, dict[str, Any]]:
     root = Path(project_root).expanduser().resolve(strict=True)
-    profile_path = root / ".auren" / "project.json"
+    state_dir = root / ".auren"
+    if state_dir.is_symlink():
+        raise OnboardingError(".auren must not be a symlink")
+    profile_path = state_dir / "project.json"
     if profile_path.is_symlink() or not profile_path.is_file():
         raise OnboardingError("AUREN project profile is missing or is not a regular file; run auren init first")
     profile = _safe_json(profile_path)
