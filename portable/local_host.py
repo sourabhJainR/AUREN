@@ -463,7 +463,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Run the AUREN observation console and local MCP service.",
     )
-    parser.add_argument("--project-root", default=".")
+    target = parser.add_mutually_exclusive_group()
+    target.add_argument("--project-root", default=None, help="Use an existing local project directory.")
+    target.add_argument("--repository", help="Clone a GitHub HTTPS repository into AUREN-managed workspace storage.")
+    parser.add_argument("--branch", default=None, help="Git branch to clone; valid only with --repository.")
     parser.add_argument("--runtime-factory", default=None)
     parser.add_argument("--dashboard-port", type=int, default=0, help="TCP port; 0 selects a free port")
     parser.add_argument("--mcp-port", type=int, default=8765, help="TCP port; 0 selects a free port")
@@ -471,8 +474,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--open-browser", action="store_true", help="Open the local desktop console in the default browser.")
     parser.add_argument("--open-chatgpt", action="store_true", help="Open ChatGPT Web after AUREN services are ready.")
     args = parser.parse_args(argv)
+    if args.branch and not args.repository:
+        parser.error("--branch requires --repository")
+    project_root = args.project_root or "."
+    if args.repository:
+        try:
+            from .github_workspace import provision_github_workspace
+            project_root = str(provision_github_workspace(args.repository, args.branch))
+        except (OSError, ValueError, RuntimeError) as exc:
+            parser.error(f"GitHub workspace provisioning failed: {exc}")
     return serve_local(
-        args.project_root, runtime_factory=args.runtime_factory,
+        project_root, runtime_factory=args.runtime_factory,
         dashboard_port=args.dashboard_port, mcp_port=args.mcp_port,
         auto_connect_clients=args.auto_connect, open_browser=args.open_browser,
         open_chatgpt=args.open_chatgpt,
