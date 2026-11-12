@@ -202,18 +202,20 @@ class ImpactPolicyTests(unittest.TestCase):
             "tests/test_lifecycle_projection.py": {"tests.test_lifecycle_projection"},
         }
         workflow = Path(".github/workflows/runtime-resilience.yml").read_text(encoding="utf-8")
+        runner = Path("scripts/run_runtime_resilience_shard.py").read_text(encoding="utf-8")
+        self.assertIn("scripts/run_runtime_resilience_shard.py", workflow)
         for path, suites in expected.items():
             impact = classify_path(path)
             self.assertIsNotNone(impact)
             self.assertFalse(impact.hardening_required)
             self.assertTrue(suites.issubset(set(impact.required_suites)))
             for suite in suites:
-                workflow_token = (
+                runner_token = (
                     "tests/test_lifecycle_projection.py"
                     if suite == "tests.test_lifecycle_projection"
                     else suite
                 )
-                self.assertIn(workflow_token, workflow)
+                self.assertIn(runner_token, runner)
 
     def test_runtime_resilience_filter_covers_recovery_sensitive_paths(self):
         workflow = Path(".github/workflows/runtime-resilience.yml").read_text(encoding="utf-8")
