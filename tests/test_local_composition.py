@@ -111,7 +111,7 @@ class LocalRuntimeCompositionTests(unittest.TestCase):
                     issuer="https://identity.example.test",
                 )
                 approver_digest = hashlib.sha256(
-                    b"https://identity.example.test\\0remote-approver"
+                    b"https://identity.example.test\0remote-approver"
                 ).hexdigest()
                 with patch.dict(os.environ, {
                     "AUREN_MCP_REMOTE_EXECUTION_ENABLED": "1",
@@ -131,7 +131,7 @@ class LocalRuntimeCompositionTests(unittest.TestCase):
                     self.assertEqual(admitted["_auren_local_provider"]["kind"], "vibe")
                     self.assertTrue(admitted["_auren_local_separation_of_duties"])
                     expected_digest = hashlib.sha256(
-                        b"https://identity.example.test\\0remote-engineer"
+                        b"https://identity.example.test\0remote-engineer"
                     ).hexdigest()
                     self.assertEqual(admitted["_auren_local_subject_digest"], expected_digest)
                     unscoped = MCPPrincipal(
@@ -156,7 +156,7 @@ class LocalRuntimeCompositionTests(unittest.TestCase):
             composition = create_local_composition(project, state_root=root / "state")
             try:
                 subject_digest = hashlib.sha256(
-                    b"https://identity.example.test\\0approver-1"
+                    b"https://identity.example.test\0approver-1"
                 ).hexdigest()
                 with patch.dict(os.environ, {"AUREN_MCP_APPROVER_SUBJECT_DIGESTS": subject_digest}):
                     self.assertTrue(composition.operator.authorize_approver(
