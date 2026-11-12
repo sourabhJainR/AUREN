@@ -67,6 +67,8 @@ def run_bounded_command(
     cancellation_event: threading.Event | None = None,
     cwd: str | os.PathLike[str] | None = None,
     env: Mapping[str, str] | None = None,
+    input_text: str | None = None,
+    max_input_bytes: int = 1_000_000,
     max_output_bytes: int = 65536,
     terminate_grace_seconds: float = 0.25,
     poll_interval_seconds: float = 0.02,
@@ -84,6 +86,13 @@ def run_bounded_command(
     poll = _positive("poll_interval_seconds", poll_interval_seconds)
     if type(max_output_bytes) is not int or max_output_bytes < 1:
         raise ValueError("max_output_bytes must be a positive integer")
+    if type(max_input_bytes) is not int or max_input_bytes < 1:
+        raise ValueError("max_input_bytes must be a positive integer")
+    if input_text is not None and not isinstance(input_text, str):
+        raise ValueError("input_text must be text when provided")
+    input_payload = input_text.encode("utf-8") if input_text is not None else None
+    if input_payload is not None and len(input_payload) > max_input_bytes:
+        raise ValueError("input_text exceeds configured byte limit")
     if max_memory_bytes is not None and (type(max_memory_bytes) is not int or max_memory_bytes < 16 * 1024 * 1024):
         raise ValueError("max_memory_bytes must be an integer of at least 16 MiB")
     if max_processes is not None and (type(max_processes) is not int or max_processes < 1):
@@ -98,7 +107,7 @@ def run_bounded_command(
     local_deadline = started + timeout
     end = min(local_deadline, deadline_monotonic) if deadline_monotonic is not None else local_deadline
     reason_on_timeout = "parent_deadline_exceeded" if deadline_monotonic is not None and deadline_monotonic <= local_deadline else "command_timeout"
-    options = dict(stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(cwd) if cwd is not None else None,
+    options = dict(stdin=subprocess.PIPE if input_payload is not None else subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(cwd) if cwd is not None else None,
                    env=dict(env) if env is not None else None, shell=False, close_fds=True)
     if max_memory_bytes is not None and os.name != "nt":
         # RLIMIT_AS is per-process, inherited by descendants; not aggregate container isolation.
@@ -137,11 +146,34 @@ def run_bounded_command(
     err_capture = BoundedStreamCapture(process.stderr, max_output_bytes)
     out_capture.start(); err_capture.start()
     status, reason = "completed", None
+    input_errors: list[str] = []
+    writer = None
+    if input_payload is not None:
+        def write_input() -> None:
+            try:
+                assert process.stdin is not None
+                process.stdin.write(input_payload)
+                process.stdin.close()
+            except (BrokenPipeError, OSError, ValueError):
+                # A provider may exit before consuming all input. The exit status
+                # and structured response remain the authoritative result.
+                return
+            except BaseException as exc:
+                input_errors.append(type(exc).__name__)
+        writer = threading.Thread(target=write_input, name="auren-bounded-command-stdin", daemon=True)
+        writer.start()
+
     def terminate():
         if job is not None:
             try: job.terminate()
             except OSError: pass
         _kill_tree(process, grace)
+        if process.stdin is not None:
+            try: process.stdin.close()
+            except (OSError, ValueError): pass
+        if writer is not None:
+            writer.join(timeout=0.5)
+
     while process.poll() is None:
         if cancellation_event is not None and cancellation_event.is_set():
             status, reason = "cancelled", "cancellation_requested"; terminate(); break
@@ -170,6 +202,15 @@ def run_bounded_command(
         except OSError:
             status, reason = "failed", "windows_job_accounting_unavailable"
             job.terminate()
+    if writer is not None:
+        writer.join(timeout=0.5)
+        if writer.is_alive():
+            terminate()
+            writer.join(timeout=0.5)
+            status, reason = "failed", "stdin_pipe_did_not_close"
+        elif input_errors:
+            status, reason = "failed", "stdin_write_failed"
+
     out_closed = out_capture.join(0.5)
     err_closed = err_capture.join(0.5)
     if not out_closed or not err_closed:

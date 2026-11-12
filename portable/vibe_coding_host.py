@@ -48,6 +48,7 @@ from .vibe_coding_adapters import (
 from .orchestration import Orchestrator, RunStatus
 from .side_effect_ledger import DurableSideEffectLedger
 from .guarded_filesystem import iter_workspace_text_chunks, read_workspace_bytes, resolve_workspace_path, write_workspace_text
+from .bounded_subprocess import run_bounded_command
 
 _CONFIG_SCHEMA = "auren-vibe-host-config-v1"
 _CHECKPOINT_SCHEMA = "auren-vibe-host-checkpoint-v1"
@@ -268,9 +269,27 @@ def _run(argv: Sequence[str], *, cwd: Path, timeout: float, env: Mapping[str, st
          input_text: str | None = None) -> subprocess.CompletedProcess[str]:
     if not argv or any(not isinstance(part, str) or not part for part in argv):
         raise ValueError("commands must be non-empty argument arrays")
-    return subprocess.run(
-        list(argv), cwd=str(cwd), input=input_text, text=True, capture_output=True,
-        timeout=timeout, check=False, shell=False, env=dict(env or _safe_env()),
+    result = run_bounded_command(
+        argv,
+        cwd=cwd,
+        timeout_seconds=timeout,
+        env=dict(env or _safe_env()),
+        input_text=input_text,
+        max_input_bytes=1_000_000,
+        max_output_bytes=1_000_000,
+    )
+    if result.status == "timed_out":
+        raise subprocess.TimeoutExpired(
+            list(argv), timeout, output=result.stdout, stderr=result.stderr,
+        )
+    if result.status == "cancelled":
+        raise InterruptedError("bounded command was cancelled")
+    if result.status != "completed":
+        raise RuntimeError(f"bounded command did not complete: {result.reason or result.status}")
+    if result.stdout_truncated or result.stderr_truncated:
+        raise ValueError("command output exceeded the configured one-megabyte capture limit")
+    return subprocess.CompletedProcess(
+        list(argv), result.returncode, result.stdout, result.stderr,
     )
 
 
