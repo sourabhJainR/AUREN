@@ -75,7 +75,7 @@ AUREN probes http://127.0.0.1:11434 without sending a prompt. To use another loo
     export AUREN_LOCAL_MODEL_URL=http://127.0.0.1:11434
     python auren_cli.py doctor --project-root /absolute/path/to/project
 
-The local discovery report confirms endpoint and model visibility, not model quality. AUREN rejects non-loopback local-model URLs by default. Do not expose an unauthenticated model endpoint to the LAN or internet.
+The local discovery report confirms endpoint and model visibility, not model quality. The HybridModelRouter supports an Ollama-compatible local execution path, but the built-in local MCP proposal handler currently uses direct API inference only; discovery does not mean that this local MCP task path will select the Ollama model. AUREN rejects non-loopback local-model URLs by default. Do not expose an unauthenticated model endpoint to the LAN or internet.
 
 ## 4. Configure the local AUREN task path
 
