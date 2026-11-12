@@ -998,7 +998,7 @@ class LocalRuntimeComposition:
                         return {"verified": False, "reason": "Vibe Coding report failed stage, isolation, source or digest verification"}
                     if not self.approval_store.verify_audit_chain():
                         return {"verified": False, "reason": "durable approval audit chain is invalid"}
-                    matching_approval = False
+                    completed_approval = None
                     for event in self.approval_store.events():
                         if event.get("event_type") != "operation_completed":
                             continue
@@ -1011,15 +1011,31 @@ class LocalRuntimeComposition:
                             and approval_record.status == "completed"
                             and re.fullmatch(r"[0-9a-f]{64}", approval_record.receipt_digest)
                         ):
-                            matching_approval = True
+                            completed_approval = approval_record
                             break
-                    if not matching_approval:
+                    if completed_approval is None:
                         return {"verified": False, "reason": "Vibe Coding durable approval receipt is missing"}
+                    side_effect = DurableSideEffectLedger(
+                        self.state_root / "vibe-coding" / "canonical-side-effects.sqlite3"
+                    ).get(work_key)
+                    side_effect_receipt = side_effect.get("receipt") if isinstance(side_effect, Mapping) else None
+                    if (
+                        not isinstance(side_effect, Mapping)
+                        or side_effect.get("state") != "completed"
+                        or not isinstance(side_effect_receipt, Mapping)
+                        or not re.fullmatch(r"[0-9a-f]{64}", str(side_effect_receipt.get("result_digest", "")))
+                        or side_effect_receipt.get("request_fingerprint") != completed_approval.request_fingerprint
+                        or side_effect_receipt.get("result_digest") != completed_approval.receipt_digest
+                    ):
+                        return {"verified": False, "reason": "Vibe Coding durable side-effect receipt is missing or inconsistent"}
                 except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
                     return {"verified": False, "reason": "Vibe Coding report or approval receipt could not be verified"}
                 return {
                     "verified": True,
-                    "evidence_refs": ("sha256:" + recorded_digest,),
+                    "evidence_refs": (
+                        "sha256:" + recorded_digest,
+                        "sha256:" + completed_approval.receipt_digest,
+                    ),
                 }
 
             response = LocalProviderOperationLedger(
