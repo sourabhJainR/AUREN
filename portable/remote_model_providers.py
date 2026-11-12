@@ -268,7 +268,9 @@ class OpenAICompatibleProvider:
         provider result or its caller-visible exception.
         """
         span = None
-        if isinstance(prompt, str):
+        # Avoid allocating an encoded copy of an obviously oversized prompt just
+        # to create telemetry; the untraced validator remains authoritative.
+        if isinstance(prompt, str) and len(prompt) <= 256 * 1024:
             try:
                 from .agency_observability import current_trace_context
                 active = current_trace_context()
