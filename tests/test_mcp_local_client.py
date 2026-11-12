@@ -5,8 +5,7 @@ import json
 import pytest
 
 from portable import mcp_stdio_proxy
-from portable.mcp_local_client import LocalMCPClientError, call_local_tool
-from portable.mcp_local_client import LOCAL_PROTOCOL_VERSION
+from portable.mcp_local_client import LOCAL_PROTOCOL_VERSION, LocalMCPClientError, call_local_tool
 
 
 def test_local_cli_client_negotiates_stateless_mcp_and_calls_one_tool(tmp_path, monkeypatch):
@@ -54,7 +53,7 @@ def test_local_cli_client_rejects_non_loopback_endpoint_before_network(tmp_path,
     assert called == []
 
 
-def test_local_cli_client_rejects_stateful_protocol_fallback(tmp_path, monkeypatch):
+def test_local_cli_client_rejects_older_protocol_fallback(tmp_path, monkeypatch):
     token_file = tmp_path / "token"
     token_file.write_text("x" * 64, encoding="utf-8")
     token_file.chmod(0o600)
@@ -64,7 +63,7 @@ def test_local_cli_client_rejects_stateful_protocol_fallback(tmp_path, monkeypat
                            "result": {"protocolVersion": "2025-06-18"}}).encode("utf-8")
 
     monkeypatch.setattr(mcp_stdio_proxy, "post_message", fake_post)
-    with pytest.raises(LocalMCPClientError, match="stateless protocol"):
+    with pytest.raises(LocalMCPClientError, match="protocol version"):
         call_local_tool(
             "auren.get_task", {"task_id": "task-1"},
             url="http://127.0.0.1:8765/mcp", token_file=token_file,
