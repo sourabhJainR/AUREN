@@ -160,6 +160,7 @@ def _run_up(args: list[str]) -> int:
     parser.add_argument("--mcp-port", type=int, default=8765)
     parser.add_argument("--no-connect", action="store_true", help="Leave local client configuration untouched.")
     parser.add_argument("--no-browser", action="store_true", help="Do not open the desktop console.")
+    parser.add_argument("--no-chatgpt", action="store_true", help="Do not open ChatGPT Web after AUREN starts.")
     options = parser.parse_args(args)
     from portable.onboarding import doctor, initialize_repository, load_project_profile
     root = Path(options.project_root).expanduser().resolve()
@@ -182,6 +183,7 @@ def _run_up(args: list[str]) -> int:
             "remote_api": readiness.get("remote_model_providers", {}),
             "local_model": readiness.get("local_model", {}),
             "remote_inference_policy": readiness.get("remote_inference_policy", {}),
+            "vibe_coding_host": readiness.get("vibe_coding_host", {"status": "not_reported"}),
         }
     except Exception as exc:
         provider_readiness = {"status": "unavailable", "reason": type(exc).__name__}
@@ -197,6 +199,8 @@ def _run_up(args: list[str]) -> int:
         local_args.append("--auto-connect")
     if not options.no_browser:
         local_args.append("--open-browser")
+    if not options.no_chatgpt:
+        local_args.append("--open-chatgpt")
     return local_main(local_args)
 
 
@@ -213,6 +217,7 @@ def _run_providers(args: list[str]) -> int:
             "cli_providers": report.get("providers", []),
             "remote_api": remote,
             "local_model": report.get("local_model", {}),
+            "vibe_coding_host": report.get("vibe_coding_host", {"status": "not_reported"}),
             "routing": {
                 "provider_order": remote.get("provider_order", []),
                 "remote_inference_enabled": report.get("remote_inference_policy", {}).get("enabled", False),

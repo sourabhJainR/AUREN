@@ -8,11 +8,13 @@ from __future__ import annotations
 
 from contextlib import closing
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import shutil
 import sqlite3
 import subprocess
 import threading
@@ -20,10 +22,12 @@ import time
 from types import SimpleNamespace
 from typing import Any, Mapping
 
+from .action_governance import ActionGovernanceGateway, ActionPolicy, ActionRequest
+
 from .adaptive_runtime import AdaptiveRuntime
 from .adaptive_trigger import AdaptiveTrigger, AdaptiveTriggerRequest
 from .agent_org_runtime import REGISTRY_PATH, authorize_agent_assignment
-from .durable_approval import DurableApprovalStore
+from .durable_approval import ApprovalPending, DurableApprovalStore
 from .engineering_plan import EngineeringPlan, PlanTask
 from .requirement_contract import Requirement, RequirementContractEngine
 from .engineering_plan_goal_reconciler import EngineeringPlanGoalReconciler
@@ -37,15 +41,31 @@ from .remote_model_providers import provider_pool_from_environment
 from .muxin_session_adapter import LocalModelDiscovery
 from .hybrid_model_router import HybridModelRouter
 from .runtime_recovery import RuntimeExecutionGuard
+from .side_effect_ledger import DurableSideEffectLedger
 
 
 _OPERATOR_ID = "local-operator"
 _LOCAL_ISSUER = "auren-local"
 _HANDLER = "local_provider_task"
+_VIBE_HANDLER = "local_vibe_coding_task"
 _HANDLER_ACTION = "propose_changes"
 _ASSIGNMENT_SCOPE = ("task-intent",)
 _PROVIDER_POOLS: dict[str, Any] = {}
 _PROVIDER_POOLS_LOCK = threading.RLock()
+_LOCAL_COMPOSITIONS: dict[str, "LocalRuntimeComposition"] = {}
+_LOCAL_COMPOSITIONS_LOCK = threading.RLock()
+
+
+def _principal_digest(principal: Any) -> str:
+    issuer = getattr(principal, "issuer", None)
+    subject = getattr(principal, "subject", None)
+    if not isinstance(issuer, str) or not issuer.strip() or not isinstance(subject, str) or not subject.strip():
+        raise PermissionError("authenticated principal identity is incomplete")
+    return hashlib.sha256((issuer.rstrip("/") + "\0" + subject).encode("utf-8")).hexdigest()
+
+
+def _canonical_report_digest(report: Mapping[str, Any]) -> str:
+    return hashlib.sha256(_canonical(dict(report)).encode("utf-8")).hexdigest()
 
 
 class LocalProviderNotConfigured(RuntimeError):
@@ -402,8 +422,16 @@ class LocalOperatorAuthority:
         return decision.allowed is True
 
     def authorize_approver(self, approver_id: str, required_role: str, scope: str, roles: tuple[str, ...]) -> bool:
+        configured_remote_approver_digests = {
+            item.strip().lower()
+            for item in os.environ.get("AUREN_MCP_APPROVER_SUBJECT_DIGESTS", "").split(",")
+            if re.fullmatch(r"[0-9a-fA-F]{64}", item.strip())
+        }
         return bool(
-            approver_id == _OPERATOR_ID
+            (
+                approver_id in {self.principal_digest, _OPERATOR_ID}
+                or approver_id in configured_remote_approver_digests
+            )
             and required_role == "engineering_manager"
             and scope in {"repo:write", "project:write"}
             and "engineering_manager" in roles
@@ -445,7 +473,12 @@ class LocalBudgetResolver:
             pass
 
     def resolve(self, run_id: str, task_id: str, handler: str) -> Mapping[str, Any]:
-        policy_digest = _digest("auren-local-budget-v1|max_steps=8|max_attempts=4|deadline=300")
+        if handler == _VIBE_HANDLER:
+            policy_digest = _digest("auren-local-vibe-budget-v1|max_steps=64|max_attempts=1|deadline=3600")
+            max_steps, max_attempts, deadline_seconds = 64, 1, 3600
+        else:
+            policy_digest = _digest("auren-local-budget-v1|max_steps=8|max_attempts=4|deadline=300")
+            max_steps, max_attempts, deadline_seconds = 8, 4, 300
         budget_id = "local:" + _digest(run_id + "\0" + task_id + "\0" + handler)[:40]
         with closing(sqlite3.connect(self.path, timeout=10, isolation_level=None)) as db, db:
             db.execute("PRAGMA busy_timeout=10000")
@@ -456,7 +489,10 @@ class LocalBudgetResolver:
                 (run_id, task_id, handler),
             ).fetchone()
             if row is None:
-                guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4, deadline_seconds=300)
+                guard = RuntimeExecutionGuard(
+                    max_steps=max_steps, max_attempts=max_attempts,
+                    deadline_seconds=deadline_seconds,
+                )
                 snapshot = guard.snapshot()
                 db.execute(
                     "INSERT INTO local_budgets VALUES(?,?,?,?,?,?)",
@@ -512,6 +548,35 @@ class LocalRuntimeComposition:
             with _PROVIDER_POOLS_LOCK:
                 _PROVIDER_POOLS[str(self.state_root)] = self.provider_pool
 
+        from .vibe_coding_host import load_host_config
+        self.vibe_host_config_path = Path.home().expanduser() / ".auren" / "vibe-coding" / "host.json"
+        self.vibe_host_config = None
+        self.vibe_host_config_digest = ""
+        self.vibe_host_status: dict[str, Any] = {"status": "not_configured"}
+        try:
+            config = load_host_config(self.vibe_host_config_path)
+            provider_command = "codex" if config.provider == "codex" else None
+            config_digest = hashlib.sha256(self.vibe_host_config_path.read_bytes()).hexdigest()
+            if config.allow_workspace_writes is not True:
+                self.vibe_host_status = {"status": "blocked", "reason": "isolated_worktree_writes_not_enabled"}
+            elif provider_command is None:
+                self.vibe_host_status = {"status": "blocked", "reason": "unsupported_provider_cli"}
+            elif shutil.which(provider_command) is None:
+                self.vibe_host_status = {"status": "provider_missing", "provider": config.provider}
+            else:
+                self.vibe_host_config = config
+                self.vibe_host_config_digest = config_digest
+                self.vibe_host_status = {
+                    "status": "ready", "provider": config.provider,
+                    "config_digest": config_digest,
+                }
+        except FileNotFoundError:
+            self.vibe_host_status = {"status": "not_configured"}
+        except Exception as exc:
+            self.vibe_host_status = {
+                "status": "blocked", "reason": type(exc).__name__,
+            }
+
         graph = Graph([
             Node(
                 name="local_task_intake",
@@ -542,6 +607,18 @@ class LocalRuntimeComposition:
             guard_action="provider.invoke",
             agent_action_class=_HANDLER_ACTION,
         )
+        self.controller.register_handler(
+            _VIBE_HANDLER,
+            "portable.local_composition:run_local_vibe_coding_task",
+            execution_class="approval_gated",
+            approval_gate_policy={
+                "approval_store": "DurableApprovalStore",
+                "gateway": "ActionGovernanceGateway",
+                "durable_side_effect_ledger": True,
+            },
+            guard_action="provider.invoke",
+            agent_action_class=_HANDLER_ACTION,
+        )
         self.plan_store = EngineeringPlanStore(self.state_root / "engineering-plans.sqlite3")
         self.recovery_bridge = EngineeringPlanRecoveryBridge(
             store=self.plan_store, ledger=self.runtime.recovery_ledger,
@@ -550,6 +627,9 @@ class LocalRuntimeComposition:
             self.controller,
             approver_authorizer=self.operator.authorize_approver,
             context_provider=self.operator.approval_context,
+            wake_callback=lambda task_id, approval_id: self.controller.resume_approved_task(
+                task_id, approval_id, approval_store=self.approval_store,
+            ),
         )
         self.budgets = LocalBudgetResolver(self.state_root / "budgets.sqlite3")
 
@@ -599,7 +679,12 @@ class LocalRuntimeComposition:
             self.runtime.trigger_runtime,
             runner=self.run_trigger,
         )
+        if self.vibe_host_status.get("status") == "ready":
+            current_lease = getattr(self.runtime.trigger_runtime, "claim_lease_seconds", 120)
+            self.runtime.trigger_runtime.claim_lease_seconds = max(int(current_lease), 3700)
         self._closed = False
+        with _LOCAL_COMPOSITIONS_LOCK:
+            _LOCAL_COMPOSITIONS[str(self.state_root)] = self
 
     @property
     def provider_ready(self) -> bool:
@@ -614,13 +699,52 @@ class LocalRuntimeComposition:
             "general",
         )
 
+    def _remote_principal_authorized(self, principal: Any) -> bool:
+        if os.environ.get("AUREN_MCP_REMOTE_EXECUTION_ENABLED") != "1":
+            return False
+        issuer = getattr(principal, "issuer", "")
+        subject = getattr(principal, "subject", "")
+        roles = tuple(getattr(principal, "roles", ()))
+        projects = tuple(getattr(principal, "projects", ()))
+        allows = getattr(principal, "allows", None)
+        requester_digest = _principal_digest(principal) if (
+            isinstance(issuer, str) and isinstance(subject, str) and issuer and subject
+        ) else ""
+        separate_approvers = {
+            item.strip().lower()
+            for item in os.environ.get("AUREN_MCP_APPROVER_SUBJECT_DIGESTS", "").split(",")
+            if re.fullmatch(r"[0-9a-fA-F]{64}", item.strip())
+        }
+        if (
+            not isinstance(issuer, str) or not issuer.startswith("https://")
+            or not isinstance(subject, str) or not subject.strip()
+            or "engineering_manager" not in roles
+            or not callable(allows) or not allows("auren:tasks:write")
+            or not projects
+            or not any(item != requester_digest for item in separate_approvers)
+        ):
+            return False
+        for project in projects:
+            try:
+                candidate = Path(project).expanduser().resolve(strict=True)
+                if candidate.is_dir() and os.path.samefile(candidate, self.project_root):
+                    return True
+            except (OSError, RuntimeError, TypeError, ValueError):
+                continue
+        return False
+
     def admit_task(
         self, principal: Any, task: str, context: Mapping[str, Any], event_id: str,
     ) -> Mapping[str, Any]:
-        if not self.operator.verify_principal(principal):
-            raise PermissionError("local operator identity is not authorized for this workspace")
-        if not isinstance(task, str) or not task.strip():
-            raise ValueError("task text is required")
+        local_principal = self.operator.verify_principal(principal)
+        remote_principal = self._remote_principal_authorized(principal)
+        if not (local_principal or remote_principal):
+            raise PermissionError(
+                "task admission requires the local operator or an explicitly authorized remote project principal"
+            )
+        principal_digest = _principal_digest(principal)
+        if not isinstance(task, str) or not task.strip() or len(task) > 20_000:
+            raise ValueError("task text is required and must not exceed 20000 characters")
         policy = load_guard_policy(self.controller.root / ".auren" / "guard_policy.json")
         decision = evaluate_guard_policy(
             policy,
@@ -631,11 +755,9 @@ class LocalRuntimeComposition:
             mandatory_authorized=True,
         )
         if decision.allowed is not True:
-            raise PermissionError("current Guard policy denied local task admission: " + decision.reason)
+            raise PermissionError("current Guard policy denied task admission: " + decision.reason)
 
-        # A caller retry must reuse the original host-bound source/provider metadata.
-        # Re-resolving either value after a workspace or configuration change would
-        # turn the same idempotency key into a different task intent.
+        # Retries retain the exact principal, source, provider and Vibe host binding.
         existing = self.runtime.trigger_runtime.get_event(event_id)
         if existing is not None:
             if existing.payload.get("task") != task.strip():
@@ -643,55 +765,78 @@ class LocalRuntimeComposition:
             existing_context = existing.payload.get("context", {})
             if (
                 not isinstance(existing_context, Mapping)
-                or existing_context.get("_auren_mcp_subject") != self.operator.principal_digest
+                or existing_context.get("_auren_local_subject_digest") != principal_digest
                 or not isinstance(existing_context.get("_auren_local_source_revision"), str)
                 or not isinstance(existing_context.get("_auren_local_provider"), Mapping)
                 or not isinstance(existing_context.get("_auren_local_policy_digest"), str)
                 or not isinstance(existing_context.get("_auren_local_remote_policy_digest"), str)
+                or not isinstance(existing_context.get("_auren_local_admitted_at"), (int, float))
             ):
                 raise PermissionError("existing task is missing its immutable host admission binding")
             return {
+                "_auren_local_subject_digest": existing_context["_auren_local_subject_digest"],
                 "_auren_local_source_revision": existing_context["_auren_local_source_revision"],
                 "_auren_local_provider": dict(existing_context["_auren_local_provider"]),
                 "_auren_local_policy_digest": existing_context["_auren_local_policy_digest"],
                 "_auren_local_remote_policy_digest": existing_context["_auren_local_remote_policy_digest"],
+                "_auren_local_admitted_at": existing_context["_auren_local_admitted_at"],
+                "_auren_local_separation_of_duties": existing_context.get("_auren_local_separation_of_duties", False),
+                "_auren_local_vibe_config_digest": existing_context.get("_auren_local_vibe_config_digest", ""),
             }
 
         remote_policy_digest = _remote_policy_digest()
-        local_models = self._local_model_candidates()
-        if local_models:
+        vibe_enabled = self.vibe_host_config is not None and self.vibe_host_status.get("status") == "ready"
+        if remote_principal and not vibe_enabled:
+            raise LocalProviderNotConfigured(
+                "remote task execution requires a configured Vibe Coding host and available coding-agent CLI"
+            )
+        if vibe_enabled:
             provider_binding = {
-                "kind": "local", "name": "ollama-compatible", "model": local_models[0],
+                "kind": "vibe", "name": self.vibe_host_config.provider, "model": "cli",
             }
             bound_remote_policy_digest = ""
         else:
-            if self.provider_pool is None:
-                raise LocalProviderNotConfigured(
-                    "no provider is configured and no capable local model is available"
-                )
-            if not remote_policy_digest:
-                raise LocalProviderNotConfigured(
-                    "no capable local model is available; remote inference is disabled unless "
-                    "AUREN_LOCAL_REMOTE_INFERENCE=enabled and AUREN_LOCAL_DATA_CLASSIFICATION=public"
-                )
-            providers = getattr(self.provider_pool, "providers", ())
-            if not providers:
-                raise LocalProviderNotConfigured("configured provider pool has no reviewed provider adapter")
-            selected = providers[0]
-            name = getattr(getattr(selected, "spec", None), "name", None)
-            model = getattr(selected, "model", None)
-            if not isinstance(name, str) or not name or not isinstance(model, str) or not model:
-                raise LocalProviderNotConfigured("configured provider identity or model is incomplete")
-            provider_binding = {"kind": "remote", "name": name, "model": model}
-            bound_remote_policy_digest = remote_policy_digest
+            local_models = self._local_model_candidates()
+            if local_models:
+                provider_binding = {
+                    "kind": "local", "name": "ollama-compatible", "model": local_models[0],
+                }
+                bound_remote_policy_digest = ""
+            else:
+                if self.provider_pool is None:
+                    raise LocalProviderNotConfigured(
+                        "no provider is configured and no capable local model is available"
+                    )
+                if not remote_policy_digest:
+                    raise LocalProviderNotConfigured(
+                        "no capable local model is available; remote inference is disabled unless "
+                        "AUREN_LOCAL_REMOTE_INFERENCE=enabled and AUREN_LOCAL_DATA_CLASSIFICATION=public"
+                    )
+                providers = getattr(self.provider_pool, "providers", ())
+                if not providers:
+                    raise LocalProviderNotConfigured("configured provider pool has no reviewed provider adapter")
+                selected = providers[0]
+                name = getattr(getattr(selected, "spec", None), "name", None)
+                model = getattr(selected, "model", None)
+                if not isinstance(name, str) or not name or not isinstance(model, str) or not model:
+                    raise LocalProviderNotConfigured("configured provider identity or model is incomplete")
+                provider_binding = {"kind": "remote", "name": name, "model": model}
+                bound_remote_policy_digest = remote_policy_digest
         source_revision = self._source_revision()
+        admitted_at = time.time()
+        vibe_config_digest = self.vibe_host_config_digest if vibe_enabled else ""
+        policy_material = guard_policy_fingerprint(policy) + "|" + bound_remote_policy_digest
+        if vibe_enabled:
+            policy_material += "|vibe:" + vibe_config_digest
         return {
+            "_auren_local_subject_digest": principal_digest,
             "_auren_local_source_revision": source_revision,
             "_auren_local_provider": provider_binding,
-            "_auren_local_policy_digest": _digest(
-                guard_policy_fingerprint(policy) + "|" + bound_remote_policy_digest
-            ),
+            "_auren_local_policy_digest": _digest(policy_material),
             "_auren_local_remote_policy_digest": bound_remote_policy_digest,
+            "_auren_local_admitted_at": admitted_at,
+            "_auren_local_separation_of_duties": bool(remote_principal),
+            "_auren_local_vibe_config_digest": vibe_config_digest,
         }
 
     def _source_revision(self) -> str:
@@ -709,17 +854,29 @@ class LocalRuntimeComposition:
 
     def _plan_for(
         self, trigger_id: str, task: str, source_revision: str, policy_digest: str,
+        provider_binding: Mapping[str, Any],
     ) -> EngineeringPlan:
         if not re.fullmatch(r"[0-9a-f]{40}", source_revision):
             raise ValueError("local task is missing its host-bound Git source revision")
+        vibe_execution = provider_binding.get("kind") == "vibe"
+        acceptance = (
+            (
+                "The existing 18-stage Vibe Coding host reaches an accepted terminal run.",
+                "The host report is digest-verified and bound to the admitted source revision.",
+                "All repository changes remain in the isolated worktree; no merge, publish or production deployment occurs.",
+                "The durable approval and side-effect receipts are complete.",
+            )
+            if vibe_execution else
+            (
+                "The admission-bound local or remote model returns a non-empty response.",
+                "The response digest is durably recorded and replay-safe.",
+            )
+        )
         contract = RequirementContractEngine().build(
             task.strip(),
             (Requirement(
                 requirement_id="R1", statement=task.strip(),
-                acceptance_criteria=(
-                    "The admission-bound local or remote model returns a non-empty response.",
-                    "The response digest is durably recorded and replay-safe.",
-                ),
+                acceptance_criteria=acceptance,
             ),),
         )
         issues = RequirementContractEngine().validate(contract)
@@ -733,18 +890,23 @@ class LocalRuntimeComposition:
             tasks=(PlanTask(
                 task_id="execute",
                 title=task.strip(),
-                acceptance_criteria=(
-                    "The admission-bound local or remote model returns a non-empty response.",
-                    "The response digest is durably recorded and replay-safe.",
+                acceptance_criteria=acceptance,
+                rollback_plan=(
+                    "Discard or explicitly roll back the isolated Vibe Coding worktree; never alter the source checkout."
+                    if vibe_execution else
+                    "This provider task is read-only and must not modify the repository."
                 ),
-                rollback_plan="This provider task is read-only and must not modify the repository.",
-                risk="low",
+                risk="high" if vibe_execution else "low",
                 owner_role_id="BE-01",
                 manager_role_id="EM-ENG-01",
             ),),
             source_revision=source_revision,
             policy_digest=policy_digest,
-            budget={"attempts": 1, "dispatches": 1, "tokens": 4096, "wall_seconds": 300},
+            budget={
+                "attempts": 1, "dispatches": 1,
+                "tokens": 65536 if vibe_execution else 4096,
+                "wall_seconds": 3600 if vibe_execution else 300,
+            },
         )
 
     def _goal_reconciler_for(
@@ -753,10 +915,36 @@ class LocalRuntimeComposition:
         provider_binding: Mapping[str, Any],
         policy_digest: str,
         remote_policy_digest: str,
+        principal_digest: str,
+        admitted_at: float,
+        separation_of_duties: bool,
     ) -> EngineeringPlanGoalReconciler:
         holder: dict[str, EngineeringPlanGoalReconciler] = {}
+        vibe_execution = provider_binding.get("kind") == "vibe"
 
         def payload_resolver(_plan: EngineeringPlan, task: PlanTask) -> Mapping[str, Any]:
+            if vibe_execution:
+                return {
+                    "task": task.title,
+                    "resource": "task-intent",
+                    "work_key": holder["reconciler"].work_key(task, 0),
+                    "run_id": _plan.run_id,
+                    "workflow_id": "auren-" + _plan.run_id.removeprefix("local-"),
+                    "project_root": str(self.project_root),
+                    "state_root": str(self.state_root),
+                    "host_config_path": str(self.vibe_host_config_path),
+                    "host_config_digest": self.vibe_host_config_digest,
+                    "source_revision": _plan.source_revision,
+                    "policy_digest": policy_digest,
+                    "requester_id": principal_digest,
+                    "admitted_at": admitted_at,
+                    "separation_of_duties": separation_of_duties,
+                    "auren_approval_aware": True,
+                    "_auren_local_state_root": str(self.state_root),
+                    "_auren_local_provider": dict(provider_binding),
+                    "_auren_local_policy_digest": policy_digest,
+                    "_auren_local_remote_policy_digest": remote_policy_digest,
+                }
             return {
                 "task": task.title,
                 "resource": "task-intent",
@@ -771,9 +959,12 @@ class LocalRuntimeComposition:
         ) -> Mapping[str, int]:
             return {
                 "attempts": min(1, int(current_plan.budget.get("attempts", 1))),
-                "steps": 1,
-                "tool_calls": 1,
-                "tokens": min(4096, int(current_plan.budget.get("tokens", 4096))),
+                "steps": 64 if vibe_execution else 1,
+                "tool_calls": 64 if vibe_execution else 1,
+                "tokens": min(
+                    65536 if vibe_execution else 4096,
+                    int(current_plan.budget.get("tokens", 65536 if vibe_execution else 4096)),
+                ),
             }
 
         def completion_verifier(
@@ -787,6 +978,73 @@ class LocalRuntimeComposition:
             )
             reconciler = holder["reconciler"]
             work_key = reconciler.work_key(task, progress.replan_generation)
+            if vibe_execution:
+                workflow_id = "auren-" + current_plan.run_id.removeprefix("local-")
+                report_path = self.state_root / "vibe-coding" / "reports" / f"{workflow_id}.json"
+                if report_path.is_symlink() or not report_path.is_file():
+                    return {"verified": False, "reason": "Vibe Coding report is missing or unsafe"}
+                try:
+                    report = json.loads(report_path.read_text(encoding="utf-8"))
+                    recorded_digest = report.pop("digest")
+                    stage_statuses = report.get("stage_statuses")
+                    workspace_root = Path(report.get("workspace_root", "")).resolve()
+                    worktree_root = (self.state_root / "vibe-coding" / "worktrees").resolve()
+                    if (
+                        not isinstance(stage_statuses, Mapping)
+                        or len(stage_statuses) != 18
+                        or report.get("run_status") != "accepted"
+                        or report.get("base_revision") != current_plan.source_revision
+                        or not re.fullmatch(r"[0-9a-f]{40}", str(report.get("workspace_head", "")))
+                        or self._source_revision() != current_plan.source_revision
+                        or report.get("merge_or_publish_performed") is not False
+                        or report.get("production_deployment_performed") is not False
+                        or workspace_root == worktree_root
+                        or worktree_root not in workspace_root.parents
+                        or _canonical_report_digest(report) != recorded_digest
+                    ):
+                        return {"verified": False, "reason": "Vibe Coding report failed stage, isolation, source or digest verification"}
+                    if not self.approval_store.verify_audit_chain():
+                        return {"verified": False, "reason": "durable approval audit chain is invalid"}
+                    completed_approval = None
+                    for event in self.approval_store.events():
+                        if event.get("event_type") != "operation_completed":
+                            continue
+                        approval_id = event.get("approval_id")
+                        if not isinstance(approval_id, str) or not approval_id:
+                            continue
+                        approval_record = self.approval_store.get(approval_id)
+                        if (
+                            approval_record.operation_id == work_key
+                            and approval_record.status == "completed"
+                            and re.fullmatch(r"[0-9a-f]{64}", approval_record.receipt_digest)
+                        ):
+                            completed_approval = approval_record
+                            break
+                    if completed_approval is None:
+                        return {"verified": False, "reason": "Vibe Coding durable approval receipt is missing"}
+                    side_effect = DurableSideEffectLedger(
+                        self.state_root / "vibe-coding" / "canonical-side-effects.sqlite3"
+                    ).get(work_key)
+                    side_effect_receipt = side_effect.get("receipt") if isinstance(side_effect, Mapping) else None
+                    if (
+                        not isinstance(side_effect, Mapping)
+                        or side_effect.get("state") != "completed"
+                        or not isinstance(side_effect_receipt, Mapping)
+                        or not re.fullmatch(r"[0-9a-f]{64}", str(side_effect_receipt.get("result_digest", "")))
+                        or side_effect_receipt.get("request_fingerprint") != completed_approval.request_fingerprint
+                        or side_effect_receipt.get("result_digest") != completed_approval.receipt_digest
+                    ):
+                        return {"verified": False, "reason": "Vibe Coding durable side-effect receipt is missing or inconsistent"}
+                except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+                    return {"verified": False, "reason": "Vibe Coding report or approval receipt could not be verified"}
+                return {
+                    "verified": True,
+                    "evidence_refs": (
+                        "sha256:" + recorded_digest,
+                        "sha256:" + completed_approval.receipt_digest,
+                    ),
+                }
+
             response = LocalProviderOperationLedger(
                 _provider_ledger_path(self.state_root)
             ).response(work_key)
@@ -801,19 +1059,25 @@ class LocalRuntimeComposition:
             response_digest = hashlib.sha256(response["content"].encode("utf-8")).hexdigest()
             if response.get("response_digest") != response_digest:
                 return {"verified": False, "reason": "provider response digest failed content verification"}
-            evidence_ref = "sha256:" + response_digest
-            return {"verified": True, "evidence_refs": (evidence_ref,)}
+            return {"verified": True, "evidence_refs": ("sha256:" + response_digest,)}
 
         reconciler = EngineeringPlanGoalReconciler(
             run_id=plan.run_id,
             controller=self.controller,
             recovery_bridge=self.recovery_bridge,
             trusted_dispatch_root=self.dispatch_root,
-            handler_resolver=lambda _plan, _task: _HANDLER,
+            handler_resolver=lambda _plan, _task: (
+                _VIBE_HANDLER if vibe_execution else _HANDLER
+            ),
             payload_resolver=payload_resolver,
             budget_resolver=budget_resolver,
             completion_verifier=completion_verifier,
             policy_constraints=(
+                "The canonical ExecutionController, current Guard policy, durable approval store and action gateway remain authoritative.",
+                "Vibe Coding changes are confined to an isolated Git worktree; the source checkout is never modified.",
+                "Merge, publish, release and production deployment are not authorized by this task.",
+                "A durable approval and side-effect receipt are required before the Vibe Coding host starts.",
+            ) if vibe_execution else (
                 "Provider inference is proposal-only and has no repository write tools.",
                 "No merge, release, deployment, publication or other external action is authorized.",
                 "The canonical ExecutionController and current Guard policy remain authoritative.",
@@ -824,9 +1088,13 @@ class LocalRuntimeComposition:
         return reconciler
 
     def run_trigger(self, request: AdaptiveTriggerRequest, trigger_id: str) -> LocalTaskOutcome:
-        principal_digest = request.context.get("_auren_mcp_subject")
-        if not self.operator.verify_digest(str(principal_digest or "")):
-            raise PermissionError("persisted MCP event is not bound to the host-owned local operator")
+        principal_digest = request.context.get("_auren_local_subject_digest")
+        if (
+            not isinstance(principal_digest, str)
+            or request.context.get("_auren_mcp_subject") != principal_digest
+            or not self.operator.verify_digest(self.operator.principal_digest)
+        ):
+            raise PermissionError("persisted MCP event is not bound to an admitted principal and host-owned operator")
         source_revision = request.context.get("_auren_local_source_revision")
         provider_binding = request.context.get("_auren_local_provider")
         policy_digest = request.context.get("_auren_local_policy_digest")
@@ -834,21 +1102,32 @@ class LocalRuntimeComposition:
         current_policy = load_guard_policy(self.controller.root / ".auren" / "guard_policy.json")
         provider_kind = provider_binding.get("kind", "remote") if isinstance(provider_binding, Mapping) else None
         bound_remote_policy_digest = remote_policy_digest if provider_kind == "remote" else ""
+        vibe_config_digest = request.context.get("_auren_local_vibe_config_digest", "")
+        policy_material = guard_policy_fingerprint(current_policy) + "|" + bound_remote_policy_digest
+        if provider_kind == "vibe":
+            if (
+                self.vibe_host_config is None
+                or vibe_config_digest != self.vibe_host_config_digest
+            ):
+                raise PermissionError("admitted Vibe Coding host configuration changed or is unavailable")
+            policy_material += "|vibe:" + vibe_config_digest
         if (
             not isinstance(source_revision, str)
             or not re.fullmatch(r"[0-9a-f]{40}", source_revision)
+            or self._source_revision() != source_revision
             or not isinstance(provider_binding, Mapping)
-            or provider_kind not in {"local", "remote"}
+            or provider_kind not in {"local", "remote", "vibe"}
             or not isinstance(policy_digest, str)
             or request.context.get("_auren_local_remote_policy_digest") != bound_remote_policy_digest
             or (provider_kind == "remote" and not remote_policy_digest)
-            or policy_digest != _digest(
-                guard_policy_fingerprint(current_policy) + "|" + bound_remote_policy_digest
-            )
+            or policy_digest != _digest(policy_material)
         ):
             raise PermissionError("persisted MCP event lacks current host-bound source, provider or model-policy evidence")
 
-        plan = self._plan_for(trigger_id, request.task, source_revision, policy_digest)
+        admitted_at = request.context.get("_auren_local_admitted_at")
+        if not isinstance(admitted_at, (int, float)) or isinstance(admitted_at, bool):
+            raise PermissionError("persisted MCP event is missing its immutable admission timestamp")
+        plan = self._plan_for(trigger_id, request.task, source_revision, policy_digest, provider_binding)
         try:
             stored_plan, _stored_run = self.plan_store.load(plan.run_id)
             if stored_plan.digest != plan.digest:
@@ -858,8 +1137,10 @@ class LocalRuntimeComposition:
         self.recovery_bridge.start(plan)
         reconciler = self._goal_reconciler_for(
             plan, provider_binding, policy_digest, remote_policy_digest,
+            principal_digest, float(admitted_at),
+            request.context.get("_auren_local_separation_of_duties") is True,
         )
-        deadline = time.monotonic() + 330.0
+        deadline = time.monotonic() + (3600.0 if provider_kind == "vibe" else 330.0)
         while time.monotonic() < deadline:
             try:
                 with self._supervisor_lock:
@@ -880,11 +1161,27 @@ class LocalRuntimeComposition:
             if progress.status == "passed":
                 work_key = reconciler.work_key(plan.tasks[0], progress.replan_generation)
                 durable = self.controller.task_by_work_key(work_key)
+                if durable is None or durable.state != "completed":
+                    raise RuntimeError("passed local goal is missing its completed canonical controller task")
+                if provider_kind == "vibe":
+                    expected_report = self.state_root / "vibe-coding" / "reports" / (
+                        "auren-" + trigger_id + ".json"
+                    )
+                    if not expected_report.is_file() or expected_report.is_symlink():
+                        raise RuntimeError("passed Vibe Coding goal is missing its durable host report")
+                    report = json.loads(expected_report.read_text(encoding="utf-8"))
+                    report_digest = report.get("digest")
+                    if not isinstance(report_digest, str) or ("sha256:" + report_digest) not in progress.evidence_refs:
+                        raise RuntimeError("Vibe Coding goal evidence does not match its durable host report")
+                    return LocalTaskOutcome(
+                        "completed", durable.id, progress.evidence_refs,
+                        "vibe_coding_report_and_approval_verified",
+                    )
                 response = LocalProviderOperationLedger(
                     _provider_ledger_path(self.state_root)
                 ).response(work_key)
-                if durable is None or durable.state != "completed" or response is None:
-                    raise RuntimeError("passed local goal is missing its completed controller task or provider receipt")
+                if response is None:
+                    raise RuntimeError("passed local goal is missing its durable provider receipt")
                 if (
                     not isinstance(response.get("content"), str)
                     or not response.get("content", "").strip()
@@ -919,7 +1216,198 @@ class LocalRuntimeComposition:
         self.trigger.close(wait_for_background=True)
         with _PROVIDER_POOLS_LOCK:
             _PROVIDER_POOLS.pop(str(self.state_root), None)
+        with _LOCAL_COMPOSITIONS_LOCK:
+            _LOCAL_COMPOSITIONS.pop(str(self.state_root), None)
         self._closed = True
+
+
+def run_local_vibe_coding_task(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Run the existing Vibe Coding host behind the canonical approval and action gates."""
+    if not isinstance(payload, Mapping):
+        raise TypeError("Vibe Coding task payload must be a mapping")
+    state_root_value = payload.get("_auren_local_state_root")
+    execution_context = payload.get("_auren_execution_context")
+    if (
+        not isinstance(state_root_value, str) or not Path(state_root_value).is_absolute()
+        or not isinstance(execution_context, Mapping)
+        or not isinstance(execution_context.get("task_id"), str)
+        or payload.get("auren_approval_aware") is not True
+    ):
+        raise PermissionError("Vibe Coding execution requires canonical approval-aware controller context")
+    state_root = Path(state_root_value).resolve()
+    with _LOCAL_COMPOSITIONS_LOCK:
+        composition = _LOCAL_COMPOSITIONS.get(str(state_root))
+    if composition is None or composition._closed:
+        raise RuntimeError("canonical local runtime composition is unavailable; execution is blocked")
+    if not composition.operator.verify_digest(composition.operator.principal_digest):
+        raise PermissionError("host-owned operator identity failed verification")
+
+    project_root = Path(str(payload.get("project_root", ""))).expanduser().resolve()
+    if project_root != composition.project_root:
+        raise PermissionError("Vibe Coding project root does not match the admitted workspace")
+    source_revision = payload.get("source_revision")
+    if not isinstance(source_revision, str) or composition._source_revision() != source_revision:
+        raise PermissionError("source checkout revision changed after task admission")
+    work_key = payload.get("work_key")
+    workflow_id = payload.get("workflow_id")
+    if (
+        not isinstance(work_key, str) or not re.fullmatch(r"[A-Za-z0-9:_-]{16,200}", work_key)
+        or not isinstance(workflow_id, str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", workflow_id)
+    ):
+        raise ValueError("Vibe Coding task identity is invalid")
+
+    config_path = Path(str(payload.get("host_config_path", ""))).expanduser()
+    if config_path != composition.vibe_host_config_path or config_path.is_symlink() or not config_path.is_file():
+        raise PermissionError("Vibe Coding host configuration is missing or not host-owned")
+    config_digest = hashlib.sha256(config_path.read_bytes()).hexdigest()
+    if (
+        config_digest != payload.get("host_config_digest")
+        or config_digest != composition.vibe_host_config_digest
+        or composition.vibe_host_config is None
+    ):
+        raise PermissionError("Vibe Coding host configuration changed after task admission")
+    from .vibe_coding_host import LocalVibeCodingHost, load_host_config
+    config = load_host_config(config_path)
+    if config.allow_workspace_writes is not True:
+        raise PermissionError("Vibe Coding isolated-worktree writes are not explicitly enabled")
+
+    task = payload.get("task")
+    if not isinstance(task, str) or not task.strip() or len(task) > 20_000:
+        raise ValueError("Vibe Coding task intent is missing or exceeds the configured limit")
+    principal_digest = payload.get("requester_id")
+    admitted_at = payload.get("admitted_at")
+    if not isinstance(principal_digest, str) or not re.fullmatch(r"[0-9a-f]{64}", principal_digest):
+        raise PermissionError("Vibe Coding task lacks its authenticated requester binding")
+    if not isinstance(admitted_at, (int, float)) or isinstance(admitted_at, bool):
+        raise PermissionError("Vibe Coding task lacks its immutable admission timestamp")
+    policy_digest = payload.get("policy_digest")
+    if not isinstance(policy_digest, str) or not re.fullmatch(r"[0-9a-f]{64}", policy_digest):
+        raise PermissionError("Vibe Coding task lacks its admitted Guard policy digest")
+
+    controller_task_id = execution_context["task_id"]
+    request = ActionRequest(
+        run_id=str(payload.get("run_id", "")),
+        action_id=work_key,
+        actor=principal_digest,
+        capability="repository",
+        action="edit",
+        target="project:" + _digest(str(project_root))[:24],
+        risk="write",
+        idempotency_key=work_key,
+        evidence_refs=("git:sha1:" + source_revision,),
+        task_id=controller_task_id,
+    )
+    approval_context = composition.operator.approval_context(request)
+    checkpoint = {
+        "operation_id": work_key,
+        "artifact_digest": approval_context["artifact_digest"],
+        "evidence_digest": approval_context["evidence_digest"],
+        "policy_digest": approval_context["policy_digest"],
+        "request_fingerprint": request.fingerprint(),
+        "source_revision": source_revision,
+        "intent_digest": _digest(task.strip()),
+        "host_config_digest": config_digest,
+    }
+    expires_at = datetime.fromtimestamp(float(admitted_at), timezone.utc) + timedelta(minutes=30)
+    approval = composition.approval_store.create_request(
+        request,
+        operation_id=work_key,
+        artifact_digest=approval_context["artifact_digest"],
+        evidence_digest=approval_context["evidence_digest"],
+        policy_digest=approval_context["policy_digest"],
+        requester_id=principal_digest,
+        required_role="engineering_manager",
+        scope="repo:write",
+        expires_at=expires_at,
+        required_approvals=1,
+        separation_of_duties=payload.get("separation_of_duties") is True,
+        checkpoint=checkpoint,
+    )
+    report_path = composition.state_root / "vibe-coding" / "reports" / f"{workflow_id}.json"
+    if approval.status == "pending":
+        raise ApprovalPending(approval.approval_id, checkpoint)
+    if approval.status == "completed":
+        if not report_path.is_file() or report_path.is_symlink():
+            raise RuntimeError("completed Vibe Coding approval has no durable host report")
+    elif approval.status == "approved":
+        ledger = DurableSideEffectLedger(
+            composition.state_root / "vibe-coding" / "canonical-side-effects.sqlite3"
+        )
+        gateway = ActionGovernanceGateway(
+            ActionPolicy(
+                allowed_capabilities=frozenset({"repository"}),
+                allowed_actions=frozenset({"edit"}),
+                approval_required_actions=frozenset({"edit"}),
+                external_effect_actions=frozenset({"edit"}),
+                evidence_required_actions=frozenset({"edit"}),
+                require_idempotency_for_external_effects=True,
+                require_durable_ledger_for_external_effects=True,
+            ),
+            approval_verifier=composition.approval_store.verify_receipt,
+            side_effect_ledger=ledger,
+        )
+
+        def execute_host() -> str:
+            try:
+                report = LocalVibeCodingHost(
+                    project_root,
+                    config=config,
+                    state_root=composition.state_root / "vibe-coding",
+                ).run(workflow_id, task)
+            except Exception as exc:
+                raise RuntimeError(
+                    "Vibe Coding host execution failed; inspect the host-local report and checkpoint"
+                ) from exc
+            return str(report["digest"])
+
+        governed = composition.approval_store.execute_approved_action(
+            approval.approval_id,
+            request,
+            gateway,
+            execute_host,
+            artifact_digest=approval_context["artifact_digest"],
+            evidence_digest=approval_context["evidence_digest"],
+            policy_digest=approval_context["policy_digest"],
+        )
+        if not (getattr(governed, "executed", False) or getattr(governed, "replayed", False)):
+            raise PermissionError(
+                "Vibe Coding host was denied by the canonical action gateway: "
+                + str(getattr(getattr(governed, "verdict", None), "reason", "unknown"))
+            )
+    else:
+        raise PermissionError("Vibe Coding task is blocked by its durable approval state: " + approval.status)
+
+    if not report_path.is_file() or report_path.is_symlink():
+        raise RuntimeError("Vibe Coding host did not produce a safe durable report")
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    recorded_digest = report.get("digest")
+    report_without_digest = dict(report)
+    report_without_digest.pop("digest", None)
+    if (
+        not isinstance(recorded_digest, str)
+        or _canonical_report_digest(report_without_digest) != recorded_digest
+        or report.get("workflow_id") != workflow_id
+        or report.get("base_revision") != source_revision
+        or not re.fullmatch(r"[0-9a-f]{40}", str(report.get("workspace_head", "")))
+        or composition._source_revision() != source_revision
+        or report.get("run_status") != "accepted"
+        or not isinstance(report.get("stage_statuses"), Mapping)
+        or len(report.get("stage_statuses", {})) != 18
+        or report.get("merge_or_publish_performed") is not False
+        or report.get("production_deployment_performed") is not False
+    ):
+        raise RuntimeError("Vibe Coding host report failed canonical verification")
+    return {
+        "status": "completed",
+        "workflow_id": workflow_id,
+        "report_digest": recorded_digest,
+        "workspace_head": report.get("workspace_head"),
+        "changed_files": report.get("workspace_changed_files", []),
+        "approval_receipts": [approval.approval_id],
+        "evidence_refs": ["sha256:" + recorded_digest],
+        "merge_or_publish_performed": False,
+        "production_deployment_performed": False,
+    }
 
 
 def create_local_composition(
@@ -938,5 +1426,5 @@ __all__ = [
     "LocalBudgetResolver", "LocalOperatorAuthority", "LocalProviderNotConfigured",
     "LocalProviderOperationLedger", "LocalProviderOutcomeUnknown",
     "LocalRuntimeComposition", "LocalTaskOutcome", "create_local_composition",
-    "run_local_provider_task",
+    "run_local_provider_task", "run_local_vibe_coding_task",
 ]

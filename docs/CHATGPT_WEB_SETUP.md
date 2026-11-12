@@ -1,130 +1,175 @@
-# Use AUREN from ChatGPT web
+# Use AUREN from ChatGPT Web and Codex CLI
 
-**Status:** setup guide and readiness boundary. This document is not evidence that AUREN has been deployed or connected to a ChatGPT workspace.
+**Status:** implementation and deployment guide. This document does not claim that a hosted endpoint, OAuth tenant, or ChatGPT workspace connection has already been deployed.
 
-## What works today
+## Integrated execution path
 
-AUREN has an authenticated remote MCP service at the protocol level. It exposes bounded operator tools for service health, task submission and status, cancellation, evidence, approvals, and admission control. The endpoint uses Streamable HTTP at `/mcp`, protected-resource metadata, scoped authentication, and an external OAuth token-introspection service.
+AUREN now has one execution path for local and remote MCP task submission:
 
-The remote launcher currently requires a trusted deployment-owned runtime factory. The repository does not contain a live hosted AUREN endpoint, an OAuth tenant/client registration, or deployment credentials. The sample host name `mcp.example.com` is a placeholder.
+1. The MCP service authenticates the caller and binds the request to its configured project.
+2. The built-in local composition admits the task, captures the source revision and Guard policy, and creates the canonical plan.
+3. The canonical ExecutionController dispatches the registered Vibe Coding handler.
+4. The Vibe Coding host runs its existing 18-stage workflow in an isolated Git worktree.
+5. Repository edits wait for a durable AUREN approval. The ActionGovernanceGateway and durable side-effect ledger protect the execution.
+6. AUREN verifies the host report, all 18 stage results, the base revision, worktree boundary, approval receipt and report digest before marking the task complete.
 
-The built-in single-user local composition is factory-free, but its MCP model task handler is proposal-only. It cannot edit repository files, run builds, merge, release, or deploy. A successful MCP connection or accepted task receipt does not mean the engineering task completed.
+The source checkout is not modified by the Vibe Coding host. Merge, publish, release and production deployment are not part of this execution path.
 
-A separate 18-stage local Vibe Coding host exists at `scripts/run_vibe_coding_project.py`. It can connect a configured local coding-agent CLI to an isolated Git worktree, tests, security tools and explicit MCP adapters, with checkpoint/resume. It is a local operator-run workflow; it is not currently wired into the local or remote MCP task handler, so ChatGPT web cannot invoke it through AUREN. See [Vibe-Coding Workflow](VIBE_CODING_WORKFLOW.md).
+The remote MCP launcher uses the same built-in canonical composition by default. A custom runtime factory remains available only for an explicitly managed deployment.
 
-## ChatGPT plan and workspace access
+## Local installation and startup
 
-As checked against OpenAI's current ChatGPT custom-MCP documentation on 2026-11-13:
+Run:
 
-- **Free:** custom MCP server connections are not currently available.
-- **Pro:** custom MCP connections are limited to read/fetch permissions.
-- **Business, Enterprise, and Edu:** full MCP, including write/modify actions, is available subject to workspace permissions and admin controls.
+~~~bash
+auren up
+~~~
 
-For Business workspaces, admins/owners create and publish custom MCP apps. For Enterprise/Edu, admins/owners can create and test, authorized developers may be granted creation access, and admins/owners publish. Workspace policy can further restrict access and individual actions.
+After both local services are ready, AUREN opens the local console and ChatGPT Web. It also backs up and configures supported local MCP clients, including Codex CLI, unless --no-connect is supplied.
 
-OpenAI controls plan eligibility and workspace permissions. AUREN cannot enable these capabilities from its repository.
+Use auren up --no-chatgpt to suppress the ChatGPT browser launch. Use auren up --no-browser to suppress the local console launch.
 
-## Required deployment before connecting
+The local CLI connection uses the local authenticated MCP service. ChatGPT Web cannot reach a workstation's loopback endpoint, so opening ChatGPT does not connect it to local AUREN.
 
-Choose one deployment owner and keep the first deployment single-host:
+## Configure the Vibe Coding host
 
-1. Deploy AUREN's remote MCP service behind HTTPS. Keep the ASGI process on loopback behind a TLS ingress; expose only the ingress.
-2. Provide a trusted runtime factory that returns the canonical AUREN runtime with a non-empty reviewed graph, execution controller, and durable trigger runtime. Do not use a placeholder or no-op graph.
-3. Configure an external OAuth authorization server. It must support authorization-code flow with PKCE S256 and the client registration method required by the ChatGPT connection (CIMD or DCR). Configure refresh-token issuance, issuer and resource/audience validation. AUREN is an OAuth resource server; it is not the authorization server.
-4. Configure the OAuth introspection endpoint, client credentials, issuer, audience, exact MCP resource URL, allowed host/origin values, and least-privilege scopes through the deployment's secret manager. Never commit secrets or put them in project profiles.
-5. Use persistent local disk for the current SQLite-backed task and operator-control stores. Run one service replica. Do not use NFS/shared SQLite or claim multi-host high availability; multi-host admission and control stores need separate PostgreSQL and host-failover acceptance.
-6. Publish the deployment-specific privacy, retention, backup, recovery, and security terms before exposing real repository data.
-7. Configure a repository workspace on the AUREN host. The hosted ChatGPT client cannot reach a developer machine's loopback address or access its local filesystem.
+The host reads its configuration from:
 
-Follow [Remote MCP Operations](REMOTE_MCP_OPERATIONS.md) for the exact environment contract and deployment command. Follow [Remote MCP Privacy](REMOTE_MCP_PRIVACY.md) before exposing the service.
+~~~text
+~/.auren/vibe-coding/host.json
+~~~
 
-### Deployment command shape
+The config must be private on POSIX systems (mode 0600), use provider: "codex", explicitly set allow_workspace_writes: true, and define non-empty test commands. Keep the existing security and browser QA requirements enabled. Install and authenticate the Codex CLI on the machine that runs AUREN.
 
-The remote launcher requires a trusted factory; the exact module path and environment values belong to the deployment owner:
+Check readiness:
 
-```bash
+~~~bash
+auren doctor
+~~~
+
+The report includes vibe_coding_host:
+
+- ready: Codex CLI and a valid host config are available; admitted tasks use the Vibe Coding handler.
+- not_configured: local proposal-only provider behavior remains available, but remote repository execution is blocked.
+- provider_missing or blocked: correct the CLI or host config before submitting implementation tasks.
+
+The host configuration is an explicit operator opt-in to isolated-worktree edits. AUREN still requires a durable approval before the Vibe Coding handler starts.
+
+## Local CLI use
+
+auren up configures supported local MCP clients, including OpenAI's Codex CLI, to use the authenticated local MCP service. Verify the client configuration with:
+
+~~~bash
+codex mcp list
+~~~
+
+Submit tasks from Codex using the AUREN MCP server. Task admission, planning, approval, execution, checkpoints and evidence remain owned by AUREN.
+
+There is no separate official ChatGPT command-line client in this integration. The supported OpenAI coding CLI path is Codex CLI.
+
+## ChatGPT Web requires a deployed remote endpoint
+
+ChatGPT Web cannot call 127.0.0.1, localhost, or a developer workstation's local filesystem. Deploy the remote MCP service on a host that has the repository workspace, the Vibe Coding host config and the Codex CLI installed.
+
+The repository does not contain a live hosted AUREN endpoint, an OAuth tenant/client registration, or deployment credentials. ChatGPT Web connection is therefore a deployment step, not something auren up can complete on its own.
+
+### Remote service setup
+
+Install the optional ASGI runner:
+
+~~~bash
+python -m pip install "uvicorn[standard]"
+~~~
+
+Configure the project and OAuth resource-server environment through the deployment's secret manager:
+
+~~~bash
+export AUREN_PROJECT_ROOT=/srv/auren/workspaces/main
+export AUREN_MCP_RESOURCE_URL=https://mcp.example.com/mcp
+export AUREN_MCP_AUTHORIZATION_SERVER=https://identity.example.com/
+export AUREN_MCP_INTROSPECTION_URL=https://identity.example.com/oauth/introspect
+export AUREN_MCP_INTROSPECTION_CLIENT_ID=auren-mcp-resource
+export AUREN_MCP_INTROSPECTION_CLIENT_SECRET="$(secret-manager read auren/mcp/introspection-secret)"
+export AUREN_MCP_ALLOWED_HOSTS=mcp.example.com
+export AUREN_MCP_ALLOWED_ORIGINS=https://chatgpt.com
+export AUREN_MCP_REMOTE_EXECUTION_ENABLED=1
+export AUREN_MCP_APPROVER_SUBJECT_DIGESTS="$(secret-manager read auren/mcp/approver-subject-digests)"
+
 python -m portable.remote_mcp_server \
   --project-root "$AUREN_PROJECT_ROOT" \
-  --runtime-factory "$AUREN_MCP_RUNTIME_FACTORY" \
-  --host 127.0.0.1 \
-  --port 8765
-```
+  --host 127.0.0.1 --port 8765
+~~~
 
-Do not bind the service publicly from the Python process. Terminate TLS and enforce ingress controls at the deployment boundary.
+The launcher creates the built-in canonical runtime composition when --runtime-factory is omitted. Keep the ASGI listener on loopback behind a TLS ingress. Use persistent local disk and one service replica; the current SQLite stores are not a multi-host deployment.
 
-## Interim use from ChatGPT web without remote MCP
+Remote task submission requires all of the following:
 
-If the ChatGPT workspace has the GitHub app connected, you can use the repository's AUREN engineering contract before the remote MCP deployment is ready. Select the GitHub app for the conversation and ask ChatGPT to inspect `AGENTS.md`, `skills/ai-coding-orchestrator/SKILL.md`, and the relevant architecture/acceptance documents before changing code.
+- OAuth introspection returns an HTTPS issuer, subject, auren:tasks:write scope, engineering_manager role, and an explicit projects claim containing the exact server-side project path.
+- AUREN_MCP_REMOTE_EXECUTION_ENABLED=1 is set on the AUREN host.
+- The host's Vibe Coding config is valid and Codex CLI is available.
+- A separate approved identity can approve repository edits. It must have the engineering_manager role, auren:approvals:decide scope and the same exact project claim. Its principal digest must be in AUREN_MCP_APPROVER_SUBJECT_DIGESTS.
 
-Reusable task prompt:
+Calculate an approver digest from the exact issuer and subject claims returned by the identity provider:
 
-```text
-Use sourabhJainR/AUREN as the repository source of truth. Read AGENTS.md and
-skills/ai-coding-orchestrator/SKILL.md first, then inspect the current main SHA,
-open issues/PRs, relevant implementation and tests. Follow AUREN's canonical
-plan, Guard, budget, evidence, review, and exact-head CI rules. Make the
-smallest safe change, preserve unrelated files, and report the exact commit/PR,
-checks, evidence, blockers, and next safe action. Do not claim that the AUREN
-runtime executed a task unless a real AUREN runtime receipt proves it.
-```
+~~~bash
+python - <<'PY'
+import hashlib
+issuer = "https://identity.example.com/"
+subject = "approver-subject-claim-from-idp"
+print(hashlib.sha256((issuer.rstrip("/") + "\0" + subject).encode("utf-8")).hexdigest())
+PY
+~~~
 
-This is an instruction-guided GitHub workflow, not a live AUREN MCP session. It does not start AUREN's supervisor, use its durable task stores, or prove that the scoped coding executor is active. Do not treat it as equivalent to the hosted MCP integration.
+Do not put raw subject claims, OAuth tokens or client secrets in repository files. The digest allowlist is an explicit host-side approval policy. Remote task requesters cannot approve their own work; configure a separate engineering-manager approver.
 
-## Connect it in ChatGPT web
+Follow [Remote MCP Operations](REMOTE_MCP_OPERATIONS.md) and [Remote MCP Privacy](REMOTE_MCP_PRIVACY.md) before exposing the endpoint.
 
-After the endpoint and OAuth provider are live, and the ChatGPT workspace permits custom MCP apps:
+## ChatGPT workspace eligibility
 
-1. Open ChatGPT on the web and go to **Plugins**.
-2. Select **+**, then **Add custom MCP server**.
-3. Name the connection **AUREN**.
-4. Enter the deployed HTTPS endpoint, for example `https://<your-host>/mcp`. Do not use `127.0.0.1`, `localhost`, or the example domain.
+Custom MCP availability and write permissions depend on the ChatGPT plan and workspace policy. Business, Enterprise and Edu workspaces can use full MCP subject to administrator controls. Pro custom MCP access is limited to read/fetch permissions in the current documented product behavior. Free users do not have custom MCP server connections.
+
+AUREN cannot change ChatGPT plan eligibility or workspace administrator settings.
+
+## Connect the remote service in ChatGPT Web
+
+After HTTPS, OAuth and the remote MCP service are live, and the ChatGPT workspace permits custom MCP apps:
+
+1. Open ChatGPT Web and go to Plugins.
+2. Select +, then Add custom MCP server.
+3. Name the connection AUREN.
+4. Enter the deployed HTTPS endpoint, for example https://mcp.example.com/mcp.
 5. Select OAuth and complete the identity-provider sign-in.
-6. Review the discovered tool list and risk warning. Create the plugin/app, then install it.
-7. Start a new conversation, type `@`, and select **AUREN** for the message that should use its tools.
+6. Review the discovered tools and their permissions before installing the app.
+7. Start a new conversation and select AUREN for the message that should use its tools.
 
-The current ChatGPT UI and workspace policy may differ. See [OpenAI's current connection guide](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt).
+The current ChatGPT UI and workspace policy may differ. See [OpenAI's connection guide](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt).
 
 ## Start with read-only access
 
-For the first connection, grant only the read scopes and enable only:
+For the first connection, grant only read scopes and enable:
 
-- `auren.get_profile`
-- `auren.service_status`
-- `auren.list_tasks`
-- `auren.get_task`
-- `auren.get_evidence`
-- `auren.list_approvals`
-- `auren.get_approval`
+- auren.get_profile
+- auren.service_status
+- auren.list_tasks
+- auren.get_task
+- auren.get_evidence
+- auren.list_approvals
+- auren.get_approval
 
-Verify that the workspace identity, service health, task visibility, and evidence summaries are correct. Do not enable task submission, cancellation, approval decisions, provider resume, or admission controls until the deployment's operator identity, authorization, approval policy, and audit behavior have been reviewed.
+Verify the identity, service health, task visibility and evidence summaries. Then review the task-write and approval scopes, OAuth claims, project binding, separate-approver policy and audit chain before enabling implementation.
 
-Even when ChatGPT displays a confirmation prompt, AUREN must enforce authorization and approval on the server. ChatGPT confirmation is not a replacement for Guard.
+A ChatGPT confirmation prompt is not a replacement for AUREN Guard or durable approval.
 
-## What is still needed for real software development
+## Verification boundary
 
-The built-in MCP task handler currently returns proposals rather than repository patches. The separate local Vibe Coding host is not yet registered as the task executor behind the remote MCP service. To use AUREN as the actual engineering executor from ChatGPT web, the deployment must connect that reviewed workflow to the canonical runtime and pass the scoped coding-agent executor gate:
+A successful MCP connection or accepted task receipt is not proof that engineering work completed. Completion requires the canonical controller task, approved action receipt, accepted 18-stage host report, source-revision binding, isolated worktree checks and verified evidence digest.
 
-- workspace-bound filesystem and process isolation;
-- exact assignment/path scope and denial before process launch;
-- environment and credential allowlists;
-- bounded output, deadline propagation, cancellation, and process-tree cleanup;
-- durable operation receipts and restart reconciliation without replaying uncertain effects;
-- tests for workspace escape, secret access, unauthorized egress, process failure, and recovery;
-- independent review and exact-head CI, followed by deployed host acceptance.
+Before calling the hosted integration production-ready, also complete:
 
-Until those checks pass, use ChatGPT web only for read-only AUREN status/evidence or proposal workflows. Do not present an accepted proposal as an implemented change.
+- OAuth authorization, refresh, revocation and issuer/audience negative tests.
+- Workspace escape, secret access, process failure, cancellation and restart-recovery tests.
+- Remote MCP acceptance through the deployed endpoint and real ChatGPT tool discovery.
+- Exact-head CI and post-deployment smoke tests.
+- Backup, restore, retention and single-host recovery rehearsal.
 
-## Verify the deployment
-
-Run the repository's read-only remote acceptance probe with a short-lived read-only token:
-
-```bash
-export AUREN_MCP_ENDPOINT="https://<your-host>/mcp"
-export AUREN_MCP_ALLOWED_HOSTS="<your-host>"
-export AUREN_MCP_ACCESS_TOKEN="<short-lived-read-only-token>"
-python scripts/remote_mcp_acceptance.py
-```
-
-Then complete the real ChatGPT OAuth, tool-discovery, and read-only smoke tests. The probe does not prove ChatGPT account eligibility, OAuth refresh/revocation, production isolation, live repository execution, or multi-host readiness.
-
-For future changes to the MCP tool list, refresh the app's tool definitions in ChatGPT and review the diff. ChatGPT workspace apps use a reviewed tool snapshot; server-side changes are not automatically enabled.
+The built-in remote launcher removes the custom runtime-factory requirement. It does not deploy the service, create OAuth credentials, configure a ChatGPT workspace app or prove multi-host readiness.

@@ -415,6 +415,9 @@ class AurenMCPService:
         if task_admission is not None and not callable(task_admission):
             raise TypeError("task_admission must be a host-owned callable")
         self.task_admission = task_admission
+        self.approver_identity_resolver = (
+            self._principal_key if task_admission is not None else lambda principal: principal.subject
+        )
         self.approval_store = approval_store or DurableApprovalStore(self.controller)
         self.trigger = trigger if trigger is not None else AdaptiveTrigger.for_runtime(runtime)
         self._stop = threading.Event()
@@ -660,7 +663,7 @@ class AurenMCPService:
         definitions = [
             ("auren.service_status", "Read AUREN service health, queue capacity and admission state.", _SCOPE_READ,
              {"type": "object", "properties": {}, "additionalProperties": False}),
-            ("auren.submit_task", "Durably submit an engineering task to the configured AUREN workspace. A caller-scoped idempotency key is required. Returns an acceptance receipt, not a completion claim.", _SCOPE_WRITE,
+            ("auren.submit_task", "Durably submit an engineering task to the configured AUREN workspace. A caller-scoped idempotency key is required. When the Vibe Coding host is configured, repository edits run in an isolated worktree only after AUREN's durable approval. Returns an acceptance receipt, not a completion claim.", _SCOPE_WRITE,
              {"type": "object", "required": ["task", "idempotency_key"], "properties": {
                  "task": {"type": "string", "minLength": 1, "maxLength": DEFAULT_MAX_TASK_CHARS},
                  "context": {"type": "object", "additionalProperties": True},
@@ -1163,7 +1166,7 @@ class AurenMCPService:
                 raise ValueError("decision and reason are required")
             record = self.approval_store.get(approval_id)
             decided = self.approval_store.decide(
-                approval_id, decision, approver_id=principal.subject,
+                approval_id, decision, approver_id=self.approver_identity_resolver(principal),
                 roles=principal.roles, scope=record.scope, reason=reason,
             )
             return self._approval_summary(decided)
@@ -1733,8 +1736,14 @@ def create_app(runtime: Any, **kwargs: Any) -> AurenMCPASGI:
     return AurenMCPASGI(AurenMCPService(runtime, **kwargs))
 
 
-def service_from_environment(runtime: Any, *, project_root: str | Path) -> AurenMCPService:
-    """Create a fail-closed service from deployment environment configuration."""
+def service_from_environment(
+    runtime: Any, *, project_root: str | Path, composition: Any | None = None,
+) -> AurenMCPService:
+    """Create a fail-closed service from deployment environment configuration.
+
+    When the built-in composition is supplied, remote task admission, durable
+    approvals and trigger execution share that exact canonical runtime.
+    """
     resource_url = os.environ.get("AUREN_MCP_RESOURCE_URL", "").strip()
     authorization_server = os.environ.get("AUREN_MCP_AUTHORIZATION_SERVER", "").strip() or None
     introspection = os.environ.get("AUREN_MCP_INTROSPECTION_URL", "").strip()
@@ -1772,6 +1781,9 @@ def service_from_environment(runtime: Any, *, project_root: str | Path) -> Auren
         control_store_path=os.environ.get("AUREN_MCP_CONTROL_DB") or None,
         max_pending_tasks=int(os.environ.get("AUREN_MCP_MAX_PENDING_TASKS", "1000")),
         max_response_bytes=int(os.environ.get("AUREN_MCP_MAX_RESPONSE_BYTES", str(DEFAULT_MAX_RESPONSE_BYTES))),
+        approval_store=getattr(composition, "approval_store", None),
+        trigger=getattr(composition, "trigger", None),
+        task_admission=getattr(composition, "admit_task", None),
     )
 
 

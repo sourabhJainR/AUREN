@@ -17,7 +17,9 @@ from portable.local_composition import (
     LocalProviderOutcomeUnknown,
     create_local_composition,
     run_local_provider_task,
+    run_local_vibe_coding_task,
 )
+from portable.remote_mcp import MCPPrincipal
 from portable.local_host import create_local_mcp_service
 
 
@@ -86,6 +88,92 @@ def _service(composition, project: Path, token_path: Path, port: int):
 
 
 class LocalRuntimeCompositionTests(unittest.TestCase):
+    def test_remote_admission_requires_explicit_project_role_and_vibe_host(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            project = root / "workspace"
+            _git_workspace(project)
+            composition = create_local_composition(
+                project, state_root=root / "local-state", provider_pool=FakeProvider(),
+            )
+            try:
+                composition.vibe_host_config = SimpleNamespace(
+                    provider="codex", allow_workspace_writes=True,
+                )
+                composition.vibe_host_config_path = root / "host.json"
+                composition.vibe_host_config_digest = "a" * 64
+                composition.vibe_host_status = {"status": "ready"}
+                principal = MCPPrincipal(
+                    "remote-engineer",
+                    frozenset({"auren:tasks:write"}),
+                    roles=("engineering_manager",),
+                    projects=(str(project),),
+                    issuer="https://identity.example.test",
+                )
+                approver_digest = hashlib.sha256(
+                    b"https://identity.example.test\0remote-approver"
+                ).hexdigest()
+                with patch.dict(os.environ, {
+                    "AUREN_MCP_REMOTE_EXECUTION_ENABLED": "1",
+                    "AUREN_MCP_APPROVER_SUBJECT_DIGESTS": "",
+                }):
+                    with self.assertRaises(PermissionError):
+                        composition.admit_task(
+                            principal, "Implement a bounded feature", {}, "remote-vibe-no-approver-0001",
+                        )
+                with patch.dict(os.environ, {
+                    "AUREN_MCP_REMOTE_EXECUTION_ENABLED": "1",
+                    "AUREN_MCP_APPROVER_SUBJECT_DIGESTS": approver_digest,
+                }):
+                    admitted = composition.admit_task(
+                        principal, "Implement a bounded feature", {}, "remote-vibe-admission-0001",
+                    )
+                    self.assertEqual(admitted["_auren_local_provider"]["kind"], "vibe")
+                    self.assertTrue(admitted["_auren_local_separation_of_duties"])
+                    expected_digest = hashlib.sha256(
+                        b"https://identity.example.test\0remote-engineer"
+                    ).hexdigest()
+                    self.assertEqual(admitted["_auren_local_subject_digest"], expected_digest)
+                    unscoped = MCPPrincipal(
+                        "remote-engineer",
+                        frozenset({"auren:tasks:write"}),
+                        roles=("engineering_manager",),
+                        projects=(str(root),),
+                        issuer="https://identity.example.test",
+                    )
+                    with self.assertRaises(PermissionError):
+                        composition.admit_task(
+                            unscoped, "Implement a bounded feature", {}, "remote-vibe-admission-0002",
+                        )
+            finally:
+                composition.close()
+
+    def test_remote_approver_allowlist_uses_the_same_issuer_subject_digest(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            project = root / "workspace"
+            _git_workspace(project)
+            composition = create_local_composition(project, state_root=root / "state")
+            try:
+                subject_digest = hashlib.sha256(
+                    b"https://identity.example.test\0approver-1"
+                ).hexdigest()
+                with patch.dict(os.environ, {"AUREN_MCP_APPROVER_SUBJECT_DIGESTS": subject_digest}):
+                    self.assertTrue(composition.operator.authorize_approver(
+                        subject_digest, "engineering_manager", "repo:write",
+                        ("engineering_manager",),
+                    ))
+                with patch.dict(os.environ, {"AUREN_MCP_APPROVER_SUBJECT_DIGESTS": ""}):
+                    self.assertFalse(composition.operator.authorize_approver(
+                        subject_digest, "engineering_manager", "repo:write",
+                        ("engineering_manager",),
+                    ))
+            finally:
+                composition.close()
+
+    def test_vibe_handler_rejects_calls_without_canonical_approval_context(self):
+        with self.assertRaises(PermissionError):
+            run_local_vibe_coding_task({})
     def test_local_mcp_submission_recovers_after_host_restart_without_duplicate_provider_call(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
