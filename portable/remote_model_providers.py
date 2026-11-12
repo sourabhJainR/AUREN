@@ -309,11 +309,18 @@ class OpenAICompatibleProvider:
         if span is not None:
             try:
                 raw_finish_reason = result.finish_reason
+                known_finish_reasons = {
+                    "stop", "length", "tool_calls", "function_call", "content_filter",
+                    "completed", "incomplete", "end_turn", "max_tokens", "stop_sequence",
+                    "complete", "tool_use",
+                }
+                normalized_finish_reason = (
+                    raw_finish_reason.strip().lower()
+                    if isinstance(raw_finish_reason, str) else ""
+                )
                 safe_finish_reason = (
-                    raw_finish_reason
-                    if isinstance(raw_finish_reason, str)
-                    and 0 < len(raw_finish_reason) <= 40
-                    and all(char.isalnum() or char in "._-" for char in raw_finish_reason)
+                    normalized_finish_reason
+                    if normalized_finish_reason in known_finish_reasons
                     else ("other" if raw_finish_reason else None)
                 )
                 span.finish(
