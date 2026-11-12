@@ -2516,7 +2516,7 @@ def load_host_config(path: str | Path | None = None) -> VibeHostConfig:
                 )
         provider_capabilities[stage] = normalized
     approval_mode = raw.get("approval_mode", "owner_auto")
-    if approval_mode not in {"owner_auto", "manual"}:
+    if not isinstance(approval_mode, str) or approval_mode not in {"owner_auto", "manual"}:
         raise ValueError("approval_mode must be 'owner_auto' or 'manual'")
     return VibeHostConfig(
         provider=raw.get("provider"),
