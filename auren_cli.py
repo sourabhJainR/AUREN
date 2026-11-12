@@ -161,7 +161,7 @@ def _run_up(args: list[str]) -> int:
     parser.add_argument("--no-connect", action="store_true", help="Leave local client configuration untouched.")
     parser.add_argument("--no-browser", action="store_true", help="Do not open the desktop console.")
     options = parser.parse_args(args)
-    from portable.onboarding import initialize_repository, load_project_profile
+    from portable.onboarding import doctor, initialize_repository, load_project_profile
     root = Path(options.project_root).expanduser().resolve()
     if not root.is_dir():
         parser.error(f"project root is not an existing directory: {root}")
@@ -175,7 +175,20 @@ def _run_up(args: list[str]) -> int:
     except (OSError, ValueError, RuntimeError) as exc:
         print(f"auren up blocked during project setup: {exc}", file=sys.stderr)
         return 2
-    print(json.dumps({"project_setup": setup}, indent=2, sort_keys=True), flush=True)
+    try:
+        readiness = doctor(root)
+        provider_readiness = {
+            "cli_providers": readiness.get("providers", []),
+            "remote_api": readiness.get("remote_model_providers", {}),
+            "local_model": readiness.get("local_model", {}),
+            "remote_inference_policy": readiness.get("remote_inference_policy", {}),
+        }
+    except Exception as exc:
+        provider_readiness = {"status": "unavailable", "reason": type(exc).__name__}
+    print(json.dumps({
+        "project_setup": setup,
+        "provider_readiness": provider_readiness,
+    }, indent=2, sort_keys=True), flush=True)
     from portable.local_host import main as local_main
     local_args = ["--project-root", str(root),
                   "--dashboard-port", str(options.dashboard_port),

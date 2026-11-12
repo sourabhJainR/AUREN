@@ -7,10 +7,18 @@ from auren_cli import _run_providers, _run_up
 
 
 def test_up_initializes_only_missing_profile_and_starts_unified_host(tmp_path: Path, monkeypatch, capsys):
-    from portable import local_host
+    from portable import local_host, onboarding
 
+    monkeypatch.setattr(onboarding, "doctor", lambda root: {
+        "providers": [], "remote_model_providers": {"status": "disabled"},
+        "local_model": {"status": "not_available"},
+        "remote_inference_policy": {"enabled": False},
+    })
     captured = {}
-    monkeypatch.setattr(local_host, "main", lambda args: captured.setdefault("args", args) and 0)
+    def fake_main(args):
+        captured["args"] = args
+        return 0
+    monkeypatch.setattr(local_host, "main", fake_main)
     result = _run_up(["--project-root", str(tmp_path), "--no-browser"])
     assert result == 0
     profile = tmp_path / ".auren" / "project.json"
@@ -24,8 +32,13 @@ def test_up_initializes_only_missing_profile_and_starts_unified_host(tmp_path: P
 
 def test_up_preserves_existing_project_profile_and_supports_headless_opt_out(tmp_path: Path, monkeypatch):
     from portable.onboarding import initialize_repository
-    from portable import local_host
+    from portable import local_host, onboarding
 
+    monkeypatch.setattr(onboarding, "doctor", lambda root: {
+        "providers": [], "remote_model_providers": {"status": "disabled"},
+        "local_model": {"status": "not_available"},
+        "remote_inference_policy": {"enabled": False},
+    })
     initialize_repository(tmp_path)
     profile = tmp_path / ".auren" / "project.json"
     before = profile.read_bytes()
