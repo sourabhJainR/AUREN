@@ -1235,6 +1235,7 @@ def _resolve_local_vibe_approval(composition: Any, approval: Any, config: Any) -
         roles=("engineering_manager",),
         scope="repo:write",
         reason="Automatically authorized by the configured single-user local project owner",
+        wake_worker=False,
     )
 
 
