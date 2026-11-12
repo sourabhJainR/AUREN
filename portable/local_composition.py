@@ -27,7 +27,7 @@ from .action_governance import ActionGovernanceGateway, ActionPolicy, ActionRequ
 from .adaptive_runtime import AdaptiveRuntime
 from .adaptive_trigger import AdaptiveTrigger, AdaptiveTriggerRequest
 from .agent_org_runtime import REGISTRY_PATH, authorize_agent_assignment
-from .durable_approval import ApprovalConflict, ApprovalPending, DurableApprovalStore
+from .durable_approval import ApprovalPending, DurableApprovalStore
 from .engineering_plan import EngineeringPlan, PlanTask
 from .requirement_contract import Requirement, RequirementContractEngine
 from .engineering_plan_goal_reconciler import EngineeringPlanGoalReconciler
@@ -428,7 +428,10 @@ class LocalOperatorAuthority:
             if re.fullmatch(r"[0-9a-fA-F]{64}", item.strip())
         }
         return bool(
-            (approver_id == self.principal_digest or approver_id in configured_remote_approver_digests)
+            (
+                approver_id in {self.principal_digest, _OPERATOR_ID}
+                or approver_id in configured_remote_approver_digests
+            )
             and required_role == "engineering_manager"
             and scope in {"repo:write", "project:write"}
             and "engineering_manager" in roles
