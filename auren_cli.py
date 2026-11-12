@@ -850,6 +850,7 @@ def main(argv: list[str] | None = None) -> int:
         parser = argparse.ArgumentParser(
             prog="auren",
             description="AUREN: one durable engineering runtime across MCP, CLI and desktop clients.",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog=(
                 "Quick start: auren up\n"
                 "Useful commands: auren task submit --task \"...\" | auren providers | auren progress --json | "

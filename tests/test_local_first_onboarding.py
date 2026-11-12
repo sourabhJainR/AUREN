@@ -111,6 +111,7 @@ def test_connect_refuses_duplicate_keys_and_symlinked_token(tmp_path: Path):
     config.write_text('{"mcpServers": {}, "mcpServers": {}}', encoding="utf-8")
     token = tmp_path / "token"
     token.write_text("x" * 64, encoding="utf-8")
+    token.chmod(0o600)
     clients = [{"name": "test", "path": str(config), "key": "mcpServers"}]
     with pytest.raises(OnboardingError, match="duplicate JSON key"):
         configure_clients(

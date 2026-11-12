@@ -37,7 +37,7 @@ def test_local_cli_client_negotiates_stateless_mcp_and_calls_one_tool(tmp_path, 
         "initialize", "notifications/initialized", "tools/call",
     ]
     assert calls[-1][0]["params"]["name"] == "auren.submit_task"
-    assert calls[-1][1] == MODERN_PROTOCOL_VERSION
+    assert calls[-1][1] == LOCAL_PROTOCOL_VERSION
 
 
 def test_local_cli_client_rejects_non_loopback_endpoint_before_network(tmp_path, monkeypatch):
