@@ -110,7 +110,13 @@ class LocalRuntimeCompositionTests(unittest.TestCase):
                     projects=(str(project),),
                     issuer="https://identity.example.test",
                 )
-                with patch.dict(os.environ, {"AUREN_MCP_REMOTE_EXECUTION_ENABLED": "1"}):
+                approver_digest = hashlib.sha256(
+                    b"https://identity.example.test\\0remote-approver"
+                ).hexdigest()
+                with patch.dict(os.environ, {
+                    "AUREN_MCP_REMOTE_EXECUTION_ENABLED": "1",
+                    "AUREN_MCP_APPROVER_SUBJECT_DIGESTS": approver_digest,
+                }):
                     admitted = composition.admit_task(
                         principal, "Implement a bounded feature", {}, "remote-vibe-admission-0001",
                     )
