@@ -129,18 +129,29 @@ class RequirementContract:
         requirements = payload.get("requirements")
         conflicts = payload.get("conflicts", ())
         decisions = payload.get("decisions", ())
-        if not isinstance(requirements, (list, tuple)) or not isinstance(conflicts, (list, tuple)) or not isinstance(decisions, (list, tuple)):
+        ambiguities = payload.get("ambiguities", ())
+        assumptions = payload.get("assumptions", ())
+        collections = (requirements, conflicts, decisions, ambiguities, assumptions)
+        if any(not isinstance(value, (list, tuple)) for value in collections):
             raise ValueError("requirement contract collections must be arrays")
+        if any(not isinstance(item, Mapping) for item in requirements + conflicts + decisions):
+            raise ValueError("requirement contract records must be objects")
+        for item in requirements:
+            if not isinstance(item.get("acceptance_criteria"), (list, tuple)):
+                raise ValueError("acceptance criteria must be an array")
+        for item in conflicts:
+            if not isinstance(item.get("requirement_ids"), (list, tuple)) or not isinstance(item.get("options"), (list, tuple)):
+                raise ValueError("conflict requirement IDs and options must be arrays")
         engine = RequirementContractEngine()
         return engine.build(
-            str(payload.get("intent", "")),
+            payload.get("intent", ""),
             tuple(Requirement(
                 item["requirement_id"], item["statement"],
                 tuple(item["acceptance_criteria"]),
                 item.get("priority", "must"), item.get("source", "user"),
             ) for item in requirements),
-            ambiguities=tuple(payload.get("ambiguities", ())),
-            assumptions=tuple(payload.get("assumptions", ())),
+            ambiguities=tuple(ambiguities),
+            assumptions=tuple(assumptions),
             conflicts=tuple(RequirementConflict(
                 item["conflict_id"], tuple(item["requirement_ids"]),
                 item["reason"], item["impact"], tuple(item["options"]),
@@ -175,12 +186,12 @@ class RequirementContractEngine:
         items = tuple(requirements)
         if not items:
             raise ValueError("at least one requirement is required")
+        if any(not isinstance(item, Requirement) for item in items):
+            raise TypeError("requirements must contain Requirement records")
         ids = [item.requirement_id.strip() for item in items if isinstance(item.requirement_id, str)]
         if len(ids) != len(items) or any(not value for value in ids) or len(ids) != len(set(ids)):
             raise ValueError("requirement IDs must be non-empty and unique")
         for item in items:
-            if not isinstance(item, Requirement):
-                raise TypeError("requirements must contain Requirement records")
             if not isinstance(item.statement, str) or not item.statement.strip() or not item.acceptance_criteria:
                 raise ValueError("every requirement needs a statement and acceptance criteria")
             if any(not isinstance(value, str) or not value.strip() for value in item.acceptance_criteria):
@@ -220,6 +231,8 @@ class RequirementContractEngine:
                 raise TypeError("conflicts must contain RequirementConflict records")
             if not isinstance(conflict.conflict_id, str) or not conflict.conflict_id.strip() or conflict.conflict_id in conflict_map:
                 raise ValueError("conflict IDs must be non-empty and unique")
+            if not isinstance(conflict.requirement_ids, (list, tuple)):
+                raise ValueError("conflict requirement IDs must be an array")
             linked = tuple(conflict.requirement_ids)
             if len(linked) < 2 or len(linked) != len(set(linked)) or any(item not in requirement_ids for item in linked):
                 raise ValueError("conflicts must reference at least two distinct known requirements")
@@ -227,6 +240,8 @@ class RequirementContractEngine:
                 raise ValueError("conflict reason is required")
             if not isinstance(conflict.impact, str) or not conflict.impact.strip():
                 raise ValueError("conflict impact is required")
+            if not isinstance(conflict.options, (list, tuple)):
+                raise ValueError("conflict options must be an array")
             options = tuple(conflict.options)
             if len(options) < 2 or any(not isinstance(item, str) or not item.strip() for item in options) or len(options) != len(set(options)):
                 raise ValueError("conflicts need at least two unique non-empty options")
