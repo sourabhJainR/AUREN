@@ -6,7 +6,9 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from . import mcp_stdio_proxy
-from .remote_mcp import MODERN_PROTOCOL_VERSION
+from .remote_mcp import SUPPORTED_PROTOCOL_VERSIONS
+
+LOCAL_PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[0]
 
 
 class LocalMCPClientError(RuntimeError):
@@ -77,7 +79,7 @@ def call_local_tool(
     initialize = {
         "jsonrpc": "2.0", "id": 1, "method": "initialize",
         "params": {
-            "protocolVersion": MODERN_PROTOCOL_VERSION,
+            "protocolVersion": LOCAL_PROTOCOL_VERSION,
             "capabilities": {},
             "clientInfo": {"name": "AUREN CLI", "version": "1.0"},
         },
@@ -89,7 +91,7 @@ def call_local_tool(
     negotiated = _rpc_result(response, 1).get("protocolVersion")
     if negotiated != MODERN_PROTOCOL_VERSION:
         raise LocalMCPClientError(
-            "local MCP endpoint did not negotiate the stateless protocol required by the CLI",
+            "local MCP endpoint did not negotiate the protocol version required by the CLI",
         )
     initialized = {"jsonrpc": "2.0", "method": "notifications/initialized"}
     mcp_stdio_proxy.post_message(

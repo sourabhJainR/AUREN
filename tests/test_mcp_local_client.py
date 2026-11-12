@@ -6,7 +6,7 @@ import pytest
 
 from portable import mcp_stdio_proxy
 from portable.mcp_local_client import LocalMCPClientError, call_local_tool
-from portable.remote_mcp import MODERN_PROTOCOL_VERSION
+from portable.mcp_local_client import LOCAL_PROTOCOL_VERSION
 
 
 def test_local_cli_client_negotiates_stateless_mcp_and_calls_one_tool(tmp_path, monkeypatch):
@@ -20,7 +20,7 @@ def test_local_cli_client_negotiates_stateless_mcp_and_calls_one_tool(tmp_path, 
         calls.append((request, protocol_version, url, token))
         if request.get("method") == "initialize":
             response = {"jsonrpc": "2.0", "id": 1,
-                        "result": {"protocolVersion": MODERN_PROTOCOL_VERSION}}
+                        "result": {"protocolVersion": LOCAL_PROTOCOL_VERSION}}
             return json.dumps(response, indent=2).encode("utf-8")
         if request.get("method") == "notifications/initialized":
             return None
@@ -61,7 +61,7 @@ def test_local_cli_client_rejects_stateful_protocol_fallback(tmp_path, monkeypat
 
     def fake_post(url, token, payload, *, protocol_version=None, timeout_seconds=60.0):
         return json.dumps({"jsonrpc": "2.0", "id": 1,
-                           "result": {"protocolVersion": "2025-11-25"}}).encode("utf-8")
+                           "result": {"protocolVersion": "2025-06-18"}}).encode("utf-8")
 
     monkeypatch.setattr(mcp_stdio_proxy, "post_message", fake_post)
     with pytest.raises(LocalMCPClientError, match="stateless protocol"):
