@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from auren_cli import _run_providers, _run_up
+from auren_cli import _run_providers, _run_up, main
 
 
 def test_up_initializes_only_missing_profile_and_starts_unified_host(tmp_path: Path, monkeypatch, capsys):
@@ -68,3 +68,10 @@ def test_providers_command_reports_routes_without_credentials(monkeypatch, capsy
     assert report["routing"]["provider_order"] == ["openai"]
     assert report["routing"]["private_and_restricted_tasks"] == "local_only"
     assert "API_KEY" not in output
+
+def test_top_level_help_highlights_the_unified_entry_points(capsys):
+    assert main(["--help"]) == 0
+    output = capsys.readouterr().out
+    assert "Quick start: auren up" in output
+    assert "auren providers" in output
+    assert "auren progress --json" in output

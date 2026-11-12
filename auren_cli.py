@@ -739,6 +739,21 @@ def _run_onboarding(command: str, args: list[str]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
+    if args and args[0] in {"-h", "--help", "help"}:
+        parser = argparse.ArgumentParser(
+            prog="auren",
+            description="AUREN: one durable engineering runtime across MCP, CLI and desktop clients.",
+            epilog=(
+                "Quick start: auren up\n"
+                "Useful commands: auren providers | auren progress --json | "
+                "auren continuous status | auren doctor\n"
+                "Full usage: docs/USAGE_AND_PLATFORM_INTEGRATION.md"
+            ),
+        )
+        parser.add_argument("command", nargs="?", help="Command to run")
+        parser.add_argument("command_args", nargs=argparse.REMAINDER, help="Command options")
+        parser.print_help()
+        return 0
     if len(args) == 1 and Path(args[0]).suffix.lower() == ".zip":
         args = ["install", *args, "--skill", "auto"]
     elif args and args[0] in {"install", "update"} and not _has_flag(args, "--skill"):
