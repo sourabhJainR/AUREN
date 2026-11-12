@@ -231,7 +231,11 @@ class ImpactPolicyTests(unittest.TestCase):
             with self.subTest(hardening_suite_path=path):
                 impact = classify_path(path)
                 for suite in impact.required_suites:
-                    self.assertIn(suite, hardening_workflow, f"{path} requires {suite}, but hardening does not run it")
+                    pytest_path = suite.replace(".", "/") + ".py"
+                    self.assertTrue(
+                        suite in hardening_workflow or pytest_path in hardening_workflow,
+                        f"{path} requires {suite}, but hardening does not run it",
+                    )
 
     def test_workspace_dashboard_projection_has_focused_runtime_coverage(self):
         adapter = classify_path("portable/muxin_session_adapter.py")
