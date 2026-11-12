@@ -54,9 +54,23 @@ The command creates the minimal `.auren/project.json` only when it is missing, v
 
 Use `auren up --no-connect` to leave client settings untouched, or `auren up --no-browser` on a headless machine. Use `auren local` when you want the server without automatic client configuration. Configuration failures are reported per client and do not prevent local services from starting.
 
+Task operations from the CLI use the same authenticated local MCP service as chat and IDE clients:
+
+~~~bash
+auren task submit --task "Implement the requested change"
+auren task list
+auren task status <task-id>
+auren task evidence <task-id>
+auren task cancel <task-id> --reason "No longer needed"
+auren task approvals --status pending
+auren task decide-approval <approval-id> --decision approve --reason "Reviewed"
+~~~
+
+Submission prints its caller-scoped idempotency key. Reuse `--idempotency-key` when retrying the same request. The local CLI refuses non-loopback endpoints; use an authenticated MCP-capable host for remote deployments. Start the local service first with `auren up`.
+
 The common interaction path is:
 - **Chat, IDE and desktop clients:** connect to AUREN through the local MCP server.
-- **CLI:** use `auren progress --json`, `auren continuous status`, and `auren providers`.
+- **CLI:** use `auren task submit/list/status/cancel/evidence/approvals/decide-approval` for the same authenticated MCP task API, plus `auren progress --json`, `auren continuous status`, and `auren providers`.
 - **Desktop console:** the browser opens the same local Session Control Center and durable progress view.
 - **Hosted chat clients:** deploy the authenticated remote MCP service and configure its HTTPS endpoint and OAuth provider. A loopback URL cannot be used from a cloud-hosted chat service.
 

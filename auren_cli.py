@@ -229,6 +229,107 @@ def _run_providers(args: list[str]) -> int:
         return 2
 
 
+def _run_task(args: list[str]) -> int:
+    """Use the authenticated local MCP service for the same task API as chat clients."""
+    from os import environ
+    import uuid
+    from portable.identity_compat import canonical_auren_home
+
+    parser = argparse.ArgumentParser(
+        prog="auren task",
+        description="Submit, inspect, cancel and verify tasks through the shared local MCP runtime.",
+    )
+    parser.add_argument("--url", default=environ.get(
+        "AUREN_LOCAL_MCP_URL", "http://127.0.0.1:8765/mcp",
+    ))
+    parser.add_argument("--token-file", default=environ.get(
+        "AUREN_LOCAL_MCP_TOKEN_FILE",
+        str(canonical_auren_home() / "mcp" / "local-operator.token"),
+    ))
+    commands = parser.add_subparsers(dest="action", required=True)
+
+    submit = commands.add_parser("submit", help="Submit a durable task.")
+    submit.add_argument("--task", required=True)
+    submit.add_argument("--priority", choices=("high", "normal", "low"), default="normal")
+    submit.add_argument("--max-attempts", type=int, choices=range(1, 9), default=3)
+    submit.add_argument("--context", default="{}", help="JSON object; credentials and host controls are rejected.")
+    submit.add_argument("--idempotency-key", default=None, help="Reuse this key when retrying the same submission.")
+
+    listing = commands.add_parser("list", help="List tasks visible to the local operator.")
+    listing.add_argument("--limit", type=int, choices=range(1, 101), default=30)
+
+    status = commands.add_parser("status", help="Read one task.")
+    status.add_argument("task_id")
+
+    cancel = commands.add_parser("cancel", help="Request task cancellation.")
+    cancel.add_argument("task_id")
+    cancel.add_argument("--reason", required=True)
+
+    evidence = commands.add_parser("evidence", help="Read bounded progress and evidence.")
+    evidence.add_argument("task_id")
+    evidence.add_argument("--limit", type=int, choices=range(1, 101), default=50)
+
+    approvals = commands.add_parser("approvals", help="List durable approvals.")
+    approvals.add_argument("--status", default=None)
+    approvals.add_argument("--limit", type=int, choices=range(1, 101), default=30)
+
+    decide = commands.add_parser("decide-approval", help="Record a host-authorized approval decision.")
+    decide.add_argument("approval_id")
+    decide.add_argument("--decision", choices=("approve", "reject"), required=True)
+    decide.add_argument("--reason", required=True)
+
+    options = parser.parse_args(args)
+    if options.action == "submit":
+        try:
+            context = json.loads(options.context)
+        except json.JSONDecodeError as exc:
+            parser.error(f"--context must be valid JSON: {exc.msg}")
+        if not isinstance(context, dict):
+            parser.error("--context must be a JSON object")
+        idempotency_key = options.idempotency_key or uuid.uuid4().hex
+        tool_name = "auren.submit_task"
+        arguments = {
+            "task": options.task, "priority": options.priority,
+            "max_attempts": options.max_attempts, "context": context,
+            "idempotency_key": idempotency_key,
+        }
+    elif options.action == "list":
+        tool_name, arguments, idempotency_key = "auren.list_tasks", {"limit": options.limit}, None
+    elif options.action == "status":
+        tool_name, arguments, idempotency_key = "auren.get_task", {"task_id": options.task_id}, None
+    elif options.action == "cancel":
+        tool_name, arguments, idempotency_key = "auren.cancel_task", {
+            "task_id": options.task_id, "reason": options.reason,
+        }, None
+    elif options.action == "evidence":
+        tool_name, arguments, idempotency_key = "auren.get_evidence", {
+            "task_id": options.task_id, "limit": options.limit,
+        }, None
+    elif options.action == "approvals":
+        tool_name, arguments, idempotency_key = "auren.list_approvals", {
+            "limit": options.limit, "status": options.status,
+        }, None
+    else:
+        tool_name, arguments, idempotency_key = "auren.decide_approval", {
+            "approval_id": options.approval_id, "decision": options.decision,
+            "reason": options.reason,
+        }, None
+
+    from portable.mcp_local_client import call_local_tool
+    try:
+        result = call_local_tool(
+            tool_name, arguments, url=options.url, token_file=options.token_file,
+        )
+        payload = {"tool": tool_name, "result": result}
+        if idempotency_key is not None:
+            payload["idempotency_key"] = idempotency_key
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"auren task failed: {exc}", file=sys.stderr)
+        return 2
+
+
 def _run_mcp_proxy(args: list[str]) -> int:
     """Bridge a local HTTP MCP endpoint to clients that only support stdio."""
     from portable.mcp_stdio_proxy import main as proxy_main
@@ -745,7 +846,7 @@ def main(argv: list[str] | None = None) -> int:
             description="AUREN: one durable engineering runtime across MCP, CLI and desktop clients.",
             epilog=(
                 "Quick start: auren up\n"
-                "Useful commands: auren providers | auren progress --json | "
+                "Useful commands: auren task submit --task \"...\" | auren providers | auren progress --json | "
                 "auren continuous status | auren doctor\n"
                 "Full usage: docs/USAGE_AND_PLATFORM_INTEGRATION.md"
             ),
@@ -768,6 +869,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_up(args[1:])
     if args and args[0] == "providers":
         return _run_providers(args[1:])
+    if args and args[0] == "task":
+        return _run_task(args[1:])
     if args and args[0] == "local":
         return _run_local(args[1:])
     if args and args[0] == "mcp-proxy":

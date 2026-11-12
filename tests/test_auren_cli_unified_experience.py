@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from auren_cli import _run_providers, _run_up, main
+from auren_cli import _run_providers, _run_task, _run_up, main
 
 
 def test_up_initializes_only_missing_profile_and_starts_unified_host(tmp_path: Path, monkeypatch, capsys):
@@ -75,3 +75,31 @@ def test_top_level_help_highlights_the_unified_entry_points(capsys):
     assert "Quick start: auren up" in output
     assert "auren providers" in output
     assert "auren progress --json" in output
+
+def test_task_submit_uses_the_shared_mcp_tool_and_returns_retry_key(monkeypatch, capsys):
+    from portable import mcp_local_client
+
+    captured = {}
+    def fake_call(tool_name, arguments, **kwargs):
+        captured.update({"tool": tool_name, "arguments": arguments, "kwargs": kwargs})
+        return {"content": [{"type": "text", "text": "accepted"}]}
+    monkeypatch.setattr(mcp_local_client, "call_local_tool", fake_call)
+    assert _run_task(["submit", "--task", "Implement a bounded feature"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert captured["tool"] == "auren.submit_task"
+    assert len(report["idempotency_key"]) == 32
+    assert captured["arguments"]["idempotency_key"] == report["idempotency_key"]
+    assert report["result"]["content"][0]["text"] == "accepted"
+
+
+def test_task_status_maps_to_the_canonical_mcp_get_task_tool(monkeypatch, capsys):
+    from portable import mcp_local_client
+
+    captured = {}
+    def fake_call(tool_name, arguments, **kwargs):
+        captured.update({"tool": tool_name, "arguments": arguments})
+        return {"content": [{"type": "text", "text": "{}"}]}
+    monkeypatch.setattr(mcp_local_client, "call_local_tool", fake_call)
+    assert _run_task(["status", "task-42"]) == 0
+    capsys.readouterr()
+    assert captured == {"tool": "auren.get_task", "arguments": {"task_id": "task-42"}}
