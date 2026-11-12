@@ -320,7 +320,7 @@ class OpenAICompatibleProvider:
                     output={
                         "outcome": "completed",
                         "response_digest": result.response_digest,
-                        "response_bytes": len(result.content.encode("utf-8")),
+                        "completion_bytes": len(result.content.encode("utf-8")),
                         "usage": dict(result.usage),
                         "latency_ms": result.latency_ms,
                         "finish_reason": safe_finish_reason,
