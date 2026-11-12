@@ -89,7 +89,7 @@ def call_local_tool(
         timeout_seconds=15.0,
     )
     negotiated = _rpc_result(response, 1).get("protocolVersion")
-    if negotiated != MODERN_PROTOCOL_VERSION:
+    if negotiated != LOCAL_PROTOCOL_VERSION:
         raise LocalMCPClientError(
             "local MCP endpoint did not negotiate the protocol version required by the CLI",
         )
