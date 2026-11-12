@@ -151,6 +151,191 @@ def _run_local(args: list[str]) -> int:
     return local_main(args)
 
 
+def _run_up(args: list[str]) -> int:
+    """Bootstrap a project and start its shared local AUREN experience."""
+    parser = argparse.ArgumentParser(prog="auren up",
+        description="Initialize a project when needed, start AUREN, connect local clients and open the desktop console.")
+    parser.add_argument("--project-root", default=".")
+    parser.add_argument("--dashboard-port", type=int, default=0)
+    parser.add_argument("--mcp-port", type=int, default=8765)
+    parser.add_argument("--no-connect", action="store_true", help="Leave local client configuration untouched.")
+    parser.add_argument("--no-browser", action="store_true", help="Do not open the desktop console.")
+    options = parser.parse_args(args)
+    from portable.onboarding import doctor, initialize_repository, load_project_profile
+    root = Path(options.project_root).expanduser().resolve()
+    if not root.is_dir():
+        parser.error(f"project root is not an existing directory: {root}")
+    profile_path = root / ".auren" / "project.json"
+    try:
+        if profile_path.exists() or profile_path.is_symlink():
+            load_project_profile(root)
+            setup = {"created": False, "path": str(profile_path), "status": "existing_profile_validated"}
+        else:
+            setup = initialize_repository(root, apply=True)
+    except (OSError, ValueError, RuntimeError) as exc:
+        print(f"auren up blocked during project setup: {exc}", file=sys.stderr)
+        return 2
+    try:
+        readiness = doctor(root)
+        provider_readiness = {
+            "cli_providers": readiness.get("providers", []),
+            "remote_api": readiness.get("remote_model_providers", {}),
+            "local_model": readiness.get("local_model", {}),
+            "remote_inference_policy": readiness.get("remote_inference_policy", {}),
+        }
+    except Exception as exc:
+        provider_readiness = {"status": "unavailable", "reason": type(exc).__name__}
+    print(json.dumps({
+        "project_setup": setup,
+        "provider_readiness": provider_readiness,
+    }, indent=2, sort_keys=True), flush=True)
+    from portable.local_host import main as local_main
+    local_args = ["--project-root", str(root),
+                  "--dashboard-port", str(options.dashboard_port),
+                  "--mcp-port", str(options.mcp_port)]
+    if not options.no_connect:
+        local_args.append("--auto-connect")
+    if not options.no_browser:
+        local_args.append("--open-browser")
+    return local_main(local_args)
+
+
+def _run_providers(args: list[str]) -> int:
+    """Show provider readiness and routing without exposing credentials."""
+    parser = argparse.ArgumentParser(prog="auren providers")
+    parser.add_argument("--project-root", default=".")
+    options = parser.parse_args(args)
+    from portable.onboarding import doctor
+    try:
+        report = doctor(options.project_root)
+        remote = report.get("remote_model_providers", {})
+        payload = {
+            "cli_providers": report.get("providers", []),
+            "remote_api": remote,
+            "local_model": report.get("local_model", {}),
+            "routing": {
+                "provider_order": remote.get("provider_order", []),
+                "remote_inference_enabled": report.get("remote_inference_policy", {}).get("enabled", False),
+                "remote_data_classification": report.get("remote_inference_policy", {}).get("data_classification"),
+                "private_and_restricted_tasks": "local_only",
+                "selection": "per-request ordered provider selection",
+            },
+            "validation_note": "Configuration detection is not live provider or model conformance.",
+        }
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    except (OSError, ValueError, RuntimeError) as exc:
+        print(f"auren providers failed: {exc}", file=sys.stderr)
+        return 2
+
+
+def _run_task(args: list[str]) -> int:
+    """Use the authenticated local MCP service for the same task API as chat clients."""
+    from os import environ
+    import uuid
+    from portable.identity_compat import canonical_auren_home
+
+    parser = argparse.ArgumentParser(
+        prog="auren task",
+        description="Submit, inspect, cancel and verify tasks through the shared local MCP runtime.",
+    )
+    parser.add_argument("--url", default=environ.get(
+        "AUREN_LOCAL_MCP_URL", "http://127.0.0.1:8765/mcp",
+    ))
+    parser.add_argument("--token-file", default=environ.get(
+        "AUREN_LOCAL_MCP_TOKEN_FILE",
+        str(canonical_auren_home() / "mcp" / "local-operator.token"),
+    ))
+    commands = parser.add_subparsers(dest="action", required=True)
+
+    submit = commands.add_parser("submit", help="Submit a durable task.")
+    submit.add_argument("--task", required=True)
+    submit.add_argument("--priority", choices=("high", "normal", "low"), default="normal")
+    submit.add_argument("--max-attempts", type=int, choices=range(1, 9), default=3)
+    submit.add_argument("--context", default="{}", help="JSON object; credentials and host controls are rejected.")
+    submit.add_argument("--idempotency-key", default=None, help="Reuse this key when retrying the same submission.")
+
+    listing = commands.add_parser("list", help="List tasks visible to the local operator.")
+    listing.add_argument("--limit", type=int, choices=range(1, 101), default=30)
+
+    status = commands.add_parser("status", help="Read one task.")
+    status.add_argument("task_id")
+
+    cancel = commands.add_parser("cancel", help="Request task cancellation.")
+    cancel.add_argument("task_id")
+    cancel.add_argument("--reason", required=True)
+
+    evidence = commands.add_parser("evidence", help="Read bounded progress and evidence.")
+    evidence.add_argument("task_id")
+    evidence.add_argument("--limit", type=int, choices=range(1, 101), default=50)
+
+    approvals = commands.add_parser("approvals", help="List durable approvals.")
+    approvals.add_argument("--status", default=None)
+    approvals.add_argument("--limit", type=int, choices=range(1, 101), default=30)
+
+    decide = commands.add_parser("decide-approval", help="Record a host-authorized approval decision.")
+    decide.add_argument("approval_id")
+    decide.add_argument("--decision", choices=("approve", "reject"), required=True)
+    decide.add_argument("--reason", required=True)
+
+    for command_parser in (submit, listing, status, cancel, evidence, approvals, decide):
+        command_parser.add_argument("--url", dest="url", default=argparse.SUPPRESS)
+        command_parser.add_argument("--token-file", dest="token_file", default=argparse.SUPPRESS)
+
+    options = parser.parse_args(args)
+    if options.action == "submit":
+        try:
+            context = json.loads(options.context)
+        except json.JSONDecodeError as exc:
+            parser.error(f"--context must be valid JSON: {exc.msg}")
+        if not isinstance(context, dict):
+            parser.error("--context must be a JSON object")
+        idempotency_key = options.idempotency_key or uuid.uuid4().hex
+        tool_name = "auren.submit_task"
+        arguments = {
+            "task": options.task, "priority": options.priority,
+            "max_attempts": options.max_attempts, "context": context,
+            "idempotency_key": idempotency_key,
+        }
+    elif options.action == "list":
+        tool_name, arguments, idempotency_key = "auren.list_tasks", {"limit": options.limit}, None
+    elif options.action == "status":
+        tool_name, arguments, idempotency_key = "auren.get_task", {"task_id": options.task_id}, None
+    elif options.action == "cancel":
+        tool_name, arguments, idempotency_key = "auren.cancel_task", {
+            "task_id": options.task_id, "reason": options.reason,
+        }, None
+    elif options.action == "evidence":
+        tool_name, arguments, idempotency_key = "auren.get_evidence", {
+            "task_id": options.task_id, "limit": options.limit,
+        }, None
+    elif options.action == "approvals":
+        tool_name, arguments, idempotency_key = "auren.list_approvals", {
+            "limit": options.limit,
+        }, None
+        if options.status is not None:
+            arguments["status"] = options.status
+    else:
+        tool_name, arguments, idempotency_key = "auren.decide_approval", {
+            "approval_id": options.approval_id, "decision": options.decision,
+            "reason": options.reason,
+        }, None
+
+    from portable.mcp_local_client import call_local_tool
+    try:
+        result = call_local_tool(
+            tool_name, arguments, url=options.url, token_file=options.token_file,
+        )
+        payload = {"tool": tool_name, "result": result}
+        if idempotency_key is not None:
+            payload["idempotency_key"] = idempotency_key
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"auren task failed: {exc}", file=sys.stderr)
+        return 2
+
+
 def _run_mcp_proxy(args: list[str]) -> int:
     """Bridge a local HTTP MCP endpoint to clients that only support stdio."""
     from portable.mcp_stdio_proxy import main as proxy_main
@@ -661,6 +846,22 @@ def _run_onboarding(command: str, args: list[str]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
+    if args and args[0] in {"-h", "--help", "help"}:
+        parser = argparse.ArgumentParser(
+            prog="auren",
+            description="AUREN: one durable engineering runtime across MCP, CLI and desktop clients.",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog=(
+                "Quick start: auren up\n"
+                "Useful commands: auren task submit --task \"...\" | auren providers | auren progress --json | "
+                "auren continuous status | auren doctor\n"
+                "Full usage: docs/USAGE_AND_PLATFORM_INTEGRATION.md"
+            ),
+        )
+        parser.add_argument("command", nargs="?", help="Command to run")
+        parser.add_argument("command_args", nargs=argparse.REMAINDER, help="Command options")
+        parser.print_help()
+        return 0
     if len(args) == 1 and Path(args[0]).suffix.lower() == ".zip":
         args = ["install", *args, "--skill", "auto"]
     elif args and args[0] in {"install", "update"} and not _has_flag(args, "--skill"):
@@ -671,6 +872,12 @@ def main(argv: list[str] | None = None) -> int:
         return _run_delivery(args[1:])
     if args and args[0] == "dashboard":
         return _run_dashboard(args[1:])
+    if args and args[0] == "up":
+        return _run_up(args[1:])
+    if args and args[0] == "providers":
+        return _run_providers(args[1:])
+    if args and args[0] == "task":
+        return _run_task(args[1:])
     if args and args[0] == "local":
         return _run_local(args[1:])
     if args and args[0] == "mcp-proxy":

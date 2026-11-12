@@ -4,6 +4,7 @@ from __future__ import annotations
 import sqlite3
 from contextlib import closing
 import tempfile
+from pathlib import Path
 import unittest
 
 from portable.sdk import AurenClient, SDK_API_VERSION
@@ -28,6 +29,19 @@ def sdk_no_verifier_handler(payload):
 
 
 class AurenClientTests(unittest.TestCase):
+    def test_sdk_can_reuse_an_injected_canonical_controller(self):
+        from portable.execution_controller import ExecutionController
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            controller = ExecutionController(root)
+            client = AurenClient(root, controller=controller)
+            try:
+                self.assertIs(client.controller, controller)
+                self.assertIs(client.controller.progress_journal, controller.progress_journal)
+            finally:
+                client.close()
+
     def test_api_version_and_canonical_durable_submission(self):
         with tempfile.TemporaryDirectory() as tmp:
             client = AurenClient(tmp, dashboard_enabled=False)

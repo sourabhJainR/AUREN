@@ -252,6 +252,26 @@ class LocalMCPHostTests(unittest.TestCase):
             registry_path.unlink()
 
 
+class LocalMCPHostArgumentTests(unittest.TestCase):
+    def test_cli_passes_auto_connect_and_browser_flags_to_host(self):
+        from portable import local_host
+        captured = {}
+        original = local_host.serve_local
+        def fake_serve_local(project_root, **kwargs):
+            captured["project_root"] = project_root
+            captured.update(kwargs)
+            return 0
+        local_host.serve_local = fake_serve_local
+        try:
+            self.assertEqual(0, local_host.main([
+                "--project-root", ".", "--auto-connect", "--open-browser",
+            ]))
+        finally:
+            local_host.serve_local = original
+        self.assertTrue(captured["auto_connect_clients"])
+        self.assertTrue(captured["open_browser"])
+
+
 @unittest.skipUnless(
     os.name != "nt" and importlib.util.find_spec("uvicorn"),
     "live local host acceptance requires POSIX signal handling and optional uvicorn",
@@ -343,7 +363,13 @@ class LocalMCPHostProcessTests(unittest.TestCase):
                 with urllib.request.urlopen(mcp_url.rsplit("/", 1)[0] + "/readyz", timeout=3) as response:
                     self.assertEqual(200, response.status)
 
-                token = (state_home / "mcp" / "local-operator.token").read_text(encoding="utf-8").strip()
+                token_path = state_home / "mcp" / "local-operator.token"
+                token = token_path.read_text(encoding="utf-8").strip()
+                from portable.mcp_local_client import call_local_tool
+                cli_result = call_local_tool(
+                    "auren.get_profile", {}, url=mcp_url, token_file=token_path,
+                )
+                self.assertTrue(cli_result.get("content") or cli_result.get("structuredContent"))
                 request_body = json.dumps({
                     "jsonrpc": "2.0", "id": 1, "method": "initialize",
                     "params": {

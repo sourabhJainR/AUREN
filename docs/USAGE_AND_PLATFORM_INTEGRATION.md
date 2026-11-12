@@ -1,6 +1,6 @@
 # AUREN Usage and Platform Integration
 
-AUREN is a provider-neutral engineering runtime. For copy-and-run setup across multiple model APIs, local Ollama, MCP clients and orchestration frameworks, see the [Multi-LLM and AI Infrastructure Quickstart](MULTI_PROVIDER_QUICKSTART.md). The canonical runtime, state and package names are AUREN; no host integration is a hard dependency. See the [Cross-Platform Compatibility Matrix](PLATFORM_COMPATIBILITY_MATRIX.md) for verified repository artifacts, product-surface limitations and prioritized integration gaps.
+AUREN is a provider-neutral engineering runtime. Start a local project with `auren up`; use the [Unified Interaction Contract](UNIFIED_INTERACTION_CONTRACT.md) to understand the same task lifecycle across MCP, CLI, dashboard and hosted clients. For copy-and-run setup across multiple model APIs, local Ollama, MCP clients and orchestration frameworks, see the [Multi-LLM and AI Infrastructure Quickstart](MULTI_PROVIDER_QUICKSTART.md). The canonical runtime, state and package names are AUREN; no host integration is a hard dependency. See the [Cross-Platform Compatibility Matrix](PLATFORM_COMPATIBILITY_MATRIX.md) for verified repository artifacts, product-surface limitations and prioritized integration gaps.
 
 ## 1. Install AUREN
 
@@ -35,6 +35,46 @@ python auren_cli.py build --output auren-portable.zip
 python auren_cli.py verify auren-portable.zip
 python auren_cli.py install auren-portable.zip --skill auto
 ~~~
+
+## One-command local start
+
+After installing AUREN, open any existing or new project and run:
+
+~~~bash
+auren up
+~~~
+
+From a source checkout:
+
+~~~bash
+python auren_cli.py up
+~~~
+
+The command creates the minimal `.auren/project.json` only when it is missing, validates an existing profile without overwriting it, starts the canonical local runtime, dashboard and authenticated MCP endpoint, backs up and configures detected supported local clients, and opens the desktop console in the default browser.
+
+Use `auren up --no-connect` to leave client settings untouched, or `auren up --no-browser` on a headless machine. Use `auren local` when you want the server without automatic client configuration. Configuration failures are reported per client and do not prevent local services from starting.
+
+Task operations from the CLI use the same authenticated local MCP service as chat and IDE clients:
+
+~~~bash
+auren task submit --task "Implement the requested change"
+auren task list
+auren task status <task-id>
+auren task evidence <task-id>
+auren task cancel <task-id> --reason "No longer needed"
+auren task approvals --status pending
+auren task decide-approval <approval-id> --decision approve --reason "Reviewed"
+~~~
+
+Submission prints its caller-scoped idempotency key. Reuse `--idempotency-key` when retrying the same request. The local CLI refuses non-loopback endpoints; use an authenticated MCP-capable host for remote deployments. Start the local service first with `auren up`.
+
+The common interaction path is:
+- **Chat, IDE and desktop clients:** connect to AUREN through the local MCP server.
+- **CLI:** use `auren task submit/list/status/cancel/evidence/approvals/decide-approval` for the same authenticated MCP task API, plus `auren progress --json`, `auren continuous status`, and `auren providers`.
+- **Desktop console:** the browser opens the same local Session Control Center and durable progress view.
+- **Hosted chat clients:** deploy the authenticated remote MCP service and configure its HTTPS endpoint and OAuth provider. A loopback URL cannot be used from a cloud-hosted chat service.
+
+AUREN uses the same host-owned task controller and project-scoped durable progress journal across its local MCP, CLI progress view and dashboard. The MCP service remains the authority for Guard, approvals, budgets and evidence; the dashboard is an observation surface, not a second execution authority. Task acceptance is not task completion; check durable task state and evidence before treating work as done.
 
 ## 2. Upgrade, rollback and uninstall
 

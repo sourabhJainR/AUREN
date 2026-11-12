@@ -1,9 +1,12 @@
 import subprocess
 import sys
 import json
+import hashlib
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from portable.progress_journal import ProgressJournal
 
@@ -38,6 +41,28 @@ class ProgressCliTests(unittest.TestCase):
             self.assertEqual(human.returncode, 0, human.stderr)
             self.assertIn("lifecycle: Queued (ready)", human.stdout)
             self.assertNotIn("Engineering HTML report", result.stdout)
+
+    def test_progress_cli_reads_the_canonical_local_runtime_journal(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "workspace"
+            root.mkdir()
+            auren_home = Path(temp) / "auren-home"
+            project_key = hashlib.sha256(str(root.resolve()).encode("utf-8")).hexdigest()[:24]
+            journal_path = (
+                auren_home / "local-runtime" / project_key
+                / "adaptive-runtime" / ".auren" / "progress.jsonl"
+            )
+            ProgressJournal(journal_path).record(
+                "shared-task", "accepted", state="queued", stage="queued",
+                message="Visible from the shared local runtime.",
+            )
+            with patch.dict(os.environ, {"AUREN_HOME": str(auren_home)}):
+                result = self.invoke("progress", "--project-root", str(root), "--json")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["status"], "ok")
+            self.assertEqual(payload["tasks"][0]["task_id"], "shared-task")
+
 
     def test_stale_progress_is_explicit_and_includes_next_action(self):
         with tempfile.TemporaryDirectory() as temp:

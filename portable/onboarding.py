@@ -13,6 +13,7 @@ import subprocess
 import sys
 import time
 import stat
+import tomllib
 from urllib.parse import urlsplit
 from pathlib import Path
 from typing import Any
@@ -182,7 +183,10 @@ _RUNTIME_MODES = {"single_user_local", "managed"}
 
 def load_project_profile(project_root: str | Path) -> tuple[Path, dict[str, Any]]:
     root = Path(project_root).expanduser().resolve(strict=True)
-    profile_path = root / ".auren" / "project.json"
+    state_dir = root / ".auren"
+    if state_dir.is_symlink():
+        raise OnboardingError(".auren must not be a symlink")
+    profile_path = state_dir / "project.json"
     if profile_path.is_symlink() or not profile_path.is_file():
         raise OnboardingError("AUREN project profile is missing or is not a regular file; run auren init first")
     profile = _safe_json(profile_path)
@@ -250,10 +254,14 @@ def discover_clients(home: Path | None = None) -> list[dict[str, str]]:
     candidates = [
         ("Claude Desktop", base / "Library/Application Support/Claude/claude_desktop_config.json", "mcpServers"),
         ("Claude Desktop", base / "AppData/Roaming/Claude/claude_desktop_config.json", "mcpServers"),
+        ("Claude Desktop", base / ".config/Claude/claude_desktop_config.json", "mcpServers"),
         ("Claude Code", base / ".claude.json", "mcpServers"),
         ("Gemini CLI", base / ".gemini/settings.json", "mcpServers"),
         ("Cursor", base / ".cursor/mcp.json", "mcpServers"),
+        ("Windsurf", base / ".codeium/windsurf/mcp_config.json", "mcpServers"),
         ("VS Code", base / ".config/Code/User/settings.json", "mcp.servers"),
+        ("VS Code Insiders", base / ".config/Code - Insiders/User/settings.json", "mcp.servers"),
+        ("VS Code Insiders", base / "Library/Application Support/Code - Insiders/User/settings.json", "mcp.servers"),
         ("VS Code", base / "Library/Application Support/Code/User/settings.json", "mcp.servers"),
         ("VS Code", base / "AppData/Roaming/Code/User/settings.json", "mcp.servers"),
         ("VS Code Insiders", base / "AppData/Roaming/Code - Insiders/User/settings.json", "mcp.servers"),
@@ -262,13 +270,18 @@ def discover_clients(home: Path | None = None) -> list[dict[str, str]]:
     seen: set[str] = set()
     executable_by_name = {
         "Claude Code": "claude", "Gemini CLI": "gemini",
-        "Cursor": "cursor", "VS Code": "code", "VS Code Insiders": "code-insiders",
+        "Cursor": "cursor", "Windsurf": "windsurf",
+        "VS Code": "code", "VS Code Insiders": "code-insiders",
     }
     for name, path, key in candidates:
         executable = executable_by_name.get(name)
         if (path.exists() or (executable and shutil.which(executable))) and str(path) not in seen:
             seen.add(str(path))
             found.append({"name": name, "path": str(path), "key": key})
+    codex_config = base / ".codex" / "config.toml"
+    if codex_config.exists() or shutil.which("codex"):
+        found.append({"name": "Codex CLI / app", "path": str(codex_config),
+                      "key": "mcp_servers", "format": "toml"})
     return found
 
 
@@ -287,6 +300,11 @@ def _get_nested(value: dict[str, Any], key: str) -> dict[str, Any]:
 
 
 def _atomic_config_write(path: Path, content: bytes) -> Path:
+    # Inspect existing ancestors before mkdir so a symlinked parent is never
+    # traversed as a side effect of configuration setup.
+    for parent in (path.parent, *path.parent.parents):
+        if parent.is_symlink():
+            raise OnboardingError(f"refusing to write through symlinked client configuration directory: {parent}")
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.is_symlink():
         raise OnboardingError(f"refusing to write through client configuration symlink: {path}")
@@ -320,55 +338,99 @@ def _atomic_config_write(path: Path, content: bytes) -> Path:
     return backup
 
 
+def _local_proxy_command(mcp_url: str, token: Path) -> tuple[str, list[str]]:
+    executable = shutil.which("auren")
+    if executable:
+        return executable, ["mcp-proxy", "--url", mcp_url, "--token-file", str(token)]
+    return sys.executable, [str(Path(__file__).resolve().parents[1] / "auren_cli.py"),
+                            "mcp-proxy", "--url", mcp_url, "--token-file", str(token)]
+
+
+def _configure_toml_client(client: dict[str, str], *, command: str, args: list[str],
+                           apply: bool) -> dict[str, Any]:
+    path = Path(client["path"]).expanduser()
+    if path.is_symlink():
+        raise OnboardingError(f"refusing to write through client configuration symlink: {path}")
+    if path.exists():
+        if not path.is_file() or path.stat().st_size > _MAX_CONFIG_BYTES:
+            raise OnboardingError(f"Codex configuration is not a bounded regular file: {path}")
+        try:
+            original = path.read_bytes()
+            parsed = tomllib.loads(original.decode("utf-8"))
+        except (OSError, UnicodeError, tomllib.TOMLDecodeError) as exc:
+            raise OnboardingError(f"cannot safely parse Codex TOML configuration {path}: {exc}") from exc
+    else:
+        original, parsed = b"", {}
+    servers = parsed.get("mcp_servers", {})
+    if not isinstance(servers, dict):
+        raise OnboardingError("Codex mcp_servers configuration must be a TOML table")
+    desired = {"command": command, "args": args}
+    previous = servers.get("auren")
+    if previous == desired:
+        return {"client": client["name"], "path": str(path), "status": "already_configured"}
+    if previous is not None:
+        return {"client": client["name"], "path": str(path), "status": "conflict",
+                "reason": "an existing Codex AUREN entry was left unchanged"}
+    block = ("\n[mcp_servers.auren]\n"
+             + "command = " + json.dumps(command, ensure_ascii=False) + "\n"
+             + "args = " + json.dumps(args, ensure_ascii=False) + "\n")
+    if not apply:
+        return {"client": client["name"], "path": str(path), "status": "preview",
+                "proposed_entry": desired}
+    content = original + (b"" if not original or original.endswith(b"\n") else b"\n")
+    backup = _atomic_config_write(path, content + block.encode("utf-8"))
+    return {"client": client["name"], "path": str(path), "status": "configured",
+            "backup": str(backup) if backup.exists() else None}
+
+
 def configure_clients(
     *, mcp_url: str, token_file: str | Path, apply: bool = False,
-    clients: list[dict[str, str]] | None = None,
+    clients: list[dict[str, str]] | None = None, best_effort: bool = False,
 ) -> dict[str, Any]:
-    """Preview or apply only the AUREN MCP server entry in supported JSON hosts."""
+    """Preview or apply local MCP config; isolate client failures in best-effort mode."""
     parsed_url = urlsplit(mcp_url)
-    if (
-        parsed_url.scheme != "http" or parsed_url.hostname != "127.0.0.1"
+    if (parsed_url.scheme != "http" or parsed_url.hostname != "127.0.0.1"
         or parsed_url.port is None or parsed_url.path != "/mcp"
-        or parsed_url.username or parsed_url.password or parsed_url.query or parsed_url.fragment
-    ):
+        or parsed_url.username or parsed_url.password or parsed_url.query or parsed_url.fragment):
         raise OnboardingError("local MCP URL must be an explicit http://127.0.0.1:<port>/mcp endpoint")
     token = Path(token_file).expanduser()
     if token.is_symlink() or not token.is_file():
         raise OnboardingError("local MCP credential is not present; start AUREN local services first")
     if os.name != "nt" and stat.S_IMODE(token.stat().st_mode) & 0o077:
         raise OnboardingError("local MCP credential permissions must be owner-only (0600)")
-    proxy = shutil.which("auren")
-    if proxy:
-        command = proxy
-        args = ["mcp-proxy", "--url", mcp_url, "--token-file", str(token)]
-    else:
-        command = sys.executable
-        args = [str(Path(__file__).resolve().parents[1] / "auren_cli.py"), "mcp-proxy",
-                "--url", mcp_url, "--token-file", str(token)]
+    command, args = _local_proxy_command(mcp_url, token)
     server = {"command": command, "args": args}
-    outcomes = []
+    outcomes: list[dict[str, Any]] = []
     for client in clients if clients is not None else discover_clients():
         path = Path(client["path"]).expanduser()
-        key = client["key"]
-        current = _safe_json(path)
-        servers = _get_nested(current, key)
-        previous = servers.get("auren")
-        if previous == server:
-            outcomes.append({"client": client["name"], "path": str(path), "status": "already_configured"})
-            continue
-        preview = dict(current)
-        preview_servers = _get_nested(preview, key)
-        preview_servers["auren"] = server
-        if not apply:
-            outcomes.append({"client": client["name"], "path": str(path), "status": "preview",
-                             "existing_auren_entry": previous, "proposed_entry": server})
-            continue
-        backup = _atomic_config_write(
-            path, (json.dumps(preview, indent=2, ensure_ascii=False) + "\n").encode("utf-8"),
-        )
-        outcomes.append({"client": client["name"], "path": str(path), "status": "configured",
-                         "backup": str(backup)})
-    return {"applied": apply, "clients": outcomes}
+        try:
+            if client.get("format") == "toml":
+                outcomes.append(_configure_toml_client(client, command=command, args=args, apply=apply))
+                continue
+            current = _safe_json(path) if path.exists() else {}
+            key = client["key"]
+            previous = _get_nested(current, key).get("auren")
+            if previous == server:
+                outcomes.append({"client": client["name"], "path": str(path), "status": "already_configured"})
+                continue
+            preview = dict(current)
+            _get_nested(preview, key)["auren"] = server
+            if not apply:
+                outcomes.append({"client": client["name"], "path": str(path), "status": "preview",
+                                 "existing_auren_entry": previous, "proposed_entry": server})
+                continue
+            backup = _atomic_config_write(
+                path, (json.dumps(preview, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
+            outcomes.append({"client": client["name"], "path": str(path), "status": "configured",
+                             "backup": str(backup) if backup.exists() else None})
+        except (OSError, ValueError, RuntimeError) as exc:
+            if not best_effort:
+                raise
+            outcomes.append({"client": client.get("name", "unknown"), "path": str(path),
+                             "status": "blocked", "reason": str(exc)})
+    return {"applied": apply, "clients": outcomes,
+            "configured_count": sum(x["status"] == "configured" for x in outcomes),
+            "blocked_count": sum(x["status"] in {"blocked", "conflict"} for x in outcomes)}
 
 
 def doctor(project_root: str | Path = ".") -> dict[str, Any]:

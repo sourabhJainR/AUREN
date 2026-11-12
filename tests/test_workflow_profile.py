@@ -67,7 +67,7 @@ class WorkflowProfileTests(unittest.TestCase):
         pull_request = WorkflowProfile(delivery_mode="pull_request")
         self.assertTrue(delivery_mode_allows(pull_request, "create_pr"))
         # Delivery mode is not a promotion grant; the controller must still
-        # enforce operator-owned approval and exact-head CI for consequential actions.
+        # task scope permits merge; independent exact-head and repository protection gates remain mandatory.
         self.assertTrue(delivery_mode_allows(pull_request, "merge"))
         self.assertTrue(delivery_mode_allows(pull_request, "release"))
 

@@ -16,6 +16,7 @@ from portable.local_composition import (
     LocalProviderOperationLedger,
     LocalProviderOutcomeUnknown,
     create_local_composition,
+    run_local_provider_task,
 )
 from portable.local_host import create_local_mcp_service
 
@@ -346,6 +347,63 @@ os._exit(87)
                 service.close()
                 composition.close()
 
+    def test_local_model_handles_private_task_without_remote_api_opt_in(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            project = root / "workspace"
+            _git_workspace(project)
+            task = "Review this local repository and propose a safe test plan."
+            with patch.dict(os.environ, {
+                "AUREN_LOCAL_REMOTE_INFERENCE": "",
+                "AUREN_LOCAL_DATA_CLASSIFICATION": "",
+                "AUREN_REMOTE_PROVIDER_ORDER": "",
+            }, clear=False):
+                with patch(
+                    "portable.muxin_session_adapter.LocalModelDiscovery.discover",
+                    return_value={
+                        "available": True,
+                        "provider": "ollama-compatible",
+                        "models": [{"name": "qwen2.5-coder:7b"}],
+                    },
+                ):
+                    composition = create_local_composition(
+                        project, state_root=root / "state", provider_pool=None,
+                    )
+                    try:
+                        principal = SimpleNamespace(
+                            subject="local-operator", issuer="auren-local",
+                        )
+                        admitted = composition.admit_task(
+                            principal, task, {}, "local-model-private-task-0001",
+                        )
+                        self.assertEqual(
+                            admitted["_auren_local_provider"],
+                            {
+                                "kind": "local",
+                                "name": "ollama-compatible",
+                                "model": "qwen2.5-coder:7b",
+                            },
+                        )
+                        self.assertEqual(admitted["_auren_local_remote_policy_digest"], "")
+                        payload = {
+                            "task": task,
+                            "work_key": "local-mcp:local-model-private-task-0001",
+                            "_auren_local_state_root": str(composition.state_root),
+                            "_auren_local_provider": admitted["_auren_local_provider"],
+                            "_auren_local_remote_policy_digest": "",
+                        }
+                        with patch(
+                            "portable.hybrid_model_router.HybridModelRouter._execute_local",
+                            new=lambda self, request, model: "Local-only model proposal.",
+                        ):
+                            result = run_local_provider_task(payload)
+                        self.assertEqual(result["status"], "completed")
+                        self.assertEqual(result["provider"], "ollama-compatible")
+                        self.assertEqual(result["model"], "qwen2.5-coder:7b")
+                        self.assertEqual(result["content"], "Local-only model proposal.")
+                    finally:
+                        composition.close()
+
     def test_provider_operation_ledger_never_replays_an_ambiguous_dispatch(self):
         with tempfile.TemporaryDirectory() as temporary:
             ledger_path = Path(temporary) / "provider-operations.sqlite3"
@@ -371,7 +429,7 @@ os._exit(87)
                 service = _service(composition, project, root / "token", 43144)
                 try:
                     principal = service.token_verifier.verify((root / "token").read_text(encoding="utf-8").strip())
-                    with self.assertRaisesRegex(Exception, "remote inference is disabled by default"):
+                    with self.assertRaisesRegex(Exception, "remote inference is disabled"):
                         service.call_tool(
                             "auren.submit_task",
                             {"task": "Summarize this public sample.", "idempotency_key": "local-public-optin-test-0001"},

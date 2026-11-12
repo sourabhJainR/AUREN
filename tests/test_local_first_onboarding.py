@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,8 @@ from portable.onboarding import (
     initialize_repository,
     inspect_repository,
     doctor,
+    discover_clients,
+    load_project_profile,
 )
 
 
@@ -37,6 +40,22 @@ def test_init_creates_only_project_profile_and_preserves_existing_files(tmp_path
     assert json.loads(profile.read_text(encoding="utf-8"))["execution_authority"] == "host_managed_only"
     with pytest.raises(OnboardingError, match="refusing to overwrite"):
         initialize_repository(tmp_path)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation may require elevated Windows privileges")
+def test_profile_load_refuses_symlinked_state_directory(tmp_path: Path):
+    project = tmp_path / "project"
+    outside = tmp_path / "outside"
+    project.mkdir()
+    outside.mkdir()
+    (outside / "project.json").write_text(json.dumps({
+        "schema_version": "auren-project-profile-v1",
+        "runtime_mode": "single_user_local",
+        "managed_runtime": {"enabled": False, "runtime_factory": None},
+    }), encoding="utf-8")
+    (project / ".auren").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(OnboardingError, match="must not be a symlink"):
+        load_project_profile(project)
 
 
 def test_init_dry_run_does_not_create_repository_state(tmp_path: Path):
@@ -92,6 +111,7 @@ def test_connect_refuses_duplicate_keys_and_symlinked_token(tmp_path: Path):
     config.write_text('{"mcpServers": {}, "mcpServers": {}}', encoding="utf-8")
     token = tmp_path / "token"
     token.write_text("x" * 64, encoding="utf-8")
+    token.chmod(0o600)
     clients = [{"name": "test", "path": str(config), "key": "mcpServers"}]
     with pytest.raises(OnboardingError, match="duplicate JSON key"):
         configure_clients(
@@ -106,6 +126,61 @@ def test_connect_refuses_duplicate_keys_and_symlinked_token(tmp_path: Path):
             mcp_url="http://127.0.0.1:8765/mcp", token_file=link,
             clients=clients, apply=False,
         )
+
+
+def test_codex_toml_configuration_preserves_existing_settings_and_is_idempotent(tmp_path: Path):
+    config = tmp_path / ".codex" / "config.toml"
+    config.parent.mkdir()
+    original = '[mcp_servers.other]\ncommand = "other-client"\nargs = ["keep"]\n'
+    config.write_text(original, encoding="utf-8")
+    token = tmp_path / "token"
+    token.write_text("x" * 64, encoding="utf-8")
+    token.chmod(0o600)
+    clients = [{"name": "Codex CLI / app", "path": str(config),
+                "key": "mcp_servers", "format": "toml"}]
+    preview = configure_clients(mcp_url="http://127.0.0.1:8765/mcp",
+                                token_file=token, clients=clients, apply=False)
+    assert preview["clients"][0]["status"] == "preview"
+    assert config.read_text(encoding="utf-8") == original
+    applied = configure_clients(mcp_url="http://127.0.0.1:8765/mcp",
+                                token_file=token, clients=clients, apply=True)
+    parsed = tomllib.loads(config.read_text(encoding="utf-8"))
+    assert applied["clients"][0]["status"] == "configured"
+    assert Path(applied["clients"][0]["backup"]).read_text(encoding="utf-8") == original
+    assert parsed["mcp_servers"]["other"]["args"] == ["keep"]
+    assert parsed["mcp_servers"]["auren"]["args"][-2:] == ["--token-file", str(token)]
+    repeated = configure_clients(mcp_url="http://127.0.0.1:8765/mcp",
+                                 token_file=token, clients=clients, apply=True)
+    assert repeated["clients"][0]["status"] == "already_configured"
+
+
+def test_best_effort_client_configuration_isolates_bad_client_files(tmp_path: Path):
+    broken = tmp_path / "broken.json"
+    broken.write_text('{"mcpServers": {}, "mcpServers": {}}', encoding="utf-8")
+    healthy = tmp_path / "healthy.json"
+    healthy.write_text('{"theme": "dark"}', encoding="utf-8")
+    token = tmp_path / "token"
+    token.write_text("x" * 64, encoding="utf-8")
+    token.chmod(0o600)
+    result = configure_clients(
+        mcp_url="http://127.0.0.1:8765/mcp", token_file=token, apply=True,
+        best_effort=True,
+        clients=[{"name": "Broken host", "path": str(broken), "key": "mcpServers"},
+                 {"name": "Healthy host", "path": str(healthy), "key": "mcpServers"}],
+    )
+    assert [item["status"] for item in result["clients"]] == ["blocked", "configured"]
+    assert result["blocked_count"] == 1
+    assert json.loads(healthy.read_text(encoding="utf-8"))["mcpServers"]["auren"]["args"][-1] == str(token)
+
+
+def test_codex_is_discovered_from_standard_user_config_path(tmp_path: Path):
+    config = tmp_path / ".codex" / "config.toml"
+    config.parent.mkdir()
+    config.write_text("", encoding="utf-8")
+    codex = next(item for item in discover_clients(tmp_path)
+                 if item["name"] == "Codex CLI / app")
+    assert codex["path"] == str(config)
+    assert codex["format"] == "toml"
 
 
 def test_doctor_reports_local_and_multiple_remote_provider_readiness_without_secrets(tmp_path: Path, monkeypatch):
@@ -137,3 +212,37 @@ def test_doctor_reports_local_and_multiple_remote_provider_readiness_without_sec
     serialized = json.dumps(report)
     assert "groq-secret-value" not in serialized
     assert "openai-secret-value" not in serialized
+
+
+
+def test_discover_clients_includes_linux_claude_desktop_and_windsurf(tmp_path: Path):
+    claude = tmp_path / ".config" / "Claude" / "claude_desktop_config.json"
+    windsurf = tmp_path / ".codeium" / "windsurf" / "mcp_config.json"
+    claude.parent.mkdir(parents=True)
+    windsurf.parent.mkdir(parents=True)
+    claude.write_text('{"mcpServers": {}}', encoding="utf-8")
+    windsurf.write_text('{"mcpServers": {"existing": {"command": "keep"}}}', encoding="utf-8")
+    discovered = discover_clients(tmp_path)
+    claude_client = next(item for item in discovered if item["name"] == "Claude Desktop")
+    windsurf_client = next(item for item in discovered if item["name"] == "Windsurf")
+    assert claude_client["path"] == str(claude)
+    assert windsurf_client["path"] == str(windsurf)
+    assert windsurf_client["key"] == "mcpServers"
+
+
+def test_windsurf_auto_configuration_preserves_existing_mcp_servers(tmp_path: Path):
+    config = tmp_path / ".codeium" / "windsurf" / "mcp_config.json"
+    config.parent.mkdir(parents=True)
+    original = {"mcpServers": {"existing": {"command": "keep", "args": ["--safe"]}}}
+    config.write_text(json.dumps(original), encoding="utf-8")
+    token = tmp_path / "token"
+    token.write_text("x" * 64, encoding="utf-8")
+    token.chmod(0o600)
+    result = configure_clients(
+        mcp_url="http://127.0.0.1:8765/mcp", token_file=token, apply=True,
+        clients=[{"name": "Windsurf", "path": str(config), "key": "mcpServers"}],
+    )
+    saved = json.loads(config.read_text(encoding="utf-8"))
+    assert result["clients"][0]["status"] == "configured"
+    assert saved["mcpServers"]["existing"] == original["mcpServers"]["existing"]
+    assert saved["mcpServers"]["auren"]["args"][-1] == str(token)

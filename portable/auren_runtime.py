@@ -71,8 +71,12 @@ def _progress_snapshot_rows(project_root: Path, stale_after_seconds: int) -> tup
     from .identity_compat import canonical_auren_home
     from .progress_journal import ProgressJournal
 
+    resolved_project = project_root.expanduser().resolve()
+    project_key = hashlib.sha256(str(resolved_project).encode("utf-8")).hexdigest()[:24]
     candidates = (
-        project_root.expanduser().resolve() / ".auren" / "progress.jsonl",
+        resolved_project / ".auren" / "progress.jsonl",
+        canonical_auren_home() / "local-runtime" / project_key
+        / "adaptive-runtime" / ".auren" / "progress.jsonl",
         canonical_auren_home() / "executive" / ".auren" / "progress.jsonl",
     )
     snapshots: dict[str, dict] = {}
