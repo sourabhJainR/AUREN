@@ -504,7 +504,7 @@ def doctor(project_root: str | Path = ".") -> dict[str, Any]:
         from .vibe_coding_host import load_host_config
         host_config_path = Path.home().expanduser() / ".auren" / "vibe-coding" / "host.json"
         host_config = load_host_config(host_config_path)
-        provider_command = {"codex": "codex", "claude": "claude"}.get(host_config.provider)
+        provider_command = "codex" if host_config.provider == "codex" else None
         if host_config.allow_workspace_writes is not True:
             report["vibe_coding_host"] = {"status": "blocked", "reason": "isolated_worktree_writes_not_enabled"}
         elif provider_command is None:
