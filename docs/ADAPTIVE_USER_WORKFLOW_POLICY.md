@@ -37,7 +37,7 @@ A profile may specify:
 - **Communication:** concise progress, detailed reasoning summary, or final report only.
 - **Recovery preference:** retain work-in-progress, create checkpoints, or revert the current task's changes on failure where safe.
 
-Defaults are conservative: inspect first, make scoped changes, preserve user work, run impact-based tests, and request approval for externally visible or irreversible actions unless authority was explicitly granted.
+The default approval mode is `scoped_autonomy`: inspect first, make task-scoped changes, preserve user work, and run impact-based tests. A task that explicitly requests a PR authorizes its task-owned branch, commits, push, and PR creation without repeated per-step approval. Merge, release, deployment, destructive operations, security-policy changes, and sensitive data transfer remain separate approval boundaries unless the task explicitly and validly authorizes them.
 
 ## Resolution and precedence
 
@@ -52,10 +52,10 @@ When two instructions conflict, report the conflict and choose the safer reversi
 
 ## Required workflow behavior
 
-- **Commit mode:** create small, coherent commits only after checks selected by the profile and repository policy pass. Never include unrelated or untracked user files without consent. `commit_each_change` does not authorize push, PR creation, merge, release, publish, or deploy.
+- **Commit mode:** create small, coherent commits only after checks selected by the profile and repository policy pass. Never include unrelated or untracked user files without consent. `commit_each_change` does not itself authorize push or PR creation; when the current task explicitly requests a PR, use `pull_request` mode and do not ask again for each branch/commit/push/PR step.
 - **Stage-only mode:** stage only task-owned paths; do not commit, push, create/open a PR, merge, publish, release, or deploy. A stage-only task must stop after staging and verification, even when execution cadence is autonomous. Report staged and unstaged changes separately. The supervisor must reject consequential or approval-gated handlers before dispatch in this mode.
 - **Working-tree mode:** leave changes uncommitted and identify changed paths and validation status. Do not commit, push, create/open a PR, or merge.
-- **Patch/PR mode:** use a branch and reviewable PR; bind evidence to the exact head SHA. PR mode does not itself authorize merge, release, publish, or deploy; existing operator-owned approval, exact-head CI, promotion, and rollback gates remain mandatory.
+- **Patch/PR mode:** a current task request to prepare a PR authorizes a task-owned branch, commits, push, and PR creation without another per-action prompt; bind evidence to the exact head SHA. PR mode does not authorize merge, release, publish, or deploy; branch protection, required reviews/checks, Guard, promotion approval, and rollback gates remain mandatory.
 - **Autonomous mode:** continue through bounded implementation, tests, and safe local fixes until the task is complete or a hard blocker, budget/deadline, approval boundary, or no-progress threshold is reached. Poll existing CI where supported; never claim a check passed while queued, running, skipped, or missing.
 - **Failure behavior:** preserve diagnostic evidence, state what is blocked, record the next safe action, and use a documented rollback or recovery path. Do not silently discard work.
 - **User data:** protect unrelated changes, configuration, credentials, local memory, and project data during install, upgrade, migration, rollback, and cleanup.

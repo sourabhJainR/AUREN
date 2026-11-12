@@ -12,11 +12,12 @@ from portable.workflow_profile import (
 
 
 class WorkflowProfileTests(unittest.TestCase):
-    def test_defaults_are_conservative_and_versioned(self):
+    def test_defaults_enable_scoped_repository_autonomy_and_are_versioned(self):
         profile = WorkflowProfile()
         self.assertEqual(PROFILE_VERSION, profile.profile_version)
         self.assertEqual("pull_request", profile.delivery_mode)
         self.assertEqual("checkpointed", profile.execution_mode)
+        self.assertEqual("scoped_autonomy", profile.approval_mode)
         self.assertEqual("all_applicable", profile.review_mode)
         self.assertEqual(64, len(profile.digest))
 
