@@ -208,6 +208,19 @@ class RequirementContractEngine:
         conflict_items = tuple(conflicts)
         decision_items = tuple(decisions)
         self._validate_conflicts(set(ids), conflict_items, decision_items, revision)
+        # Normalize caller-owned lists into immutable tuples before storing or hashing.
+        items = tuple(Requirement(
+            item.requirement_id, item.statement, tuple(item.acceptance_criteria),
+            item.priority, item.source,
+        ) for item in items)
+        conflict_items = tuple(RequirementConflict(
+            item.conflict_id, tuple(item.requirement_ids), item.reason, item.impact,
+            tuple(item.options), item.recommended_option, item.blocking,
+        ) for item in conflict_items)
+        decision_items = tuple(RequirementDecision(
+            item.conflict_id, item.selected_option, item.rationale, item.actor_id,
+            item.contract_revision, item.evidence_ref,
+        ) for item in decision_items)
         return RequirementContract(
             intent.strip(), items, clean_ambiguities, clean_assumptions,
             conflict_items, decision_items, revision,
