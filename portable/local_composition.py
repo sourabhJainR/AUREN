@@ -766,6 +766,7 @@ class LocalRuntimeComposition:
                 "_auren_local_policy_digest": existing_context["_auren_local_policy_digest"],
                 "_auren_local_remote_policy_digest": existing_context["_auren_local_remote_policy_digest"],
                 "_auren_local_admitted_at": existing_context["_auren_local_admitted_at"],
+                "_auren_local_separation_of_duties": existing_context.get("_auren_local_separation_of_duties", False),
                 "_auren_local_vibe_config_path": existing_context.get("_auren_local_vibe_config_path", ""),
                 "_auren_local_vibe_config_digest": existing_context.get("_auren_local_vibe_config_digest", ""),
             }
@@ -822,6 +823,7 @@ class LocalRuntimeComposition:
             "_auren_local_policy_digest": _digest(policy_material),
             "_auren_local_remote_policy_digest": bound_remote_policy_digest,
             "_auren_local_admitted_at": admitted_at,
+            "_auren_local_separation_of_duties": bool(remote_principal),
             "_auren_local_vibe_config_path": vibe_config_path,
             "_auren_local_vibe_config_digest": vibe_config_digest,
         }
@@ -904,6 +906,7 @@ class LocalRuntimeComposition:
         remote_policy_digest: str,
         principal_digest: str,
         admitted_at: float,
+        separation_of_duties: bool,
     ) -> EngineeringPlanGoalReconciler:
         holder: dict[str, EngineeringPlanGoalReconciler] = {}
         vibe_execution = provider_binding.get("kind") == "vibe"
@@ -924,6 +927,7 @@ class LocalRuntimeComposition:
                     "policy_digest": policy_digest,
                     "requester_id": principal_digest,
                     "admitted_at": admitted_at,
+                    "separation_of_duties": separation_of_duties,
                     "auren_approval_aware": True,
                     "_auren_local_state_root": str(self.state_root),
                     "_auren_local_provider": dict(provider_binding),
@@ -1094,6 +1098,7 @@ class LocalRuntimeComposition:
         reconciler = self._goal_reconciler_for(
             plan, provider_binding, policy_digest, remote_policy_digest,
             principal_digest, float(admitted_at),
+            request.context.get("_auren_local_separation_of_duties") is True,
         )
         deadline = time.monotonic() + (3600.0 if provider_kind == "vibe" else 330.0)
         while time.monotonic() < deadline:
@@ -1275,7 +1280,7 @@ def run_local_vibe_coding_task(payload: Mapping[str, Any]) -> Mapping[str, Any]:
         scope="repo:write",
         expires_at=expires_at,
         required_approvals=1,
-        separation_of_duties=True,
+        separation_of_duties=payload.get("separation_of_duties") is True,
         checkpoint=checkpoint,
     )
     report_path = composition.state_root / "vibe-coding" / "reports" / f"{workflow_id}.json"
