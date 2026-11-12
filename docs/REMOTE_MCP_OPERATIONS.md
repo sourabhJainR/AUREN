@@ -63,7 +63,7 @@ Remote task admission additionally requires:
 - An introspected HTTPS issuer and subject.
 - The auren:tasks:write scope and engineering_manager role.
 - An explicit projects claim containing the exact server-side project path.
-- A separate approved identity for remote repository-edit approvals. Configure its issuer/subject digest in AUREN_MCP_APPROVER_SUBJECT_DIGESTS.
+- A separate approved identity for remote repository-edit approvals, with the engineering_manager role, auren:approvals:decide scope and the same exact project claim. Configure its issuer/subject digest in AUREN_MCP_APPROVER_SUBJECT_DIGESTS.
 
 Local single-user requests can be approved by the host's local operator identity. Remote requests enforce separation of duties and cannot be approved by the same principal that submitted them.
 
