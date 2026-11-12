@@ -422,13 +422,13 @@ class LocalOperatorAuthority:
         return decision.allowed is True
 
     def authorize_approver(self, approver_id: str, required_role: str, scope: str, roles: tuple[str, ...]) -> bool:
-        configured_remote_approvers = {
-            item.strip()
-            for item in os.environ.get("AUREN_MCP_APPROVER_SUBJECTS", "").split(",")
-            if item.strip()
+        configured_remote_approver_digests = {
+            item.strip().lower()
+            for item in os.environ.get("AUREN_MCP_APPROVER_SUBJECT_DIGESTS", "").split(",")
+            if re.fullmatch(r"[0-9a-fA-F]{64}", item.strip())
         }
         return bool(
-            (approver_id == _OPERATOR_ID or approver_id in configured_remote_approvers)
+            (approver_id == self.principal_digest or approver_id in configured_remote_approver_digests)
             and required_role == "engineering_manager"
             and scope in {"repo:write", "project:write"}
             and "engineering_manager" in roles
