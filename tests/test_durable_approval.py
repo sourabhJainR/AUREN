@@ -348,6 +348,16 @@ class DurableApprovalTests(unittest.TestCase):
         self.assertEqual(self.store.wake_approved(), 1)
         self.assertEqual(self.wakeups, [(self.task.id, record.approval_id)])
 
+    def test_approval_can_be_recorded_without_waking_an_already_running_worker(self):
+        record = self.create()
+        approved = self.store.decide(
+            record.approval_id, "approve", approver_id="reviewer-1",
+            roles=("release-approver",), scope="repo:publish",
+            reason="local owner decision during active execution", wake_worker=False,
+        )
+        self.assertEqual(approved.status, "approved")
+        self.assertEqual(self.wakeups, [])
+
     def test_rejection_is_durable_and_duplicate_decision_is_idempotent(self):
         record = self.create()
         first = self.store.decide(
