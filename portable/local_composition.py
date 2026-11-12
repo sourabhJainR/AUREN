@@ -1337,11 +1337,16 @@ def run_local_vibe_coding_task(payload: Mapping[str, Any]) -> Mapping[str, Any]:
         )
 
         def execute_host() -> str:
-            report = LocalVibeCodingHost(
-                project_root,
-                config=config,
-                state_root=composition.state_root / "vibe-coding",
-            ).run(workflow_id, task)
+            try:
+                report = LocalVibeCodingHost(
+                    project_root,
+                    config=config,
+                    state_root=composition.state_root / "vibe-coding",
+                ).run(workflow_id, task)
+            except Exception as exc:
+                raise RuntimeError(
+                    "Vibe Coding host execution failed; inspect the host-local report and checkpoint"
+                ) from exc
             return str(report["digest"])
 
         governed = composition.approval_store.execute_approved_action(
