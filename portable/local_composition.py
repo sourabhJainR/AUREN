@@ -1114,6 +1114,7 @@ class LocalRuntimeComposition:
         if (
             not isinstance(source_revision, str)
             or not re.fullmatch(r"[0-9a-f]{40}", source_revision)
+            or self._source_revision() != source_revision
             or not isinstance(provider_binding, Mapping)
             or provider_kind not in {"local", "remote", "vibe"}
             or not isinstance(policy_digest, str)
