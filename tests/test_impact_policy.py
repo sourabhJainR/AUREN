@@ -202,18 +202,20 @@ class ImpactPolicyTests(unittest.TestCase):
             "tests/test_lifecycle_projection.py": {"tests.test_lifecycle_projection"},
         }
         workflow = Path(".github/workflows/runtime-resilience.yml").read_text(encoding="utf-8")
+        runner = Path("scripts/run_runtime_resilience_shard.py").read_text(encoding="utf-8")
+        self.assertIn("scripts/run_runtime_resilience_shard.py", workflow)
         for path, suites in expected.items():
             impact = classify_path(path)
             self.assertIsNotNone(impact)
             self.assertFalse(impact.hardening_required)
             self.assertTrue(suites.issubset(set(impact.required_suites)))
             for suite in suites:
-                workflow_token = (
+                runner_token = (
                     "tests/test_lifecycle_projection.py"
                     if suite == "tests.test_lifecycle_projection"
                     else suite
                 )
-                self.assertIn(workflow_token, workflow)
+                self.assertIn(runner_token, runner)
 
     def test_runtime_resilience_filter_covers_recovery_sensitive_paths(self):
         workflow = Path(".github/workflows/runtime-resilience.yml").read_text(encoding="utf-8")
@@ -221,6 +223,8 @@ class ImpactPolicyTests(unittest.TestCase):
         self.assertIsNotNone(match, "runtime resilience workflow must expose its changed-path policy")
         patterns = ast.literal_eval(match.group(1))
         required_paths = (
+            ".github/actions/python-test-setup/action.yml",
+            "scripts/run_runtime_resilience_shard.py",
             "portable/sdk.py",
             "tests/test_auren_sdk.py",
             "portable/provider_operation_lifecycle.py",
@@ -316,6 +320,14 @@ class ImpactPolicyTests(unittest.TestCase):
             with self.subTest(path=path):
                 impact = classify_path(path)
                 self.assertTrue(impact.hardening_required)
+
+    def test_github_actions_require_explicit_impact_classification(self):
+        impact = classify_path(".github/actions/python-test-setup/action.yml")
+        self.assertIsNotNone(impact)
+        self.assertTrue(impact.hardening_required)
+        self.assertEqual(("tests.test_impact_policy",), impact.required_suites)
+        hardening_workflow = Path(".github/workflows/production-hardening.yml").read_text(encoding="utf-8")
+        self.assertIn("tests.test_impact_policy", hardening_workflow)
 
     def test_unclassified_sensitive_path_fails_closed(self):
         with self.assertRaisesRegex(ValueError, "no impact classification"):
