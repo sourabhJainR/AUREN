@@ -36,6 +36,7 @@ def test_plugin_help_is_available_without_loading_runtime(capsys):
     assert "install" in output
     assert "status" in output
     assert "connect" in output
+    assert r"\\n" not in output
 
 
 def test_unknown_plugin_action_fails_closed(capsys):
