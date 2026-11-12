@@ -18,13 +18,18 @@ ChatGPT web and Claude web/Desktop use hosted plugin/connector setup. ChatGPT de
 
 Do not enable blanket auto-approval for AUREN operator tools. Keep approval enabled for consequential actions. The host's local configuration does not replace AUREN's server-side authorization and approval checks.
 
-## Local self-hosted observation console and MCP
+## Local workstation MCP
 
-For a workstation host, run `python auren_cli.py local --project-root /absolute/path/to/project`. AUREN selects free loopback ports, creates a private workspace-scoped operator token, starts the observation console and MCP endpoint together, and verifies both health endpoints. It auto-discovers `auren_runtime_factory.py:create_runtime` in the project root or accepts `--runtime-factory module:function`. A non-empty reviewed graph is required; AUREN will not start a placeholder runtime.
+For local development, use the factory-free first-run path:
 
-If the client supports Streamable HTTP with custom headers, connect to the printed MCP URL and send `Authorization: Bearer <local-token>`. If the client supports stdio but cannot add HTTP headers, configure `python /absolute/path/to/AUREN/auren_cli.py mcp-proxy --url http://127.0.0.1:<port>/mcp --token-file /absolute/path/to/.auren/mcp/local-operator.token`. The bridge reads the token file and keeps it out of client configuration.
+```bash
+cd /path/to/your/repository
+auren up
+```
 
-See [Local Self-Hosted MCP](../../docs/LOCAL_SELF_HOSTED_MCP.md) for full instructions, client examples, startup behavior, credential handling and cloud-host limitations. This local service is loopback-only; hosted LLMs require the separate HTTPS/OAuth remote deployment.
+AUREN initializes or validates the project profile, starts the canonical local runtime and loopback MCP endpoint, and can configure supported local clients with backups. The local model task handler is proposal-only; it cannot modify repository files or run builds. See [Local Self-Hosted MCP](../../docs/LOCAL_SELF_HOSTED_MCP.md) and [Local-first Runtime and Onboarding](../../docs/LOCAL_FIRST_RUNTIME_AND_ONBOARDING.md).
+
+A loopback endpoint is not reachable from ChatGPT web or another hosted service. For hosted clients, AUREN needs a separately deployed HTTPS remote MCP service and external OAuth authorization server. See [ChatGPT Web Setup](../../docs/CHATGPT_WEB_SETUP.md) and [Remote MCP Operations](../../docs/REMOTE_MCP_OPERATIONS.md).
 
 ## Orchestration frameworks
 
