@@ -292,6 +292,11 @@ def _get_nested(value: dict[str, Any], key: str) -> dict[str, Any]:
 
 
 def _atomic_config_write(path: Path, content: bytes) -> Path:
+    # Inspect existing ancestors before mkdir so a symlinked parent is never
+    # traversed as a side effect of configuration setup.
+    for parent in (path.parent, *path.parent.parents):
+        if parent.is_symlink():
+            raise OnboardingError(f"refusing to write through symlinked client configuration directory: {parent}")
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.is_symlink():
         raise OnboardingError(f"refusing to write through client configuration symlink: {path}")

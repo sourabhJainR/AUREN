@@ -151,71 +151,6 @@ def _run_local(args: list[str]) -> int:
     return local_main(args)
 
 
-def _run_up(args: list[str]) -> int:
-    """Bootstrap a project and start its shared local AUREN experience."""
-    parser = argparse.ArgumentParser(prog="auren up",
-        description="Initialize a project when needed, start AUREN, connect local clients and open the desktop console.")
-    parser.add_argument("--project-root", default=".")
-    parser.add_argument("--dashboard-port", type=int, default=0)
-    parser.add_argument("--mcp-port", type=int, default=8765)
-    parser.add_argument("--no-connect", action="store_true", help="Leave local client configuration untouched.")
-    parser.add_argument("--no-browser", action="store_true", help="Do not open the desktop console.")
-    options = parser.parse_args(args)
-    from portable.onboarding import initialize_repository, load_project_profile
-    root = Path(options.project_root).expanduser().resolve()
-    if not root.is_dir():
-        parser.error(f"project root is not an existing directory: {root}")
-    profile_path = root / ".auren" / "project.json"
-    try:
-        if profile_path.exists() or profile_path.is_symlink():
-            load_project_profile(root)
-            setup = {"created": False, "path": str(profile_path), "status": "existing_profile_validated"}
-        else:
-            setup = initialize_repository(root, apply=True)
-    except (OSError, ValueError, RuntimeError) as exc:
-        print(f"auren up blocked during project setup: {exc}", file=sys.stderr)
-        return 2
-    print(json.dumps({"project_setup": setup}, indent=2, sort_keys=True), flush=True)
-    from portable.local_host import main as local_main
-    local_args = ["--project-root", str(root),
-                  "--dashboard-port", str(options.dashboard_port),
-                  "--mcp-port", str(options.mcp_port)]
-    if not options.no_connect:
-        local_args.append("--auto-connect")
-    if not options.no_browser:
-        local_args.append("--open-browser")
-    return local_main(local_args)
-
-
-def _run_providers(args: list[str]) -> int:
-    """Show provider readiness and routing without exposing credentials."""
-    parser = argparse.ArgumentParser(prog="auren providers")
-    parser.add_argument("--project-root", default=".")
-    options = parser.parse_args(args)
-    from portable.onboarding import doctor
-    try:
-        report = doctor(options.project_root)
-        remote = report.get("remote_model_providers", {})
-        payload = {
-            "cli_providers": report.get("providers", []),
-            "remote_api": remote,
-            "local_model": report.get("local_model", {}),
-            "routing": {
-                "provider_order": remote.get("provider_order", []),
-                "remote_inference_enabled": report.get("remote_inference_policy", {}).get("enabled", False),
-                "remote_data_classification": report.get("remote_inference_policy", {}).get("data_classification"),
-                "private_and_restricted_tasks": "local_only",
-                "selection": "per-request ordered provider selection",
-            },
-            "validation_note": "Configuration detection is not live provider or model conformance.",
-        }
-        print(json.dumps(payload, indent=2, sort_keys=True))
-        return 0
-    except (OSError, ValueError, RuntimeError) as exc:
-        print(f"auren providers failed: {exc}", file=sys.stderr)
-        return 2
-
-
 def _run_mcp_proxy(args: list[str]) -> int:
     """Bridge a local HTTP MCP endpoint to clients that only support stdio."""
     from portable.mcp_stdio_proxy import main as proxy_main
@@ -736,10 +671,6 @@ def main(argv: list[str] | None = None) -> int:
         return _run_delivery(args[1:])
     if args and args[0] == "dashboard":
         return _run_dashboard(args[1:])
-    if args and args[0] == "up":
-        return _run_up(args[1:])
-    if args and args[0] == "providers":
-        return _run_providers(args[1:])
     if args and args[0] == "local":
         return _run_local(args[1:])
     if args and args[0] == "mcp-proxy":

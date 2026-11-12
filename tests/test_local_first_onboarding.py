@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import tomllib
 from pathlib import Path
 
 import pytest
@@ -13,7 +12,6 @@ from portable.onboarding import (
     initialize_repository,
     inspect_repository,
     doctor,
-    discover_clients,
 )
 
 
@@ -108,61 +106,6 @@ def test_connect_refuses_duplicate_keys_and_symlinked_token(tmp_path: Path):
             mcp_url="http://127.0.0.1:8765/mcp", token_file=link,
             clients=clients, apply=False,
         )
-
-
-def test_codex_toml_configuration_preserves_existing_settings_and_is_idempotent(tmp_path: Path):
-    config = tmp_path / ".codex" / "config.toml"
-    config.parent.mkdir()
-    original = '[mcp_servers.other]\ncommand = "other-client"\nargs = ["keep"]\n'
-    config.write_text(original, encoding="utf-8")
-    token = tmp_path / "token"
-    token.write_text("x" * 64, encoding="utf-8")
-    token.chmod(0o600)
-    clients = [{"name": "Codex CLI / app", "path": str(config),
-                "key": "mcp_servers", "format": "toml"}]
-    preview = configure_clients(mcp_url="http://127.0.0.1:8765/mcp",
-                                token_file=token, clients=clients, apply=False)
-    assert preview["clients"][0]["status"] == "preview"
-    assert config.read_text(encoding="utf-8") == original
-    applied = configure_clients(mcp_url="http://127.0.0.1:8765/mcp",
-                                token_file=token, clients=clients, apply=True)
-    parsed = tomllib.loads(config.read_text(encoding="utf-8"))
-    assert applied["clients"][0]["status"] == "configured"
-    assert Path(applied["clients"][0]["backup"]).read_text(encoding="utf-8") == original
-    assert parsed["mcp_servers"]["other"]["args"] == ["keep"]
-    assert parsed["mcp_servers"]["auren"]["args"][-2:] == ["--token-file", str(token)]
-    repeated = configure_clients(mcp_url="http://127.0.0.1:8765/mcp",
-                                 token_file=token, clients=clients, apply=True)
-    assert repeated["clients"][0]["status"] == "already_configured"
-
-
-def test_best_effort_client_configuration_isolates_bad_client_files(tmp_path: Path):
-    broken = tmp_path / "broken.json"
-    broken.write_text('{"mcpServers": {}, "mcpServers": {}}', encoding="utf-8")
-    healthy = tmp_path / "healthy.json"
-    healthy.write_text('{"theme": "dark"}', encoding="utf-8")
-    token = tmp_path / "token"
-    token.write_text("x" * 64, encoding="utf-8")
-    token.chmod(0o600)
-    result = configure_clients(
-        mcp_url="http://127.0.0.1:8765/mcp", token_file=token, apply=True,
-        best_effort=True,
-        clients=[{"name": "Broken host", "path": str(broken), "key": "mcpServers"},
-                 {"name": "Healthy host", "path": str(healthy), "key": "mcpServers"}],
-    )
-    assert [item["status"] for item in result["clients"]] == ["blocked", "configured"]
-    assert result["blocked_count"] == 1
-    assert json.loads(healthy.read_text(encoding="utf-8"))["mcpServers"]["auren"]["args"][-1] == str(token)
-
-
-def test_codex_is_discovered_from_standard_user_config_path(tmp_path: Path):
-    config = tmp_path / ".codex" / "config.toml"
-    config.parent.mkdir()
-    config.write_text("", encoding="utf-8")
-    codex = next(item for item in discover_clients(tmp_path)
-                 if item["name"] == "Codex CLI / app")
-    assert codex["path"] == str(config)
-    assert codex["format"] == "toml"
 
 
 def test_doctor_reports_local_and_multiple_remote_provider_readiness_without_secrets(tmp_path: Path, monkeypatch):

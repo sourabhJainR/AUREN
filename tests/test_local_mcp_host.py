@@ -252,10 +252,6 @@ class LocalMCPHostTests(unittest.TestCase):
             registry_path.unlink()
 
 
-@unittest.skipUnless(
-    os.name != "nt" and importlib.util.find_spec("uvicorn"),
-    "live local host acceptance requires POSIX signal handling and optional uvicorn",
-)
 class LocalMCPHostArgumentTests(unittest.TestCase):
     def test_cli_passes_auto_connect_and_browser_flags_to_host(self):
         from portable import local_host
@@ -276,6 +272,10 @@ class LocalMCPHostArgumentTests(unittest.TestCase):
         self.assertTrue(captured["open_browser"])
 
 
+@unittest.skipUnless(
+    os.name != "nt" and importlib.util.find_spec("uvicorn"),
+    "live local host acceptance requires POSIX signal handling and optional uvicorn",
+)
 class LocalMCPHostProcessTests(unittest.TestCase):
     def test_local_command_starts_both_services_and_shuts_them_down(self):
         with tempfile.TemporaryDirectory() as directory:

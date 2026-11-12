@@ -34,7 +34,7 @@ The main gap is not the engineering workflow. It is the last-mile product integr
 | ChatGPT web | Partial | Remote Streamable HTTP MCP, OAuth tool metadata, profile identity | External OAuth 2.1 authorization server, ChatGPT app setup and live acceptance |
 | ChatGPT desktop app | Repository configured | Settings → MCP servers; remote Streamable HTTP or stdio; OAuth; shared Codex host configuration | Live AUREN OAuth, tool discovery and long-running task acceptance remain unverified |
 | Codex app / IDE extension | Partial | Shared Codex MCP configuration, `AGENTS.md`, Agent Skills, remote MCP | Live OAuth and tool acceptance not recorded |
-| Codex CLI | Partial | `AGENTS.md`, skills, remote MCP, local `~/.codex/config.toml` auto-configuration through `auren up`, `codex exec` | Live OAuth, tool and local stdio-proxy acceptance not recorded |
+| Codex CLI | Repository configured | `AGENTS.md`, skills, remote MCP, `codex exec` | Live OAuth and tool acceptance not recorded |
 | Codex app | Repository configured | Shared Codex MCP configuration and skills | App-specific live acceptance not recorded |
 | Claude chat web | Partial | Remote MCP custom connectors, OAuth | AUREN endpoint deployment and Claude connector acceptance |
 | Claude Code CLI | Repository configured | `CLAUDE.md`, skill, plugin, hooks, remote MCP | Live provider and permission-mode checks |
@@ -69,8 +69,6 @@ The main gap is not the engineering workflow. It is the last-mile product integr
 | Windsurf / Devin Local | Partial | Version-specific MCP configuration | Product configuration changed; no AUREN acceptance |
 
 The machine-readable declarations live in `.ai-harness/PROVIDER_MATRIX.json`. The values there distinguish product integration from model-provider support.
-
-For local workstation setup, `auren up` starts the shared local MCP and desktop console and configures detected supported JSON hosts plus Codex TOML. Hosted chat surfaces still require the separate HTTPS remote MCP deployment and OAuth path; AUREN does not send a loopback endpoint to a cloud client or treat a vendor chat login as an API key.
 
 See [MCP Host Compatibility](MCP_HOST_COMPATIBILITY.md) for host-specific setup examples and a per-client acceptance checklist, [Orchestrator Integrations](ORCHESTRATOR_INTEGRATIONS.md) for OpenAI Agents SDK, AutoGen, Pydantic AI, LangChain/LangGraph, n8n, CrewAI, Semantic Kernel, Haystack, Flowise and OpenHands, and [Model Provider Integration](MODEL_PROVIDER_INTEGRATION.md) for direct API configuration, per-request provider choice and privacy boundaries.
 
