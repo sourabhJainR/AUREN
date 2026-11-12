@@ -57,6 +57,17 @@ def test_manual_mode_keeps_approval_pending():
     assert composition.approval_store.calls == []
 
 
+def test_remote_request_does_not_inherit_local_owner_auto_approval():
+    composition = _composition()
+    pending = SimpleNamespace(status="pending", approval_id="approval-remote")
+    config = SimpleNamespace(approval_mode="owner_auto")
+
+    assert _resolve_local_vibe_approval(
+        composition, pending, config, remote_request=True,
+    ) is pending
+    assert composition.approval_store.calls == []
+
+
 def test_owner_auto_fails_closed_when_host_operator_identity_is_invalid():
     composition = _composition(valid=False)
     pending = SimpleNamespace(status="pending", approval_id="approval-3")
