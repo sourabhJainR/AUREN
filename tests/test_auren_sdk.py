@@ -4,6 +4,7 @@ from __future__ import annotations
 import sqlite3
 from contextlib import closing
 import tempfile
+from pathlib import Path
 import unittest
 
 from portable.sdk import AurenClient, SDK_API_VERSION
