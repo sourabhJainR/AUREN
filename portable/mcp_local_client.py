@@ -13,6 +13,15 @@ class LocalMCPClientError(RuntimeError):
     """The local MCP endpoint could not complete a CLI operation."""
 
 
+def _encode_rpc(payload: Mapping[str, Any]) -> bytes:
+    try:
+        return json.dumps(
+            payload, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise LocalMCPClientError("MCP request arguments must be finite JSON values") from exc
+
+
 def _rpc_result(response: bytes | None, request_id: int) -> Mapping[str, Any]:
     if response is None:
         raise LocalMCPClientError("local MCP endpoint returned no response")
@@ -64,7 +73,7 @@ def call_local_tool(
         },
     }
     response = mcp_stdio_proxy.post_message(
-        endpoint, token, json.dumps(initialize, separators=(",", ":")).encode("utf-8"),
+        endpoint, token, _encode_rpc(initialize),
         timeout_seconds=15.0,
     )
     negotiated = _rpc_result(response, 1).get("protocolVersion")
@@ -74,7 +83,7 @@ def call_local_tool(
         )
     initialized = {"jsonrpc": "2.0", "method": "notifications/initialized"}
     mcp_stdio_proxy.post_message(
-        endpoint, token, json.dumps(initialized, separators=(",", ":")).encode("utf-8"),
+        endpoint, token, _encode_rpc(initialized),
         protocol_version=negotiated, timeout_seconds=15.0,
     )
     request = {
@@ -83,7 +92,7 @@ def call_local_tool(
     }
     result = _rpc_result(
         mcp_stdio_proxy.post_message(
-            endpoint, token, json.dumps(request, separators=(",", ":")).encode("utf-8"),
+            endpoint, token, _encode_rpc(request),
             protocol_version=negotiated, timeout_seconds=60.0,
         ),
         2,

@@ -278,6 +278,10 @@ def _run_task(args: list[str]) -> int:
     decide.add_argument("--decision", choices=("approve", "reject"), required=True)
     decide.add_argument("--reason", required=True)
 
+    for command_parser in (submit, listing, status, cancel, evidence, approvals, decide):
+        command_parser.add_argument("--url", dest="url", default=argparse.SUPPRESS)
+        command_parser.add_argument("--token-file", dest="token_file", default=argparse.SUPPRESS)
+
     options = parser.parse_args(args)
     if options.action == "submit":
         try:
