@@ -115,3 +115,19 @@ def test_task_approvals_omits_optional_status_when_not_selected(monkeypatch, cap
     assert _run_task(["approvals"]) == 0
     capsys.readouterr()
     assert captured == {"tool": "auren.list_approvals", "arguments": {"limit": 30}}
+
+def test_task_endpoint_options_work_after_the_subcommand(monkeypatch, capsys):
+    from portable import mcp_local_client
+
+    captured = {}
+    def fake_call(tool_name, arguments, **kwargs):
+        captured.update(kwargs)
+        return {"content": [{"type": "text", "text": "{}"}]}
+    monkeypatch.setattr(mcp_local_client, "call_local_tool", fake_call)
+    assert _run_task([
+        "status", "task-42", "--url", "http://127.0.0.1:9001/mcp",
+        "--token-file", "/tmp/auren-token",
+    ]) == 0
+    capsys.readouterr()
+    assert captured["url"] == "http://127.0.0.1:9001/mcp"
+    assert captured["token_file"] == "/tmp/auren-token"
