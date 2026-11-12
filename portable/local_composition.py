@@ -1344,9 +1344,7 @@ def run_local_vibe_coding_task(payload: Mapping[str, Any]) -> Mapping[str, Any]:
         scope="repo:write",
         expires_at=expires_at,
         required_approvals=1,
-        separation_of_duties=(
-            payload.get("separation_of_duties") is True and config.approval_mode == "manual"
-        ),
+        separation_of_duties=payload.get("separation_of_duties") is True,
         checkpoint=checkpoint,
     )
     approval = _resolve_local_vibe_approval(
