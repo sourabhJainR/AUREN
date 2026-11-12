@@ -239,6 +239,7 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     (".ai-harness/security*", ("tests.test_security_gate",), True),
     (".ai-harness/runtime/rollback*", ("tests.test_execution_controls", "tests.test_state_root_rollback_rehearsal"), True),
     ("state/*rollback*", ("tests.test_state_root_rollback_rehearsal", "tests.test_execution_controls"), True),
+    (".github/actions/**", ("tests.test_impact_policy",), True),
     (".github/workflows/**", ("tests.test_impact_policy",), True),
 )
 

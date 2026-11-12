@@ -82,7 +82,7 @@ def _unittest_bucket(module: str, bucket: int, bucket_count: int) -> int:
 
 
 def _run_step(step: tuple, env: dict[str, str] | None = None) -> int:
-    kind, arguments, *extra = step
+    kind, arguments = step
     if kind == "unittest":
         return _run_python(["-m", "unittest", *arguments, "-v"], env)
     if kind == "pytest":
