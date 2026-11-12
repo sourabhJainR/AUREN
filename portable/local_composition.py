@@ -1221,9 +1221,15 @@ class LocalRuntimeComposition:
         self._closed = True
 
 
-def _resolve_local_vibe_approval(composition: Any, approval: Any, config: Any) -> Any:
-    """Apply the persisted local-owner decision without prompting on single-user installs."""
-    if getattr(approval, "status", None) != "pending" or config.approval_mode != "owner_auto":
+def _resolve_local_vibe_approval(
+    composition: Any, approval: Any, config: Any, *, remote_request: bool = False,
+) -> Any:
+    """Apply the persisted local-owner decision only to single-user local requests."""
+    if (
+        getattr(approval, "status", None) != "pending"
+        or config.approval_mode != "owner_auto"
+        or remote_request
+    ):
         return approval
     operator = composition.operator
     if not operator.verify_digest(operator.principal_digest):
@@ -1343,7 +1349,10 @@ def run_local_vibe_coding_task(payload: Mapping[str, Any]) -> Mapping[str, Any]:
         ),
         checkpoint=checkpoint,
     )
-    approval = _resolve_local_vibe_approval(composition, approval, config)
+    approval = _resolve_local_vibe_approval(
+        composition, approval, config,
+        remote_request=payload.get("separation_of_duties") is True,
+    )
     report_path = composition.state_root / "vibe-coding" / "reports" / f"{workflow_id}.json"
     if approval.status == "pending":
         raise ApprovalPending(approval.approval_id, checkpoint)
