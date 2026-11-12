@@ -146,6 +146,18 @@ registry.load_snapshot("~/.auren/vibe-coding/adapter-learning.json")
 The receipt retains evaluation counts, distinct workflow IDs, and evidence references. Use only trusted machine-scoped storage; the digest detects changes but does not authenticate who wrote the snapshot.
 
 
+## Canonical runtime and MCP integration
+
+When the host config at ~/.auren/vibe-coding/host.json is valid, Codex CLI is installed, and isolated-worktree writes are enabled, the built-in local composition registers the existing Vibe Coding host as an approval-gated ExecutionController handler. Local MCP tasks and the factory-free remote MCP service both use this same composition; there is no second supervisor or independent task authority.
+
+For each submitted prompt, AUREN binds the authenticated principal, project, source revision and Guard policy before creating the canonical plan. The handler creates a durable repository-edit approval request, then runs the 18-stage host only after approval. It uses the existing host worktree, stage checkpoints, provider adapters, test commands and report. AUREN verifies the report digest, all 18 stage records, source revision, isolated worktree path, approval receipt and audit chain before accepting completion.
+
+The source checkout is not modified. The handler does not merge, publish, release or deploy to production. An incomplete or uncertain run remains blocked and is not replayed as success.
+
+Local single-user tasks can be approved by the host operator through the local MCP approval tool. Remote tasks require AUREN_MCP_REMOTE_EXECUTION_ENABLED=1, an HTTPS OAuth issuer, a matching project claim, the engineering_manager role, the auren:tasks:write scope, and a separate approver digest configured in AUREN_MCP_APPROVER_SUBJECT_DIGESTS. Remote requesters cannot approve their own work.
+
+Run auren doctor to see whether the Vibe Coding host is ready. If it is missing or invalid, local tasks retain the proposal-only provider path and remote repository execution is denied. ChatGPT Web requires the separately deployed HTTPS remote MCP service; it cannot connect to the local loopback MCP endpoint. See CHATGPT_WEB_SETUP.md and REMOTE_MCP_OPERATIONS.md.
+
 ## Runnable host integration and real-project validation
 
 The runnable entry point is `scripts/run_vibe_coding_project.py`. It connects AUREN's discovered local agent CLI, actual Git worktree state, configured test commands, local design/accessibility artifacts, and MCP tools using JSON-RPC stdio. It does not depend on the ChatGPT connector being available inside the AUREN process.
