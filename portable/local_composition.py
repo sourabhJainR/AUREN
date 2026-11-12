@@ -743,8 +743,8 @@ class LocalRuntimeComposition:
                 "task admission requires the local operator or an explicitly authorized remote project principal"
             )
         principal_digest = _principal_digest(principal)
-        if not isinstance(task, str) or not task.strip():
-            raise ValueError("task text is required")
+        if not isinstance(task, str) or not task.strip() or len(task) > 20_000:
+            raise ValueError("task text is required and must not exceed 20000 characters")
         policy = load_guard_policy(self.controller.root / ".auren" / "guard_policy.json")
         decision = evaluate_guard_policy(
             policy,
