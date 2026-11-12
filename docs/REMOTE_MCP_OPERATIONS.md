@@ -154,7 +154,7 @@ export AUREN_MCP_STATIC_TOKENS='[
 ]'
 ~~~
 
-Static mode is not the ChatGPT OAuth integration path. For public hosted clients, use OAuth authorization-code + PKCE through an established identity provider.
+Static mode is not the ChatGPT OAuth integration path. Static-token issuers do not satisfy the built-in remote task admission requirement for an HTTPS issuer and cannot submit Vibe Coding repository-write tasks. Use static tokens only for private protocol development and read-only testing. For hosted clients, use OAuth authorization-code + PKCE through an established identity provider.
 
 ## Client connection examples
 
