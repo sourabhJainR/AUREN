@@ -210,7 +210,10 @@ class EndToEndEngineeringEpisodeTests(unittest.TestCase):
             threats=(Threat("T1", "backend", "input attack", "validation", True),),
             performance_budget=PerformanceBudget(100, 10, 512, 80),
             performance_observation=PerformanceObservation(50, 20, 256, 40),
-            trace_links=(TraceLink("R1", ("impl:1",), ("test:1",), ("e:R1",)),),
+            trace_links=(
+                TraceLink("R1", ("impl:1",), ("test:1",), ("e:R1",)),
+                TraceLink("R2", ("impl:2",), ("test:2",), ("e:R2",)),
+            ),
             engineering_evaluator=self._engineering,
         )
         executed = []
