@@ -34,7 +34,7 @@ class _TimedTextTestResult(unittest.TextTestResult):
         if started is not None:
             elapsed = time.monotonic() - started
             test_id = test.id()
-            module = test_id.split(".", 1)[0]
+            module = test.__class__.__module__
             self.test_durations.append((elapsed, test_id))
             self.module_durations[module] = self.module_durations.get(module, 0.0) + elapsed
         super().stopTest(test)
@@ -45,7 +45,7 @@ class _TimedTextTestRunner(unittest.TextTestRunner):
 
     def run(self, test):
         result = super().run(test)
-        print("\\nSlowest tests (execution time):", flush=True)
+        print("\nSlowest tests (execution time):", flush=True)
         for elapsed, test_id in sorted(result.test_durations, reverse=True)[:10]:
             print(f"  {elapsed:7.2f}s  {test_id}", flush=True)
         print("Module execution totals (sum of test-case times; excludes module fixtures):", flush=True)
