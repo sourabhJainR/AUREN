@@ -8,7 +8,9 @@ AUREN has an authenticated remote MCP service at the protocol level. It exposes 
 
 The remote launcher currently requires a trusted deployment-owned runtime factory. The repository does not contain a live hosted AUREN endpoint, an OAuth tenant/client registration, or deployment credentials. The sample host name `mcp.example.com` is a placeholder.
 
-The built-in single-user local composition is factory-free, but its model task handler is proposal-only. It cannot edit repository files, run builds, merge, release, or deploy. A successful MCP connection or accepted task receipt does not mean the engineering task completed. The scoped repository coding executor and its isolation/recovery acceptance remain open.
+The built-in single-user local composition is factory-free, but its MCP model task handler is proposal-only. It cannot edit repository files, run builds, merge, release, or deploy. A successful MCP connection or accepted task receipt does not mean the engineering task completed.
+
+A separate 18-stage local Vibe Coding host exists at `scripts/run_vibe_coding_project.py`. It can connect a configured local coding-agent CLI to an isolated Git worktree, tests, security tools and explicit MCP adapters, with checkpoint/resume. It is a local operator-run workflow; it is not currently wired into the local or remote MCP task handler, so ChatGPT web cannot invoke it through AUREN. See [Vibe-Coding Workflow](VIBE_CODING_WORKFLOW.md).
 
 ## ChatGPT plan and workspace access
 
@@ -100,7 +102,7 @@ Even when ChatGPT displays a confirmation prompt, AUREN must enforce authorizati
 
 ## What is still needed for real software development
 
-AUREN's current local model path can return a proposal, not a repository patch. To use AUREN as the actual engineering executor from ChatGPT web, the deployment must additionally pass the scoped coding-agent executor gate:
+The built-in MCP task handler currently returns proposals rather than repository patches. The separate local Vibe Coding host is not yet registered as the task executor behind the remote MCP service. To use AUREN as the actual engineering executor from ChatGPT web, the deployment must connect that reviewed workflow to the canonical runtime and pass the scoped coding-agent executor gate:
 
 - workspace-bound filesystem and process isolation;
 - exact assignment/path scope and denial before process launch;
