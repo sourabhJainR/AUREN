@@ -21,6 +21,7 @@ from portable.remote_mcp import (
     MCPServiceError,
     OAuthIntrospectionVerifier,
     StaticBearerTokenVerifier,
+    service_from_environment,
 )
 from portable.runtime_recovery import RuntimeExecutionGuard
 from portable.agency_observability import LocalExporter, Tracer, bind_trace_context
@@ -31,6 +32,31 @@ def _mcp_private_test_handler(_payload):
 
 
 class RemoteMCPServiceTests(unittest.TestCase):
+    def test_environment_factory_uses_the_supplied_canonical_composition(self):
+        composition = type("Composition", (), {
+            "approval_store": object(),
+            "trigger": object(),
+            "admit_task": lambda *_args, **_kwargs: {"bound": True},
+        })()
+        environment = {
+            "AUREN_MCP_RESOURCE_URL": "https://mcp.example.test/mcp",
+            "AUREN_MCP_AUTHORIZATION_SERVER": "https://identity.example.test/",
+            "AUREN_MCP_INTROSPECTION_URL": "https://identity.example.test/introspect",
+            "AUREN_MCP_INTROSPECTION_CLIENT_ID": "resource-client",
+            "AUREN_MCP_INTROSPECTION_CLIENT_SECRET": "test-secret",
+            "AUREN_MCP_ALLOWED_HOSTS": "mcp.example.test",
+            "AUREN_MCP_ALLOWED_ORIGINS": "https://chat.example.test",
+        }
+        with patch.dict(os.environ, environment, clear=False):
+            with patch("portable.remote_mcp.AurenMCPService") as service_factory:
+                service_from_environment(
+                    self.runtime, project_root=self.root, composition=composition,
+                )
+        kwargs = service_factory.call_args.kwargs
+        self.assertIs(kwargs["approval_store"], composition.approval_store)
+        self.assertIs(kwargs["trigger"], composition.trigger)
+        self.assertIs(kwargs["task_admission"], composition.admit_task)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
