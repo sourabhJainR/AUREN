@@ -1,5 +1,13 @@
 # AUREN — Autonomous Unified Reasoning & Engineering Network
 
+## Downloads and releases
+
+Install the latest stable release or choose an exact version from the [AUREN downloads page](https://sourabhJainR.github.io/AUREN/downloads.html). The page lists the latest main-branch snapshot, the latest stable release, and older immutable releases with portable bundles, installers and checksums.
+
+- Latest stable installer: `curl -fsSL https://raw.githubusercontent.com/sourabhJainR/AUREN/main/install.sh | bash`
+- All versions and Windows installers: [GitHub Releases](https://github.com/sourabhJainR/AUREN/releases)
+- Current main build: [main snapshots](https://github.com/sourabhJainR/AUREN/releases?q=main-)
+
 **Source version:** `1.0.6` (release not published yet)  
 **Latest published release:** `1.0.5`  
 **Canonical repository:** `sourabhJainR/AUREN`  

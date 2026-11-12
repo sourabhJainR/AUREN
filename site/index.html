@@ -17,12 +17,12 @@ pre{overflow:auto;background:#050b14;border:1px solid var(--line);border-radius:
 </style>
 </head>
 <body>
-<nav><div class="wrap inner"><strong>AUREN</strong><span><a href="#about">About</a><a href="#system">System</a><a href="#preflight">Preflight review</a><a href="#principles">Principles</a><a href="#demo">Demo</a><a href="#results">Results</a><a href="#latest">Latest</a><a href="#deploy">Deploy</a><a href="#support">Support</a><a href="https://github.com/sourabhJainR/AUREN">GitHub</a></span></div></nav>
+<nav><div class="wrap inner"><strong>AUREN</strong><span><a href="#about">About</a><a href="#system">System</a><a href="#preflight">Preflight review</a><a href="#principles">Principles</a><a href="#demo">Demo</a><a href="#results">Results</a><a href="#latest">Latest</a><a href="downloads.html">Downloads</a><a href="#deploy">Deploy</a><a href="#support">Support</a><a href="https://github.com/sourabhJainR/AUREN">GitHub</a></span></div></nav>
 <header class="hero wrap">
-<div class="eyebrow">Autonomous Unified Reasoning &amp; Engineering Network · v1.0.5</div>
+<div class="eyebrow">Autonomous Unified Reasoning &amp; Engineering Network · source 1.0.6</div>
 <h1>AI engineering that learns from evidence.</h1>
 <p>AUREN is a provider-neutral AI engineering system that turns software work into a bounded, auditable learning loop: understand the repository, plan, execute, verify, review, record evidence, evaluate what actually transfers, and promote or roll back learned strategies only when the gates pass.</p>
-<div class="buttons"><a class="btn primary" href="#demo">See the demo</a><a class="btn" href="https://github.com/sourabhJainR/AUREN">View source</a><a class="btn" href="#deploy">Deploy AUREN</a><a class="btn" href="#support">Support AUREN</a></div>
+<div class="buttons"><a class="btn primary" href="downloads.html">Download AUREN</a><a class="btn" href="#demo">See the demo</a><a class="btn" href="https://github.com/sourabhJainR/AUREN">View source</a><a class="btn" href="#deploy">Deploy AUREN</a><a class="btn" href="#support">Support AUREN</a></div>
 </header>
 
 <section id="about"><div class="wrap">
@@ -41,21 +41,18 @@ pre{overflow:auto;background:#050b14;border:1px solid var(--line);border-radius:
 
 <section id="local-first"><div class="wrap">
 <h2>Local first. Ready in minutes.</h2>
-<p class="lead">AUREN should install as one managed workstation runtime. The CLI, dashboard and local MCP endpoint share the same supervisor, durable state and security boundary. Remote MCP is optional and disabled by default.</p>
+<p class="lead">AUREN installs as one managed workstation runtime. The CLI, dashboard and local MCP endpoint share the same supervisor, durable state and security boundary. Remote MCP is optional and disabled by default.</p>
 <div class="grid">
 <div class="card"><h3>Single-user local by default</h3><p>Install for one developer without a project runtime factory, OAuth server or remote service. AUREN owns the local state and security boundary. The built-in factory-free composition root is still being completed.</p></div>
 <div class="card"><h3>Managed mode is optional</h3><p>Advanced users or administrators can opt in to a trusted host factory and shared deployment controls. Switching back to local mode clears the managed factory reference.</p></div>
 <div class="card"><h3>Local MCP without mandatory OAuth</h3><p>Loopback-only by default, with a private per-user credential or supported OS identity. OAuth can be enabled for local use if preferred. Authorization, workspace scope, approval checks and budgets always remain enforced.</p></div>
 <div class="card"><h3>Safe repository onboarding</h3><p>Inspect new or existing repositories before changing them. Preserve existing instructions, Git state, CI and client settings. Show configuration diffs, back up changed files and verify every connection.</p></div>
 </div>
-<h3>Target first-run flow</h3>
+<h3>One-command first run</h3>
 <pre><code>cd /path/to/your/repository
-auren init
-auren doctor
-auren connect
-auren connect --apply</code></pre>
-<p class="small">The project profile defaults to single-user local mode. Use <code>auren mode --mode managed --runtime-factory module:function --apply</code> only to opt into the advanced factory-backed path; use <code>auren mode --mode single_user_local --apply</code> to opt out. The factory-free local runtime is still under implementation.</p>
-<p class="small">Repository initialization, diagnostics and client configuration are available in the current initiative branch. The factory-free single-user runtime is not yet implemented. The current factory-backed host is an advanced managed-mode path only. See the <a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/LOCAL_FIRST_RUNTIME_AND_ONBOARDING.md">implementation and acceptance status</a>.</p>
+auren up</code></pre>
+<p class="small">AUREN validates or creates the project profile, starts the canonical local runtime, configures detected supported clients with backups, and opens the Session Control Center. Use <code>auren up --no-connect</code> to preserve client settings or <code>auren up --no-browser</code> on a headless machine. The advanced managed runtime remains opt-in.</p>
+<p class="small">The local composition shares the durable controller, Guard, approvals, budgets and progress journal. Its built-in model task path remains proposal-only; repository mutation requires the separately gated coding executor. See the <a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/LOCAL_FIRST_RUNTIME_AND_ONBOARDING.md">runtime and onboarding design</a>.</p>
 <h3>Choose how AUREN gets model capability</h3>
 <p>Use a supported local agent CLI, a local model, or configure direct API providers. Host login credentials do not automatically transfer to AUREN. Provider selection remains explicit and privacy-aware; private work cannot silently fall back to remote inference. Hosted ChatGPT and Claude web clients need the separately enabled remote MCP endpoint because cloud services cannot reach workstation loopback.</p>
 <p>Read the <a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/LOCAL_SELF_HOSTED_MCP.md">local MCP guide</a>, <a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/MCP_HOST_COMPATIBILITY.md">host compatibility matrix</a> and <a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/MODEL_PROVIDER_INTEGRATION.md">provider setup guide</a>.</p>

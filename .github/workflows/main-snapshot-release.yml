@@ -1,0 +1,72 @@
+name: Publish current AUREN main snapshot
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auren-main-snapshots
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact main commit
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Build portable distribution
+        run: |
+          python -m py_compile auren_cli.py portable/auren_runtime.py
+          python auren_cli.py build --output auren-portable.zip --source-commit "$GITHUB_SHA" --source-ref "$GITHUB_REF"
+          python auren_cli.py verify auren-portable.zip
+
+      - name: Verify source-pinned manifest and payload
+        run: |
+          EXPECTED_COMMIT="$GITHUB_SHA" python - <<'PY'
+          import json, os, zipfile
+          with zipfile.ZipFile("auren-portable.zip") as bundle:
+              names = set(bundle.namelist())
+              required = {"auren_cli.py", "auren-bundle.json", "payload/.claude-plugin/plugin.json", "payload/.claude-plugin/marketplace.json", "payload/skills/ai-coding-orchestrator/SKILL.md"}
+              missing = sorted(required - names)
+              if missing:
+                  raise SystemExit("Missing release files: " + ", ".join(missing))
+              manifest = json.loads(bundle.read("auren-bundle.json"))
+          expected = os.environ["EXPECTED_COMMIT"]
+          if manifest.get("source_commit") != expected:
+              raise SystemExit("Bundle source commit does not match the main build.")
+          print("Verified source commit:", expected)
+          PY
+
+      - name: Create SHA-256 checksums
+        run: |
+          sha256sum auren-portable.zip > SHA256SUMS
+          sha256sum --check SHA256SUMS
+
+      - name: Publish immutable main snapshot release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHORT_SHA: ${{ github.sha }}
+        run: |
+          SHORT_TAG=$(printf '%s' "$SHORT_SHA" | cut -c1-12)
+          TAG="main-$SHORT_TAG"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" auren-portable.zip install.sh install.ps1 SHA256SUMS --clobber
+          else
+            gh release create "$TAG" auren-portable.zip install.sh install.ps1 SHA256SUMS \
+              --target "$GITHUB_SHA" \
+              --title "AUREN main snapshot $SHORT_TAG" \
+              --prerelease \
+              --notes "Immutable AUREN main snapshot for commit $SHORT_SHA. Built and verified by GitHub Actions. This is a development snapshot, not a stable semantic version."
+          fi

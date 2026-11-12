@@ -4,6 +4,8 @@ AUREN is a provider-neutral engineering runtime. Start a local project with `aur
 
 ## 1. Install AUREN
 
+Choose the latest main snapshot, latest stable release, or any older version from the [AUREN downloads page](https://sourabhJainR.github.io/AUREN/downloads.html). Each published build includes the portable bundle, Linux/macOS installer, Windows installer and SHA-256 checksum. Main snapshots are prereleases pinned to the exact merged commit; stable version tags remain immutable.
+
 ### Latest release
 
 Linux/macOS:
@@ -19,6 +21,8 @@ irm https://raw.githubusercontent.com/sourabhJainR/AUREN/main/install.ps1 | iex
 ~~~
 
 ### Exact release
+
+Set AUREN_VERSION to a release tag such as v1.0.6 or a main snapshot tag such as main-a1b2c3d4e5f6 to install that exact build.
 
 ~~~bash
 AUREN_VERSION=v1.0.4 curl -fsSL https://raw.githubusercontent.com/sourabhJainR/AUREN/main/install.sh | bash

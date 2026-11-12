@@ -1,0 +1,45 @@
+name: Delete merged feature branches
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  delete-merged-source:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete the merged source branch only
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const repository = context.payload.repository;
+            const defaultBranch = repository.default_branch;
+            const localRepository = context.repo.owner + "/" + context.repo.repo;
+
+            if (!pr.head.repo || pr.head.repo.full_name !== localRepository) {
+              core.info("Skipping source branch from a fork; it is not owned by this repository.");
+              return;
+            }
+            if (!pr.head.ref || pr.head.ref === defaultBranch) {
+              core.setFailed("Refusing to delete the default branch.");
+              return;
+            }
+
+            const ref = "heads/" + pr.head.ref;
+            try {
+              await github.rest.git.getRef({ owner: context.repo.owner, repo: context.repo.repo, ref });
+            } catch (error) {
+              if (error.status === 404) {
+                core.info("Merged source branch is already absent.");
+                return;
+              }
+              throw error;
+            }
+            await github.rest.git.deleteRef({ owner: context.repo.owner, repo: context.repo.repo, ref });
+            core.info("Deleted merged source branch " + pr.head.ref + ".");
