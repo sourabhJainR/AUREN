@@ -18,11 +18,14 @@ AUREN separates model inference from execution authority. The model can change b
 | Mistral | OpenAI-compatible Chat Completions | `MISTRAL_API_KEY` | `MISTRAL_MODEL` or `AUREN_MODEL_MISTRAL` |
 | Cerebras | OpenAI-compatible Chat Completions | `CEREBRAS_API_KEY` | `CEREBRAS_MODEL` or `AUREN_MODEL_CEREBRAS` |
 | Perplexity | OpenAI-compatible Chat Completions | `PERPLEXITY_API_KEY` | `PERPLEXITY_MODEL` or `AUREN_MODEL_PERPLEXITY` |
+| Cohere | Cohere Chat API | `COHERE_API_KEY` | `COHERE_MODEL` or `AUREN_MODEL_COHERE` |
 | Custom OpenAI-compatible API | Chat Completions | `AUREN_CUSTOM_PROVIDER_API_KEY` | `AUREN_CUSTOM_PROVIDER_MODEL` |
 
 Model IDs are explicit configuration. AUREN does not hard-code a model catalogue that can silently become stale.
 
 ## Configure one or more providers
+
+For a copy-and-run guide covering Linux/macOS, Windows PowerShell, local Ollama, MCP clients and orchestration frameworks, see [Multi-LLM and AI Infrastructure Quickstart](MULTI_PROVIDER_QUICKSTART.md).
 
 Set the ordered provider chain in the environment of the AUREN runtime:
 
