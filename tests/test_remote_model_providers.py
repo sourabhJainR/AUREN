@@ -37,6 +37,7 @@ class RemoteModelProviderTests(unittest.TestCase):
             prompt = "private prompt content token=do-not-export"
             with bind_trace_context(trace, parent.span_id):
                 result = provider.complete(prompt)
+            parent.finish({"provider_call_completed": True})
             tracer.end(trace)
 
             self.assertEqual("private completion body", result.content)
