@@ -707,12 +707,21 @@ class LocalRuntimeComposition:
         roles = tuple(getattr(principal, "roles", ()))
         projects = tuple(getattr(principal, "projects", ()))
         allows = getattr(principal, "allows", None)
+        requester_digest = _principal_digest(principal) if (
+            isinstance(issuer, str) and isinstance(subject, str) and issuer and subject
+        ) else ""
+        separate_approvers = {
+            item.strip().lower()
+            for item in os.environ.get("AUREN_MCP_APPROVER_SUBJECT_DIGESTS", "").split(",")
+            if re.fullmatch(r"[0-9a-fA-F]{64}", item.strip())
+        }
         if (
             not isinstance(issuer, str) or not issuer.startswith("https://")
             or not isinstance(subject, str) or not subject.strip()
             or "engineering_manager" not in roles
             or not callable(allows) or not allows("auren:tasks:write")
             or not projects
+            or not any(item != requester_digest for item in separate_approvers)
         ):
             return False
         for project in projects:
