@@ -85,15 +85,15 @@ Configure the project and OAuth resource-server environment through the deployme
 
 ~~~bash
 export AUREN_PROJECT_ROOT=/srv/auren/workspaces/main
-export AUREN_MCP_RESOURCE_URL=https://<your-host>/mcp
-export AUREN_MCP_AUTHORIZATION_SERVER=https://<your-identity-provider>/
-export AUREN_MCP_INTROSPECTION_URL=https://<your-identity-provider>/oauth/introspect
-export AUREN_MCP_INTROSPECTION_CLIENT_ID=<resource-server-client-id>
-export AUREN_MCP_INTROSPECTION_CLIENT_SECRET=<secret-manager-value>
-export AUREN_MCP_ALLOWED_HOSTS=<your-host>
-export AUREN_MCP_ALLOWED_ORIGINS=<approved-chatgpt-origin>
+export AUREN_MCP_RESOURCE_URL=https://mcp.example.com/mcp
+export AUREN_MCP_AUTHORIZATION_SERVER=https://identity.example.com/
+export AUREN_MCP_INTROSPECTION_URL=https://identity.example.com/oauth/introspect
+export AUREN_MCP_INTROSPECTION_CLIENT_ID=auren-mcp-resource
+export AUREN_MCP_INTROSPECTION_CLIENT_SECRET="$(secret-manager read auren/mcp/introspection-secret)"
+export AUREN_MCP_ALLOWED_HOSTS=mcp.example.com
+export AUREN_MCP_ALLOWED_ORIGINS=https://chatgpt.com
 export AUREN_MCP_REMOTE_EXECUTION_ENABLED=1
-export AUREN_MCP_APPROVER_SUBJECT_DIGESTS=<approved-approver-digest>
+export AUREN_MCP_APPROVER_SUBJECT_DIGESTS="$(secret-manager read auren/mcp/approver-subject-digests)"
 
 python -m portable.remote_mcp_server \
   --project-root "$AUREN_PROJECT_ROOT" \
@@ -114,8 +114,8 @@ Calculate an approver digest from the exact issuer and subject claims returned b
 ~~~bash
 python - <<'PY'
 import hashlib
-issuer = "https://<your-identity-provider>/"
-subject = "<approver-subject-claim>"
+issuer = "https://identity.example.com/"
+subject = "approver-subject-claim-from-idp"
 print(hashlib.sha256((issuer.rstrip("/") + "\0" + subject).encode("utf-8")).hexdigest())
 PY
 ~~~
@@ -137,7 +137,7 @@ After HTTPS, OAuth and the remote MCP service are live, and the ChatGPT workspac
 1. Open ChatGPT Web and go to Plugins.
 2. Select +, then Add custom MCP server.
 3. Name the connection AUREN.
-4. Enter the deployed HTTPS endpoint, for example https://<your-host>/mcp.
+4. Enter the deployed HTTPS endpoint, for example https://mcp.example.com/mcp.
 5. Select OAuth and complete the identity-provider sign-in.
 6. Review the discovered tools and their permissions before installing the app.
 7. Start a new conversation and select AUREN for the message that should use its tools.
