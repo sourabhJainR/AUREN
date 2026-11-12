@@ -19,7 +19,9 @@ The profile selector, built-in single-user composition root and local MCP startu
 **Implemented**
 - `auren init`: bounded, read-only repository discovery; creates only `.auren/project.json`; refuses overwrite and symlinked state roots.
 - `auren doctor`: reports runtime prerequisites, installed provider CLIs, configured direct API providers without exposing secrets, local Ollama-compatible endpoint/model discovery, and remote-inference policy. Presence checks are not live provider validation.
-- `auren connect`: previews by default; with `--apply`, backs up and atomically updates supported local JSON MCP client configuration while preserving unrelated entries.
+- `auren up`: one-command first-run bootstrap, canonical local runtime startup, per-client best-effort configuration and browser console launch. Existing project profiles are validated and never overwritten.
+- `auren connect`: previews by default; with `--apply`, backs up and atomically updates supported local JSON and Codex TOML MCP client configuration while preserving unrelated entries.
+- `auren providers`: shows detected CLI providers, configured API routes, local model readiness and privacy routing without exposing credentials.
 - Single-user local mode: factory-free composition root with canonical controller, durable plan/recovery stores, Guard, local operator identity, assignment authorization, durable approvals, persisted budgets and supervisor.
 - Local MCP and dashboard share the canonical runtime and bind to loopback. Direct API inference is explicit opt-in and proposal-only for public data.
 - Ordered direct API provider fallback and per-request provider subsets are implemented with bounded supervisor attempt/deadline controls.
@@ -28,7 +30,7 @@ The profile selector, built-in single-user composition root and local MCP startu
 - Scoped repository coding-agent executor with workspace/process isolation, cancellation, output bounds and restart reconciliation. The built-in local MCP task handler remains proposal-only.
 - Automatic provider invoker registration for every graph/crew role, per-role model preferences and persisted per-user provider selection.
 - Parallel multi-model voting/ensemble execution and provider-native cost accounting.
-- Tested client auto-configuration and live host acceptance for all listed IDEs, desktop clients and cloud hosts.
+- Live handshake and end-to-end acceptance for every listed IDE, desktop client and cloud host; local auto-configuration covers supported JSON hosts and Codex TOML only.
 - Cross-platform user-service registration, secure Windows credential ACL validation, macOS Keychain integration, and clean-machine upgrade/rollback/uninstall acceptance.
 - Live vendor credentials/model conformance, provider licensing/privacy acceptance and independent production deployment evidence.
 
@@ -155,7 +157,7 @@ Local coding-agent CLI invocation is not enabled by this composition yet. Detect
 - Machine runtime, provider references, local MCP credential and service metadata: user-owned AUREN home.
 - Project profile and approved repository-specific settings: repository `.auren/`.
 - Tasks, checkpoints, trigger state, progress journal, side-effect ledger and evidence: existing canonical stores.
-- Client settings: client-owned config, modified only by an explicit connect action with backup.
+- Client settings: client-owned config; changed only by an explicit `auren up` or `auren connect --apply` action, with backups and per-client failure isolation.
 - Remote deployment state: deployment-owned durable stores. SQLite remains single-host only; do not claim multi-host readiness until PostgreSQL admission, host identity and failover evidence pass.
 
 ## Cross-platform lifecycle

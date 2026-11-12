@@ -36,6 +36,32 @@ python auren_cli.py verify auren-portable.zip
 python auren_cli.py install auren-portable.zip --skill auto
 ~~~
 
+## 2. One-command local start
+
+After installing AUREN, open any existing or new project and run:
+
+~~~bash
+auren up
+~~~
+
+From a source checkout:
+
+~~~bash
+python auren_cli.py up
+~~~
+
+The command creates the minimal `.auren/project.json` only when it is missing, validates an existing profile without overwriting it, starts the canonical local runtime, dashboard and authenticated MCP endpoint, backs up and configures detected supported local clients, and opens the desktop console in the default browser.
+
+Use `auren up --no-connect` to leave client settings untouched, or `auren up --no-browser` on a headless machine. Use `auren local` when you want the server without automatic client configuration. Configuration failures are reported per client and do not prevent local services from starting.
+
+The common interaction path is:
+- **Chat, IDE and desktop clients:** connect to AUREN through the local MCP server.
+- **CLI:** use `auren progress --json`, `auren continuous status`, and `auren providers`.
+- **Desktop console:** the browser opens the same local Session Control Center and durable progress view.
+- **Hosted chat clients:** deploy the authenticated remote MCP service and configure its HTTPS endpoint and OAuth provider. A loopback URL cannot be used from a cloud-hosted chat service.
+
+AUREN uses the same host-owned task controller, durable progress journal, Guard, approvals and evidence stores across its local MCP and dashboard surfaces. Task acceptance is not task completion; check durable task state and evidence before treating work as done.
+
 ## 2. Upgrade, rollback and uninstall
 
 Check for an update:
