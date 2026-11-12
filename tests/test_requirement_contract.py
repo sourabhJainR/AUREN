@@ -145,5 +145,5 @@ def test_invalid_conflict_and_decision_bindings_are_rejected():
     with __import__("pytest").raises(ValueError, match="actor"):
         engine.decide(
             contract, "C1", "live-paid",
-            rationale="no actor", actor_id="",
+            rationale="no actor", actor_id="", evidence_ref="approval://test",
         )
