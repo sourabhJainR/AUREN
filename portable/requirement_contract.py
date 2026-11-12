@@ -208,19 +208,28 @@ class RequirementContractEngine:
         conflict_items = tuple(conflicts)
         decision_items = tuple(decisions)
         self._validate_conflicts(set(ids), conflict_items, decision_items, revision)
-        # Normalize caller-owned lists into immutable tuples before storing or hashing.
+        # Normalize caller-owned collections and text before storing or hashing.
         items = tuple(Requirement(
-            item.requirement_id, item.statement, tuple(item.acceptance_criteria),
-            item.priority, item.source,
+            item.requirement_id.strip(), item.statement.strip(),
+            tuple(value.strip() for value in item.acceptance_criteria),
+            item.priority, item.source.strip(),
         ) for item in items)
         conflict_items = tuple(RequirementConflict(
-            item.conflict_id, tuple(item.requirement_ids), item.reason, item.impact,
-            tuple(item.options), item.recommended_option, item.blocking,
+            item.conflict_id.strip(),
+            tuple(value.strip() for value in item.requirement_ids),
+            item.reason.strip(), item.impact.strip(),
+            tuple(value.strip() for value in item.options),
+            item.recommended_option.strip(), item.blocking,
         ) for item in conflict_items)
         decision_items = tuple(RequirementDecision(
-            item.conflict_id, item.selected_option, item.rationale, item.actor_id,
-            item.contract_revision, item.evidence_ref,
+            item.conflict_id.strip(), item.selected_option.strip(),
+            item.rationale.strip(), item.actor_id.strip(),
+            item.contract_revision, item.evidence_ref.strip(),
         ) for item in decision_items)
+        self._validate_conflicts(
+            {item.requirement_id for item in items},
+            conflict_items, decision_items, revision,
+        )
         return RequirementContract(
             intent.strip(), items, clean_ambiguities, clean_assumptions,
             conflict_items, decision_items, revision,
