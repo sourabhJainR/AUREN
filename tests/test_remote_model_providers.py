@@ -80,6 +80,30 @@ class RemoteModelProviderTests(unittest.TestCase):
             self.assertNotIn("provider-secret-value", serialized)
             self.assertNotIn("private prompt", serialized)
 
+    def test_observability_failures_never_change_provider_result(self):
+        provider = OpenAICompatibleProvider(
+            PROVIDER_SPECS["openai"], api_key="provider-secret-value",
+            model="model-a",
+            transport=lambda *_args, **_kwargs: (200, json.dumps({
+                "id": "req-observability-failure",
+                "output_text": "provider result survives",
+                "status": "completed",
+            }).encode()),
+        )
+        trace = Tracer().start("observability-failure")
+        parent = trace.span("router", phase="routing")
+        original_span = trace.span
+
+        def broken_span(*args, **kwargs):
+            span = original_span(*args, **kwargs)
+            span.finish = lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("telemetry unavailable"))
+            return span
+
+        trace.span = broken_span
+        with bind_trace_context(trace, parent.span_id):
+            result = provider.complete("public prompt")
+        self.assertEqual("provider result survives", result.content)
+
     def test_direct_inference_without_trace_context_preserves_result_and_errors(self):
         provider = OpenAICompatibleProvider(
             PROVIDER_SPECS["openai"], api_key="provider-secret-value",
