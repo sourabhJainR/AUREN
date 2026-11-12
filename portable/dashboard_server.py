@@ -839,12 +839,15 @@ def create_server(
     project_root=".", host="127.0.0.1", port=8765, *,
     delivery_execution_guard: RuntimeExecutionGuard | None = None,
     delivery_budget_id: str | None = None,
+    controller: ExecutionController | None = None,
 ):
     """Create a bound local dashboard server without starting its event loop."""
     if host not in {"127.0.0.1", "localhost"}:
         raise ValueError("dashboard server only binds to loopback; remote access requires a separately secured deployment")
     if type(port) is not int or not 0 <= port <= 65535:
         raise ValueError("dashboard port must be between 0 and 65535; use 0 for automatic selection")
+    if controller is not None and not isinstance(controller, ExecutionController):
+        raise TypeError("controller must be an ExecutionController")
     if delivery_execution_guard is not None:
         if not isinstance(delivery_execution_guard, RuntimeExecutionGuard):
             raise TypeError("delivery_execution_guard must be a RuntimeExecutionGuard")
@@ -860,11 +863,11 @@ def create_server(
     control_center = MuxinSessionAdapter(
         project_root, dashboard=dashboard, workspace_reader=workspace_reader,
     )
-    runtime_root = Path(project_root).expanduser().resolve() / ".auren"
+    controller = controller or ExecutionController(project_root)
+    runtime_root = controller.db_path.parent
     artifact_store = ArtifactStore(runtime_root / "releases")
     response_repository = ResponseArtifactRepository(artifact_store)
-    progress_journal = ProgressJournal(runtime_root / "progress.jsonl")
-    controller = ExecutionController(project_root)
+    progress_journal = controller.progress_journal
     delivery_supervisor = ResponseDeliverySupervisor(controller, runtime_root / "progress.jsonl")
     handler = type("AURENDashboardHandler", (_Handler,), {
         "dashboard": dashboard, "control_center": control_center,

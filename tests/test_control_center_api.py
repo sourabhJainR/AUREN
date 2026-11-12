@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError
 
-from portable.dashboard_server import _Handler, serve
+from portable.dashboard_server import _Handler, create_server, serve
 from portable.engineering_dashboard import EngineeringDashboard
 from portable.muxin_session_adapter import MuxinSessionAdapter
 from http.server import ThreadingHTTPServer
@@ -125,6 +125,24 @@ class ControlCenterApiTests(unittest.TestCase):
         self.assertEqual("unavailable", payload["learning_status"])
         self.assertEqual("OSError", payload["learning_error"])
         self.assertEqual([], payload["learnings"])
+
+    def test_dashboard_reuses_injected_execution_controller_and_progress_journal(self):
+        from portable.execution_controller import ExecutionController
+
+        controller = ExecutionController(Path(self.temp.name) / "shared-runtime")
+        server = create_server(
+            self.temp.name, host="127.0.0.1", port=0, controller=controller,
+        )
+        try:
+            handler = server.RequestHandlerClass
+            self.assertIs(handler.progress_journal, controller.progress_journal)
+            self.assertIs(handler.delivery_supervisor.controller, controller)
+            self.assertEqual(
+                controller.db_path.parent / "progress.jsonl",
+                handler.progress_journal.path,
+            )
+        finally:
+            server.server_close()
 
     def test_server_refuses_non_loopback_bind(self):
         with self.assertRaises(ValueError):

@@ -281,7 +281,14 @@ def serve_local(
             signal.signal(signum, request_shutdown)
 
     try:
-        dashboard = create_server(root, "127.0.0.1", dashboard_port)
+        shared_controller = (
+            getattr(composition, "controller", None)
+            if composition is not None
+            else getattr(runtime, "execution_controller", None)
+        )
+        dashboard = create_server(
+            root, "127.0.0.1", dashboard_port, controller=shared_controller,
+        )
         mcp_socket = _bound_loopback_socket(mcp_port)
         actual_mcp_port = int(mcp_socket.getsockname()[1])
         service, credential_path = create_local_mcp_service(
