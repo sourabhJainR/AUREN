@@ -71,7 +71,7 @@ def _run_python(arguments: list[str], env_updates: dict[str, str] | None = None)
 
 def _optional_unittest(module: str, path: str) -> int:
     if (ROOT / path).is_file():
-        return _run_python(["-m", "unittest", module, "-v"])
+        return _run_unittest_modules([module])
 
     base = os.environ.get("BASE_SHA", "")
     if not base or set(base) == {"0"}:
@@ -124,7 +124,7 @@ def _unittest_bucket(module: str, bucket: int, bucket_count: int) -> int:
         f"(stable bucket {bucket + 1}/{bucket_count})",
         flush=True,
     )
-    result = unittest.TextTestRunner(verbosity=2).run(unittest.TestSuite(selected))
+    result = _TimedTextTestRunner(verbosity=2).run(unittest.TestSuite(selected))
     return 0 if result.wasSuccessful() else 1
 
 
