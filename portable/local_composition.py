@@ -552,7 +552,7 @@ class LocalRuntimeComposition:
         self.vibe_host_status: dict[str, Any] = {"status": "not_configured"}
         try:
             config = load_host_config(self.vibe_host_config_path)
-            provider_command = {"codex": "codex", "claude": "claude"}.get(config.provider)
+            provider_command = "codex" if config.provider == "codex" else None
             config_digest = hashlib.sha256(self.vibe_host_config_path.read_bytes()).hexdigest()
             if config.allow_workspace_writes is not True:
                 self.vibe_host_status = {"status": "blocked", "reason": "isolated_worktree_writes_not_enabled"}
