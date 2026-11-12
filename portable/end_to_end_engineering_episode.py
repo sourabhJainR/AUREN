@@ -102,6 +102,8 @@ class EndToEndEngineeringEpisode:
             raise TypeError("request must be an EngineeringEpisodeRequest")
         if not callable(executor):
             raise TypeError("executor must be callable")
+        if not isinstance(request.intent, str) or request.intent.strip() != request.requirements.intent.strip():
+            raise ValueError("engineering episode intent must match the requirement contract")
 
         contract_issues = self.requirements.validate(request.requirements)
         if contract_issues:

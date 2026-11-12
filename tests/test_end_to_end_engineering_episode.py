@@ -123,7 +123,7 @@ class EndToEndEngineeringEpisodeTests(unittest.TestCase):
         )
         request = self._request()
         blocked_request = EngineeringEpisodeRequest(
-            request.intent, contract, request.architecture,
+            contract.intent, contract, request.architecture,
             request.implementation_plan, request.full_stack,
         )
         executed = []
@@ -143,6 +143,29 @@ class EndToEndEngineeringEpisodeTests(unittest.TestCase):
             )
         self.assertEqual([], executed)
 
+
+    def test_episode_intent_must_match_requirement_contract_before_executor(self):
+        request = self._request()
+        mismatched = EngineeringEpisodeRequest(
+            "different goal",
+            request.requirements,
+            request.architecture,
+            request.implementation_plan,
+            request.full_stack,
+        )
+        executed = []
+        with self.assertRaisesRegex(ValueError, "intent must match"):
+            EndToEndEngineeringEpisode().run(
+                mismatched,
+                executor=lambda value: executed.append(value),
+                quality_gates=(QualityGate("tests", True, ("test:e2e",)),),
+                threats=(Threat("T1", "backend", "input attack", "validation", True),),
+                performance_budget=PerformanceBudget(100, 10, 512, 80),
+                performance_observation=PerformanceObservation(50, 20, 256, 40),
+                trace_links=(TraceLink("R1", ("impl:1",), ("test:1",), ("e:R1",)),),
+                engineering_evaluator=self._engineering,
+            )
+        self.assertEqual([], executed)
 
     def test_decision_requires_verified_authority_before_executor(self):
         engine = RequirementContractEngine()
@@ -179,7 +202,7 @@ class EndToEndEngineeringEpisodeTests(unittest.TestCase):
             requirement_contract=decided,
         )
         authorized_request = EngineeringEpisodeRequest(
-            request.intent, decided, request.architecture,
+            decided.intent, decided, request.architecture,
             bound_plan, request.full_stack,
         )
         kwargs = dict(
