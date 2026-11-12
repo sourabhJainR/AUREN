@@ -1171,7 +1171,192 @@ class LocalRuntimeComposition:
         self.trigger.close(wait_for_background=True)
         with _PROVIDER_POOLS_LOCK:
             _PROVIDER_POOLS.pop(str(self.state_root), None)
+        with _LOCAL_COMPOSITIONS_LOCK:
+            _LOCAL_COMPOSITIONS.pop(str(self.state_root), None)
         self._closed = True
+
+
+def run_local_vibe_coding_task(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Run the existing Vibe Coding host behind the canonical approval and action gates."""
+    if not isinstance(payload, Mapping):
+        raise TypeError("Vibe Coding task payload must be a mapping")
+    state_root_value = payload.get("_auren_local_state_root")
+    execution_context = payload.get("_auren_execution_context")
+    if (
+        not isinstance(state_root_value, str) or not Path(state_root_value).is_absolute()
+        or not isinstance(execution_context, Mapping)
+        or not isinstance(execution_context.get("task_id"), str)
+        or payload.get("auren_approval_aware") is not True
+    ):
+        raise PermissionError("Vibe Coding execution requires canonical approval-aware controller context")
+    state_root = Path(state_root_value).resolve()
+    with _LOCAL_COMPOSITIONS_LOCK:
+        composition = _LOCAL_COMPOSITIONS.get(str(state_root))
+    if composition is None or composition._closed:
+        raise RuntimeError("canonical local runtime composition is unavailable; execution is blocked")
+    if not composition.operator.verify_digest(composition.operator.principal_digest):
+        raise PermissionError("host-owned operator identity failed verification")
+
+    project_root = Path(str(payload.get("project_root", ""))).expanduser().resolve()
+    if project_root != composition.project_root:
+        raise PermissionError("Vibe Coding project root does not match the admitted workspace")
+    source_revision = payload.get("source_revision")
+    if not isinstance(source_revision, str) or composition._source_revision() != source_revision:
+        raise PermissionError("source checkout revision changed after task admission")
+    work_key = payload.get("work_key")
+    workflow_id = payload.get("workflow_id")
+    if (
+        not isinstance(work_key, str) or not re.fullmatch(r"[A-Za-z0-9:_-]{16,200}", work_key)
+        or not isinstance(workflow_id, str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", workflow_id)
+    ):
+        raise ValueError("Vibe Coding task identity is invalid")
+
+    config_path = Path(str(payload.get("host_config_path", ""))).expanduser()
+    if config_path != composition.vibe_host_config_path or config_path.is_symlink() or not config_path.is_file():
+        raise PermissionError("Vibe Coding host configuration is missing or not host-owned")
+    config_digest = hashlib.sha256(config_path.read_bytes()).hexdigest()
+    if (
+        config_digest != payload.get("host_config_digest")
+        or config_digest != composition.vibe_host_config_digest
+        or composition.vibe_host_config is None
+    ):
+        raise PermissionError("Vibe Coding host configuration changed after task admission")
+    from .vibe_coding_host import LocalVibeCodingHost, load_host_config
+    config = load_host_config(config_path)
+    if config.allow_workspace_writes is not True:
+        raise PermissionError("Vibe Coding isolated-worktree writes are not explicitly enabled")
+
+    task = payload.get("task")
+    if not isinstance(task, str) or not task.strip() or len(task) > 20_000:
+        raise ValueError("Vibe Coding task intent is missing or exceeds the configured limit")
+    principal_digest = payload.get("requester_id")
+    admitted_at = payload.get("admitted_at")
+    if not isinstance(principal_digest, str) or not re.fullmatch(r"[0-9a-f]{64}", principal_digest):
+        raise PermissionError("Vibe Coding task lacks its authenticated requester binding")
+    if not isinstance(admitted_at, (int, float)) or isinstance(admitted_at, bool):
+        raise PermissionError("Vibe Coding task lacks its immutable admission timestamp")
+    policy_digest = payload.get("policy_digest")
+    if not isinstance(policy_digest, str) or not re.fullmatch(r"[0-9a-f]{64}", policy_digest):
+        raise PermissionError("Vibe Coding task lacks its admitted Guard policy digest")
+
+    controller_task_id = execution_context["task_id"]
+    request = ActionRequest(
+        run_id=str(payload.get("run_id", "")),
+        action_id=work_key,
+        actor=principal_digest,
+        capability="repository",
+        action="edit",
+        target=str(project_root),
+        risk="write",
+        idempotency_key=work_key,
+        evidence_refs=("sha256:" + source_revision,),
+        task_id=controller_task_id,
+    )
+    approval_context = composition.operator.approval_context(request)
+    checkpoint = {
+        "operation_id": work_key,
+        "artifact_digest": approval_context["artifact_digest"],
+        "evidence_digest": approval_context["evidence_digest"],
+        "policy_digest": approval_context["policy_digest"],
+        "request_fingerprint": request.fingerprint(),
+        "source_revision": source_revision,
+        "intent_digest": _digest(task.strip()),
+        "host_config_digest": config_digest,
+    }
+    expires_at = datetime.fromtimestamp(float(admitted_at), timezone.utc) + timedelta(minutes=30)
+    approval = composition.approval_store.create_request(
+        request,
+        operation_id=work_key,
+        artifact_digest=approval_context["artifact_digest"],
+        evidence_digest=approval_context["evidence_digest"],
+        policy_digest=approval_context["policy_digest"],
+        requester_id=principal_digest,
+        required_role="engineering_manager",
+        scope="repo:write",
+        expires_at=expires_at,
+        required_approvals=1,
+        separation_of_duties=True,
+        checkpoint=checkpoint,
+    )
+    report_path = composition.state_root / "vibe-coding" / "reports" / f"{workflow_id}.json"
+    if approval.status == "pending":
+        raise ApprovalPending(approval.approval_id, checkpoint)
+    if approval.status == "completed":
+        if not report_path.is_file() or report_path.is_symlink():
+            raise RuntimeError("completed Vibe Coding approval has no durable host report")
+    elif approval.status == "approved":
+        ledger = DurableSideEffectLedger(
+            composition.state_root / "vibe-coding" / "canonical-side-effects.sqlite3"
+        )
+        gateway = ActionGovernanceGateway(
+            ActionPolicy(
+                allowed_capabilities=frozenset({"repository"}),
+                allowed_actions=frozenset({"edit"}),
+                approval_required_actions=frozenset({"edit"}),
+                external_effect_actions=frozenset({"edit"}),
+                evidence_required_actions=frozenset({"edit"}),
+                require_idempotency_for_external_effects=True,
+                require_durable_ledger_for_external_effects=True,
+            ),
+            approval_verifier=composition.approval_store.verify_receipt,
+            side_effect_ledger=ledger,
+        )
+
+        def execute_host() -> str:
+            report = LocalVibeCodingHost(
+                project_root,
+                config=config,
+                state_root=composition.state_root / "vibe-coding",
+            ).run(workflow_id, task)
+            return str(report["digest"])
+
+        governed = composition.approval_store.execute_approved_action(
+            approval.approval_id,
+            request,
+            gateway,
+            execute_host,
+            artifact_digest=approval_context["artifact_digest"],
+            evidence_digest=approval_context["evidence_digest"],
+            policy_digest=approval_context["policy_digest"],
+        )
+        if not (getattr(governed, "executed", False) or getattr(governed, "replayed", False)):
+            raise PermissionError(
+                "Vibe Coding host was denied by the canonical action gateway: "
+                + str(getattr(getattr(governed, "verdict", None), "reason", "unknown"))
+            )
+    else:
+        raise PermissionError("Vibe Coding task is blocked by its durable approval state: " + approval.status)
+
+    if not report_path.is_file() or report_path.is_symlink():
+        raise RuntimeError("Vibe Coding host did not produce a safe durable report")
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    recorded_digest = report.get("digest")
+    report_without_digest = dict(report)
+    report_without_digest.pop("digest", None)
+    if (
+        not isinstance(recorded_digest, str)
+        or _canonical_report_digest(report_without_digest) != recorded_digest
+        or report.get("workflow_id") != workflow_id
+        or report.get("base_revision") != source_revision
+        or report.get("run_status") != "accepted"
+        or len(report.get("stage_statuses", {})) != 18
+        or report.get("merge_or_publish_performed") is not False
+        or report.get("production_deployment_performed") is not False
+    ):
+        raise RuntimeError("Vibe Coding host report failed canonical verification")
+    return {
+        "status": "completed",
+        "workflow_id": workflow_id,
+        "report_digest": recorded_digest,
+        "report_path": str(report_path),
+        "workspace_root": report.get("workspace_root"),
+        "workspace_head": report.get("workspace_head"),
+        "changed_files": report.get("workspace_changed_files", []),
+        "approval_receipts": [approval.approval_id],
+        "evidence_refs": ["sha256:" + recorded_digest],
+        "merge_or_publish_performed": False,
+        "production_deployment_performed": False,
+    }
 
 
 def create_local_composition(
@@ -1190,5 +1375,5 @@ __all__ = [
     "LocalBudgetResolver", "LocalOperatorAuthority", "LocalProviderNotConfigured",
     "LocalProviderOperationLedger", "LocalProviderOutcomeUnknown",
     "LocalRuntimeComposition", "LocalTaskOutcome", "create_local_composition",
-    "run_local_provider_task",
+    "run_local_provider_task", "run_local_vibe_coding_task",
 ]
