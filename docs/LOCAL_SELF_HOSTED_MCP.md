@@ -36,6 +36,26 @@ python auren_cli.py local \
 
 Omit both port options for automatic selection. A port collision is reported at startup; AUREN does not silently bind to a different port when a fixed port was requested.
 
+### Start directly from GitHub
+
+You can start AUREN against a GitHub repository without creating a local checkout yourself. Run this command from an installed AUREN checkout or portable bundle:
+
+```powershell
+python auren_cli.py local --repository "https://github.com/sourabhJainR/AUREN"
+```
+
+To select a branch:
+
+```powershell
+python auren_cli.py local --repository "https://github.com/sourabhJainR/AUREN" --branch main
+```
+
+AUREN clones the repository under `%USERPROFILE%\\.auren\\workspaces\\<owner>\\<repository>` (or the configured `AUREN_HOME`), initializes its project profile on first use, and starts the same local dashboard and authenticated MCP host. Git must be installed and available on PATH. For private repositories, authenticate Git through Git Credential Manager or another secure Git credential helper before starting; do not put tokens in the URL.
+
+An existing managed checkout is reused only when its origin matches and its worktree is clean. AUREN does not overwrite local changes, silently switch branches, or pull new commits into an existing workspace. Use a separate workspace or resolve local changes before reusing it. Only HTTPS URLs on github.com are accepted.
+
+The repository option selects the project workspace; it does not install or update the AUREN CLI itself. The CLI must be run from an AUREN checkout or portable installation.
+
 ## Runtime profiles
 
 AUREN project profiles default to single-user local mode. This mode uses AUREN's built-in composition root and never requires or discovers `auren_runtime_factory.py`. The root owns the canonical controller, durable stores, trusted plan dispatch and continuous supervisor.
