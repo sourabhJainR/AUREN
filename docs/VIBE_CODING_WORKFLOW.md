@@ -154,6 +154,8 @@ For each submitted prompt, AUREN binds the authenticated principal, project, sou
 
 The source checkout is not modified. The handler does not merge, publish, release or deploy to production. An incomplete or uncertain run remains blocked and is not replayed as success.
 
+This integration does not grant general-purpose subprocess access or unrestricted external MCP tools to the coding agent. Unbound MCP side-effect tools, release tools and deployment tools remain denied by their existing host and Guard boundaries. The remote MCP endpoint is the authenticated ingress to AUREN; it is not a permission bypass for tools inside the Vibe Coding host.
+
 Local single-user tasks can be approved by the host operator through the local MCP approval tool. Remote tasks require AUREN_MCP_REMOTE_EXECUTION_ENABLED=1, an HTTPS OAuth issuer, a matching project claim, the engineering_manager role, the auren:tasks:write scope, and a separate approver digest configured in AUREN_MCP_APPROVER_SUBJECT_DIGESTS. Remote requesters cannot approve their own work.
 
 Run auren doctor to see whether the Vibe Coding host is ready. If it is missing or invalid, local tasks retain the proposal-only provider path and remote repository execution is denied. ChatGPT Web requires the separately deployed HTTPS remote MCP service; it cannot connect to the local loopback MCP endpoint. See CHATGPT_WEB_SETUP.md and REMOTE_MCP_OPERATIONS.md.
