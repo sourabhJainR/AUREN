@@ -134,7 +134,7 @@ class RequirementContract:
         collections = (requirements, conflicts, decisions, ambiguities, assumptions)
         if any(not isinstance(value, (list, tuple)) for value in collections):
             raise ValueError("requirement contract collections must be arrays")
-        if any(not isinstance(item, Mapping) for item in requirements + conflicts + decisions):
+        if any(not isinstance(item, Mapping) for item in (*requirements, *conflicts, *decisions)):
             raise ValueError("requirement contract records must be objects")
         for item in requirements:
             if not isinstance(item.get("acceptance_criteria"), (list, tuple)):
