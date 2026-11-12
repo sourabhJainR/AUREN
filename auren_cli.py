@@ -160,6 +160,7 @@ def _run_up(args: list[str]) -> int:
     parser.add_argument("--mcp-port", type=int, default=8765)
     parser.add_argument("--no-connect", action="store_true", help="Leave local client configuration untouched.")
     parser.add_argument("--no-browser", action="store_true", help="Do not open the desktop console.")
+    parser.add_argument("--no-chatgpt", action="store_true", help="Do not open ChatGPT Web after AUREN starts.")
     options = parser.parse_args(args)
     from portable.onboarding import doctor, initialize_repository, load_project_profile
     root = Path(options.project_root).expanduser().resolve()
@@ -197,6 +198,8 @@ def _run_up(args: list[str]) -> int:
         local_args.append("--auto-connect")
     if not options.no_browser:
         local_args.append("--open-browser")
+    if not options.no_chatgpt:
+        local_args.append("--open-chatgpt")
     return local_main(local_args)
 
 
