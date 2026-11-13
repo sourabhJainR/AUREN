@@ -96,6 +96,16 @@ class ImpactPolicyTests(unittest.TestCase):
                 self.assertTrue(required.issubset(set(impact.required_suites)))
                 self.assertTrue(impact.hardening_required)
 
+    def test_local_vibe_owner_approval_test_has_explicit_impact_classification(self):
+        impact = classify_path("tests/test_local_vibe_owner_approval.py")
+        self.assertIsNotNone(impact)
+        self.assertTrue(impact.hardening_required)
+        self.assertTrue({
+            "tests.test_local_vibe_owner_approval",
+            "tests.test_durable_approval",
+            "tests.test_vibe_coding_host",
+        }.issubset(set(impact.required_suites)))
+
     def test_scheduler_and_recovery_journal_changes_have_required_impact_suites(self):
         expected = {
             "portable/agent_capabilities.py": {

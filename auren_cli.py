@@ -871,6 +871,25 @@ def main(argv: list[str] | None = None) -> int:
         args = ["install", *args, "--skill", "auto"]
     elif args and args[0] in {"install", "update"} and not _has_flag(args, "--skill"):
         args = [*args, "--skill", "auto"]
+    if args and args[0] == "plugin":
+        if len(args) < 2 or args[1] in {"-h", "--help", "help"}:
+            print(
+                "Usage: auren plugin <install|status|connect> [options]\n"
+                "  install  Start the local AUREN runtime and configure supported MCP clients.\n"
+                "  status   Check local runtime prerequisites and provider readiness.\n"
+                "  connect  Preview or apply the AUREN MCP entry in supported local clients.\n"
+                "Use 'auren plugin install --help' for install options."
+            )
+            return 0
+        action, plugin_args = args[1], args[2:]
+        if action == "install":
+            return _run_up(plugin_args)
+        if action == "status":
+            return _run_onboarding("doctor", plugin_args)
+        if action == "connect":
+            return _run_onboarding("connect", plugin_args)
+        print(f"unknown AUREN plugin action: {action}", file=sys.stderr)
+        return 2
     if args and args[0] in {"init", "doctor", "connect", "mode"}:
         return _run_onboarding(args[0], args[1:])
     if args and args[0] == "deliver":

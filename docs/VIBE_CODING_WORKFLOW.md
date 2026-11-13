@@ -148,15 +148,17 @@ The receipt retains evaluation counts, distinct workflow IDs, and evidence refer
 
 ## Canonical runtime and MCP integration
 
-When the host config at ~/.auren/vibe-coding/host.json is valid, Codex CLI is installed, and isolated-worktree writes are enabled, the built-in local composition registers the existing Vibe Coding host as an approval-gated ExecutionController handler. Local MCP tasks and the factory-free remote MCP service both use this same composition; there is no second supervisor or independent task authority.
+When the host config at ~/.auren/vibe-coding/host.json is valid, Codex CLI is installed, and isolated-worktree writes are enabled, the built-in local composition registers the existing Vibe Coding host as a governed ExecutionController handler. Local MCP tasks and the factory-free remote MCP service both use this same composition; there is no second supervisor or independent task authority.
 
-For each submitted prompt, AUREN binds the authenticated principal, project, source revision and Guard policy before creating the canonical plan. The handler creates a durable repository-edit approval request, then runs the 18-stage host only after approval. It uses the existing host worktree, stage checkpoints, provider adapters, test commands and report. AUREN verifies the report digest, all 18 stage records, source revision, isolated worktree path, approval receipt and audit chain before accepting completion.
+For a single-user local installation, `approval_mode` defaults to `owner_auto`. AUREN records a durable approval decision from its verified host-owned local operator identity, so normal code changes do not stop for an approval prompt. This is not an approval bypass: the decision is bound to the exact task, workspace, source revision and Guard policy, and is written to the durable approval audit chain before execution. Set `"approval_mode": "manual"` to require a separate approval action. Remote execution does not inherit this local-owner mode.
+
+For each submitted prompt, AUREN binds the authenticated principal, project, source revision and Guard policy before creating the canonical plan. The handler creates a durable repository-edit approval request, then records the local owner's durable approval and runs the 18-stage host without an interactive prompt. Set `approval_mode` to `manual` when a separate approval action is required. It uses the existing host worktree, stage checkpoints, provider adapters, test commands and report. AUREN verifies the report digest, all 18 stage records, source revision, isolated worktree path, approval receipt and audit chain before accepting completion.
 
 The source checkout is not modified. The handler does not merge, publish, release or deploy to production. An incomplete or uncertain run remains blocked and is not replayed as success.
 
 This integration does not grant general-purpose subprocess access or unrestricted external MCP tools to the coding agent. Unbound MCP side-effect tools, release tools and deployment tools remain denied by their existing host and Guard boundaries. The remote MCP endpoint is the authenticated ingress to AUREN; it is not a permission bypass for tools inside the Vibe Coding host.
 
-Local single-user tasks can be approved by the host operator through the local MCP approval tool. Remote tasks require AUREN_MCP_REMOTE_EXECUTION_ENABLED=1, an HTTPS OAuth issuer, a matching project claim, the engineering_manager role, the auren:tasks:write scope, and a separate approver digest configured in AUREN_MCP_APPROVER_SUBJECT_DIGESTS. Remote requesters cannot approve their own work.
+Local single-user tasks use the verified host-owned operator identity for automatic local approval by default; setting `approval_mode` to `manual` requires an explicit approval. Remote tasks require AUREN_MCP_REMOTE_EXECUTION_ENABLED=1, an HTTPS OAuth issuer, a matching project claim, the engineering_manager role, the auren:tasks:write scope, and a separate approver digest configured in AUREN_MCP_APPROVER_SUBJECT_DIGESTS. Remote requesters cannot approve their own work.
 
 Run auren doctor to see whether the Vibe Coding host is ready. If it is missing or invalid, local tasks retain the proposal-only provider path and remote repository execution is denied. ChatGPT Web requires the separately deployed HTTPS remote MCP service; it cannot connect to the local loopback MCP endpoint. See CHATGPT_WEB_SETUP.md and REMOTE_MCP_OPERATIONS.md.
 
@@ -174,6 +176,7 @@ Create `~/.auren/vibe-coding/host.json` with mode `0600`. The config is executab
   "provider": "codex",
   "reviewer_provider": "claude",
   "allow_workspace_writes": true,
+  "approval_mode": "owner_auto",
   "test_commands": [
     ["python", "-m", "unittest", "discover", "-s", "tests", "-p", "test*.py"]
   ],

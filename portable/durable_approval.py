@@ -571,6 +571,7 @@ class DurableApprovalStore:
     def decide(
         self, approval_id: str, decision: str, *, approver_id: str, roles: tuple[str, ...] | list[str],
         scope: str, reason: str = "", now: datetime | None = None,
+        wake_worker: bool = True,
     ) -> ApprovalRecord:
         approval_id = _required(approval_id, "approval_id")
         approver_id = _required(approver_id, "approver_id")
@@ -578,6 +579,8 @@ class DurableApprovalStore:
         reason = reason.strip() if isinstance(reason, str) else ""
         if decision not in {"approve", "reject"}:
             raise ValueError("decision must be approve or reject")
+        if type(wake_worker) is not bool:
+            raise ValueError("wake_worker must be a boolean")
         normalized_roles = tuple(sorted(set(_required(role, "role") for role in roles)))
         with self._connect() as db:
             first = db.execute("SELECT * FROM durable_approvals WHERE approval_id=?", (approval_id,)).fetchone()
@@ -618,7 +621,7 @@ class DurableApprovalStore:
                     raise InvalidApprovalTransition("approver cannot change a recorded decision")
                 db.commit()
                 result = _record(row)
-                wake = result.status == "approved"
+                wake = result.status == "approved" and wake_worker
             else:
                 if row["status"] != "pending":
                     db.rollback()
@@ -659,7 +662,7 @@ class DurableApprovalStore:
                     )
                 db.commit()
                 result = _record(row)
-                wake = result.status == "approved"
+                wake = result.status == "approved" and wake_worker
         self._project_progress(result, "approval_decision")
         if wake and self.wake_callback is not None:
             try:
