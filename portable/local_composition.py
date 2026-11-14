@@ -548,28 +548,21 @@ class LocalRuntimeComposition:
             with _PROVIDER_POOLS_LOCK:
                 _PROVIDER_POOLS[str(self.state_root)] = self.provider_pool
 
-        from .vibe_coding_host import load_host_config
+        from .vibe_coding_host import inspect_vibe_host_readiness, load_host_config
         self.vibe_host_config_path = Path.home().expanduser() / ".auren" / "vibe-coding" / "host.json"
         self.vibe_host_config = None
         self.vibe_host_config_digest = ""
         self.vibe_host_status: dict[str, Any] = {"status": "not_configured"}
         try:
             config = load_host_config(self.vibe_host_config_path)
-            provider_command = "codex" if config.provider == "codex" else None
-            config_digest = hashlib.sha256(self.vibe_host_config_path.read_bytes()).hexdigest()
-            if config.allow_workspace_writes is not True:
-                self.vibe_host_status = {"status": "blocked", "reason": "isolated_worktree_writes_not_enabled"}
-            elif provider_command is None:
-                self.vibe_host_status = {"status": "blocked", "reason": "unsupported_provider_cli"}
-            elif shutil.which(provider_command) is None:
-                self.vibe_host_status = {"status": "provider_missing", "provider": config.provider}
+            readiness = inspect_vibe_host_readiness(config)
+            if readiness["status"] != "ready":
+                self.vibe_host_status = readiness
             else:
+                config_digest = hashlib.sha256(self.vibe_host_config_path.read_bytes()).hexdigest()
                 self.vibe_host_config = config
                 self.vibe_host_config_digest = config_digest
-                self.vibe_host_status = {
-                    "status": "ready", "provider": config.provider,
-                    "config_digest": config_digest,
-                }
+                self.vibe_host_status = {**readiness, "config_digest": config_digest}
         except FileNotFoundError:
             self.vibe_host_status = {"status": "not_configured"}
         except Exception as exc:

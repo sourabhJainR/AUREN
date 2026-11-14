@@ -214,6 +214,34 @@ def test_doctor_reports_local_and_multiple_remote_provider_readiness_without_sec
     assert "openai-secret-value" not in serialized
 
 
+def test_doctor_uses_the_shared_vibe_host_readiness_preflight(tmp_path: Path, monkeypatch):
+    from types import SimpleNamespace
+    from portable import vibe_coding_host
+    from portable.provider_fabric import ProviderFabric
+    from portable.muxin_session_adapter import LocalModelDiscovery
+
+    host_config = SimpleNamespace()
+    expected = {
+        "status": "blocked",
+        "provider": "codex",
+        "reviewer_provider": "claude",
+        "tool_commands": {"security": "command_missing"},
+        "issues": ["mcp_command_missing:security"],
+        "reason": "mcp_command_missing:security",
+    }
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(vibe_coding_host, "load_host_config", lambda _path: host_config)
+    monkeypatch.setattr(vibe_coding_host, "inspect_vibe_host_readiness", lambda config: expected)
+    monkeypatch.setattr(ProviderFabric, "discover", lambda self: {})
+    monkeypatch.setattr(LocalModelDiscovery, "discover", lambda self: {
+        "available": False, "provider": "ollama-compatible", "models": [],
+    })
+
+    report = doctor(tmp_path)
+
+    assert report["vibe_coding_host"] == expected
+
+
 
 def test_discover_clients_includes_linux_claude_desktop_and_windsurf(tmp_path: Path):
     claude = tmp_path / ".config" / "Claude" / "claude_desktop_config.json"

@@ -25,6 +25,8 @@ from portable.vibe_coding_host import (
     LocalProjectTool,
     LocalTestExecutionTool,
     LocalVibeCodingHost,
+    ProviderCliAgent,
+    inspect_vibe_host_readiness,
     MCPExecutionAuthorization,
     MCPStdioToolAdapter,
     MCPToolCallBinding,
@@ -1850,6 +1852,98 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
                 tool({"stage": "research", "intent": "reject oversized frame", "state": {"workspace_root": str(root)}})
             time.sleep(1.5)
             self.assertFalse(marker.exists(), "oversized MCP frame must terminate the complete child process tree")
+
+
+class _ReadinessProviderFabric:
+    def __init__(self, names):
+        from types import SimpleNamespace
+        self.providers = {
+            name: SimpleNamespace(command=f"/fake/bin/{name}")
+            for name in names
+        }
+
+    def discover(self):
+        return dict(self.providers)
+
+
+class VibeHostReadinessTests(unittest.TestCase):
+    @staticmethod
+    def _config(*, reviewer_provider="claude", tools=None):
+        from types import SimpleNamespace
+        return SimpleNamespace(
+            provider="codex",
+            reviewer_provider=reviewer_provider,
+            allow_workspace_writes=True,
+            test_commands=(("python", "-m", "unittest"),),
+            mcp_tools=tools or {
+                "web_search": {"argv": ["search-mcp"]},
+                "security": {"argv": ["security-mcp"]},
+            },
+            security_tool_required=True,
+            browser_qa_required=False,
+            preview_deployment_required=False,
+        )
+
+    def test_readiness_requires_writer_reviewer_and_configured_tool_commands(self):
+        config = self._config()
+        with patch("portable.vibe_coding_host.shutil.which", side_effect=lambda command: f"/fake/bin/{command}"):
+            result = inspect_vibe_host_readiness(
+                config, provider_fabric=_ReadinessProviderFabric({"codex", "claude"}),
+            )
+        self.assertEqual("ready", result["status"])
+        self.assertEqual("available", result["tool_commands"]["web_search"])
+        self.assertEqual("available", result["tool_commands"]["security"])
+
+    def test_readiness_blocks_when_independent_reviewer_cli_is_missing(self):
+        config = self._config()
+        with patch("portable.vibe_coding_host.shutil.which", side_effect=lambda command: f"/fake/bin/{command}"):
+            result = inspect_vibe_host_readiness(
+                config, provider_fabric=_ReadinessProviderFabric({"codex"}),
+            )
+        self.assertEqual("blocked", result["status"])
+        self.assertIn("reviewer_cli_missing", result["issues"])
+
+    def test_readiness_blocks_when_configured_mcp_command_is_missing(self):
+        config = self._config()
+        def resolve(command):
+            return None if command == "security-mcp" else f"/fake/bin/{command}"
+        with patch("portable.vibe_coding_host.shutil.which", side_effect=resolve):
+            result = inspect_vibe_host_readiness(
+                config, provider_fabric=_ReadinessProviderFabric({"codex", "claude"}),
+            )
+        self.assertEqual("blocked", result["status"])
+        self.assertIn("mcp_command_missing:security", result["issues"])
+
+    def test_readiness_blocks_when_a_configured_test_runner_is_missing(self):
+        config = self._config()
+        config.test_commands = (("missing-test-runner",),)
+        def resolve(command):
+            return None if command == "missing-test-runner" else f"/fake/bin/{command}"
+        with patch("portable.vibe_coding_host.shutil.which", side_effect=resolve):
+            result = inspect_vibe_host_readiness(
+                config, provider_fabric=_ReadinessProviderFabric({"codex", "claude"}),
+            )
+        self.assertEqual("blocked", result["status"])
+        self.assertIn("test_command_missing:0", result["issues"])
+
+    def test_external_independent_review_tool_does_not_require_reviewer_cli(self):
+        config = self._config(
+            reviewer_provider=None,
+            tools={
+                "web_search": {"argv": ["search-mcp"]},
+                "security": {"argv": ["security-mcp"]},
+                "independent_review": {"argv": ["review-mcp"]},
+            },
+        )
+        with patch("portable.vibe_coding_host.shutil.which", side_effect=lambda command: f"/fake/bin/{command}"):
+            result = inspect_vibe_host_readiness(
+                config, provider_fabric=_ReadinessProviderFabric({"codex"}),
+            )
+        self.assertEqual("ready", result["status"])
+
+    def test_gemini_cli_is_not_invoked_with_claude_command_line_flags(self):
+        with self.assertRaisesRegex(AdapterUnavailable, "unsupported Vibe Coding CLI adapter"):
+            ProviderCliAgent(provider="gemini", allow_workspace_writes=False)
 
 
 if __name__ == "__main__":

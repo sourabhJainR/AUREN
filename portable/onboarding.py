@@ -501,18 +501,10 @@ def doctor(project_root: str | Path = ".") -> dict[str, Any]:
     except Exception as exc:
         report["remote_provider_configuration_error"] = type(exc).__name__
     try:
-        from .vibe_coding_host import load_host_config
+        from .vibe_coding_host import inspect_vibe_host_readiness, load_host_config
         host_config_path = Path.home().expanduser() / ".auren" / "vibe-coding" / "host.json"
         host_config = load_host_config(host_config_path)
-        provider_command = "codex" if host_config.provider == "codex" else None
-        if host_config.allow_workspace_writes is not True:
-            report["vibe_coding_host"] = {"status": "blocked", "reason": "isolated_worktree_writes_not_enabled"}
-        elif provider_command is None:
-            report["vibe_coding_host"] = {"status": "blocked", "reason": "unsupported_provider_cli"}
-        elif shutil.which(provider_command) is None:
-            report["vibe_coding_host"] = {"status": "provider_missing", "provider": host_config.provider}
-        else:
-            report["vibe_coding_host"] = {"status": "ready", "provider": host_config.provider}
+        report["vibe_coding_host"] = inspect_vibe_host_readiness(host_config)
     except FileNotFoundError:
         report["vibe_coding_host"] = {"status": "not_configured"}
     except Exception as exc:

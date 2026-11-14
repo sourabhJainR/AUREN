@@ -557,5 +557,31 @@ os._exit(87)
                 composition.close()
 
 
+    def test_local_composition_does_not_admit_vibe_host_when_preflight_is_blocked(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            project = root / "workspace"
+            _git_workspace(project)
+            config = SimpleNamespace(provider="codex", allow_workspace_writes=True)
+            readiness = {
+                "status": "blocked",
+                "provider": "codex",
+                "reviewer_provider": "claude",
+                "issues": ["reviewer_cli_missing"],
+                "reason": "reviewer_cli_missing",
+            }
+            with (
+                patch("portable.vibe_coding_host.load_host_config", return_value=config),
+                patch("portable.vibe_coding_host.inspect_vibe_host_readiness", return_value=readiness),
+            ):
+                composition = create_local_composition(project, state_root=root / "state")
+            try:
+                self.assertEqual(readiness, composition.vibe_host_status)
+                self.assertIsNone(composition.vibe_host_config)
+                self.assertEqual("", composition.vibe_host_config_digest)
+            finally:
+                composition.close()
+
+
 if __name__ == "__main__":
     unittest.main()
