@@ -566,21 +566,34 @@ class DurableRoutineRegistry:
 
         if active_work_keys:
             if reconcile is None:
+                self._update_receipt(
+                    occurrence_key, status="blocked_overlap",
+                    updates={"state": "blocked_overlap", "overlap_resolution": "missing_reconciler"},
+                )
                 return RoutineDispatch(
-                    occurrence_key, work_key, "unknown",
+                    occurrence_key, work_key, "blocked_overlap",
                     reason="overlap policy requires authoritative task-state lookup; dispatch refused",
                 )
             for active_work_key in active_work_keys:
                 try:
                     active_task = reconcile(active_work_key)
                 except Exception as exc:
+                    self._update_receipt(
+                        occurrence_key, status="blocked_overlap",
+                        updates={"state": "blocked_overlap", "overlap_resolution": "reconciliation_failed",
+                                 "overlap_error_type": type(exc).__name__},
+                    )
                     return RoutineDispatch(
-                        occurrence_key, work_key, "unknown",
+                        occurrence_key, work_key, "blocked_overlap",
                         reason=f"overlap reconciliation failed: {type(exc).__name__}",
                     )
                 if active_task is None:
+                    self._update_receipt(
+                        occurrence_key, status="blocked_overlap",
+                        updates={"state": "blocked_overlap", "overlap_resolution": "prior_task_missing"},
+                    )
                     return RoutineDispatch(
-                        occurrence_key, work_key, "unknown",
+                        occurrence_key, work_key, "blocked_overlap",
                         reason="prior submitted occurrence is absent from authoritative task store",
                     )
                 task_state = (
