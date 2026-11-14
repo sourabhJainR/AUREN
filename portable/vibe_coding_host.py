@@ -2589,6 +2589,13 @@ def inspect_vibe_host_readiness(config: VibeHostConfig, *, provider_fabric: Any 
             if reviewer_capability is None or not getattr(reviewer_capability, "command", None):
                 issues.append("reviewer_cli_missing")
 
+    for index, argv in enumerate(config.test_commands):
+        command = argv[0] if isinstance(argv, (list, tuple)) and argv else None
+        available = isinstance(command, str) and bool(shutil.which(command))
+        tool_status[f"test_command.{index}"] = "available" if available else "command_missing"
+        if not available:
+            issues.append(f"test_command_missing:{index}")
+
     for capability, spec in sorted(tools.items()):
         argv = spec.get("argv") if isinstance(spec, Mapping) else None
         command = argv[0] if isinstance(argv, (list, tuple)) and argv else None
