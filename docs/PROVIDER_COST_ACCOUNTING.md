@@ -35,17 +35,17 @@ AUREN validates the structure and validity window. It does not fetch, authentica
 ## 2. Validate the catalog
 
 ```powershell
-python scripts/provider_costs.py --catalog .ai-harness/provider-prices.json --validate
+auren providers cost --catalog .ai-harness/provider-prices.json --validate
 ```
 
-The command reads a local JSON file only. It does not contact a provider or the source URL.
+The installed `auren providers cost` command reads a local JSON file only. It does not contact a provider or the source URL. The source-checkout helper `python scripts/provider_costs.py` offers the same validation and estimate operations.
 
 ## 3. Estimate a request
 
 Use token counts returned by the provider:
 
 ```powershell
-python scripts/provider_costs.py --catalog .ai-harness/provider-prices.json --provider openai --model exact-model-version --input-tokens 12000 --output-tokens 2500
+auren providers cost --catalog .ai-harness/provider-prices.json --provider openai --model exact-model-version --input-tokens 12000 --output-tokens 2500
 ```
 
 The estimator uses decimal arithmetic and reports input cost, output cost, total estimated USD, catalog version/digest and source. It refuses to estimate when the exact model is not priced, the catalog is not yet effective or expired, or provider usage is incomplete or ambiguous.
