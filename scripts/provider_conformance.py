@@ -282,8 +282,9 @@ def run(
         failed = any(c.status in {"fail", "timeout"} for c in checks)
         providers.append(ProviderResult(provider, spec["surfaces"][0], "live" if live else "static", "fail" if failed else "pass", checks))
     static_pass = not any(c.status == "fail" for c in static)
+    selected_api_providers = tuple(dict.fromkeys(api_providers))
     api_probes = (
-        [asdict(live_api_probe(provider, timeout_seconds=api_timeout_seconds)) for provider in api_providers]
+        [asdict(live_api_probe(provider, timeout_seconds=api_timeout_seconds)) for provider in selected_api_providers]
         if live_api else []
     )
     api_probe_ready = bool(api_probes) and all(item["status"] == "pass" for item in api_probes)
@@ -322,6 +323,8 @@ def main() -> int:
         parser.error("--live-api requires at least one --api-provider")
     if args.api_provider and not args.live_api:
         parser.error("--api-provider requires --live-api")
+    if len(set(args.api_provider)) != len(args.api_provider):
+        parser.error("duplicate --api-provider values would repeat billable API probes")
     report = run(
         live=args.live, write_report=args.write_report, live_api=args.live_api,
         api_providers=args.api_provider, api_timeout_seconds=args.api_timeout_seconds,
