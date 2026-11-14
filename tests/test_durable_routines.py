@@ -462,5 +462,67 @@ class DurableRoutineRegistryTests(unittest.TestCase):
                     self.spec(**{field_name: value})
 
 
+    def test_skip_overlap_policy_blocks_new_occurrence_while_prior_task_is_active(self):
+        spec = self.spec(concurrency_policy="skip")
+        self.registry.register(spec)
+        first = self.registry.dispatch_webhook(
+            spec.routine_id, event_id="evt-overlap-1", event_type="push",
+            payload={"ref": "main"}, authenticate=lambda *_: True, submit=self.submit,
+        )
+        prior_work_key = first.work_key
+        reconciled = []
+
+        def lookup(work_key):
+            reconciled.append(work_key)
+            return {"id": first.task_id, "state": "running"} if work_key == prior_work_key else None
+
+        second = self.registry.dispatch_webhook(
+            spec.routine_id, event_id="evt-overlap-2", event_type="push",
+            payload={"ref": "release"}, authenticate=lambda *_: True,
+            submit=self.submit, reconcile=lookup,
+        )
+
+        self.assertEqual("skipped_overlap", second.status)
+        self.assertEqual([prior_work_key], reconciled)
+        self.assertEqual(1, len(self.submissions))
+        receipt = self.registry.occurrence(second.occurrence_key)
+        self.assertEqual("skipped_overlap", receipt["status"])
+        self.assertEqual(prior_work_key, json.loads(receipt["receipt_json"])["overlap_work_key"])
+
+    def test_skip_overlap_policy_allows_dispatch_after_prior_task_is_terminal(self):
+        spec = self.spec(concurrency_policy="skip")
+        self.registry.register(spec)
+        first = self.registry.dispatch_webhook(
+            spec.routine_id, event_id="evt-terminal-1", event_type="push",
+            payload={"ref": "main"}, authenticate=lambda *_: True, submit=self.submit,
+        )
+        second = self.registry.dispatch_webhook(
+            spec.routine_id, event_id="evt-terminal-2", event_type="push",
+            payload={"ref": "release"}, authenticate=lambda *_: True,
+            submit=self.submit,
+            reconcile=lambda key: {"id": first.task_id, "state": "completed"} if key == first.work_key else None,
+        )
+        self.assertEqual("submitted", second.status)
+        self.assertEqual(2, len(self.submissions))
+
+    def test_skip_overlap_policy_fails_closed_without_authoritative_lookup(self):
+        spec = self.spec(concurrency_policy="skip")
+        self.registry.register(spec)
+        self.registry.dispatch_webhook(
+            spec.routine_id, event_id="evt-no-lookup-1", event_type="push",
+            payload={"ref": "main"}, authenticate=lambda *_: True, submit=self.submit,
+        )
+        second = self.registry.dispatch_webhook(
+            spec.routine_id, event_id="evt-no-lookup-2", event_type="push",
+            payload={"ref": "release"}, authenticate=lambda *_: True, submit=self.submit,
+        )
+        self.assertEqual("blocked_overlap", second.status)
+        self.assertEqual(1, len(self.submissions))
+
+    def test_invalid_concurrency_policy_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "concurrency_policy"):
+            self.spec(concurrency_policy="queue")
+
+
 if __name__ == "__main__":
     unittest.main()
