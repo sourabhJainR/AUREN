@@ -744,5 +744,37 @@ class DurableRoutineRegistryTests(unittest.TestCase):
         self.assertEqual([first.task_id, second.task_id], requested)
 
 
+    def test_reconcile_occurrences_persists_terminal_summaries_and_failure_escalation(self):
+        spec = self.spec()
+        self.registry.register(spec)
+        completed = self.registry.dispatch_webhook(
+            spec.routine_id, event_id="evt-summary-complete", event_type="push",
+            payload={"ref": "main"}, authenticate=lambda *_: True, submit=self.submit,
+        )
+        failed = self.registry.dispatch_webhook(
+            spec.routine_id, event_id="evt-summary-failed", event_type="push",
+            payload={"ref": "release"}, authenticate=lambda *_: True, submit=self.submit,
+        )
+        task_states = {
+            completed.work_key: {"id": completed.task_id, "state": "completed", "attempts": 1},
+            failed.work_key: {"id": failed.task_id, "state": "failed", "attempts": 3},
+        }
+
+        results = self.registry.reconcile_occurrences(
+            routine_id=spec.routine_id, reconcile=lambda key: task_states[key], limit=10,
+        )
+
+        self.assertEqual({"completed", "failed"}, {item.status for item in results})
+        completed_receipt = json.loads(self.registry.occurrence(completed.occurrence_key)["receipt_json"])
+        failed_receipt = json.loads(self.registry.occurrence(failed.occurrence_key)["receipt_json"])
+        self.assertEqual("Routine repo-health completed after 1 attempt(s)", completed_receipt["terminal_summary"])
+        self.assertFalse(completed_receipt["escalation_required"])
+        self.assertEqual("Routine repo-health failed after 3 attempt(s)", failed_receipt["terminal_summary"])
+        self.assertTrue(failed_receipt["escalation_required"])
+        self.assertEqual((), self.registry.reconcile_occurrences(
+            routine_id=spec.routine_id, reconcile=lambda _key: self.fail("terminal occurrence must not be re-read"),
+        ))
+
+
 if __name__ == "__main__":
     unittest.main()
