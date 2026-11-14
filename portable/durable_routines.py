@@ -948,13 +948,16 @@ class DurableRoutineRegistry:
                 continue
             if not isinstance(receipt, Mapping) or receipt.get("terminal_event_emitted") is True:
                 continue
+            summary = receipt.get("terminal_summary")
+            if not isinstance(summary, str) or not summary.strip():
+                summary = f"Routine {row['routine_id']} {row['status']}"
             pending.append({
                 "occurrence_key": row["occurrence_key"],
                 "routine_id": row["routine_id"],
                 "work_key": row["work_key"],
                 "task_id": row["task_id"],
                 "status": row["status"],
-                "summary": receipt.get("terminal_summary"),
+                "summary": summary,
                 "escalation_required": receipt.get("escalation_required") is True,
             })
         return tuple(pending)
