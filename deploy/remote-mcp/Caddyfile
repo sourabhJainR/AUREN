@@ -1,0 +1,3 @@
+{$AUREN_MCP_DOMAIN} {
+    reverse_proxy auren-mcp:8765
+}

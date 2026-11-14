@@ -1,0 +1,14 @@
+.git
+.github
+external/
+desktop/
+tests/
+docs/
+**/__pycache__/
+**/.pytest_cache/
+**/.venv/
+node_modules/
+**/target/
+.env
+**/.env
+**/*.sqlite3
