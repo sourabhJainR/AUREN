@@ -539,9 +539,10 @@ class DurableRoutineRegistry:
             if spec.concurrency_policy == "skip":
                 active_rows = db.execute(
                     "SELECT work_key,task_id FROM routine_occurrences "
-                    "WHERE routine_id=? AND routine_version=? AND status IN ('dispatching','unknown','submitted') "
+                    "WHERE routine_id=? AND routine_version=? AND occurrence_key<>? "
+                    "AND status IN ('dispatching','unknown','submitted') "
                     "ORDER BY created_at DESC LIMIT 64",
-                    (routine_id, expected_version),
+                    (routine_id, expected_version, occurrence_key),
                 ).fetchall()
                 active_work_keys = [row["work_key"] for row in active_rows]
             else:
