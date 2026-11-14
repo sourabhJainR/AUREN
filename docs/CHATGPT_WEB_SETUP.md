@@ -181,7 +181,7 @@ For a token that includes the task-write and approval scopes, also verify that t
 python scripts/remote_mcp_acceptance.py --require-write
 ~~~
 
-The report confirms metadata and tool readiness only. It deliberately performs zero task mutations. A separate controlled end-to-end task test is still required before enabling write actions for a workspace.
+The allowlist must include the MCP host and every OAuth issuer, authorization, token and registration host advertised by discovery. The report confirms metadata and tool readiness only. It deliberately performs zero task mutations. A separate controlled end-to-end task test is still required before enabling write actions for a workspace.
 
 ## Connect the remote service in ChatGPT Web
 
