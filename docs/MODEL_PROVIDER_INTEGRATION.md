@@ -98,7 +98,7 @@ When a canonical AUREN trace is bound to a route, the hybrid router emits a pare
 
 Telemetry does not store raw prompts, completions, API keys or provider request IDs. The route span records task byte length and privacy classification, not task text. Exporter failures are recorded as telemetry failures and do not change routing or authorize fallback. These spans are evidence only; the supervisor, Guard and shared execution budget remain the only authority for dispatch and actions.
 
-Token usage and latency are available when the provider returns them. Monetary cost is not estimated yet because AUREN does not maintain a pinned, versioned price catalogue. Local model calls currently appear in the route summary; provider-specific local runtime accounting remains a follow-up.
+Token usage and latency are available when the provider returns them. Monetary cost remains unavailable unless the operator supplies a current, versioned exact-model price catalog. The live API probe accepts `--price-catalog` to attach a cost estimate to its synthetic request. See [Provider Cost Accounting](PROVIDER_COST_ACCOUNTING.md). Local model calls currently appear in the route summary; provider-specific local runtime accounting remains a follow-up.
 
 ## Per-request provider selection
 
