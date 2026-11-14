@@ -102,7 +102,7 @@ python -m portable.remote_mcp_server \
   --host 127.0.0.1 --port 8765
 ~~~
 
-For remote execution, provision the Vibe host config at ~/.auren/vibe-coding/host.json on this server and install/authenticate Codex CLI. The OAuth token must contain the exact project path, engineering_manager role and auren:tasks:write scope. The separate approver digest is SHA-256 of issuer.rstrip("/") + NUL + subject; calculate it from the identity provider's exact claims and keep only the digest in the host environment.
+For remote execution, provision the Vibe host config at ~/.auren/vibe-coding/host.json on this server and install/authenticate Codex CLI. The OAuth token must contain the exact project path, engineering_manager role and auren:tasks:write scope. The configured issuer and introspection `iss` claim are compared byte-for-byte; a trailing slash is significant. The same exact issuer string is included in the principal identity digest. Do not trim or normalize it. The separate approver digest is SHA-256 of the exact issuer string + NUL + subject; calculate it from the identity provider's exact claims and keep only the digest in the host environment.
 
 The shell command illustrates environment names. Replace the browser-origin placeholder with exact origins observed and approved for your clients; native MCP clients may not send an Origin header. Do not guess vendor origins. Use the secret manager supplied by the deployment. Do not put tokens or client secrets in repository files, MCP client configuration, command-line arguments or logs.
 
