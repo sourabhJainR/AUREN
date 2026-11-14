@@ -254,6 +254,87 @@ class ProviderConformanceTests(unittest.TestCase):
         self.assertNotIn("unexpected-model-name-with-sensitive-suffix", json.dumps(result.evidence))
         self.assertNotIn("unexpected-model-name-with-sensitive-suffix", trace_text)
 
+    def test_direct_api_probe_uses_exact_model_price_catalog_when_supplied(self):
+        class FakeProvider:
+            model = "pinned-test-model"
+
+            def complete(self, prompt, *, timeout_seconds):
+                return RemoteModelResponse(
+                    provider="openai", model=self.model,
+                    content="AUREN_PROVIDER_PROBE_OK",
+                    usage={"input_tokens": 1_000_000, "output_tokens": 500_000},
+                    request_id="request-id", finish_reason="stop",
+                    latency_ms=12.0, response_digest="d" * 64,
+                )
+
+        environment = {
+            "AUREN_REMOTE_PROVIDER_ORDER": "openai",
+            "AUREN_LOCAL_REMOTE_INFERENCE": "enabled",
+            "OPENAI_API_KEY": "test-provider-secret",
+            "OPENAI_MODEL": "pinned-test-model",
+        }
+        catalog = {
+            "schema_version": "auren.provider-price-catalog.v1",
+            "catalog_version": "test-price-v1",
+            "currency": "USD",
+            "published_at": "2026-01-01T00:00:00Z",
+            "valid_until": "2027-01-01T00:00:00Z",
+            "source_policy": "official-provider-pricing",
+            "entries": [{
+                "provider_id": "openai",
+                "model_id": "pinned-test-model",
+                "input_usd_per_million_tokens": 2,
+                "output_usd_per_million_tokens": 8,
+                "source_url": "https://platform.openai.com/docs/pricing",
+                "retrieved_at": "2026-11-01T00:00:00Z",
+            }],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            catalog_path = Path(directory) / "prices.json"
+            catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
+            with patch(
+                "portable.remote_model_providers.OpenAICompatibleProvider.from_environment",
+                return_value=FakeProvider(),
+            ):
+                result = provider_conformance.live_api_probe(
+                    "openai", environ=environment, price_catalog_path=catalog_path,
+                    trace_path=Path(directory) / "trace.jsonl",
+                )
+        self.assertEqual("pass", result.status)
+        self.assertEqual("estimated", result.evidence["cost_estimate"]["status"])
+        self.assertEqual("6.000000", result.evidence["cost_estimate"]["estimated_total_usd"])
+
+    def test_live_api_probe_keeps_probe_pass_when_optional_price_catalog_is_invalid(self):
+        class FakeProvider:
+            model = "pinned-test-model"
+
+            def complete(self, prompt, *, timeout_seconds):
+                return RemoteModelResponse(
+                    provider="openai", model=self.model, content="AUREN_PROVIDER_PROBE_OK",
+                    usage={"input_tokens": 1, "output_tokens": 1}, request_id=None,
+                    finish_reason="stop", latency_ms=1.0, response_digest="e" * 64,
+                )
+
+        environment = {
+            "AUREN_REMOTE_PROVIDER_ORDER": "openai",
+            "AUREN_LOCAL_REMOTE_INFERENCE": "enabled",
+            "OPENAI_API_KEY": "test-provider-secret",
+            "OPENAI_MODEL": "pinned-test-model",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            invalid_catalog = Path(directory) / "invalid.json"
+            invalid_catalog.write_text("{}", encoding="utf-8")
+            with patch(
+                "portable.remote_model_providers.OpenAICompatibleProvider.from_environment",
+                return_value=FakeProvider(),
+            ):
+                result = provider_conformance.live_api_probe(
+                    "openai", environ=environment, price_catalog_path=invalid_catalog,
+                    trace_path=Path(directory) / "trace.jsonl",
+                )
+        self.assertEqual("pass", result.status)
+        self.assertEqual("price_catalog_invalid", result.evidence["cost_estimate"]["reason"])
+
     def test_direct_api_probe_fails_without_exposing_provider_error_or_output(self):
         class BrokenProvider:
             model = "pinned-test-model"
