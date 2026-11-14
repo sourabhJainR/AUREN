@@ -17,6 +17,15 @@ REQUIRED_READ_TOOLS = frozenset({
     "auren.get_task", "auren.get_evidence", "auren.list_approvals",
     "auren.get_approval",
 })
+REQUIRED_READ_SCOPES = {
+    "auren.get_profile": "auren:tasks:read",
+    "auren.service_status": "auren:tasks:read",
+    "auren.list_tasks": "auren:tasks:read",
+    "auren.get_task": "auren:tasks:read",
+    "auren.get_evidence": "auren:evidence:read",
+    "auren.list_approvals": "auren:approvals:read",
+    "auren.get_approval": "auren:approvals:read",
+}
 REQUIRED_WRITE_SCOPES = {
     "auren.submit_task": "auren:tasks:write",
     "auren.decide_approval": "auren:approvals:decide",
@@ -291,6 +300,12 @@ def run_acceptance(
         item["name"]: item for item in tools
         if isinstance(item, Mapping) and isinstance(item.get("name"), str)
     }
+    missing_scopes = sorted(
+        name for name, scope in REQUIRED_READ_SCOPES.items()
+        if not _has_oauth_scope(tool_by_name[name], scope)
+    )
+    if missing_scopes:
+        raise AcceptanceFailure("required read-only OAuth scopes are missing: " + ", ".join(missing_scopes))
     profile_tool = tool_by_name["auren.get_profile"]
     profile_meta = profile_tool.get("_meta", {})
     profile_schema = profile_tool.get("outputSchema", {})
