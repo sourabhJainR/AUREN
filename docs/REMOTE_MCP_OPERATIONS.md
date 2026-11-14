@@ -17,7 +17,7 @@ Before public deployment, review [REMOTE_MCP_PRIVACY.md](REMOTE_MCP_PRIVACY.md),
 - Liveness/readiness endpoints: /healthz and /readyz.
 - Operator control and rate-limit state are stored under canonical AUREN home on persistent local disk.
 
-The service does not implement an OAuth authorization server. An established identity provider must implement OAuth 2.1 authorization-code flow with PKCE S256, issuer discovery, Client ID Metadata Documents (CIMD; preferred by MCP 2026-07-28) or DCR for legacy clients, refresh/revocation and the resource/audience parameter. Authorization responses must include and validate the RFC 9207 `iss` parameter; credentials must remain bound to the issuer that minted them. The MCP resource server validates the resulting token through introspection on each request. The introspection response must include iss, sub, aud, exp and scope; roles and projects should also be included where those policies are used. Certificate-bound access tokens (cnf claims) are rejected because the ASGI service does not validate token-to-client-certificate binding.
+The service does not implement an OAuth authorization server. An established identity provider must implement OAuth 2.1 authorization-code flow with PKCE S256, issuer discovery, Client ID Metadata Documents (CIMD; preferred by MCP 2026-07-28) or DCR for legacy clients, refresh/revocation and the resource/audience parameter. Authorization responses must include and validate the RFC 9207 `iss` parameter; credentials must remain bound to the issuer that minted them. The MCP resource server validates the resulting token through introspection on each request. The introspection response must include iss, sub, aud, exp and scope; roles and projects should also be included where those policies are used. The issuer claim must match the configured issuer exactly, including any trailing slash. The audience must contain the exact canonical AUREN resource URI. AUREN does not normalize either identifier. Certificate-bound access tokens (cnf claims) are rejected because the ASGI service does not validate token-to-client-certificate binding.
 
 ## Operator tool surface
 
@@ -37,7 +37,7 @@ The service does not implement an OAuth authorization server. An established ide
 | auren.pause_admissions | auren:admin | Stop accepting new MCP tasks; does not stop active work |
 | auren.resume_admissions | auren:admin | Reopen MCP task admission |
 
-Every tool publishes OAuth securitySchemes metadata. ChatGPT-specific profile metadata is provided by auren.get_profile. The profile ID is generated once per authenticated subject and persisted; it does not contain the subject or email.
+Every tool publishes per-tool OAuth securitySchemes in `_meta`. The designated `auren.get_profile` tool also publishes the top-level `securitySchemes` field required by OpenAI's profile-tool contract. ChatGPT-specific profile metadata is provided by auren.get_profile, which sets _meta.openai/profile and an outputSchema. Its response includes structuredContent and the same JSON object in text content. The profile ID is generated once per exact issuer/subject pair and persisted; it does not contain the subject or email.
 
 Tool schemas are validated again by the server. Unknown arguments are rejected. The workspace root is configured by the host and cannot be supplied by the model. There is no general shell, arbitrary file-write, arbitrary network-fetch or unrestricted provider tool.
 
@@ -74,6 +74,8 @@ def create_runtime(*, project_root: Path) -> AdaptiveRuntime:
     ...
 ~~~
 
+For a reproducible single-host Docker deployment behind Caddy-managed TLS, see [the remote MCP deployment bundle](../deploy/remote-mcp/README.md).
+
 ## Deployment
 
 Install the optional ASGI runner:
@@ -91,7 +93,7 @@ export AUREN_MCP_AUTHORIZATION_SERVER=https://identity.example.com/
 export AUREN_MCP_INTROSPECTION_URL=https://identity.example.com/oauth/introspect
 export AUREN_MCP_INTROSPECTION_CLIENT_ID=auren-mcp-resource
 export AUREN_MCP_INTROSPECTION_CLIENT_SECRET="$(secret-manager read auren/mcp/introspection-secret)"
-export AUREN_MCP_ALLOWED_HOSTS=mcp.example.com
+export AUREN_MCP_ACCEPTANCE_ALLOWED_HOSTS=mcp.example.com,identity.example.com
 export AUREN_MCP_ALLOWED_ORIGINS=https://your-approved-browser-origin.example
 export AUREN_MCP_CONTROL_DB=/var/lib/auren/mcp/operator-control.sqlite3
 export AUREN_MCP_REMOTE_EXECUTION_ENABLED=1
@@ -102,7 +104,7 @@ python -m portable.remote_mcp_server \
   --host 127.0.0.1 --port 8765
 ~~~
 
-For remote execution, provision the Vibe host config at ~/.auren/vibe-coding/host.json on this server and install/authenticate Codex CLI. The OAuth token must contain the exact project path, engineering_manager role and auren:tasks:write scope. The separate approver digest is SHA-256 of issuer.rstrip("/") + NUL + subject; calculate it from the identity provider's exact claims and keep only the digest in the host environment.
+For remote execution, provision the Vibe host config at ~/.auren/vibe-coding/host.json on this server and install/authenticate Codex CLI. The OAuth token must contain the exact project path, engineering_manager role and auren:tasks:write scope. The configured issuer and introspection `iss` claim are compared byte-for-byte; a trailing slash is significant. The same exact issuer string is included in the principal identity digest. Do not trim or normalize it. If upgrading an already-running remote service, regenerate `AUREN_MCP_APPROVER_SUBJECT_DIGESTS` from the exact issuer and subject before enabling remote writes. Existing profile IDs are also bound to the exact issuer/subject pair. Set `AUREN_MCP_RESOURCE_URL` without a trailing slash and ensure its path exactly matches `AUREN_MCP_ENDPOINT_PATH`. The separate approver digest is SHA-256 of the exact issuer string + NUL + subject; calculate it from the identity provider's exact claims and keep only the digest in the host environment.
 
 The shell command illustrates environment names. Replace the browser-origin placeholder with exact origins observed and approved for your clients; native MCP clients may not send an Origin header. Do not guess vendor origins. Use the secret manager supplied by the deployment. Do not put tokens or client secrets in repository files, MCP client configuration, command-line arguments or logs.
 
@@ -314,16 +316,19 @@ These are model-provider APIs, not interchangeable MCP host applications. AUREN 
 
 ## Read-only deployment acceptance
 
-After deploying the service behind TLS and configuring the external OAuth authorization server, run the live acceptance probe with a short-lived read-only access token. The probe verifies HTTPS/host allowlisting, health, protected-resource metadata, modern `server/discover`, modern cacheable `tools/list`, legacy `initialize` fallback and the minimum read-only operator tools. It does not submit tasks or make approval/admission changes.
+After deploying the service behind TLS and configuring the external OAuth authorization server, run the live acceptance probe with a short-lived read-only access token. The probe verifies HTTPS and explicit outbound host allowlisting, health/readiness, exact protected-resource and OAuth issuer metadata, authorization-server discovery, PKCE S256, CIMD/DCR, refresh-token support, modern `server/discover`, modern cacheable `tools/list`, legacy `initialize` fallback, read-tool scopes, the ChatGPT OAuth challenge and stable `get_profile` structured output. It does not submit tasks or make approval/admission changes.
 
 ```bash
 export AUREN_MCP_ENDPOINT=https://mcp.example.com/mcp
 export AUREN_MCP_ALLOWED_HOSTS=mcp.example.com
 export AUREN_MCP_ACCESS_TOKEN="<short-lived-read-only-token>"
 python scripts/remote_mcp_acceptance.py
+
+# With a token that includes task-write and approval-decision scopes:
+python scripts/remote_mcp_acceptance.py --require-write
 ```
 
-The token is read from the environment and is never printed. Use a principal with read, status and evidence scopes only. A successful probe proves both MCP protocol eras against the deployed endpoint; it does not replace vendor-specific ChatGPT/Codex/Claude/Gemini/IDE acceptance, load testing, OAuth lifecycle tests or independent security review.
+The token is read from the environment and is never printed. The outbound allowlist must include the MCP host and OAuth issuer/authorization/token/registration hosts. Use a principal with read, status, evidence and approval-read scopes for the first probe. Add `--require-write` only with a full-scope token. A successful probe proves both MCP protocol eras and the ChatGPT OAuth/profile contract against the deployed endpoint; it does not replace a live ChatGPT browser authorization flow, controlled task execution, load testing, OAuth lifecycle tests or independent security review.
 
 ## Production boundary and remaining gates
 

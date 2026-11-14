@@ -171,7 +171,7 @@ class OAuthIntrospectionVerifier:
         self.client_id = client_id
         self.client_secret = client_secret
         self.audience = audience
-        self.issuer = issuer.rstrip("/")
+        self.issuer = issuer
         self.timeout_seconds = timeout_seconds
         self.cache_seconds = cache_seconds
         self._cache: dict[str, tuple[float, MCPPrincipal | None]] = {}
@@ -220,7 +220,7 @@ class OAuthIntrospectionVerifier:
                     and 0 < expiry <= 253402300799 and math.isfinite(expiry) and expiry > time.time()
                     and isinstance(payload.get("sub"), str) and payload["sub"].strip()
                     and isinstance(payload.get("iss"), str)
-                    and payload["iss"].rstrip("/") == self.issuer
+                    and payload["iss"] == self.issuer
                     and payload.get("cnf") is None
                     and (payload.get("nbf") is None or (
                         type(payload.get("nbf")) in {int, float}
@@ -352,8 +352,10 @@ class AurenMCPService:
                 raise ValueError("authorization server URL must be an absolute HTTPS issuer URL")
         if not endpoint_path.startswith("/") or "?" in endpoint_path or "#" in endpoint_path:
             raise ValueError("MCP endpoint_path must be an absolute path")
-        if parsed_resource.path.rstrip("/") != endpoint_path.rstrip("/"):
-            raise ValueError("MCP resource URL path must match the configured endpoint path")
+        if endpoint_path != "/" and endpoint_path.endswith("/"):
+            raise ValueError("MCP endpoint_path must not have a trailing slash")
+        if parsed_resource.path != endpoint_path:
+            raise ValueError("MCP resource URL must use the exact configured endpoint path")
         for origin in allowed_origins:
             parsed_origin = urlsplit(origin)
             local_http = parsed_origin.scheme == "http" and parsed_origin.hostname in {"localhost", "127.0.0.1", "::1"}
@@ -385,7 +387,7 @@ class AurenMCPService:
         ):
             raise ValueError("dispatcher poll interval must be between 0.1 and 30 seconds")
         self.token_verifier = token_verifier
-        self.resource_url = resource_url.rstrip("/")
+        self.resource_url = resource_url
         self.authorization_server_url = authorization_server_url
         self.allowed_origins = frozenset(origin.rstrip("/") for origin in allowed_origins)
         allowed_hostnames = frozenset(
@@ -552,7 +554,7 @@ class AurenMCPService:
     @staticmethod
     def _principal_key(principal: MCPPrincipal) -> str:
         return hashlib.sha256(
-            (principal.issuer.rstrip("/") + "\0" + principal.subject).encode("utf-8")
+            (principal.issuer + "\0" + principal.subject).encode("utf-8")
         ).hexdigest()
 
     def _profile(self, principal: MCPPrincipal) -> dict[str, str]:
@@ -718,6 +720,11 @@ class AurenMCPService:
                 "auren.resume_provider_task", "auren.pause_admissions", "auren.resume_admissions",
             }
             title = name.removeprefix("auren.").replace("_", " ").title()[:64]
+            security_schemes = (
+                [{"type": "oauth2", "scopes": [scope]}]
+                if self.authorization_server_url
+                else [{"type": "http", "scheme": "bearer"}]
+            )
             tool = {
                 "name": name, "title": title, "description": description, "inputSchema": schema,
                 "annotations": {
@@ -726,20 +733,15 @@ class AurenMCPService:
                     "destructiveHint": consequential,
                     "openWorldHint": consequential,
                 },
-                "_meta": {
-                    "securitySchemes": (
-                        [{"type": "oauth2", "scopes": [scope]}]
-                        if self.authorization_server_url
-                        else [{"type": "http", "scheme": "bearer"}]
-                    ),
-                },
+                "_meta": {"securitySchemes": security_schemes},
             }
             if name == "auren.get_profile":
+                tool["securitySchemes"] = security_schemes
                 tool["outputSchema"] = {
                     "$schema": "https://json-schema.org/draft/2020-12/schema",
                     "type": "object",
                     "properties": {
-                        "id": {"type": "string", "minLength": 1},
+                        "id": {"type": "string", "minLength": 1, "pattern": "\\S"},
                         "name": {"type": "string"},
                         "nickname": {"type": "string"},
                     },
