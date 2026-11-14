@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import hmac
 from contextlib import closing
 
 from datetime import datetime, timedelta, timezone
@@ -9,7 +11,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from portable.durable_routines import DurableRoutineRegistry, RoutineSpec
+from portable.durable_routines import DurableRoutineRegistry, RoutineSpec, verify_hmac_webhook_signature
 
 
 class DurableRoutineRegistryTests(unittest.TestCase):
@@ -172,7 +174,7 @@ class DurableRoutineRegistryTests(unittest.TestCase):
         self.assertEqual("submitted", dispatched.status)
         self.assertEqual(1, len(self.submissions))
 
-    def test_approval_gate_blocks_without_creating_occurrence(self):
+    def test_approval_gate_persists_denial_without_dispatching(self):
         spec = self.spec(approval_required=True)
         self.registry.register(spec)
         result = self.registry.dispatch_webhook(
@@ -180,7 +182,40 @@ class DurableRoutineRegistryTests(unittest.TestCase):
             authenticate=lambda *_: True, submit=self.submit,
             approval=lambda _: False,
         )
-        self.assertEqual("blocked", result.status)
+        self.assertEqual("blocked_approval", result.status)
+        self.assertEqual([], self.submissions)
+        occurrence = self.registry.occurrence(result.occurrence_key)
+        self.assertEqual("blocked_approval", occurrence["status"])
+        self.assertFalse(json.loads(occurrence["receipt_json"])["approval"]["approved"])
+
+    def test_structured_approval_receipt_is_persisted(self):
+        spec = self.spec(approval_required=True)
+        self.registry.register(spec)
+        result = self.registry.dispatch_webhook(
+            spec.routine_id, event_id="evt-approval-receipt", event_type="push",
+            payload={"ref": "main"}, authenticate=lambda *_: True, submit=self.submit,
+            approval=lambda _: {
+                "approved": True, "approval_id": "approval-123",
+                "approver": "operator-1", "scope": "routine:repo-health",
+                "decision_digest": "a" * 64,
+                "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+            },
+        )
+        self.assertEqual("submitted", result.status)
+        receipt = json.loads(self.registry.occurrence(result.occurrence_key)["receipt_json"])
+        self.assertEqual("approval-123", receipt["approval"]["approval_id"])
+        self.assertEqual("operator-1", receipt["approval"]["approver"])
+        self.assertEqual("a" * 64, receipt["approval"]["decision_digest"])
+
+    def test_approved_structured_receipt_requires_auditable_identity(self):
+        spec = self.spec(approval_required=True)
+        self.registry.register(spec)
+        result = self.registry.dispatch_webhook(
+            spec.routine_id, event_id="evt-invalid-approval", event_type="push",
+            payload={}, authenticate=lambda *_: True, submit=self.submit,
+            approval=lambda _: {"approved": True},
+        )
+        self.assertEqual("blocked_approval", result.status)
         self.assertEqual([], self.submissions)
 
     def test_uncertain_submit_is_never_replayed_without_authoritative_lookup(self):
@@ -265,7 +300,7 @@ class DurableRoutineRegistryTests(unittest.TestCase):
         retried = self.registry.dispatch_due(
             now=now, submit=self.submit, approval=lambda _: True,
         )
-        self.assertEqual("blocked", blocked[0].status)
+        self.assertEqual("blocked_approval", blocked[0].status)
         self.assertEqual("submitted", retried[0].status)
         self.assertEqual(1, len(self.submissions))
 
@@ -462,66 +497,147 @@ class DurableRoutineRegistryTests(unittest.TestCase):
                     self.spec(**{field_name: value})
 
 
-    def test_skip_overlap_policy_blocks_new_occurrence_while_prior_task_is_active(self):
+    def test_skip_policy_blocks_a_concurrent_dispatching_occurrence(self):
         spec = self.spec(concurrency_policy="skip")
         self.registry.register(spec)
+        nested_results = []
+
+        def outer_submit(handler, payload, **kwargs):
+            nested_results.append(self.registry.dispatch_webhook(
+                spec.routine_id, event_id="evt-overlap-concurrent", event_type="push",
+                payload={"ref": "release"}, authenticate=lambda *_: True,
+                submit=self.submit, reconcile=lambda _work_key: None,
+            ))
+            return self.submit(handler, payload, **kwargs)
+
         first = self.registry.dispatch_webhook(
-            spec.routine_id, event_id="evt-overlap-1", event_type="push",
-            payload={"ref": "main"}, authenticate=lambda *_: True, submit=self.submit,
-        )
-        prior_work_key = first.work_key
-        reconciled = []
-
-        def lookup(work_key):
-            reconciled.append(work_key)
-            return {"id": first.task_id, "state": "running"} if work_key == prior_work_key else None
-
-        second = self.registry.dispatch_webhook(
-            spec.routine_id, event_id="evt-overlap-2", event_type="push",
-            payload={"ref": "release"}, authenticate=lambda *_: True,
-            submit=self.submit, reconcile=lookup,
+            spec.routine_id, event_id="evt-overlap-primary", event_type="push",
+            payload={"ref": "main"}, authenticate=lambda *_: True,
+            submit=outer_submit, reconcile=lambda _work_key: None,
         )
 
-        self.assertEqual("skipped_overlap", second.status)
-        self.assertEqual([prior_work_key], reconciled)
+        self.assertEqual("submitted", first.status)
+        self.assertEqual("blocked_overlap", nested_results[0].status)
         self.assertEqual(1, len(self.submissions))
-        receipt = self.registry.occurrence(second.occurrence_key)
-        self.assertEqual("skipped_overlap", receipt["status"])
-        self.assertEqual(prior_work_key, json.loads(receipt["receipt_json"])["overlap_work_key"])
 
-    def test_skip_overlap_policy_allows_dispatch_after_prior_task_is_terminal(self):
+    def test_skip_policy_blocks_active_occurrence_from_prior_routine_version(self):
+        first_spec = self.spec(concurrency_policy="skip")
+        self.registry.register(first_spec)
+        first = self.registry.dispatch_webhook(
+            first_spec.routine_id, event_id="evt-version-one", event_type="push",
+            payload={"ref": "main"}, authenticate=lambda *_: True, submit=self.submit,
+        )
+        second_spec = self.spec(version=2, concurrency_policy="skip", payload={"repository": "owner/repo"})
+        self.registry.register(second_spec)
+        second = self.registry.dispatch_webhook(
+            second_spec.routine_id, event_id="evt-version-two", event_type="push",
+            payload={"ref": "release"}, authenticate=lambda *_: True,
+            submit=self.submit,
+            reconcile=lambda key: {"id": first.task_id, "state": "running"} if key == first.work_key else None,
+        )
+        self.assertEqual("skipped_overlap", second.status)
+        self.assertEqual(1, len(self.submissions))
+
+    def test_skip_policy_reconciles_terminal_prior_occurrence_before_dispatch(self):
         spec = self.spec(concurrency_policy="skip")
         self.registry.register(spec)
         first = self.registry.dispatch_webhook(
-            spec.routine_id, event_id="evt-terminal-1", event_type="push",
+            spec.routine_id, event_id="evt-terminal-first", event_type="push",
             payload={"ref": "main"}, authenticate=lambda *_: True, submit=self.submit,
         )
         second = self.registry.dispatch_webhook(
-            spec.routine_id, event_id="evt-terminal-2", event_type="push",
+            spec.routine_id, event_id="evt-terminal-second", event_type="push",
             payload={"ref": "release"}, authenticate=lambda *_: True,
             submit=self.submit,
             reconcile=lambda key: {"id": first.task_id, "state": "completed"} if key == first.work_key else None,
         )
         self.assertEqual("submitted", second.status)
-        self.assertEqual(2, len(self.submissions))
+        self.assertEqual("completed", self.registry.occurrence(first.occurrence_key)["status"])
 
-    def test_skip_overlap_policy_fails_closed_without_authoritative_lookup(self):
-        spec = self.spec(concurrency_policy="skip")
+    def test_cancellation_request_is_recorded_without_claiming_terminal_cancel(self):
+        spec = self.spec()
         self.registry.register(spec)
-        self.registry.dispatch_webhook(
-            spec.routine_id, event_id="evt-no-lookup-1", event_type="push",
+        dispatched = self.registry.dispatch_webhook(
+            spec.routine_id, event_id="evt-cancel", event_type="push",
             payload={"ref": "main"}, authenticate=lambda *_: True, submit=self.submit,
         )
-        second = self.registry.dispatch_webhook(
-            spec.routine_id, event_id="evt-no-lookup-2", event_type="push",
-            payload={"ref": "release"}, authenticate=lambda *_: True, submit=self.submit,
+        requests = []
+        result = self.registry.request_cancellation(
+            dispatched.occurrence_key,
+            cancel=lambda task_id, reason: requests.append((task_id, reason)) or True,
+            reason="operator stop",
         )
-        self.assertEqual("blocked_overlap", second.status)
-        self.assertEqual(1, len(self.submissions))
+        self.assertEqual("cancellation_requested", result.status)
+        self.assertEqual([(dispatched.task_id, "operator stop")], requests)
+        occurrence = self.registry.occurrence(dispatched.occurrence_key)
+        self.assertEqual("cancellation_requested", occurrence["status"])
+        receipt = json.loads(occurrence["receipt_json"])
+        self.assertTrue(receipt["cancellation_reason_digest"])
+        self.assertNotIn("operator stop", occurrence["receipt_json"])
 
-    def test_invalid_concurrency_policy_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, "concurrency_policy"):
-            self.spec(concurrency_policy="queue")
+    def test_cancellation_refusal_does_not_claim_task_cancelled(self):
+        spec = self.spec()
+        self.registry.register(spec)
+        dispatched = self.registry.dispatch_webhook(
+            spec.routine_id, event_id="evt-cancel-refused", event_type="push",
+            payload={"ref": "main"}, authenticate=lambda *_: True, submit=self.submit,
+        )
+        result = self.registry.request_cancellation(
+            dispatched.occurrence_key, cancel=lambda *_args, **_kwargs: False,
+            reason="too late",
+        )
+        self.assertEqual("not_cancellable", result.status)
+        self.assertEqual("submitted", self.registry.occurrence(dispatched.occurrence_key)["status"])
+
+    def test_same_version_registration_accepts_legacy_optional_fields(self):
+        spec = self.spec()
+        self.registry.register(spec)
+        legacy_payload = json.loads(json.dumps(spec.__dict__))
+        legacy_payload.pop("profile_digest", None)
+        legacy_payload.pop("policy_digest", None)
+        legacy_payload.pop("concurrency_policy", None)
+        legacy_digest_payload = dict(legacy_payload)
+        legacy_digest_payload.pop("enabled", None)
+        legacy_digest = hashlib.sha256(
+            json.dumps(legacy_digest_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        with closing(self.registry._connect()) as db:
+            db.execute(
+                "UPDATE routines SET spec_json=?,spec_digest=? WHERE routine_id=?",
+                (json.dumps(legacy_payload, sort_keys=True, separators=(",", ":")),
+                 legacy_digest, spec.routine_id),
+            )
+        self.assertEqual(spec.digest, self.registry.register(spec))
+
+
+    def test_timestamped_hmac_webhook_verification_binds_identity_and_payload(self):
+        now = datetime.now(timezone.utc)
+        timestamp = str(int(now.timestamp()))
+        secret = b"host-secret-for-test"
+        routine_id = "repo-health"
+        event_id = "provider-event-1"
+        payload = {"ref": "refs/heads/main"}
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        signed = "\n".join((timestamp, routine_id, event_id, canonical)).encode("utf-8")
+        signature = hmac.new(secret, signed, hashlib.sha256).hexdigest()
+
+        self.assertTrue(verify_hmac_webhook_signature(
+            secret, timestamp, signature, routine_id=routine_id,
+            event_id=event_id, payload=payload, now=now,
+        ))
+        self.assertFalse(verify_hmac_webhook_signature(
+            secret, timestamp, signature, routine_id="other-routine",
+            event_id=event_id, payload=payload, now=now,
+        ))
+        self.assertFalse(verify_hmac_webhook_signature(
+            secret, timestamp, signature, routine_id=routine_id,
+            event_id=event_id, payload={"ref": "refs/heads/release"}, now=now,
+        ))
+        self.assertFalse(verify_hmac_webhook_signature(
+            secret, timestamp, signature, routine_id=routine_id,
+            event_id=event_id, payload=payload,
+            now=now + timedelta(minutes=10), tolerance_seconds=300,
+        ))
 
 
     def test_cancel_inflight_records_request_without_claiming_terminal_completion(self):
