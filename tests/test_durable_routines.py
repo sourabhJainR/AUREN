@@ -676,5 +676,26 @@ class DurableRoutineRegistryTests(unittest.TestCase):
         self.assertEqual("cancelled", receipt["status"])
 
 
+    def test_skip_overlap_policy_fails_closed_without_authoritative_lookup(self):
+        spec = self.spec(concurrency_policy="skip")
+        self.registry.register(spec)
+        self.registry.dispatch_webhook(
+            spec.routine_id, event_id="evt-no-lookup-1", event_type="push",
+            payload={"ref": "main"}, authenticate=lambda *_: True, submit=self.submit,
+        )
+        second = self.registry.dispatch_webhook(
+            spec.routine_id, event_id="evt-no-lookup-2", event_type="push",
+            payload={"ref": "release"}, authenticate=lambda *_: True, submit=self.submit,
+        )
+        self.assertEqual("blocked_overlap", second.status)
+        self.assertEqual(1, len(self.submissions))
+
+
+    def test_invalid_concurrency_policy_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "concurrency_policy"):
+            self.spec(concurrency_policy="queue")
+
+
+
 if __name__ == "__main__":
     unittest.main()
