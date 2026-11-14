@@ -42,6 +42,9 @@ Edit `deploy/remote-mcp/.env`:
 
 The sample values are placeholders. Do not start the service with them. Before enabling remote approval decisions, configure `AUREN_MCP_APPROVER_SUBJECT_DIGESTS` with the SHA-256 digest of the exact issuer string, a NUL byte, and the authenticated subject. The issuer string is not normalized; its trailing slash matters. Never store an email address or raw subject in the allowlist.
 
+The stock container image does not install or authenticate the Codex CLI and does not create a Vibe Coding host configuration. It can run the authenticated MCP service and canonical AUREN runtime, but remote repository-edit execution remains blocked until you provide a supported Vibe Coding host (including Codex CLI, its private authentication state and a valid host config) and a separate approver identity. Keep `AUREN_MCP_REMOTE_EXECUTION_ENABLED` unset until that host is installed, authenticated and accepted. Do not enable remote writes just because the MCP endpoint is healthy.
+
+
 ## Start and verify
 
 ~~~bash
