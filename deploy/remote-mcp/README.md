@@ -40,7 +40,7 @@ Edit `deploy/remote-mcp/.env`:
 - Set the allowed browser origin to the exact ChatGPT web origin approved for your workspace.
 - Add provider credentials only when required by the chosen AUREN runtime providers.
 
-The sample values are placeholders. Do not start the service with them.
+The sample values are placeholders. Do not start the service with them. Before enabling remote approval decisions, configure `AUREN_MCP_APPROVER_SUBJECT_DIGESTS` with the SHA-256 digest of the exact issuer string, a NUL byte, and the authenticated subject. The issuer string is not normalized; its trailing slash matters. Never store an email address or raw subject in the allowlist.
 
 ## Start and verify
 
