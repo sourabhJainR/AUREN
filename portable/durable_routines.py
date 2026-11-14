@@ -405,7 +405,7 @@ class DurableRoutineRegistry:
                             reconcile=reconcile,
                         )
                     results.append(dispatched)
-                    if dispatched.status in {"submitted", "duplicate"}:
+                    if dispatched.status in {"submitted", "duplicate", "completed", "failed", "cancelled"}:
                         next_run = self._next_interval_after(
                             schedule_cursor, instant, interval,
                         )
@@ -993,9 +993,9 @@ class DurableRoutineRegistry:
             task_state = getattr(task, "state", None) or (
                 task.get("state") if isinstance(task, Mapping) else None
             )
-            attempts = getattr(task, "attempts", None) or (
-                task.get("attempts") if isinstance(task, Mapping) else None
-            )
+            attempts = getattr(task, "attempts", None)
+            if attempts is None and isinstance(task, Mapping):
+                attempts = task.get("attempts")
             if not isinstance(task_id, str) or not task_id:
                 self._update_receipt(
                     occurrence_key, status=current_status,
