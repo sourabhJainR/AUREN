@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sourabhJainR/AUREN/blob/main/schemas/integration-pack-manifest.v1.schema.json",
+  "title": "AUREN Integration Pack Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "version",
+    "source_url",
+    "source_revision",
+    "artifact_sha256",
+    "capabilities",
+    "permissions",
+    "signer_key_id",
+    "signature"
+  ],
+  "properties": {
+    "contract_version": { "const": "auren-pack-v1" },
+    "name": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,63}$" },
+    "version": { "type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:[-+][0-9A-Za-z.-]+)?$" },
+    "source_url": { "type": "string", "format": "uri", "pattern": "^https://[^?#]+$" },
+    "source_revision": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+    "artifact_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_.-]{0,63}$",
+        "not": { "enum": ["all", "admin", "unrestricted"] }
+      }
+    },
+    "permissions": {
+      "type": "array",
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_.-]{0,63}$",
+        "not": { "enum": ["all", "admin", "unrestricted"] }
+      }
+    },
+    "signer_key_id": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,63}$" },
+    "signature": { "type": "string", "pattern": "^[0-9a-f]{128}$" },
+    "min_auren_version": { "type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$" },
+    "max_auren_version": {
+      "oneOf": [
+        { "type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$" },
+        { "type": "null" }
+      ]
+    },
+    "dependencies": {
+      "type": "array",
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_.-]{0,63}@(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:[-+][0-9A-Za-z.-]+)?$"
+      }
+    }
+  }
+}
