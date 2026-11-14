@@ -84,7 +84,7 @@ class RemoteMCPServiceTests(unittest.TestCase):
         self.service = AurenMCPService(
             self.runtime, project_root=self.root, token_verifier=verifier,
             resource_url="https://mcp.example.test/mcp",
-            authorization_server_url="https://identity.example.test",
+            authorization_server_url="https://identity.example.test/",
             allowed_origins=("https://chat.example.test",),
             allowed_hosts=("mcp.example.test",), require_https=True,
             control_store_path=self.root / "operator-control.sqlite3",
@@ -347,6 +347,14 @@ class RemoteMCPServiceTests(unittest.TestCase):
         self.assertTrue(first["id"].startswith("auren_"))
         self.assertNotIn(self.principal.subject, first["id"])
 
+    def test_principal_identity_uses_the_exact_issuer_identifier(self):
+        first = MCPPrincipal("same-subject", frozenset({"auren:tasks:read"}), issuer="https://identity.example.test")
+        second = MCPPrincipal("same-subject", frozenset({"auren:tasks:read"}), issuer="https://identity.example.test/")
+        self.assertNotEqual(
+            AurenMCPService._principal_key(first),
+            AurenMCPService._principal_key(second),
+        )
+
     def test_tool_schemas_are_enforced_server_side(self):
         with self.assertRaisesRegex(ValueError, "unsupported field"):
             self.service.call_tool(
@@ -463,7 +471,7 @@ class OAuthIntrospectionVerifierTests(unittest.TestCase):
 
     def test_valid_introspection_binds_issuer_audience_expiry_and_scopes(self):
         payload = {
-            "active": True, "iss": "https://identity.example.test",
+            "active": True, "iss": "https://identity.example.test/",
             "sub": "user-123", "aud": "https://mcp.example.test/mcp",
             "exp": time.time() + 300, "nbf": time.time() - 1,
             "scope": "openid auren:tasks:read auren:tasks:write",
@@ -473,7 +481,7 @@ class OAuthIntrospectionVerifierTests(unittest.TestCase):
             principal = self.verifier.verify("valid-access-token")
         self.assertIsNotNone(principal)
         self.assertEqual("user-123", principal.subject)
-        self.assertEqual("https://identity.example.test", principal.issuer)
+        self.assertEqual("https://identity.example.test/", principal.issuer)
         self.assertEqual(
             frozenset({"auren:tasks:read", "auren:tasks:write"}), principal.scopes,
         )
@@ -481,7 +489,7 @@ class OAuthIntrospectionVerifierTests(unittest.TestCase):
 
     def test_positive_cache_never_outlives_access_token_expiry(self):
         payload = {
-            "active": True, "iss": "https://identity.example.test",
+            "active": True, "iss": "https://identity.example.test/",
             "sub": "user-123", "aud": "https://mcp.example.test/mcp",
             "exp": time.time() + 0.1, "scope": "auren:tasks:read",
         }
@@ -502,11 +510,12 @@ class OAuthIntrospectionVerifierTests(unittest.TestCase):
     def test_wrong_issuer_audience_or_expiry_is_rejected(self):
         cases = [
             {"iss": "https://attacker.example", "aud": "https://mcp.example.test/mcp", "exp": time.time() + 300},
-            {"iss": "https://identity.example.test", "aud": "https://other.example/mcp", "exp": time.time() + 300},
-            {"iss": "https://identity.example.test", "aud": "https://mcp.example.test/mcp", "exp": time.time() - 1},
-            {"iss": "https://identity.example.test", "aud": "https://mcp.example.test/mcp", "exp": time.time() + 300, "cnf": {"x5t#S256": "thumbprint"}},
-            {"iss": "https://identity.example.test", "aud": "https://mcp.example.test/mcp", "exp": float("inf")},
-            {"iss": "https://identity.example.test", "aud": "https://mcp.example.test/mcp", "exp": float("nan")},
+            {"iss": "https://identity.example.test", "aud": "https://mcp.example.test/mcp", "exp": time.time() + 300},
+            {"iss": "https://identity.example.test/", "aud": "https://other.example/mcp", "exp": time.time() + 300},
+            {"iss": "https://identity.example.test/", "aud": "https://mcp.example.test/mcp", "exp": time.time() - 1},
+            {"iss": "https://identity.example.test/", "aud": "https://mcp.example.test/mcp", "exp": time.time() + 300, "cnf": {"x5t#S256": "thumbprint"}},
+            {"iss": "https://identity.example.test/", "aud": "https://mcp.example.test/mcp", "exp": float("inf")},
+            {"iss": "https://identity.example.test/", "aud": "https://mcp.example.test/mcp", "exp": float("nan")},
         ]
         for index, claims in enumerate(cases):
             with self.subTest(claims=claims):
@@ -534,7 +543,7 @@ class RemoteMCPASGITests(unittest.TestCase):
         service = AurenMCPService(
             self.runtime, project_root=self.root, token_verifier=verifier,
             resource_url="https://mcp.example.test/mcp",
-            authorization_server_url="https://identity.example.test",
+            authorization_server_url="https://identity.example.test/",
             allowed_origins=("https://chat.example.test",),
             allowed_hosts=("mcp.example.test",), require_https=True,
             control_store_path=self.root / "operator-control.sqlite3",
@@ -717,6 +726,20 @@ class RemoteMCPASGITests(unittest.TestCase):
         )
         self.assertEqual(400, status)
 
+    def test_profile_tool_returns_openai_compatible_structured_content(self):
+        status, _, body = self.request(
+            body={
+                "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": {"name": "auren.get_profile", "arguments": {}},
+            },
+        )
+        self.assertEqual(200, status)
+        result = json.loads(body)["result"]
+        self.assertFalse(result.get("isError", False))
+        profile = result["structuredContent"]
+        self.assertTrue(profile["id"].startswith("auren_"))
+        self.assertEqual(profile, json.loads(result["content"][0]["text"]))
+
     def test_chatgpt_tool_level_oauth_challenge_is_returned_without_a_token(self):
         status, headers, body = self.request(
             body={
@@ -764,11 +787,15 @@ class RemoteMCPASGITests(unittest.TestCase):
         self.assertEqual(200, status)
         tools = {tool["name"]: tool for tool in json.loads(body)["result"]["tools"]}
         self.assertIn("auren.submit_task", tools)
-        self.assertEqual(
-            [{"type": "oauth2", "scopes": ["auren:tasks:write"]}],
-            tools["auren.submit_task"]["_meta"]["securitySchemes"],
-        )
+        expected_scheme = [{"type": "oauth2", "scopes": ["auren:tasks:write"]}]
+        self.assertEqual(expected_scheme, tools["auren.submit_task"]["_meta"]["securitySchemes"])
+        self.assertNotIn("securitySchemes", tools["auren.submit_task"])
         self.assertTrue(tools["auren.get_profile"]["_meta"]["openai/profile"])
+        self.assertEqual(
+            [{"type": "oauth2", "scopes": ["auren:tasks:read"]}],
+            tools["auren.get_profile"]["securitySchemes"],
+        )
+        self.assertEqual(r"\S", tools["auren.get_profile"]["outputSchema"]["properties"]["id"]["pattern"])
 
     def test_transport_methods_and_https_are_enforced(self):
         status, headers, _ = self.request(method="GET")
@@ -825,6 +852,22 @@ class RemoteMCPASGITests(unittest.TestCase):
             exported = path.read_text(encoding="utf-8")
             self.assertNotIn("private-task-value", exported)
 
+    def test_resource_uri_rejects_noncanonical_trailing_slash(self):
+        with self.assertRaisesRegex(ValueError, "exact configured endpoint path"):
+            AurenMCPService(
+                self.runtime,
+                project_root=self.root,
+                token_verifier=StaticBearerTokenVerifier([{
+                    "token": self.token, "subject": "operator",
+                    "scopes": ["auren:tasks:read"], "projects": [str(self.root)],
+                }]),
+                resource_url="https://mcp.example.test/mcp/",
+                authorization_server_url="https://identity.example.test/",
+                allowed_hosts=("mcp.example.test",),
+                require_https=True,
+                control_store_path=self.root / "noncanonical-resource.sqlite3",
+            )
+
     def test_path_specific_rfc9728_metadata_is_available(self):
         status, _, body = self.request(
             method="GET", path="/.well-known/oauth-protected-resource/mcp", body=None,
@@ -832,6 +875,7 @@ class RemoteMCPASGITests(unittest.TestCase):
         self.assertEqual(200, status)
         metadata = json.loads(body)
         self.assertEqual("https://mcp.example.test/mcp", metadata["resource"])
+        self.assertEqual(["https://identity.example.test/"], metadata["authorization_servers"])
         self.assertEqual(
             "https://github.com/sourabhJainR/AUREN/blob/main/docs/REMOTE_MCP_PRIVACY.md",
             metadata["resource_policy_uri"],
@@ -889,7 +933,7 @@ class RemoteMCPASGITests(unittest.TestCase):
         self.assertEqual(200, status)
         metadata = json.loads(body)
         self.assertEqual("https://mcp.example.test/mcp", metadata["resource"])
-        self.assertEqual(["https://identity.example.test"], metadata["authorization_servers"])
+        self.assertEqual(["https://identity.example.test/"], metadata["authorization_servers"])
 
 
 if __name__ == "__main__":
