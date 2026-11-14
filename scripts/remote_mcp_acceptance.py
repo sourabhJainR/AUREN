@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from typing import Any, Callable, Mapping
 from urllib.parse import urlsplit
 
@@ -13,8 +14,13 @@ LEGACY_PROTOCOL_VERSION = "2025-11-25"
 MODERN_PROTOCOL_VERSION = "2026-07-28"
 REQUIRED_READ_TOOLS = frozenset({
     "auren.get_profile", "auren.service_status", "auren.list_tasks",
-    "auren.get_task", "auren.get_evidence",
+    "auren.get_task", "auren.get_evidence", "auren.list_approvals",
+    "auren.get_approval",
 })
+REQUIRED_WRITE_SCOPES = {
+    "auren.submit_task": "auren:tasks:write",
+    "auren.decide_approval": "auren:approvals:decide",
+}
 
 
 class AcceptanceFailure(RuntimeError):
@@ -33,6 +39,96 @@ def _json_response(status: int, raw: bytes, stage: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise AcceptanceFailure(f"{stage} returned a non-object response")
     return value
+
+
+def _https_url(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    parsed = urlsplit(value)
+    try:
+        port = parsed.port
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == "https" and bool(parsed.hostname)
+        and parsed.username is None and parsed.password is None
+        and port in {None, 443} and not parsed.query and not parsed.fragment
+    )
+
+
+def _authorization_metadata_urls(issuer: str) -> tuple[str, ...]:
+    parsed = urlsplit(issuer)
+    origin = f"https://{parsed.netloc}"
+    path = parsed.path.rstrip("/")
+    urls = (
+        origin + "/.well-known/oauth-authorization-server" + path,
+        issuer.rstrip("/") + "/.well-known/openid-configuration",
+    )
+    return tuple(dict.fromkeys(urls))
+
+
+def _load_authorization_metadata(
+    issuer: str,
+    *,
+    transport: Callable[..., tuple[int, bytes]],
+    refresh_scope: str,
+) -> str:
+    if not _https_url(issuer):
+        raise AcceptanceFailure("authorization server issuer must be an exact HTTPS URL")
+    host = (urlsplit(issuer).hostname or "").lower()
+    metadata = None
+    metadata_url = None
+    for candidate in _authorization_metadata_urls(issuer):
+        status, raw = transport(
+            candidate, allowed_hosts=(host,), method="GET",
+            headers={"accept": "application/json"}, timeout=10, max_bytes=64 * 1024,
+        )
+        if status == 404:
+            continue
+        metadata = _json_response(status, raw, "authorization-server metadata")
+        metadata_url = candidate
+        break
+    if not isinstance(metadata, Mapping) or metadata_url is None:
+        raise AcceptanceFailure("OAuth authorization-server discovery metadata was not found")
+    if metadata.get("issuer") != issuer:
+        raise AcceptanceFailure("OAuth discovery issuer does not exactly match protected-resource metadata")
+    for key in ("authorization_endpoint", "token_endpoint"):
+        if not _https_url(metadata.get(key)):
+            raise AcceptanceFailure(f"OAuth discovery {key} must be an HTTPS URL")
+    challenges = metadata.get("code_challenge_methods_supported")
+    if not isinstance(challenges, list) or "S256" not in challenges:
+        raise AcceptanceFailure("OAuth provider must advertise PKCE S256")
+    auth_methods = metadata.get("token_endpoint_auth_methods_supported")
+    if not isinstance(auth_methods, list) or not ({"none", "private_key_jwt"} & set(auth_methods)):
+        raise AcceptanceFailure("OAuth provider must support none or private_key_jwt client authentication")
+    if metadata.get("client_id_metadata_document_supported") is not True and not _https_url(metadata.get("registration_endpoint")):
+        raise AcceptanceFailure("OAuth provider must support CIMD or dynamic client registration")
+    response_types = metadata.get("response_types_supported")
+    if isinstance(response_types, list) and "code" not in response_types:
+        raise AcceptanceFailure("OAuth provider does not advertise the authorization-code response")
+    grant_types = metadata.get("grant_types_supported")
+    if isinstance(grant_types, list) and "authorization_code" not in grant_types:
+        raise AcceptanceFailure("OAuth provider does not advertise the authorization-code grant")
+    scopes = metadata.get("scopes_supported")
+    if not (
+        isinstance(scopes, list) and refresh_scope in scopes
+        or isinstance(grant_types, list) and "refresh_token" in grant_types
+    ):
+        raise AcceptanceFailure(f"OAuth provider must support {refresh_scope} or advertise refresh-token grants")
+    return metadata_url
+
+
+def _has_oauth_scope(tool: Mapping[str, Any], scope: str, *, top_level: bool = False) -> bool:
+    source = tool.get("securitySchemes") if top_level else tool.get("_meta", {}).get("securitySchemes")
+    if not isinstance(source, list):
+        return False
+    return any(
+        isinstance(item, Mapping)
+        and item.get("type") == "oauth2"
+        and isinstance(item.get("scopes"), list)
+        and scope in item["scopes"]
+        for item in source
+    )
 
 
 def run_acceptance(
