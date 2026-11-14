@@ -211,8 +211,8 @@ def _run_verify_local(args: list[str]) -> int:
         prog="auren verify-local",
         description="Run read-only acceptance checks against the local AUREN console and MCP host.",
     )
-    parser.add_argument("--dashboard-url", default="http://127.0.0.1:8765")
-    parser.add_argument("--mcp-url", default="http://127.0.0.1:8766/mcp")
+    parser.add_argument("--dashboard-url", required=True, help="Exact loopback origin printed by auren up")
+    parser.add_argument("--mcp-url", default="http://127.0.0.1:8765/mcp")
     parser.add_argument("--token-file", default=None)
     options = parser.parse_args(args)
     try:
