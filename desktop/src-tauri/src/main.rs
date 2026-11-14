@@ -341,13 +341,13 @@ mod tests {
 
         let (python, checkout_args) = verification_command_from_config(
             None,
-            Some(OsString::from("C:\AUREN\auren_cli.py")),
+            Some(OsString::from(r"C:\AUREN\auren_cli.py")),
             Some(OsString::from("python.exe")),
             "http://127.0.0.1:43120/control-center",
             "http://127.0.0.1:43121/mcp",
         );
         assert_eq!(python, OsString::from("python.exe"));
-        assert_eq!(checkout_args[0], OsString::from("C:\AUREN\auren_cli.py"));
+        assert_eq!(checkout_args[0], OsString::from(r"C:\AUREN\auren_cli.py"));
         assert_eq!(checkout_args[1], OsString::from("verify-local"));
     }
 
