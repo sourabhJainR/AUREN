@@ -217,6 +217,8 @@ Run the repository checks from the AUREN root:
 ```bash
 python auren_cli.py doctor --project-root .
 python auren_cli.py providers --project-root .
+python auren_cli.py integrations --project-root .
+python -m unittest tests.test_integration_inventory_and_provider_profiles -v
 python -m unittest tests.test_extension_contract tests.test_agent_capabilities -v
 python -m unittest tests.test_harness_experiments tests.test_harness_isolation_verifier -v
 ```
