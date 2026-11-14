@@ -119,7 +119,8 @@ def _load_authorization_metadata(
 
 
 def _has_oauth_scope(tool: Mapping[str, Any], scope: str, *, top_level: bool = False) -> bool:
-    source = tool.get("securitySchemes") if top_level else tool.get("_meta", {}).get("securitySchemes")
+    meta = tool.get("_meta")
+    source = tool.get("securitySchemes") if top_level else (meta.get("securitySchemes") if isinstance(meta, Mapping) else None)
     if not isinstance(source, list):
         return False
     return any(
@@ -280,7 +281,8 @@ def run_acceptance(
     profile_tool = tool_by_name["auren.get_profile"]
     profile_meta = profile_tool.get("_meta", {})
     profile_schema = profile_tool.get("outputSchema", {})
-    profile_id_schema = profile_schema.get("properties", {}).get("id", {}) if isinstance(profile_schema, Mapping) else {}
+    profile_properties = profile_schema.get("properties", {}) if isinstance(profile_schema, Mapping) else {}
+    profile_id_schema = profile_properties.get("id", {}) if isinstance(profile_properties, Mapping) else {}
     if (
         not isinstance(profile_meta, Mapping)
         or profile_meta.get("openai/profile") is not True
@@ -324,7 +326,8 @@ def run_acceptance(
         {"name": "auren.get_profile", "arguments": {}},
         include_auth=False,
     )
-    challenges = challenge.get("_meta", {}).get("mcp/www_authenticate", [])
+    challenge_meta = challenge.get("_meta")
+    challenges = challenge_meta.get("mcp/www_authenticate", []) if isinstance(challenge_meta, Mapping) else []
     challenge_text = " ".join(item for item in challenges if isinstance(item, str)) if isinstance(challenges, list) else ""
     if (
         challenge.get("isError") is not True
