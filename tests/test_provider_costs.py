@@ -153,6 +153,24 @@ class TestProviderCosts(unittest.TestCase):
         with self.assertRaisesRegex(ProviderPriceCatalogError, "exact pinned"):
             load_provider_price_catalog(self.path, now=NOW)
 
+    def test_string_price_values_are_rejected(self):
+        document = catalog_document()
+        document["entries"][0]["input_usd_per_million_tokens"] = "2.0"
+        self.path.write_text(json.dumps(document), encoding="utf-8")
+        with self.assertRaisesRegex(ProviderPriceCatalogError, "non-negative decimal"):
+            load_provider_price_catalog(self.path, now=NOW)
+
+    def test_expiry_timestamp_is_an_exclusive_boundary(self):
+        catalog = self.write(catalog_document())
+        result = estimate_provider_cost(
+            catalog,
+            provider_id="openai",
+            model_id="pinned-model-v1",
+            usage={"input_tokens": 1, "output_tokens": 1},
+            now=datetime(2026, 12, 1, tzinfo=timezone.utc),
+        )
+        self.assertEqual("catalog_expired", result["reason"])
+
     def test_http_source_url_is_rejected(self):
         document = catalog_document()
         document["entries"][0]["source_url"] = "http://example.com/pricing"
