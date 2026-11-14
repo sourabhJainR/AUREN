@@ -172,7 +172,7 @@ Give each workload its own identity and minimum required scopes. Start with read
 | Native Claude Code plugin | Packaged and documented |
 | Agent Skill reuse across compatible hosts | Implemented through standard skill packaging and host-specific instructions |
 | Remote MCP operator endpoint | Implemented in repository; hosted deployment and external OAuth remain operator work |
-| Direct inference APIs | Bounded adapters integrated with hybrid model routing |
+| Direct inference APIs | Bounded adapters integrated with hybrid model routing |\n| Unified integration inventory | Implemented through `auren integrations`; authentication and live acceptance remain separate |\n| Graph-team provider profiles | Versioned profile and atomic host registration helper implemented; production model acceptance remains separate |
 | Local Ollama-compatible model discovery | Implemented; model quality is not inferred from discovery |
 | Full graph-team auto-wiring from API keys | Not implemented; explicit per-crew provider registration is required |
 | Universal executable plugin loader | Not implemented; extension manifests are data-only and runtime adapters are explicit |
@@ -223,7 +223,7 @@ For a live host, also record its exact product/version, MCP protocol version, OA
 
 ## Related documentation
 
-- [Multi-LLM and AI Infrastructure Quickstart](MULTI_PROVIDER_QUICKSTART.md)
+- [Provider Role Profiles](PROVIDER_ROLE_PROFILES.md)\n- [Multi-LLM and AI Infrastructure Quickstart](MULTI_PROVIDER_QUICKSTART.md)
 - [MCP Host Compatibility](MCP_HOST_COMPATIBILITY.md)
 - [Platform Compatibility Matrix](PLATFORM_COMPATIBILITY_MATRIX.md)
 - [Orchestrator Integrations](ORCHESTRATOR_INTEGRATIONS.md)
