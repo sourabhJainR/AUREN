@@ -86,8 +86,16 @@ class MaintenanceService:
             return None
         checkpoint = PersistentSupervisorDaemon(self.config.project_root, max_tasks_per_tick=self.config.maintenance_budget).checkpoint()
         resumed = self.runtime.resume_tasks(limit=self.config.maintenance_budget, project_root=self.config.project_root)
+        routines = self.runtime.dispatch_due_routines(
+            self.config.project_root, limit=self.config.maintenance_budget,
+        )
         maintenance = self.runtime.maintenance_tick(self.config.project_root, budget=self.config.maintenance_budget)
-        return {"resumed": len(resumed), "checkpoint": checkpoint.__dict__, "maintenance": maintenance.__dict__ if maintenance is not None else None}
+        return {
+            "resumed": len(resumed),
+            "routines": [item.__dict__ for item in routines],
+            "checkpoint": checkpoint.__dict__,
+            "maintenance": maintenance.__dict__ if maintenance is not None else None,
+        }
 
     def loop(self) -> int:
         signal.signal(signal.SIGTERM, self.stop)
