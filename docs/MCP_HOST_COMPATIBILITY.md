@@ -1,5 +1,7 @@
 # AUREN MCP Host Compatibility
 
+For the complete install decision tree across local clients, hosted chat, model APIs and orchestration frameworks, see the [Plug-and-Play Integrations Guide](PLUG_AND_PLAY_INTEGRATIONS.md).
+
 AUREN's remote endpoint advertises MCP `2026-07-28` stateless mode and retains the `2025-11-25` handshake for older hosts. Modern clients should negotiate with `server/discover`; legacy clients may continue using `initialize`. The endpoint validates `MCP-Protocol-Version`, `Mcp-Method` and `Mcp-Name` on modern requests.
 
 AUREN's remote operator service exposes one MCP endpoint. An MCP-capable host connects to that endpoint; the host's model provider remains independently selectable. This is the lowest-friction integration path for IDEs and orchestration clients.
