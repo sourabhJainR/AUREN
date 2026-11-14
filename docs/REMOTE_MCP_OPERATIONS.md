@@ -17,7 +17,7 @@ Before public deployment, review [REMOTE_MCP_PRIVACY.md](REMOTE_MCP_PRIVACY.md),
 - Liveness/readiness endpoints: /healthz and /readyz.
 - Operator control and rate-limit state are stored under canonical AUREN home on persistent local disk.
 
-The service does not implement an OAuth authorization server. An established identity provider must implement OAuth 2.1 authorization-code flow with PKCE S256, issuer discovery, Client ID Metadata Documents (CIMD; preferred by MCP 2026-07-28) or DCR for legacy clients, refresh/revocation and the resource/audience parameter. Authorization responses must include and validate the RFC 9207 `iss` parameter; credentials must remain bound to the issuer that minted them. The MCP resource server validates the resulting token through introspection on each request. The introspection response must include iss, sub, aud, exp and scope; roles and projects should also be included where those policies are used. Certificate-bound access tokens (cnf claims) are rejected because the ASGI service does not validate token-to-client-certificate binding.
+The service does not implement an OAuth authorization server. An established identity provider must implement OAuth 2.1 authorization-code flow with PKCE S256, issuer discovery, Client ID Metadata Documents (CIMD; preferred by MCP 2026-07-28) or DCR for legacy clients, refresh/revocation and the resource/audience parameter. Authorization responses must include and validate the RFC 9207 `iss` parameter; credentials must remain bound to the issuer that minted them. The MCP resource server validates the resulting token through introspection on each request. The introspection response must include iss, sub, aud, exp and scope; roles and projects should also be included where those policies are used. The issuer claim must match the configured issuer exactly, including any trailing slash. The audience must contain the exact canonical AUREN resource URI. AUREN does not normalize either identifier. Certificate-bound access tokens (cnf claims) are rejected because the ASGI service does not validate token-to-client-certificate binding.
 
 ## Operator tool surface
 
@@ -37,7 +37,7 @@ The service does not implement an OAuth authorization server. An established ide
 | auren.pause_admissions | auren:admin | Stop accepting new MCP tasks; does not stop active work |
 | auren.resume_admissions | auren:admin | Reopen MCP task admission |
 
-Every tool publishes OAuth securitySchemes metadata. ChatGPT-specific profile metadata is provided by auren.get_profile. The profile ID is generated once per authenticated subject and persisted; it does not contain the subject or email.
+Every tool publishes per-tool OAuth securitySchemes metadata in both the OpenAI top-level extension and the MCP _meta compatibility field. ChatGPT-specific profile metadata is provided by auren.get_profile, which sets _meta.openai/profile and an outputSchema. Its response includes structuredContent and the same JSON object in text content. The profile ID is generated once per exact issuer/subject pair and persisted; it does not contain the subject or email.
 
 Tool schemas are validated again by the server. Unknown arguments are rejected. The workspace root is configured by the host and cannot be supplied by the model. There is no general shell, arbitrary file-write, arbitrary network-fetch or unrestricted provider tool.
 
@@ -102,7 +102,7 @@ python -m portable.remote_mcp_server \
   --host 127.0.0.1 --port 8765
 ~~~
 
-For remote execution, provision the Vibe host config at ~/.auren/vibe-coding/host.json on this server and install/authenticate Codex CLI. The OAuth token must contain the exact project path, engineering_manager role and auren:tasks:write scope. The separate approver digest is SHA-256 of issuer.rstrip("/") + NUL + subject; calculate it from the identity provider's exact claims and keep only the digest in the host environment.
+For remote execution, provision the Vibe host config at ~/.auren/vibe-coding/host.json on this server and install/authenticate Codex CLI. The OAuth token must contain the exact project path, engineering_manager role and auren:tasks:write scope. The configured issuer and introspection `iss` claim are compared byte-for-byte; a trailing slash is significant. The same exact issuer string is included in the principal identity digest. Do not trim or normalize it. The separate approver digest is SHA-256 of the exact issuer string + NUL + subject; calculate it from the identity provider's exact claims and keep only the digest in the host environment.
 
 The shell command illustrates environment names. Replace the browser-origin placeholder with exact origins observed and approved for your clients; native MCP clients may not send an Origin header. Do not guess vendor origins. Use the secret manager supplied by the deployment. Do not put tokens or client secrets in repository files, MCP client configuration, command-line arguments or logs.
 
