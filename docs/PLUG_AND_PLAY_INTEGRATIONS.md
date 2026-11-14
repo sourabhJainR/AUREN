@@ -140,7 +140,7 @@ Important runtime limits:
 - Remote inference is disabled by default and requires explicit public-data classification and opt-in.
 - Private and restricted tasks must remain local.
 - Provider fallback is sequential and bounded; automatic model voting/ensembles are not implemented.
-- The direct API adapters are integrated with the hybrid model router. The main graph-team specialists still require host-registered provider invokers, pinned versions and per-persona tool scopes. Configuring an API key does not automatically wire every specialist.
+- The direct API adapters are integrated with the hybrid model router. Graph-team roles can now use versioned provider profiles and a supervised registration helper. The host still supplies the canonical controller and approved read-only tool registry; configuring an API key alone never wires a role or grants a tool.
 - API adapters return model responses; they do not execute arbitrary provider tool calls.
 
 ## Connect an orchestration framework
@@ -176,7 +176,7 @@ Give each workload its own identity and minimum required scopes. Start with read
 | Unified integration inventory | Implemented through `auren integrations`; authentication and live acceptance remain separate |
 | Graph-team provider profiles | Versioned profile and atomic host registration helper implemented; production model acceptance remains separate |
 | Local Ollama-compatible model discovery | Implemented; model quality is not inferred from discovery |
-| Full graph-team auto-wiring from API keys | Not implemented; explicit per-crew provider registration is required |
+| Profile-driven graph-team registration | Implemented as an explicit supervised bootstrap; host-owned controller and tool registry remain required |
 | Universal executable plugin loader | Not implemented; extension manifests are data-only and runtime adapters are explicit |
 | Live acceptance across all listed vendors | Not completed; see the compatibility matrix |
 
@@ -203,12 +203,12 @@ The remaining Harness²-aligned work is tracked in [issue #692](https://github.c
 
 ## Additional improvements worth prioritising
 
-1. **Unified integration inventory:** one read-only command that lists discovered hosts, skills, MCP servers, model providers and graph-team adapters with separate states for detected, configured, authenticated, live-tested and enabled.
-2. **One-step graph-team provider setup:** a reviewed provider profile that maps model IDs and explicit read-only tool scopes to each persona, validates privacy eligibility and pins the registry digest before dispatch. Do not infer role permissions from an API key.
-3. **Versioned integration packs:** signed/pinned manifests, compatibility ranges, provenance, permission diffs, rollback and a clear install/enable lifecycle. Keep execution in explicit adapters or isolated processes.
-4. **Live host acceptance harness:** smoke-test tool discovery, OAuth refresh/revocation, identity scopes, task submission, cancellation, restart and evidence retrieval for each supported client/version.
-5. **Harness experiment operations:** complete resume, parallel/sequential modes, experiment-tree UI, per-candidate cost/quality/safety reporting and independent evaluator custody.
-6. **Provider observability:** record model/provider version, latency, token usage, cost, route reason, fallback and task outcome without logging secrets or sensitive prompts.
+The first integration inventory and role-profile setup are now implemented. Remaining work:
+
+1. **Versioned integration packs:** signed/pinned manifests, compatibility ranges, provenance, permission diffs, rollback and a clear install/enable lifecycle. Keep execution in explicit adapters or isolated processes.
+2. **Live host acceptance harness:** smoke-test tool discovery, OAuth refresh/revocation, identity scopes, task submission, cancellation, restart and evidence retrieval for each supported client/version.
+3. **Harness experiment operations:** complete resume, parallel/sequential modes, experiment-tree UI, per-candidate cost/quality/safety reporting and independent evaluator custody.
+4. **Provider observability:** record model/provider version, latency, token usage, cost, route reason, fallback and task outcome without logging secrets or sensitive prompts.
 
 ## Validation and readiness
 
