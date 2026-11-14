@@ -228,6 +228,28 @@ def collect_integration_inventory(
                 "error_type": type(exc).__name__,
             }
 
+
+    skill_paths = (
+        root / "skills" / "ai-coding-orchestrator" / "SKILL.md",
+        root / ".agents" / "skills" / "ai-coding-orchestrator" / "SKILL.md",
+        root / ".claude" / "skills" / "ai-coding-orchestrator" / "SKILL.md",
+        root / ".gemini" / "skills" / "ai-coding-orchestrator" / "SKILL.md",
+        user_home / ".agents" / "skills" / "ai-coding-orchestrator" / "SKILL.md",
+        user_home / ".claude" / "skills" / "ai-coding-orchestrator" / "SKILL.md",
+        user_home / ".gemini" / "skills" / "ai-coding-orchestrator" / "SKILL.md",
+    )
+    agent_skills = [
+        {
+            "id": "ai-coding-orchestrator",
+            "path": str(path),
+            "detected": True,
+            "installed": str(path).startswith(str(user_home)),
+            "status": "present_not_host_loaded",
+        }
+        for path in skill_paths
+        if not path.is_symlink() and path.is_file()
+    ]
+
     hosts = []
     for index, item in enumerate(clients):
         hosts.append({
@@ -244,11 +266,12 @@ def collect_integration_inventory(
         "provider_clis_detected": len(cli_providers),
         "local_models_detected": len(local_provider["model_ids"]),
         "capability_manifests_detected": len(manifests),
+        "agent_skill_copies_detected": len(agent_skills),
     }
     return {
         "schema_version": "auren-integration-inventory-v1",
         "project_root": str(root),
-        "discovery_policy": "read_only_no_client_config_changes_no_provider_requests",
+        "discovery_policy": "read_only_no_client_config_changes_no_remote_model_api_requests",
         "status_semantics": {
             "detected": "A local executable, config, endpoint or manifest was observed.",
             "configured": "Required local configuration is present; this does not prove authentication.",
@@ -262,6 +285,7 @@ def collect_integration_inventory(
         "local_model_provider": local_provider,
         "vibe_coding_host": doctor.get("vibe_coding_host", {"status": "not_reported"}),
         "provider_capability_manifests": manifests,
+        "agent_skills": agent_skills,
         "graph_team_provider_profile": role_profile,
         "graph_team_runtime_registration": "not_observable_from_read_only_cli",
         "summary": summary,
