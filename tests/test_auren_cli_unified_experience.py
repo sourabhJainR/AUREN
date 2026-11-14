@@ -131,3 +131,36 @@ def test_task_endpoint_options_work_after_the_subcommand(monkeypatch, capsys):
     capsys.readouterr()
     assert captured["url"] == "http://127.0.0.1:9001/mcp"
     assert captured["token_file"] == "/tmp/auren-token"
+
+def test_verify_local_command_reports_readiness_without_invoking_tools(monkeypatch, capsys, tmp_path: Path):
+    from portable import local_acceptance, local_host
+
+    monkeypatch.setattr(local_host, "local_token_path", lambda: tmp_path / "token")
+    monkeypatch.setattr(local_acceptance, "verify_local_experience", lambda **kwargs: {
+        "status": "ready", "read_only": True, "checks": {
+            "dashboard": {"status": "ready"},
+            "mcp": {"status": "ready", "tools_invoked": False},
+        },
+    })
+    assert main([
+        "verify-local", "--dashboard-url", "http://127.0.0.1:43210",
+    ]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "ready"
+    assert report["read_only"] is True
+
+
+def test_verify_local_command_returns_nonzero_for_blocked_runtime(monkeypatch, capsys, tmp_path: Path):
+    from portable import local_acceptance, local_host
+
+    monkeypatch.setattr(local_host, "local_token_path", lambda: tmp_path / "token")
+    monkeypatch.setattr(local_acceptance, "verify_local_experience", lambda **kwargs: {
+        "status": "blocked", "read_only": True, "checks": {
+            "dashboard": {"status": "blocked"},
+            "mcp": {"status": "ready"},
+        },
+    })
+    assert main([
+        "verify-local", "--dashboard-url", "http://127.0.0.1:43210",
+    ]) == 2
+    assert json.loads(capsys.readouterr().out)["status"] == "blocked"
