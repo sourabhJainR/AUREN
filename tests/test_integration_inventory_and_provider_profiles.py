@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT / ".ai-harness"))
 from portable.crew_adapters import ApprovedToolRegistry
 from portable.progress_journal import ProgressJournal
 import runtime
+from portable.agency_observability import LocalExporter, Tracer, bind_trace_context
 from portable.integration_inventory import (
     _client_configuration,
     _remote_provider_inventory,
@@ -214,6 +215,104 @@ class ProviderRoleProfileTests(unittest.TestCase):
             _prompt_privacy("prompt\n" + json.dumps({"task_request": {"privacy": "restricted"}})),
             "private",
         )
+
+    def test_profiled_role_invocation_emits_privacy_safe_role_span(self):
+        prompt = "private prompt must not be persisted"
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            profile_path = root / "provider_roles.json"
+            trace_path = root / "traces.jsonl"
+            write_provider_role_profile(
+                profile_path,
+                self.document(),
+                apply=True,
+            )
+            tracer = Tracer(LocalExporter(path=trace_path, enabled=True))
+            trace = tracer.start(
+                "provider-profile-test",
+                run_id="run-profile-1",
+                task_id="task-profile-1",
+            )
+            with mock.patch(
+                "portable.provider_role_profiles._local_model_invoker",
+                return_value=lambda _prompt, _timeout: "local-result",
+            ):
+                adapters = build_profiled_crew_adapter_inputs(
+                    profile_path,
+                    tools=ApprovedToolRegistry(),
+                )
+            with bind_trace_context(trace):
+                result = adapters["specialists"]["backend_api"]["invoker"](
+                    prompt,
+                    30,
+                )
+            tracer.end(trace)
+
+            records = [
+                json.loads(line)
+                for line in trace_path.read_text(encoding="utf-8").splitlines()
+            ]
+        role_events = [
+            item["span"] for item in records
+            if isinstance(item.get("span"), dict)
+            and item["span"].get("name") == "crew.role.invoke"
+        ]
+        self.assertEqual(result, "local-result")
+        self.assertEqual(len(role_events), 1)
+        span = role_events[0]
+        self.assertEqual(span["metadata"]["role_id"], "backend_api")
+        self.assertEqual(span["metadata"]["route"], "local_only")
+        self.assertEqual(span["input"]["prompt_bytes"], len(prompt.encode("utf-8")))
+        self.assertEqual(span["output"]["response_bytes"], len("local-result".encode("utf-8")))
+        self.assertEqual(span["status"], "ok")
+        self.assertNotIn(prompt, json.dumps(records))
+        self.assertNotIn("local-result", json.dumps(records))
+
+    def test_profiled_role_trace_records_error_type_without_error_text(self):
+        sensitive_error = "provider error contains sensitive request detail"
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            profile_path = root / "provider_roles.json"
+            trace_path = root / "traces.jsonl"
+            write_provider_role_profile(
+                profile_path,
+                self.document(),
+                apply=True,
+            )
+            tracer = Tracer(LocalExporter(path=trace_path, enabled=True))
+            trace = tracer.start("provider-profile-error-test")
+            with mock.patch(
+                "portable.provider_role_profiles._local_model_invoker",
+                return_value=mock.Mock(side_effect=RuntimeError(sensitive_error)),
+            ):
+                adapters = build_profiled_crew_adapter_inputs(
+                    profile_path,
+                    tools=ApprovedToolRegistry(),
+                )
+            with bind_trace_context(trace):
+                with self.assertRaisesRegex(RuntimeError, "sensitive request detail"):
+                    adapters["specialists"]["backend_api"]["invoker"](
+                        "private prompt",
+                        30,
+                    )
+            tracer.end(trace)
+            records = [
+                json.loads(line)
+                for line in trace_path.read_text(encoding="utf-8").splitlines()
+            ]
+        spans = [
+            item["span"] for item in records
+            if isinstance(item.get("span"), dict)
+            and item["span"].get("name") == "crew.role.invoke"
+        ]
+        self.assertEqual(len(spans), 1)
+        self.assertEqual(spans[0]["status"], "error")
+        self.assertEqual(spans[0]["terminal_reason"], "RuntimeError")
+        self.assertEqual(spans[0]["output"], {
+            "outcome": "error",
+            "error_type": "RuntimeError",
+        })
+        self.assertNotIn(sensitive_error, json.dumps(records))
 
     def test_profile_adapter_inputs_require_host_approved_tools(self):
         document = self.document()
