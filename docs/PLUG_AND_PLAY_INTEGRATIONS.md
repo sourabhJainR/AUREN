@@ -67,7 +67,7 @@ AUREN publishes a native Claude Code plugin and an Agent Skill:
 /plugin install adaptive-ai-coding-orchestrator@adaptive-ai-engineering
 ```
 
-For a local source checkout, use `/plugin marketplace add .` from the repository root. The plugin manifest is under `.claude-plugin/plugin.json`. Claude Code can also connect to the local or deployed AUREN MCP endpoint. These are complementary paths: the skill provides workflow guidance; MCP exposes governed AUREN operations.
+For a local source checkout, use `/plugin marketplace add .` from the repository root. The plugin manifest is under `.claude-plugin/plugin.json`. The marketplace package contains the skill and prompt hook; it does not launch a second MCP runtime. Run `auren up` in the target repository to configure Claude Code's local MCP entry through the authenticated stdio-to-HTTP bridge. For hosted Claude, configure the separately deployed HTTPS MCP endpoint and OAuth. These are complementary paths: the skill provides workflow guidance; MCP exposes governed AUREN operations.
 
 ### Codex
 
