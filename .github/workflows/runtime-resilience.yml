@@ -92,7 +92,13 @@ jobs:
             shard: evidence-core
           - os: ubuntu-latest
             python-version: '3.11'
-            shard: evidence-provider
+            shard: evidence-provider-boundary
+          - os: ubuntu-latest
+            python-version: '3.11'
+            shard: evidence-provider-lifecycle
+          - os: ubuntu-latest
+            python-version: '3.11'
+            shard: evidence-provider-faults
           - os: ubuntu-latest
             python-version: '3.11'
             shard: evidence-recovery
@@ -125,7 +131,13 @@ jobs:
             shard: evidence-core
           - os: ubuntu-latest
             python-version: '3.12'
-            shard: evidence-provider
+            shard: evidence-provider-boundary
+          - os: ubuntu-latest
+            python-version: '3.12'
+            shard: evidence-provider-lifecycle
+          - os: ubuntu-latest
+            python-version: '3.12'
+            shard: evidence-provider-faults
           - os: ubuntu-latest
             python-version: '3.12'
             shard: evidence-recovery
