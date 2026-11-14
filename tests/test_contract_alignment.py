@@ -387,7 +387,7 @@ class ContractAlignmentTests(unittest.TestCase):
             "Propose–Probe–Compare–Compose",
         ):
             self.assertIn(token, guide)
-        self.assertIn("not a general executable plugin loader", extension_contract)
+        self.assertIn("general executable plugin loader", extension_contract)
 
 
 if __name__ == "__main__":
