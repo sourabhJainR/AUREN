@@ -697,5 +697,17 @@ class DurableRoutineRegistryTests(unittest.TestCase):
 
 
 
+    def test_same_version_registration_rejects_corrupt_persisted_definition_digest(self):
+        spec = self.spec()
+        self.registry.register(spec)
+        with closing(self.registry._connect()) as db:
+            db.execute(
+                "UPDATE routines SET spec_digest=? WHERE routine_id=?",
+                ("0" * 64, spec.routine_id),
+            )
+        with self.assertRaisesRegex(ValueError, "persisted routine definition digest mismatch"):
+            self.registry.register(spec)
+
+
 if __name__ == "__main__":
     unittest.main()
