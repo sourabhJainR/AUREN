@@ -29,7 +29,7 @@ After both local services are ready, AUREN opens the local console and ChatGPT W
 
 Use auren up --no-chatgpt to suppress the ChatGPT browser launch. Use auren up --no-browser to suppress the local console launch.
 
-The local CLI connection uses the local authenticated MCP service. ChatGPT Web cannot reach a workstation's loopback endpoint, so opening ChatGPT does not connect it to local AUREN.
+The local CLI connection uses the local authenticated MCP service. ChatGPT Web cannot reach a workstation's loopback endpoint directly, so opening ChatGPT does not connect it to local AUREN. For private use, Secure MCP Tunnel is a separate transport option described below.
 
 ## Configure the Vibe Coding host
 
@@ -129,11 +129,24 @@ python - <<'PY'
 import hashlib
 issuer = "https://identity.example.com/"
 subject = "approver-subject-claim-from-idp"
-print(hashlib.sha256((issuer.rstrip("/") + "\0" + subject).encode("utf-8")).hexdigest())
+print(hashlib.sha256((issuer + "\0" + subject).encode("utf-8")).hexdigest())
 PY
 ~~~
 
 Do not put raw subject claims, OAuth tokens or client secrets in repository files. The digest allowlist is an explicit host-side approval policy. Remote task requesters cannot approve their own work; configure a separate engineering-manager approver.
+
+### OAuth provider requirements
+
+ChatGPT uses an OAuth authorization-code flow with PKCE. Configure an established identity provider; do not build a custom authorization server for this integration.
+
+- Publish authorization-server discovery metadata with the exact issuer URI.
+- Support authorization code with PKCE S256 and the client identification method required by the ChatGPT connector. OpenAI documents CIMD with `none` or `private_key_jwt`, and DCR where needed.
+- Issue refresh tokens and advertise `offline_access` (or the provider's equivalent) so the connection can renew access.
+- Echo the requested MCP `resource` into the access token's audience/resource claim.
+- The introspection response must return `iss`, `sub`, `aud`, `exp` and `scope`; AUREN compares issuer and resource identifiers exactly, including trailing slashes.
+- Add AUREN-specific `roles` and `projects` claims for task execution and approval policies.
+
+The ChatGPT OAuth client and AUREN's introspection client are separate credentials. Store the introspection client secret only in the host secret manager. Do not put it in ChatGPT app settings or source control.
 
 Follow [Remote MCP Operations](REMOTE_MCP_OPERATIONS.md) and [Remote MCP Privacy](REMOTE_MCP_PRIVACY.md) before exposing the endpoint.
 
