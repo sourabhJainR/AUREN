@@ -4,9 +4,11 @@
   "version": "1.0.0",
   "description": "Native desktop shell for the AUREN local runtime",
   "scripts": {
+    "predev": "python scripts/generate_icon.py",
+    "prebuild": "python scripts/generate_icon.py",
     "dev": "tauri dev",
     "build": "tauri build",
-    "check": "cargo check --manifest-path src-tauri/Cargo.toml"
+    "check": "python scripts/generate_icon.py && cargo check --manifest-path src-tauri/Cargo.toml"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0"
