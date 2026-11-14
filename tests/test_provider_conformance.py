@@ -308,6 +308,32 @@ class ProviderConformanceTests(unittest.TestCase):
         self.assertEqual("blocked", result.status)
         factory.assert_not_called()
 
+    def test_run_deduplicates_selected_api_providers_to_avoid_double_charging(self):
+        passed = provider_conformance.Check(
+            "api-live-probe", "pass", "synthetic API probe passed",
+            {"provider": "openai", "model": "pinned-test-model"},
+        )
+        with patch.object(provider_conformance, "live_api_probe", return_value=passed) as probe:
+            report = provider_conformance.run(
+                live_api=True, api_providers=["openai", "openai"],
+            )
+        self.assertEqual(1, probe.call_count)
+        self.assertEqual(1, len(report["api_providers"]))
+
+    def test_api_probe_cli_rejects_duplicate_provider_selection(self):
+        completed = subprocess.run(
+            [
+                sys.executable, str(SCRIPT), "--live-api",
+                "--api-provider", "openai", "--api-provider", "openai", "--json",
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertNotEqual(0, completed.returncode)
+        self.assertIn("duplicate --api-provider values", completed.stderr)
+
     def test_api_probe_cli_requires_explicit_provider_selection(self):
         completed = subprocess.run(
             [sys.executable, str(SCRIPT), "--live-api", "--json"],
