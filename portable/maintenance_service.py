@@ -85,7 +85,7 @@ class MaintenanceService:
         if not self.config.enabled:
             return None
         checkpoint = PersistentSupervisorDaemon(self.config.project_root, max_tasks_per_tick=self.config.maintenance_budget).checkpoint()
-        resumed = self.runtime.resume_tasks(limit=self.config.maintenance_budget, project_root=self.config.project_root)
+        resumed = self.runtime.resume_tasks(limit=self.config.maintenance_budget)
         routines = self.runtime.dispatch_due_routines(
             self.config.project_root, limit=self.config.maintenance_budget,
         )
