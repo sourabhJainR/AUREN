@@ -10,6 +10,12 @@ The canonical StateGraph supervisor now emits separate lifecycle spans for confi
 - Lifecycle coverage reports configured and observed evaluator/repair counts. It explicitly records that provider-tool adapter spans and external learning persistence are not instrumented by this StateGraph layer.
 - Existing canonical run status, partial-dependency identity, run/task/session IDs, source revision and config digest remain the source of execution truth.
 
+## Provider-backed graph-team roles
+
+Provider role profiles add a child `crew.role.invoke` span under the active supervisor trace. It records the pinned role/profile/provider/model identity, selected local or remote route, prompt/response byte counts, and terminal outcome. When a remote API provider is used, its existing provider inference span is nested under the role span and records bounded usage, latency and response digest metadata.
+
+Prompt text, completion text, credentials and provider error messages are not written to these spans. Route and span export are best-effort; telemetry failure does not change provider selection or task execution. Local model runtimes that do not expose token usage report no token count rather than estimating one.
+
 ## Evidence boundary
 
 These spans show what the StateGraph supervisor observed. They do not prove provider-side execution, external learning persistence, evaluator independence, sealed holdout isolation, production deployment, or release authorization. The trace is explanatory telemetry; it does not grant authority or change acceptance policy.
