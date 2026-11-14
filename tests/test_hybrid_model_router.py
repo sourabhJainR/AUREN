@@ -1,6 +1,7 @@
 """Hybrid routing policy and bounded fallback regression tests."""
 import time
 import unittest
+from unittest import mock
 import tempfile
 from pathlib import Path
 from threading import Event, Thread
@@ -313,6 +314,29 @@ class HybridRouterTests(unittest.TestCase):
             ))
         self.assertTrue(result.success)
         self.assertEqual("completed", result.result)
+
+    def test_route_context_binding_failure_does_not_block_provider_execution(self):
+        from portable.agency_observability import LocalExporter, Tracer, bind_trace_context
+
+        with tempfile.TemporaryDirectory() as directory:
+            tracer = Tracer(LocalExporter(Path(directory) / "trace.jsonl", enabled=True))
+            trace = tracer.start("route-context-bind-failure")
+            router = HybridModelRouter(
+                discovery=Discovery([]),
+                remote_executor=lambda _request: "provider-result",
+                resource_reader=lambda: {},
+            )
+            context = bind_trace_context(trace)
+            with context:
+                with mock.patch(
+                    "portable.agency_observability.bind_trace_context",
+                    side_effect=RuntimeError("trace context unavailable"),
+                ):
+                    result = router.route(TaskRouteRequest(
+                        "public task", "general", privacy="public", max_attempts=1,
+                    ))
+        self.assertTrue(result.success)
+        self.assertEqual("provider-result", result.result)
 
     def test_attempts_are_clamped_to_three(self):
         calls = []
