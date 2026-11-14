@@ -318,24 +318,31 @@ class IntegrationPackLockTests(unittest.TestCase):
                 )
 
     def test_dependency_graph_depth_is_bounded(self):
-        with tempfile.TemporaryDirectory() as directory:
-            manager = self.manager(directory)
-            previous_name = None
-            for index in range(65):
-                name = f"pack_{index}"
-                dependencies = (f"{previous_name}@1.0.0",) if previous_name else ()
-                manager.stage(self.manifest(
-                    name=name,
-                    source_revision=f"{index:040x}",
-                    dependencies=dependencies,
-                ))
-                previous_name = name
-            with self.assertRaisesRegex(IntegrationPackError, "maximum depth"):
-                manager.stage(self.manifest(
-                    name="pack_65",
-                    source_revision=f"{65:040x}",
-                    dependencies=("pack_64@1.0.0",),
-                ))
+        manager = self.manager(".")
+        state = {"packs": {}}
+        previous_name = None
+        for index in range(65):
+            name = f"pack_{index}"
+            dependencies = (f"{previous_name}@1.0.0",) if previous_name else ()
+            manifest = self.manifest(
+                name=name,
+                source_revision=f"{index:040x}",
+                dependencies=dependencies,
+            )
+            state["packs"][name] = {
+                "manifest": manifest.as_dict(),
+                "manifest_digest": manifest.digest,
+                "activation_approved": False,
+                "granted_permissions": [],
+            }
+            previous_name = name
+        candidate = self.manifest(
+            name="pack_65",
+            source_revision=f"{65:040x}",
+            dependencies=("pack_64@1.0.0",),
+        )
+        with self.assertRaisesRegex(IntegrationPackError, "maximum depth"):
+            manager._validate_dependencies(candidate, state)
 
     def test_rollback_refuses_to_restore_a_pack_with_missing_dependencies(self):
         with tempfile.TemporaryDirectory() as directory:
