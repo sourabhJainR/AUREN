@@ -587,6 +587,7 @@ class DurableRoutineRegistry:
                 "SELECT status,task_id,receipt_json FROM routine_occurrences WHERE occurrence_key=?",
                 (occurrence_key,),
             ).fetchone()
+            resuming_approval = False
             if previous:
                 previous_receipt = json.loads(previous["receipt_json"])
                 if previous_receipt.get("trigger_digest") != trigger_digest:
@@ -609,7 +610,7 @@ class DurableRoutineRegistry:
                         "WHERE occurrence_key=? AND status='blocked_approval'",
                         (json.dumps(previous_receipt, sort_keys=True), now, occurrence_key),
                     )
-                    db.execute("COMMIT")
+                    resuming_approval = True
                     previous = None
                 elif previous["status"] in {"dispatching", "unknown"}:
                     db.execute("COMMIT")
@@ -685,13 +686,14 @@ class DurableRoutineRegistry:
                 "policy_digest": spec.policy_digest,
                 "approval": approval_receipt,
             }
-            db.execute(
-                """INSERT INTO routine_occurrences
-                   (occurrence_key,routine_id,routine_version,trigger_kind,status,work_key,
-                    receipt_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)""",
-                (occurrence_key, routine_id, expected_version, trigger_kind, "dispatching",
-                 work_key, json.dumps(receipt, sort_keys=True), now, now),
-            )
+            if not resuming_approval:
+                db.execute(
+                    """INSERT INTO routine_occurrences
+                       (occurrence_key,routine_id,routine_version,trigger_kind,status,work_key,
+                        receipt_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)""",
+                    (occurrence_key, routine_id, expected_version, trigger_kind, "dispatching",
+                     work_key, json.dumps(receipt, sort_keys=True), now, now),
+                )
             db.execute("COMMIT")
 
         if active_rows:
