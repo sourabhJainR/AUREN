@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -39,6 +40,11 @@ def main() -> int:
                 "catalog_digest": catalog.digest,
                 "currency": catalog.currency,
                 "entry_count": len(catalog.entries),
+                "validity_status": (
+                    "not_yet_effective" if datetime.now(timezone.utc) < catalog.published_at
+                    else "expired" if datetime.now(timezone.utc) >= catalog.valid_until
+                    else "effective"
+                ),
                 "valid_until": catalog.valid_until.isoformat(),
             }
             print(json.dumps(report, sort_keys=True))
