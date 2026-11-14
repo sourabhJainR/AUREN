@@ -23,6 +23,8 @@ h2 { margin: 0 0 10px; font-size: 25px; }
 p { color: #aab6c8; line-height: 1.55; }
 label, .label { display: block; margin-bottom: 8px; color: #cbd5e1; font-size: 12px; }
 .launch-row { display: flex; gap: 10px; }
+.launch-row input { flex: 1; }
+#browse { flex: 0 0 auto; }
 input {
   flex: 1; min-width: 0; border: 1px solid #3b4960; border-radius: 7px;
   background: #111827; color: #f9fafb; padding: 12px 13px; outline: none;
