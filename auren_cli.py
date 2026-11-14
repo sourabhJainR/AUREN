@@ -244,6 +244,13 @@ def _run_integrations(args: list[str]) -> int:
     parser.add_argument("--project-root", default=".")
     parser.add_argument("--home", default=None, help="Optional home directory to inspect for local clients.")
     commands = parser.add_subparsers(dest="action")
+    probe = commands.add_parser(
+        "probe-local-mcp",
+        help="Verify the authenticated local MCP handshake and list tools without invoking them.",
+    )
+    probe.add_argument("--url", default="http://127.0.0.1:8765/mcp")
+    probe.add_argument("--token-file", default=None, help="Defaults to the per-user AUREN local MCP token.")
+
     profile = commands.add_parser("profile", help="Create, inspect or validate a role-based provider profile.")
     profile.add_argument("--project-root", dest="project_root", default=argparse.SUPPRESS)
     profile_commands = profile.add_subparsers(dest="profile_action", required=True)
@@ -269,6 +276,16 @@ def _run_integrations(args: list[str]) -> int:
 
     options = parser.parse_args(args)
     try:
+        if options.action == "probe-local-mcp":
+            from portable.local_host import local_token_path
+            from portable.mcp_local_client import probe_local_mcp
+            report = probe_local_mcp(
+                url=options.url,
+                token_file=options.token_file or local_token_path(),
+            )
+            print(json.dumps(report, indent=2, sort_keys=True))
+            return 0
+
         if options.action is None:
             from portable.integration_inventory import collect_integration_inventory
             report = collect_integration_inventory(
