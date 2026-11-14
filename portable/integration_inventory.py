@@ -33,6 +33,78 @@ def _nested(value: Mapping[str, Any], dotted_key: str) -> Any:
     return current
 
 
+
+def _strip_jsonc(raw: str) -> str:
+    """Remove JSONC comments and trailing commas without touching string values."""
+    without_comments = []
+    index = 0
+    in_string = False
+    escaped = False
+    while index < len(raw):
+        char = raw[index]
+        following = raw[index + 1] if index + 1 < len(raw) else ""
+        if in_string:
+            without_comments.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            index += 1
+            continue
+        if char == '"':
+            in_string = True
+            without_comments.append(char)
+            index += 1
+        elif char == "/" and following == "/":
+            index += 2
+            while index < len(raw) and raw[index] not in "\\r\\n":
+                index += 1
+        elif char == "/" and following == "*":
+            index += 2
+            while index + 1 < len(raw) and raw[index:index + 2] != "*/":
+                index += 1
+            if index + 1 >= len(raw):
+                raise ValueError("unterminated JSONC block comment")
+            index += 2
+        else:
+            without_comments.append(char)
+            index += 1
+
+    source = "".join(without_comments)
+    result = []
+    index = 0
+    in_string = False
+    escaped = False
+    while index < len(source):
+        char = source[index]
+        if in_string:
+            result.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            index += 1
+            continue
+        if char == '"':
+            in_string = True
+            result.append(char)
+            index += 1
+        elif char == ",":
+            lookahead = index + 1
+            while lookahead < len(source) and source[lookahead].isspace():
+                lookahead += 1
+            if lookahead >= len(source) or source[lookahead] not in "}]":
+                result.append(char)
+            index += 1
+        else:
+            result.append(char)
+            index += 1
+    return "".join(result)
+
 def _client_configuration(client: Mapping[str, Any]) -> dict[str, Any]:
     path = Path(str(client.get("path", ""))).expanduser()
     base = {
@@ -55,6 +127,8 @@ def _client_configuration(client: Mapping[str, Any]) -> dict[str, Any]:
         if client.get("format") == "toml":
             parsed = tomllib.loads(raw)
         else:
+            if client.get("format") == "jsonc" or str(client.get("name", "")).startswith("VS Code"):
+                raw = _strip_jsonc(raw)
             parsed = json.loads(raw, object_pairs_hook=_unique_pairs)
     except (OSError, UnicodeError, ValueError, json.JSONDecodeError, tomllib.TOMLDecodeError):
         return {**base, "status": "blocked_unreadable_config"}
@@ -76,6 +150,7 @@ def _remote_provider_inventory(environ: Mapping[str, str]) -> dict[str, Any]:
     configured_report = provider_configuration_report(environ=environ)
     order = configured_report.get("provider_order", [])
     ordered = set(order) if isinstance(order, list) else set()
+    order_valid = not configured_report.get("errors") and bool(order)
     remote_opt_in = environ.get("AUREN_LOCAL_REMOTE_INFERENCE", "").strip().lower() == "enabled"
     classification = environ.get("AUREN_LOCAL_DATA_CLASSIFICATION", "").strip().lower()
     privacy_ready = classification in {"public", "non_sensitive"}
@@ -84,7 +159,7 @@ def _remote_provider_inventory(environ: Mapping[str, str]) -> dict[str, Any]:
         credential_present = bool(environ.get(spec.api_key_env, ""))
         model = environ.get("AUREN_MODEL_" + name.upper(), environ.get(spec.model_env, "")).strip()
         configured = credential_present and bool(model)
-        enabled = configured and name in ordered and remote_opt_in and privacy_ready
+        enabled = configured and name in ordered and order_valid and remote_opt_in and privacy_ready
         providers.append({
             "id": name,
             "kind": "remote_model_api",
@@ -111,7 +186,7 @@ def _remote_provider_inventory(environ: Mapping[str, str]) -> dict[str, Any]:
             {},
         )
         configured = custom.get("status") == "configured_not_live_validated"
-        enabled = configured and remote_opt_in and privacy_ready and "custom" in ordered
+        enabled = configured and order_valid and remote_opt_in and privacy_ready and "custom" in ordered
         providers.append({
             "id": "custom",
             "kind": "custom_openai_compatible_api",
@@ -193,7 +268,7 @@ def collect_integration_inventory(
             if isinstance(item, Mapping) and isinstance(item.get("name"), str)
         ],
         "authenticated": "not_applicable",
-        "live_tested": "endpoint_detected_quality_not_validated",
+        "live_tested": "not_tested",
         "enabled": bool(local_model.get("available")),
         "status": local_model.get("status", "not_probed"),
     }
@@ -243,7 +318,7 @@ def collect_integration_inventory(
             "id": "ai-coding-orchestrator",
             "path": str(path),
             "detected": True,
-            "installed": str(path).startswith(str(user_home)),
+            "installed": path == user_home or user_home in path.parents,
             "status": "present_not_host_loaded",
         }
         for path in skill_paths
