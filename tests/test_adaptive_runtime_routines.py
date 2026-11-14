@@ -202,5 +202,60 @@ class AdaptiveRuntimeRoutineIntegrationTests(unittest.TestCase):
         )
 
 
+    def test_terminal_routine_summary_is_emitted_once_to_trigger_inbox(self):
+        spec = self.spec()
+        self.runtime.register_routine(self.project, spec)
+        dispatched = self.runtime.dispatch_manual_routine(
+            self.project, spec.routine_id, invocation_id="routine-trigger-summary",
+        )
+        self.runtime.execution_controller.task_by_work_key = lambda _key: {
+            "id": dispatched.task_id, "state": "failed", "attempts": 2,
+        }
+
+        self.runtime.reconcile_routine_occurrences(self.project, routine_id=spec.routine_id)
+
+        event_id = f"routine-terminal:{dispatched.occurrence_key}"
+        event = self.runtime.trigger_runtime.get_event(event_id)
+        self.assertEqual("routine.failed", event.kind)
+        self.assertEqual(0, event.priority)
+        self.assertTrue(event.payload["escalation_required"])
+        self.assertEqual("failed", event.payload["state"])
+        occurrence = self.runtime.routine_registry(self.project).occurrence(dispatched.occurrence_key)
+        self.assertTrue(json.loads(occurrence["receipt_json"])["terminal_event_emitted"])
+
+        self.runtime.reconcile_routine_occurrences(self.project, routine_id=spec.routine_id)
+        self.assertEqual(1, self.runtime.trigger_runtime.count_events(kind="routine.failed"))
+
+    def test_terminal_summary_outbox_retries_after_trigger_inbox_failure(self):
+        spec = self.spec()
+        self.runtime.register_routine(self.project, spec)
+        dispatched = self.runtime.dispatch_manual_routine(
+            self.project, spec.routine_id, invocation_id="routine-trigger-retry",
+        )
+        self.runtime.execution_controller.task_by_work_key = lambda _key: {
+            "id": dispatched.task_id, "state": "completed", "attempts": 1,
+        }
+        emit = self.runtime.emit_trigger
+        attempts = []
+
+        def fail_once(*args, **kwargs):
+            attempts.append("attempt")
+            if len(attempts) == 1:
+                raise RuntimeError("trigger inbox unavailable")
+            return emit(*args, **kwargs)
+
+        self.runtime.emit_trigger = fail_once
+        self.runtime.reconcile_routine_occurrences(self.project, routine_id=spec.routine_id)
+        occurrence = self.runtime.routine_registry(self.project).occurrence(dispatched.occurrence_key)
+        self.assertFalse(json.loads(occurrence["receipt_json"]).get("terminal_event_emitted", False))
+
+        self.runtime.reconcile_routine_occurrences(self.project, routine_id=spec.routine_id)
+        event_id = f"routine-terminal:{dispatched.occurrence_key}"
+        self.assertIsNotNone(self.runtime.trigger_runtime.get_event(event_id))
+        occurrence = self.runtime.routine_registry(self.project).occurrence(dispatched.occurrence_key)
+        self.assertTrue(json.loads(occurrence["receipt_json"])["terminal_event_emitted"])
+        self.assertEqual(2, len(attempts))
+
+
 if __name__ == "__main__":
     unittest.main()
