@@ -293,6 +293,15 @@ SHARDS = {
         U("tests.test_bounded_subprocess_fault_injection"),
         U("tests.test_process_isolated_crew_dispatch"),
     ],
+    "evidence-provider-boundary": [
+        U("tests.test_vibe_coding_host", "tests.test_subprocess_provider"),
+    ],
+    "evidence-provider-lifecycle": [
+        U("tests.test_vibe_coding_adapters", "tests.test_provider_operation_lifecycle", "tests.test_side_effect_ledger"),
+    ],
+    "evidence-provider-faults": [
+        U("tests.test_bounded_subprocess_fault_injection", "tests.test_process_isolated_crew_dispatch"),
+    ],
     "evidence-recovery": [
         U(
             "tests.test_agency_release_lifecycle",
