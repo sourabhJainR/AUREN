@@ -77,6 +77,7 @@ class RoutineSpec:
     approval_required: bool = False
     profile_digest: str | None = None
     policy_digest: str | None = None
+    concurrency_policy: str = "allow"
     enabled: bool = False
 
     def __post_init__(self) -> None:
@@ -128,6 +129,8 @@ class RoutineSpec:
             raise ValueError("deadline_seconds must be between 1 and 86400")
         if type(self.approval_required) is not bool or type(self.enabled) is not bool:
             raise ValueError("approval_required and enabled must be booleans")
+        if self.concurrency_policy not in {"allow", "skip"}:
+            raise ValueError("concurrency_policy must be allow or skip")
         for field_name in ("profile_digest", "policy_digest"):
             value = getattr(self, field_name)
             if value is not None and (
@@ -533,6 +536,17 @@ class DurableRoutineRegistry:
             if not current["enabled"]:
                 db.execute("COMMIT")
                 return RoutineDispatch("", "", "disabled", reason="routine is disabled")
+            if spec.concurrency_policy == "skip":
+                active_rows = db.execute(
+                    "SELECT work_key,task_id FROM routine_occurrences "
+                    "WHERE routine_id=? AND routine_version=? AND occurrence_key<>? "
+                    "AND status IN ('dispatching','unknown','submitted') "
+                    "ORDER BY created_at DESC LIMIT 64",
+                    (routine_id, expected_version, occurrence_key),
+                ).fetchall()
+                active_work_keys = [row["work_key"] for row in active_rows]
+            else:
+                active_work_keys = []
             receipt = {
                 "state": "dispatching", "routine_digest": spec.digest,
                 "trigger_digest": trigger_digest,
@@ -550,6 +564,56 @@ class DurableRoutineRegistry:
                  work_key, json.dumps(receipt, sort_keys=True), now, now),
             )
             db.execute("COMMIT")
+
+        if active_work_keys:
+            if reconcile is None:
+                self._update_receipt(
+                    occurrence_key, status="blocked_overlap",
+                    updates={"state": "blocked_overlap", "overlap_resolution": "missing_reconciler"},
+                )
+                return RoutineDispatch(
+                    occurrence_key, work_key, "blocked_overlap",
+                    reason="overlap policy requires authoritative task-state lookup; dispatch refused",
+                )
+            for active_work_key in active_work_keys:
+                try:
+                    active_task = reconcile(active_work_key)
+                except Exception as exc:
+                    self._update_receipt(
+                        occurrence_key, status="blocked_overlap",
+                        updates={"state": "blocked_overlap", "overlap_resolution": "reconciliation_failed",
+                                 "overlap_error_type": type(exc).__name__},
+                    )
+                    return RoutineDispatch(
+                        occurrence_key, work_key, "blocked_overlap",
+                        reason=f"overlap reconciliation failed: {type(exc).__name__}",
+                    )
+                if active_task is None:
+                    self._update_receipt(
+                        occurrence_key, status="blocked_overlap",
+                        updates={"state": "blocked_overlap", "overlap_resolution": "prior_task_missing"},
+                    )
+                    return RoutineDispatch(
+                        occurrence_key, work_key, "blocked_overlap",
+                        reason="prior submitted occurrence is absent from authoritative task store",
+                    )
+                task_state = (
+                    active_task.get("state") if isinstance(active_task, Mapping)
+                    else getattr(active_task, "state", None)
+                )
+                if task_state not in {"completed", "failed", "cancelled"}:
+                    self._update_receipt(
+                        occurrence_key, status="skipped_overlap",
+                        updates={
+                            "state": "skipped_overlap",
+                            "overlap_work_key": active_work_key,
+                            "overlap_task_state": task_state or "unknown",
+                        },
+                    )
+                    return RoutineDispatch(
+                        occurrence_key, work_key, "skipped_overlap",
+                        reason="an earlier occurrence is not terminal",
+                    )
 
         payload = dict(spec.payload)
         if event_payload is not None:
