@@ -143,7 +143,7 @@ Custom MCP availability is controlled by the ChatGPT plan and workspace permissi
 
 - Business and Enterprise/Edu support full MCP on ChatGPT web, including write tools, subject to workspace administration.
 - Pro can connect custom MCP servers with read/fetch permissions only. It cannot use AUREN's task submission or approval tools through ChatGPT.
-- Free does not currently support custom MCP server connections.
+- Free is not listed as a supported plan for custom MCP server connections.
 - The documented custom MCP connection flow is for ChatGPT web. Do not assume the same custom-server support in mobile or desktop clients without a separate live test.
 
 AUREN cannot change plan eligibility or workspace permissions. Keep the local CLI, MCP and Engineering Console as the primary path when the ChatGPT account does not support the required MCP permissions.
