@@ -210,8 +210,8 @@ The service currently uses AUREN's SQLite-backed durable stores and is a single-
 | P1 | Add Codex app and CLI acceptance matrix | Read-only and guarded-write smoke tests, exact-head CI evidence |
 | P1 | Add Claude CLI/Desktop/VS Code host acceptance | Plugin, hook, skill, MCP and permission-mode test receipts |
 | P1 | Add Gemini headless and IDE acceptance | JSONL parser tests, MCP and skill discovery receipts |
-| P1 | Run live provider acceptance for configured API vendors | Short-lived credentials, exact model IDs, auth/rate-limit/timeout/failover receipts |
-| P1 | Add provider cost and latency accounting | Price-source version, usage-to-cost reconciliation, benchmark results |
+| P1 | Run live provider acceptance for configured API vendors | AUREN now has an explicit one-request synthetic API probe with latency, usage and digest evidence; run it per provider. Vendor-specific rate-limit, failover, privacy and production acceptance remain open |
+| P1 | Add provider cost and latency accounting | Provider latency and token usage are now linked to route traces; pinned price-source version and usage-to-cost reconciliation remain open |
 | P2 | Add streaming and provider-specific tool/structured-output conformance | Versioned contract tests for each provider and model family |
 | P2 | Add GitHub Copilot and Gemini Code Assist host acceptance | Product-specific smoke tests; no inference from shared file support |
 | P2 | Add CI environment with vendor CLI installations where licensing permits | Version-pinned, non-mutating provider probes and published evidence |
@@ -222,13 +222,14 @@ From an AUREN checkout:
 
 ```bash
 python scripts/provider_conformance.py --json
+python scripts/provider_conformance.py --live-api --api-provider openai --json
 python -m unittest tests.test_provider_conformance -v
 python -m unittest tests.test_ai_coding_system_practices -v
 python -m unittest discover -s tests -p '*mcp*' -v
 python -m unittest tests.test_remote_mcp_service -v
 ```
 
-The static suite checks repository declarations only. Live provider tests must be explicitly enabled and run in an environment with the relevant CLI, authentication and permission controls.
+The static suite checks repository declarations only. The `--live-api` probe sends one fixed synthetic public prompt to each explicitly selected, allowlisted direct API provider; it requires `AUREN_LOCAL_REMOTE_INFERENCE=enabled` and may incur provider charges. It does not test IDE/MCP host acceptance or production privacy terms. CLI host probes remain separately enabled with `--live`.
 
 ## Official product references
 
