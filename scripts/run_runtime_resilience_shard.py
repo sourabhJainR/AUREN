@@ -189,10 +189,14 @@ SHARDS = {
     ],
     "durable-state-integration": [
         U("tests.test_progress_journal", "tests.test_progress_journal_integration", "tests.test_autonomous_company", "tests.test_engineering_evidence_capture"),
-        PF(
-            "not test_supervisor_deadline_kills_real_subprocess_provider_child and not test_absolute_deadline_flows_through_graph_team_and_model_router",
-            "tests/test_execution_controller_cancellation.py",
-            "tests/test_execution_controller_restart.py",
+        (
+            P("tests/test_execution_controller_cancellation.py", "tests/test_execution_controller_restart.py")
+            if os.name == "nt"
+            else PF(
+                "not test_supervisor_deadline_kills_real_subprocess_provider_child and not test_absolute_deadline_flows_through_graph_team_and_model_router",
+                "tests/test_execution_controller_cancellation.py",
+                "tests/test_execution_controller_restart.py",
+            )
         ),
         P(".ai-harness/tests/test_task_memory.py", env={"PYTHONPATH": ".ai-harness"}),
     ],
