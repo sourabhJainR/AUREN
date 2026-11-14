@@ -234,6 +234,91 @@ def _run_providers(args: list[str]) -> int:
         return 2
 
 
+
+def _run_integrations(args: list[str]) -> int:
+    """Inspect integration readiness or manage a secret-free graph-team provider profile."""
+    parser = argparse.ArgumentParser(
+        prog="auren integrations",
+        description="Inspect AI hosts, model providers and graph-team provider profiles.",
+    )
+    parser.add_argument("--project-root", default=".")
+    parser.add_argument("--home", default=None, help="Optional home directory to inspect for local clients.")
+    commands = parser.add_subparsers(dest="action")
+    profile = commands.add_parser("profile", help="Create, inspect or validate a role-based provider profile.")
+    profile.add_argument("--project-root", dest="project_root", default=argparse.SUPPRESS)
+    profile_commands = profile.add_subparsers(dest="profile_action", required=True)
+
+    initialize = profile_commands.add_parser("init", help="Preview or create a complete starter role profile.")
+    initialize.add_argument("--project-root", dest="project_root", default=argparse.SUPPRESS)
+    initialize.add_argument("--profile", default=None, help="Profile file path; defaults to .auren/provider_roles.json.")
+    initialize.add_argument("--profile-id", default="engineering-default")
+    initialize.add_argument("--revision", type=int, default=1)
+    initialize.add_argument("--provider", default="ollama", help="ollama or a reviewed direct API provider ID.")
+    initialize.add_argument("--model", required=True, help="Pinned model ID; never an API key.")
+    initialize.add_argument("--local-model", default=None, help="Optional local Ollama model for private-task routing.")
+    initialize.add_argument("--timeout-seconds", type=int, default=120)
+    initialize.add_argument("--apply", action="store_true", help="Create the file; existing files are never overwritten.")
+
+    validate = profile_commands.add_parser("validate", help="Validate profile schema and provider configuration.")
+    validate.add_argument("--project-root", dest="project_root", default=argparse.SUPPRESS)
+    validate.add_argument("--profile", default=None, help="Profile file path; defaults to .auren/provider_roles.json.")
+
+    show = profile_commands.add_parser("show", help="Show the validated profile without credentials.")
+    show.add_argument("--project-root", dest="project_root", default=argparse.SUPPRESS)
+    show.add_argument("--profile", default=None, help="Profile file path; defaults to .auren/provider_roles.json.")
+
+    options = parser.parse_args(args)
+    try:
+        if options.action is None:
+            from portable.integration_inventory import collect_integration_inventory
+            report = collect_integration_inventory(
+                options.project_root,
+                home=options.home,
+            )
+            print(json.dumps(report, indent=2, sort_keys=True))
+            return 0
+
+        from portable.provider_role_profiles import (
+            create_provider_role_profile_document,
+            default_provider_role_profile_path,
+            load_provider_role_profile,
+            provider_role_profile_report,
+            write_provider_role_profile,
+        )
+        profile_path = (
+            Path(options.profile).expanduser()
+            if options.profile else default_provider_role_profile_path(options.project_root)
+        )
+        if options.profile_action == "init":
+            document = create_provider_role_profile_document(
+                profile_id=options.profile_id,
+                revision=options.revision,
+                provider_id=options.provider,
+                model_id=options.model,
+                local_model_id=options.local_model,
+                timeout_seconds=options.timeout_seconds,
+            )
+            result = write_provider_role_profile(
+                profile_path, document, apply=options.apply,
+            )
+            result["next_action"] = (
+                "Edit per-role provider/model selections and approved read-only tool names, then run "
+                "auren integrations profile validate."
+            )
+        else:
+            loaded = load_provider_role_profile(profile_path)
+            result = provider_role_profile_report(loaded)
+            result["path"] = str(profile_path)
+            result["validation_note"] = (
+                "Schema validation and credential presence do not prove provider authentication, "
+                "model quality, privacy terms or live acceptance."
+            )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    except (OSError, ValueError, RuntimeError) as exc:
+        print(f"auren integrations failed: {exc}", file=sys.stderr)
+        return 2
+
 def _run_task(args: list[str]) -> int:
     """Use the authenticated local MCP service for the same task API as chat clients."""
     from os import environ
@@ -858,7 +943,7 @@ def main(argv: list[str] | None = None) -> int:
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog=(
                 "Quick start: auren up\n"
-                "Useful commands: auren task submit --task \"...\" | auren providers | auren progress --json | "
+                "Useful commands: auren task submit --task \"...\" | auren providers | auren integrations | auren progress --json | "
                 "auren continuous status | auren doctor\n"
                 "Full usage: docs/USAGE_AND_PLATFORM_INTEGRATION.md"
             ),
@@ -900,6 +985,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_up(args[1:])
     if args and args[0] == "providers":
         return _run_providers(args[1:])
+    if args and args[0] == "integrations":
+        return _run_integrations(args[1:])
     if args and args[0] == "task":
         return _run_task(args[1:])
     if args and args[0] == "local":
