@@ -180,5 +180,26 @@ class AdaptiveRuntimeRoutineIntegrationTests(unittest.TestCase):
         self.assertEqual("cancellation_requested", occurrence["status"])
 
 
+    def test_existing_due_tick_reconciles_routine_terminal_summary(self):
+        spec = self.spec()
+        self.runtime.register_routine(self.project, spec)
+        dispatched = self.runtime.dispatch_manual_routine(
+            self.project, spec.routine_id, invocation_id="routine-summary-tick",
+        )
+        self.runtime.execution_controller.task_by_work_key = lambda _key: {
+            "id": dispatched.task_id, "state": "completed", "attempts": 2,
+        }
+
+        due = self.runtime.dispatch_due_routines(self.project)
+
+        self.assertEqual((), due)
+        occurrence = self.runtime.routine_registry(self.project).occurrence(dispatched.occurrence_key)
+        self.assertEqual("completed", occurrence["status"])
+        self.assertEqual(
+            "Routine repository-health completed after 2 attempt(s)",
+            __import__("json").loads(occurrence["receipt_json"])["terminal_summary"],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
