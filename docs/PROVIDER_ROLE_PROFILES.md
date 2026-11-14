@@ -98,7 +98,13 @@ $env:OPENAI_API_KEY = "<secret-manager-injected-value>"
 $env:OPENAI_MODEL = "<current-model-id>"
 ```
 
-The exact model ID in each role profile is the pinned selection used by that role. Never put a real key in the profile, repository, task prompt or logs.
+The exact model ID in each role profile is the pinned selection used by that role. Create the profile after setting the provider pool:
+
+```powershell
+python auren_cli.py integrations profile init --project-root . --provider openai --model <pinned-model-id> --local-model llama3.2:3b --apply
+```
+
+Never put a real key in the profile, repository, task prompt or logs.
 
 Private and restricted tasks never go to a remote provider. If a role has a `local_model_id`, it can fall back to that local model. Without a local fallback, the remote call is denied when privacy or remote-policy checks fail. A configured local fallback is not proof that the model is installed or suitable; check local model status separately.
 
