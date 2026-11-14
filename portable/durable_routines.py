@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS routine_occurrences (
 );
 CREATE INDEX IF NOT EXISTS idx_routine_occurrences_routine
 ON routine_occurrences(routine_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_routine_occurrences_updated
+ON routine_occurrences(updated_at, created_at);
 """
 
 
