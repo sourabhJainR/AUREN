@@ -65,34 +65,82 @@ jobs:
         include:
           - os: ubuntu-latest
             python-version: '3.11'
-            shard: durable-state
+            shard: durable-state-core
+          - os: ubuntu-latest
+            python-version: '3.11'
+            shard: durable-state-integration
+          - os: ubuntu-latest
+            python-version: '3.11'
+            shard: controller-deadline-subprocess
+          - os: ubuntu-latest
+            python-version: '3.11'
+            shard: controller-deadline-graph
           - os: ubuntu-latest
             python-version: '3.11'
             shard: mcp-runtime
           - os: ubuntu-latest
             python-version: '3.11'
-            shard: authority
+            shard: authority-core
+          - os: ubuntu-latest
+            python-version: '3.11'
+            shard: authority-integration
           - os: ubuntu-latest
             python-version: '3.11'
             shard: planning
           - os: ubuntu-latest
             python-version: '3.11'
-            shard: evidence-faults
+            shard: evidence-core
+          - os: ubuntu-latest
+            python-version: '3.11'
+            shard: evidence-provider-boundary
+          - os: ubuntu-latest
+            python-version: '3.11'
+            shard: evidence-provider-lifecycle
+          - os: ubuntu-latest
+            python-version: '3.11'
+            shard: evidence-provider-faults
+          - os: ubuntu-latest
+            python-version: '3.11'
+            shard: evidence-recovery
           - os: ubuntu-latest
             python-version: '3.12'
-            shard: durable-state
+            shard: durable-state-core
+          - os: ubuntu-latest
+            python-version: '3.12'
+            shard: durable-state-integration
+          - os: ubuntu-latest
+            python-version: '3.12'
+            shard: controller-deadline-subprocess
+          - os: ubuntu-latest
+            python-version: '3.12'
+            shard: controller-deadline-graph
           - os: ubuntu-latest
             python-version: '3.12'
             shard: mcp-runtime
           - os: ubuntu-latest
             python-version: '3.12'
-            shard: authority
+            shard: authority-core
+          - os: ubuntu-latest
+            python-version: '3.12'
+            shard: authority-integration
           - os: ubuntu-latest
             python-version: '3.12'
             shard: planning
           - os: ubuntu-latest
             python-version: '3.12'
-            shard: evidence-faults
+            shard: evidence-core
+          - os: ubuntu-latest
+            python-version: '3.12'
+            shard: evidence-provider-boundary
+          - os: ubuntu-latest
+            python-version: '3.12'
+            shard: evidence-provider-lifecycle
+          - os: ubuntu-latest
+            python-version: '3.12'
+            shard: evidence-provider-faults
+          - os: ubuntu-latest
+            python-version: '3.12'
+            shard: evidence-recovery
           - os: windows-latest
             python-version: '3.11'
             shard: durable-state-core
