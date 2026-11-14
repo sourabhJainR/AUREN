@@ -85,7 +85,7 @@ def verify_hmac_webhook_signature(
         secret_bytes = secret
     else:
         return False
-    if not secret_bytes or not isinstance(signature, str):
+    if not secret_bytes or not isinstance(signature, str) or type(timestamp) is bool:
         return False
     if (
         not isinstance(routine_id, str) or not routine_id.strip()
@@ -99,9 +99,10 @@ def verify_hmac_webhook_signature(
             dict(payload), sort_keys=True, separators=(",", ":"), allow_nan=False,
         )
         current_time = _utc(now).timestamp()
+        within_window = abs(current_time - timestamp_value) <= tolerance_seconds
     except (TypeError, ValueError, OverflowError):
         return False
-    if abs(current_time - timestamp_value) > tolerance_seconds:
+    if not within_window:
         return False
     signed = "\n".join((
         str(timestamp_value), routine_id, event_id, canonical_payload,
