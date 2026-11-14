@@ -40,7 +40,7 @@ Build Windows installers:
 npm run build
 ```
 
-The Tauri build creates NSIS and MSI packages under `src-tauri/target/release/bundle`.
+The pre-build step generates the Windows icon from source. The Tauri build creates NSIS and MSI packages under `src-tauri/target/release/bundle`.
 
 ## Security and process ownership
 
