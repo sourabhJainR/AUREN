@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -35,11 +33,9 @@ from portable.provider_role_profiles import (
 
 class ProviderRoleProfileTests(unittest.TestCase):
     def document(self, **kwargs):
-        return create_provider_role_profile_document(
-            profile_id="engineering-default",
-            model_id="llama3.2:3b",
-            **kwargs,
-        )
+        values = {"profile_id": "engineering-default", "model_id": "llama3.2:3b"}
+        values.update(kwargs)
+        return create_provider_role_profile_document(**values)
 
     def test_default_profile_is_complete_and_has_no_tool_authority(self):
         document = self.document()
@@ -271,7 +267,7 @@ class IntegrationInventoryTests(unittest.TestCase):
                 report["discovery_policy"],
                 "read_only_no_client_config_changes_no_remote_model_api_requests",
             )
-            self.assertEqual(report["mcp_hosts_detected"], 0) if "mcp_hosts_detected" in report else None
+            self.assertEqual(report["summary"]["mcp_hosts_detected"], 0)
             self.assertEqual(report["summary"]["provider_clis_detected"], 1)
             self.assertNotIn("secret-value", json.dumps(report))
 
