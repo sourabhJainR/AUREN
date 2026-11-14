@@ -7,6 +7,8 @@ AUREN Desktop is a native Tauri 2 shell around the existing single-user local ex
 - Starts the installed AUREN CLI with `auren up`.
 - Lets AUREN choose free loopback ports for the dashboard and MCP service.
 - Waits for the CLI to report both endpoints ready.
+- Runs the read-only `auren verify-local` acceptance check against the dashboard and MCP endpoints before publishing a ready desktop session.
+- Stops the managed CLI process if local acceptance fails or returns an invalid/non-ready report.
 - Embeds the existing Engineering Console in the native window.
 - Displays the MCP endpoint for local MCP clients.
 - Provides a native folder picker for project selection.
