@@ -117,6 +117,26 @@ class ProviderRoleProfileTests(unittest.TestCase):
         self.assertFalse(report["route_policy_ready"])
         self.assertFalse(report["ready_for_live_validation"])
 
+    def test_remote_profile_requires_the_explicit_provider_pool(self):
+        document = self.document(provider_id="openai")
+        environment = {
+            "AUREN_REMOTE_PROVIDER_ORDER": "openai",
+            "AUREN_LOCAL_REMOTE_INFERENCE": "enabled",
+            "AUREN_LOCAL_DATA_CLASSIFICATION": "public",
+            "OPENAI_API_KEY": "test-secret",
+            "OPENAI_MODEL": "gpt-test-pinned",
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "provider_roles.json"
+            write_provider_role_profile(path, document, apply=True)
+            report = provider_role_profile_report(
+                load_provider_role_profile(path),
+                environ=environment,
+            )
+        self.assertTrue(report["remote_policy_ready"])
+        self.assertTrue(report["route_policy_ready"])
+        self.assertTrue(all(item["provider_ordered"] for item in report["roles"]))
+
     def test_remote_invoker_fails_closed_or_uses_local_fallback(self):
         binding = _parse_profile(
             self.document(provider_id="openai", local_model_id="llama3.2:3b"),
