@@ -256,7 +256,7 @@ class DurableRoutineRegistry:
 
     def dispatch_manual(
         self, routine_id: str, *, invocation_id: str, submit: Callable[..., Any],
-        approval: Callable[[RoutineSpec], bool] | None = None,
+        approval: Callable[[RoutineSpec], Any] | None = None,
         reconcile: Callable[[str], Any | None] | None = None,
     ) -> RoutineDispatch:
         if not isinstance(invocation_id, str) or not invocation_id.strip() or len(invocation_id) > 256:
@@ -269,7 +269,7 @@ class DurableRoutineRegistry:
     def dispatch_webhook(
         self, routine_id: str, *, event_id: str, event_type: str,
         payload: Mapping[str, Any], authenticate: Callable[[str, str, Mapping[str, Any]], bool],
-        submit: Callable[..., Any], approval: Callable[[RoutineSpec], bool] | None = None,
+        submit: Callable[..., Any], approval: Callable[[RoutineSpec], Any] | None = None,
         reconcile: Callable[[str], Any | None] | None = None,
     ) -> RoutineDispatch:
         if not isinstance(event_id, str) or not event_id.strip() or len(event_id) > 256:
@@ -300,7 +300,7 @@ class DurableRoutineRegistry:
 
     def dispatch_due(
         self, *, now: datetime, submit: Callable[..., Any],
-        approval: Callable[[RoutineSpec], bool] | None = None,
+        approval: Callable[[RoutineSpec], Any] | None = None,
         reconcile: Callable[[str], Any | None] | None = None,
         limit: int = 32,
     ) -> tuple[RoutineDispatch, ...]:
@@ -510,7 +510,7 @@ class DurableRoutineRegistry:
 
     def _dispatch(
         self, routine_id: str, trigger_kind: str, trigger_key: str, *,
-        submit: Callable[..., Any], approval: Callable[[RoutineSpec], bool] | None,
+        submit: Callable[..., Any], approval: Callable[[RoutineSpec], Any] | None,
         reconcile: Callable[[str], Any | None] | None,
         event_payload: Mapping[str, Any] | None = None,
         scheduled_at: datetime | None = None,
