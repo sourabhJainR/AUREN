@@ -648,11 +648,13 @@ class AdaptiveRuntime:
         reason: str = "operator requested cancellation",
     ) -> RoutineDispatch:
         """Request cancellation through the canonical durable task controller."""
-        return self.routine_registry(project_root).request_cancellation(
+        result = self.routine_registry(project_root).request_cancellation(
             occurrence_key,
             cancel=self.execution_controller.request_cancellation,
             reason=reason,
         )
+        self.reconcile_routine_occurrences(project_root, limit=64)
+        return result
 
     def cancel_routine_occurrences(
         self, project_root: Path | str, routine_id: str, *,
@@ -660,7 +662,7 @@ class AdaptiveRuntime:
         limit: int = 64,
     ) -> tuple[RoutineDispatch, ...]:
         """Request cancellation of every non-terminal occurrence via the durable controller."""
-        return self.routine_registry(project_root).cancel_inflight(
+        results = self.routine_registry(project_root).cancel_inflight(
             routine_id,
             reconcile=self.execution_controller.task_by_work_key,
             request_cancel=lambda task_id, message: self.execution_controller.request_cancellation(
@@ -669,6 +671,10 @@ class AdaptiveRuntime:
             reason=reason,
             limit=limit,
         )
+        self.reconcile_routine_occurrences(
+            project_root, routine_id=routine_id, limit=limit,
+        )
+        return results
 
     def ensure_learning_maintenance(self, project_root: Path | str, *, interval_seconds: int | None = None) -> object:
         """Create the project learning schedule once and return its durable receipt."""
