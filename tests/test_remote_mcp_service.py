@@ -489,7 +489,7 @@ class OAuthIntrospectionVerifierTests(unittest.TestCase):
 
     def test_positive_cache_never_outlives_access_token_expiry(self):
         payload = {
-            "active": True, "iss": "https://identity.example.test",
+            "active": True, "iss": "https://identity.example.test/",
             "sub": "user-123", "aud": "https://mcp.example.test/mcp",
             "exp": time.time() + 0.1, "scope": "auren:tasks:read",
         }
@@ -851,6 +851,22 @@ class RemoteMCPASGITests(unittest.TestCase):
             self.assertEqual("PermissionError", tool_spans[0].terminal_reason)
             exported = path.read_text(encoding="utf-8")
             self.assertNotIn("private-task-value", exported)
+
+    def test_resource_uri_rejects_noncanonical_trailing_slash(self):
+        with self.assertRaisesRegex(ValueError, "exact configured endpoint path"):
+            AurenMCPService(
+                self.runtime,
+                project_root=self.root,
+                token_verifier=StaticBearerTokenVerifier([{
+                    "token": self.token, "subject": "operator",
+                    "scopes": ["auren:tasks:read"], "projects": [str(self.root)],
+                }]),
+                resource_url="https://mcp.example.test/mcp/",
+                authorization_server_url="https://identity.example.test/",
+                allowed_hosts=("mcp.example.test",),
+                require_https=True,
+                control_store_path=self.root / "noncanonical-resource.sqlite3",
+            )
 
     def test_path_specific_rfc9728_metadata_is_available(self):
         status, _, body = self.request(
