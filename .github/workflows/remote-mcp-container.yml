@@ -1,0 +1,39 @@
+name: Remote MCP Container
+
+on:
+  pull_request:
+    paths:
+      - "deploy/remote-mcp/**"
+      - ".dockerignore"
+      - "portable/remote_mcp.py"
+      - "portable/remote_mcp_server.py"
+      - "portable/local_composition.py"
+      - "portable/identity_compat.py"
+      - ".github/workflows/remote-mcp-container.yml"
+  push:
+    branches: [main]
+    paths:
+      - "deploy/remote-mcp/**"
+      - ".dockerignore"
+      - "portable/remote_mcp.py"
+      - "portable/remote_mcp_server.py"
+      - "portable/local_composition.py"
+      - "portable/identity_compat.py"
+      - ".github/workflows/remote-mcp-container.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare deployment environment sample
+        run: cp deploy/remote-mcp/.env.example deploy/remote-mcp/.env
+      - name: Validate Compose configuration
+        run: docker compose -f deploy/remote-mcp/compose.yaml config --quiet
+      - name: Build remote MCP image
+        run: docker build --pull -t auren-remote-mcp:ci -f deploy/remote-mcp/Dockerfile .
+      - name: Verify runtime imports
+        run: docker run --rm --entrypoint python auren-remote-mcp:ci -c "import uvicorn; import portable.remote_mcp_server; print(uvicorn.__version__)"
