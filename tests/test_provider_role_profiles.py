@@ -149,6 +149,7 @@ def test_remote_profile_without_local_fallback_denies_private_tasks(tmp_path: Pa
 
     env = {
         "OPENAI_API_KEY": "x" * 32,
+        "AUREN_REMOTE_PROVIDER_ORDER": "openai",
         "AUREN_LOCAL_REMOTE_INFERENCE": "enabled",
         "AUREN_LOCAL_DATA_CLASSIFICATION": "public",
     }
