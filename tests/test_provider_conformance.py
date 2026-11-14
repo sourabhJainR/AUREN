@@ -174,7 +174,7 @@ class ProviderConformanceTests(unittest.TestCase):
                     provider="openai",
                     model=self.model,
                     content="AUREN_PROVIDER_PROBE_OK",
-                    usage={"input_tokens": 12, "output_tokens": 4, "total_tokens": 16},
+                    usage={"input_tokens": 12, "output_tokens": 4, "total_tokens": 16, "untrusted_extra": "do-not-persist"},
                     request_id="provider-request-id",
                     finish_reason="stop",
                     latency_ms=25.5,
@@ -203,7 +203,8 @@ class ProviderConformanceTests(unittest.TestCase):
         self.assertEqual("pass", result.status)
         self.assertTrue(result.evidence["sentinel_match"])
         self.assertEqual("pinned-test-model", result.evidence["model"])
-        self.assertEqual(16, result.evidence["usage"]["total_tokens"])
+        self.assertEqual(16, result.evidence["usage"]["total_units"])
+        self.assertNotIn("untrusted_extra", result.evidence["usage"])
         self.assertEqual(25.5, result.evidence["latency_ms"])
         self.assertEqual(64, len(result.evidence["prompt_digest"]))
         self.assertNotIn("test-provider-secret", json.dumps(result.evidence))
@@ -213,6 +214,45 @@ class ProviderConformanceTests(unittest.TestCase):
         self.assertIn("provider.api_acceptance_probe", trace_text)
         self.assertIn("total_units", trace_text)
         self.assertIn('"total_units":16', trace_text)
+
+    def test_direct_api_probe_does_not_persist_untrusted_reported_model_name(self):
+        class FakeProvider:
+            model = "pinned-test-model"
+
+            def complete(self, prompt, *, timeout_seconds):
+                return RemoteModelResponse(
+                    provider="openai",
+                    model="unexpected-model-name-with-sensitive-suffix",
+                    content="AUREN_PROVIDER_PROBE_OK",
+                    usage={"total_tokens": 2},
+                    request_id=None,
+                    finish_reason="stop",
+                    latency_ms=5.0,
+                    response_digest="d" * 64,
+                )
+
+        environment = {
+            "AUREN_REMOTE_PROVIDER_ORDER": "openai",
+            "AUREN_LOCAL_REMOTE_INFERENCE": "enabled",
+            "OPENAI_API_KEY": "test-provider-secret",
+            "OPENAI_MODEL": "pinned-test-model",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            trace_path = Path(directory) / "probe-traces.jsonl"
+            with patch(
+                "portable.remote_model_providers.OpenAICompatibleProvider.from_environment",
+                return_value=FakeProvider(),
+            ):
+                result = provider_conformance.live_api_probe(
+                    "openai", environ=environment, trace_path=trace_path,
+                )
+            trace_text = trace_path.read_text(encoding="utf-8")
+        self.assertEqual("fail", result.status)
+        self.assertEqual("pinned-test-model", result.evidence["model"])
+        self.assertFalse(result.evidence["model_identity_match"])
+        self.assertEqual(64, len(result.evidence["reported_model_digest"]))
+        self.assertNotIn("unexpected-model-name-with-sensitive-suffix", json.dumps(result.evidence))
+        self.assertNotIn("unexpected-model-name-with-sensitive-suffix", trace_text)
 
     def test_direct_api_probe_fails_without_exposing_provider_error_or_output(self):
         class BrokenProvider:
