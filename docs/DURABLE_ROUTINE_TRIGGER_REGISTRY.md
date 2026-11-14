@@ -104,9 +104,14 @@ it is not treated as absent.
 The existing `dispatch_due_routines` adapter first reconciles up to 64 prior
 non-terminal occurrence receipts through the canonical task lookup, then dispatches due
 work on the same managed tick. Terminal receipts include a short summary, observed
-terminal state and attempt count when available. Failed outcomes set
-`escalation_required=true` for the host's existing operator surface. The registry does
-not send notifications or invent failure details; hosts can also call
+terminal state and attempt count when available. They are placed in the existing durable
+trigger inbox with deterministic IDs (`routine-terminal:<occurrence_key>`) and event
+kinds `routine.completed`, `routine.failed` or `routine.cancelled`. Failed outcomes set
+`escalation_required=true` and use higher trigger priority. The receipt acts as an
+outbox: if inbox emission fails, the event remains pending for a later tick; repeated
+emission uses the same event ID and content. Hosts consume these events through the
+existing `dispatch_triggers` handler path. This is not an external notification
+integration and does not invent failure details. Hosts can also call
 `reconcile_routine_occurrences` to retrieve a bounded batch of summaries. Repeated
 calls advance through older receipt updates without adding another scheduler.
 
