@@ -178,6 +178,7 @@ Give each workload its own identity and minimum required scopes. Start with read
 | Graph-team provider profiles | Versioned profile and atomic host registration helper implemented; production model acceptance remains separate |
 | Local Ollama-compatible model discovery | Implemented; model quality is not inferred from discovery |
 | Profile-driven graph-team registration | Implemented as an explicit supervised bootstrap; host-owned controller and tool registry remain required |
+| Signed integration pack locks | Implemented as a data-only lock and approval record; package download, sandboxing and runtime activation remain separate |
 | Universal executable plugin loader | Not implemented; extension manifests are data-only and runtime adapters are explicit |
 | Live acceptance across all listed vendors | Not completed; see the compatibility matrix |
 
@@ -206,10 +207,9 @@ The remaining Harness²-aligned work is tracked in [issue #692](https://github.c
 
 The first integration inventory and role-profile setup are now implemented. Remaining work:
 
-1. **Versioned integration packs:** signed/pinned manifests, compatibility ranges, provenance, permission diffs, rollback and a clear install/enable lifecycle. Keep execution in explicit adapters or isolated processes.
-2. **Live host acceptance harness:** smoke-test tool discovery, OAuth refresh/revocation, identity scopes, task submission, cancellation, restart and evidence retrieval for each supported client/version.
-3. **Harness experiment operations:** complete resume, parallel/sequential modes, experiment-tree UI, per-candidate cost/quality/safety reporting and independent evaluator custody.
-4. **Provider observability:** record model/provider version, latency, token usage, cost, route reason, fallback and task outcome without logging secrets or sensitive prompts.
+1. **Live host acceptance harness:** smoke-test tool discovery, OAuth refresh/revocation, identity scopes, task submission, cancellation, restart and evidence retrieval for each supported client/version.
+2. **Harness experiment operations:** complete resume, parallel/sequential modes, experiment-tree UI, per-candidate cost/quality/safety reporting and independent evaluator custody.
+3. **Provider observability:** record model/provider version, latency, token usage, cost, route reason, fallback and task outcome without logging secrets or sensitive prompts.
 
 ## Validation and readiness
 
@@ -230,6 +230,7 @@ For a live host, also record its exact product/version, MCP protocol version, OA
 
 - [Provider Role Profiles](PROVIDER_ROLE_PROFILES.md)
 - [Provider Cost Accounting](PROVIDER_COST_ACCOUNTING.md)
+- [Integration Pack Locks](INTEGRATION_PACK_LOCKS.md)
 - [Multi-LLM and AI Infrastructure Quickstart](MULTI_PROVIDER_QUICKSTART.md)
 - [MCP Host Compatibility](MCP_HOST_COMPATIBILITY.md)
 - [Platform Compatibility Matrix](PLATFORM_COMPATIBILITY_MATRIX.md)
