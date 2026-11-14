@@ -929,6 +929,121 @@ class DurableRoutineRegistry:
             updates={"state": "unknown", "error_type": error_type},
         )
 
+    def reconcile_occurrences(
+        self, *, reconcile: Callable[[str], Any | None],
+        routine_id: str | None = None, limit: int = 64,
+    ) -> tuple[RoutineDispatch, ...]:
+        """Refresh bounded occurrence receipts from canonical task state.
+
+        Terminal summaries are evidence projections, not independent task state.
+        Failed outcomes are flagged for host-owned escalation; this method does
+        not send notifications or change execution authority.
+        """
+        if not callable(reconcile):
+            raise TypeError("authoritative task reconciliation callback is required")
+        if type(limit) is not int or not 1 <= limit <= 256:
+            raise ValueError("limit must be between 1 and 256")
+        if routine_id is not None:
+            self.get(routine_id)
+        query = (
+            "SELECT occurrence_key,work_key,routine_id,status FROM routine_occurrences "
+            "WHERE status IN ('dispatching','unknown','submitted','cancellation_requested')"
+        )
+        params: list[Any] = []
+        if routine_id is not None:
+            query += " AND routine_id=?"
+            params.append(routine_id)
+        query += " ORDER BY updated_at,created_at LIMIT ?"
+        params.append(limit)
+        with closing(self._connect()) as db:
+            rows = db.execute(query, params).fetchall()
+
+        results: list[RoutineDispatch] = []
+        for row in rows:
+            occurrence_key = str(row["occurrence_key"])
+            work_key = str(row["work_key"])
+            current_status = str(row["status"])
+            observed_at = _iso(datetime.now(timezone.utc))
+            try:
+                task = reconcile(work_key)
+            except Exception as exc:
+                self._update_receipt(
+                    occurrence_key, status=current_status,
+                    updates={"reconciliation_error_type": type(exc).__name__,
+                             "last_reconciled_at": observed_at},
+                )
+                results.append(RoutineDispatch(
+                    occurrence_key, work_key, "unknown",
+                    reason=f"canonical task reconciliation failed ({type(exc).__name__})",
+                ))
+                continue
+            if task is None:
+                self._update_receipt(
+                    occurrence_key, status=current_status,
+                    updates={"canonical_task_missing": True, "last_reconciled_at": observed_at},
+                )
+                results.append(RoutineDispatch(
+                    occurrence_key, work_key, "unknown",
+                    reason="canonical task record is unavailable; outcome remains unknown",
+                ))
+                continue
+            task_id = getattr(task, "id", None) or (
+                task.get("id") if isinstance(task, Mapping) else None
+            )
+            task_state = getattr(task, "state", None) or (
+                task.get("state") if isinstance(task, Mapping) else None
+            )
+            attempts = getattr(task, "attempts", None) or (
+                task.get("attempts") if isinstance(task, Mapping) else None
+            )
+            if not isinstance(task_id, str) or not task_id:
+                self._update_receipt(
+                    occurrence_key, status=current_status,
+                    updates={"canonical_task_identity_missing": True, "last_reconciled_at": observed_at},
+                )
+                results.append(RoutineDispatch(
+                    occurrence_key, work_key, "unknown",
+                    reason="canonical task lookup returned no task identity",
+                ))
+                continue
+            if task_state in {"completed", "failed", "cancelled"}:
+                summary = f"Routine {row['routine_id']} {task_state}"
+                if type(attempts) is int and attempts >= 0:
+                    summary += f" after {attempts} attempt(s)"
+                self._update_receipt(
+                    occurrence_key, status=str(task_state), task_id=task_id,
+                    updates={
+                        "state": str(task_state),
+                        "terminal_observed_at": observed_at,
+                        "terminal_summary": summary,
+                        "escalation_required": task_state == "failed",
+                    },
+                )
+                results.append(RoutineDispatch(
+                    occurrence_key, work_key, str(task_state), task_id, summary,
+                ))
+                continue
+            if current_status in {"dispatching", "unknown"}:
+                self._mark_submitted(
+                    occurrence_key, task_id,
+                    {"reconciled": True, "last_task_state": task_state,
+                     "last_reconciled_at": observed_at},
+                )
+                results.append(RoutineDispatch(
+                    occurrence_key, work_key, "submitted", task_id,
+                    "canonical task found; execution remains non-terminal",
+                ))
+            else:
+                self._update_receipt(
+                    occurrence_key, status=current_status, task_id=task_id,
+                    updates={"last_task_state": task_state, "last_reconciled_at": observed_at},
+                )
+                results.append(RoutineDispatch(
+                    occurrence_key, work_key, current_status, task_id,
+                    "execution remains non-terminal",
+                ))
+        return tuple(results)
+
     def cancel_inflight(
         self, routine_id: str, *,
         reconcile: Callable[[str], Any | None],
