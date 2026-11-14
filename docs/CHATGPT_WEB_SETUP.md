@@ -8,11 +8,13 @@ This guide covers ChatGPT Web. The native AUREN Desktop shell is a separate appl
 
 ## Plan and workspace requirements
 
-Check the current OpenAI [MCP server documentation](https://developers.openai.com/api/docs/guides/tools-connectors-mcp) before enabling the connection:
+Check the current OpenAI [custom MCP connection guide](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt) before enabling the connection:
 
-- Business, Enterprise and Edu workspaces support the full custom MCP tool experience, subject to workspace-admin controls.
+- Business, Enterprise and Edu workspaces support full custom MCP, subject to workspace permissions.
 - Pro supports read and fetch tools only.
 - Free is not currently listed as eligible for custom MCP connections.
+- Custom MCP connections are documented for ChatGPT Web. The guide says they are not available on mobile.
+- On Business, only workspace admins and owners can create and publish custom MCP apps. On Enterprise/Edu, admins can grant connection permission through RBAC; only admins and owners can publish.
 
 AUREN's write tools must not be treated as available on a read-only plan. The server filters tools by the authenticated principal's scopes. Task submission and approval decisions also require their respective scopes; approval decisions require the configured approver identity allowlist.
 
@@ -112,13 +114,17 @@ This verifies tool visibility and declared scopes; it still does not submit a ta
 
 After the hosted endpoint and OAuth provider pass acceptance:
 
-1. In ChatGPT Web, enable the workspace's custom MCP/developer app capability if the workspace administrator permits it.
-2. Create a custom app and enter the public MCP endpoint URL.
-3. Select the OAuth authentication flow and complete the identity-provider sign-in.
-4. Confirm that the tools shown by ChatGPT match the scopes granted to the signed-in principal.
-5. Start with read-only tools. Enable task submission and approval decisions only after the workspace plan, user scopes and approver allowlist are correct.
+1. In ChatGPT Web, open Plugins.
+2. Select the plus button, then choose Add custom MCP server.
+3. Enter a name and the public HTTPS MCP endpoint URL. Use the Tunnel option only for a configured Secure MCP Tunnel.
+4. Configure OAuth and complete the identity-provider sign-in.
+5. Review the risk warning and create the connection.
+6. Review the discovered tools and metadata. Confirm they match the scopes granted to the signed-in principal.
+7. Start with read-only tools. Enable task submission and approval decisions only after the workspace plan, user scopes and approver allowlist are correct.
 
-The exact settings and availability can change by workspace and plan. Follow the current OpenAI documentation and workspace-admin guidance rather than assuming the same controls exist on every account.
+The current Plugins flow does not require enabling Developer Mode first. The legacy custom-app flow has different steps: workspace admins/owners use Workspace Settings > Apps > Create, while authorized users use Settings > Apps > Create. Follow the current OpenAI guide and workspace-admin policy because these controls can change.
+
+The OpenAI guide documents ChatGPT Web, not a separate ChatGPT desktop acceptance path. AUREN's native Desktop shell is a separate local application.
 
 ## Release boundary
 
