@@ -11,6 +11,8 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / ".ai-harness"))
 
 from portable.crew_adapters import ApprovedToolRegistry
+from portable.progress_journal import ProgressJournal
+import runtime
 from portable.integration_inventory import (
     _client_configuration,
     _remote_provider_inventory,
@@ -171,6 +173,27 @@ class ProviderRoleProfileTests(unittest.TestCase):
             write_provider_role_profile(path, document, apply=True)
             with self.assertRaisesRegex(ProviderRoleProfileError, "absent from the host-approved"):
                 build_profiled_crew_adapter_inputs(path, tools=ApprovedToolRegistry())
+
+    def test_supervised_runtime_registration_uses_complete_profile_and_canonical_journal(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            profile_path = root / "provider_roles.json"
+            write_provider_role_profile(profile_path, self.document(), apply=True)
+            controller = type("ControllerStub", (), {})()
+            controller.progress_journal = ProgressJournal(root / "progress.jsonl")
+            with mock.patch(
+                "portable.provider_role_profiles._local_model_invoker",
+                return_value=lambda _prompt, _timeout: "local",
+            ):
+                adapters = runtime.register_supervised_profiled_crew_adapters(
+                    controller,
+                    profile_path,
+                    tools=ApprovedToolRegistry(),
+                    replace=True,
+                )
+        self.assertEqual(len(adapters), 14)
+        self.assertIn("backend_api", adapters)
+        self.assertIn("engineering_manager", adapters)
 
     def test_profile_adapter_inputs_cover_complete_role_families(self):
         with tempfile.TemporaryDirectory() as temp:
