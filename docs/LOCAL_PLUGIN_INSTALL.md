@@ -1,6 +1,8 @@
-# AUREN local plugin installation
+# AUREN local runtime launcher
 
-The AUREN local plugin is a thin CLI entry point over the existing canonical local runtime. It does not create a second MCP server, task queue, identity store, provider router, or authorization layer.
+`auren plugin install` is a compatibility alias for the existing local first-run command. It starts the canonical local runtime and configures supported MCP clients; it does not install the Claude Code marketplace package. The native Claude Code package is documented in [PLUGIN.md](../PLUGIN.md) and provides the shared Agent Skill and prompt hook. It does not start a second MCP runtime.
+
+The launcher does not create a second MCP server, task queue, identity store, provider router, or authorization layer.
 
 ## Install and start
 
