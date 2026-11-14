@@ -50,6 +50,7 @@ class RemoteModelProviderTests(unittest.TestCase):
             self.assertEqual("private-model-id", span.model)
             self.assertEqual("ok", span.status)
             self.assertEqual("other", span.output["finish_reason"])
+            self.assertEqual({"input_units": 11, "output_units": 7, "total_units": 18}, span.output["usage"])
             serialized = path.read_text(encoding="utf-8")
             self.assertNotIn("sk-provider-secret-token", serialized)
             for private_value in (
