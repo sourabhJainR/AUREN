@@ -92,7 +92,9 @@ Treat the lifecycle as separate steps:
 - **Activate:** register the reviewed adapter with the canonical runtime. Never activate solely because a package is installed or discovered.
 - **Observe and remove:** retain a digest-bound audit trail, support disable/revoke and restore the previous known-good configuration.
 
-The current `ExtensionRegistry` implements the descriptive manifest/discovery portion. It is **not** a general executable plugin loader. AUREN intentionally does not import arbitrary Python packages or execute extension-provided code from a manifest. Executable integrations must use a reviewed adapter or a bounded subprocess boundary. Optional extension failure may degrade to another eligible capability; a required capability or authority check must fail closed.
+The current `ExtensionRegistry` implements the descriptive manifest/discovery portion. The separate `portable.integration_pack_lock` module adds signed, pinned, data-only pack manifests, compatibility checks, permission diffs, atomic lockfile staging and compare-and-swap rollback. It delegates Ed25519 verification to a host-owned trust root. It is **not** a package installer or general executable plugin loader. AUREN intentionally does not import arbitrary Python packages or execute extension-provided code from a manifest. Runtime activation still requires a reviewed adapter, canonical controller, Guard and host-owned tool registry. Optional extension failure may degrade to another eligible capability; a required capability or authority check must fail closed.
+
+See [Integration Pack Locks](INTEGRATION_PACK_LOCKS.md) for the manifest, signature, staging, approval and rollback workflow.
 
 ## Implemented data-only contract
 
