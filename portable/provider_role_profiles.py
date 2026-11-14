@@ -12,7 +12,6 @@ import json
 import os
 from pathlib import Path
 import re
-import stat
 from typing import Any, Mapping
 
 from .crew_adapters import (
@@ -308,8 +307,6 @@ def write_provider_role_profile(
         # race between the existence check and publication.
         os.link(temporary, target)
         temporary.unlink()
-        if os.name != "nt":
-            target.chmod(stat.S_IRUSR | stat.S_IWUSR)
     except BaseException:
         try:
             temporary.unlink()
