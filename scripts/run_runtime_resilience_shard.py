@@ -134,6 +134,9 @@ def _run_step(step: tuple, env: dict[str, str] | None = None) -> int:
         return _run_unittest_modules(arguments)
     if kind == "pytest":
         return _run_python(["-m", "pytest", "-q", "--durations=10", *arguments], env)
+    if kind == "pytest-filter":
+        expression, paths = arguments
+        return _run_python(["-m", "pytest", "-q", "--durations=10", "-k", expression, *paths], env)
     if kind == "optional-unittest":
         return _optional_unittest(*arguments)
     if kind == "unittest-bucket":
@@ -157,6 +160,12 @@ def P(*paths: str, env: dict[str, str] | None = None) -> tuple:
     return ("pytest", paths, env or {})
 
 
+def PF(expression: str, *paths: str, env: dict[str, str] | None = None) -> tuple:
+    if not expression.strip() or not paths:
+        raise ValueError("pytest filter and at least one test path are required")
+    return ("pytest-filter", (expression, paths), env or {})
+
+
 def O(module: str, path: str) -> tuple:
     return ("optional-unittest", (module, path), {})
 
@@ -171,18 +180,33 @@ def R(module: str, pattern: str, repeats: int) -> tuple:
 
 SHARDS = {
     "durable-state-core": [
-        P("tests/test_continuous_execution.py"),
+        P("tests/test_continuous_execution.py", "tests/test_lifecycle_projection.py"),
         O("tests.test_durable_routines", "tests/test_durable_routines.py"),
         U("tests.test_dashboard_sessions"),
-        P("tests/test_lifecycle_projection.py"),
         O("tests.test_control_center_api", "tests/test_control_center_api.py"),
         U("tests.test_graph_workspace_registry"),
         U("tests.test_state_paths"),
     ],
     "durable-state-integration": [
         U("tests.test_progress_journal", "tests.test_progress_journal_integration", "tests.test_autonomous_company", "tests.test_engineering_evidence_capture"),
-        P("tests/test_execution_controller_cancellation.py", "tests/test_execution_controller_restart.py"),
+        PF(
+            "not test_supervisor_deadline_kills_real_subprocess_provider_child and not test_absolute_deadline_flows_through_graph_team_and_model_router",
+            "tests/test_execution_controller_cancellation.py",
+            "tests/test_execution_controller_restart.py",
+        ),
         P(".ai-harness/tests/test_task_memory.py", env={"PYTHONPATH": ".ai-harness"}),
+    ],
+    "controller-deadline-subprocess": [
+        PF(
+            "test_supervisor_deadline_kills_real_subprocess_provider_child",
+            "tests/test_execution_controller_cancellation.py",
+        ),
+    ],
+    "controller-deadline-graph": [
+        PF(
+            "test_absolute_deadline_flows_through_graph_team_and_model_router",
+            "tests/test_execution_controller_cancellation.py",
+        ),
     ],
     "authority-core": [
         U("tests.test_remote_mcp_service.OAuthIntrospectionVerifierTests", "tests.test_remote_mcp_service.RemoteMCPASGITests"),
@@ -238,6 +262,44 @@ SHARDS = {
             "tests.test_impact_policy",
         ),
         B("tests.test_trusted_plan_dispatch", 0, 3),
+    ],
+    "evidence-core": [
+        U("tests.test_agency_state_graph", "tests.test_state_graph_hardening"),
+        U("tests.test_hybrid_model_router"),
+        U("tests.test_runtime_recovery", "tests.test_graph_agent_team", "tests.test_graph_agent_crews"),
+        U("tests.test_canonical_evidence_ledger"),
+        U("tests.test_agency_evolution_gates", "tests.test_agency_evolution_runtime"),
+        U("tests.test_harness_isolation_verifier"),
+        U(
+            "tests.test_promotion_evidence_chain",
+            "tests.test_external_decision_evidence_ingestion",
+            "tests.test_evidence_freshness",
+        ),
+        U("tests.test_evidence_gate"),
+        U("tests.test_harness_task_deadline"),
+    ],
+    "evidence-provider": [
+        U(
+            "tests.test_vibe_coding_adapters",
+            "tests.test_vibe_coding_host",
+            "tests.test_provider_operation_lifecycle",
+            "tests.test_side_effect_ledger",
+            "tests.test_subprocess_provider",
+        ),
+        U("tests.test_bounded_subprocess_fault_injection"),
+        U("tests.test_process_isolated_crew_dispatch"),
+    ],
+    "evidence-recovery": [
+        U(
+            "tests.test_agency_release_lifecycle",
+            "tests.test_agency_runtime_release_integration",
+            "tests.test_release_rollback_observability",
+        ),
+        U("tests.test_crash_recovery_fault_injection"),
+        U("tests.test_side_effect_ledger_crash_fault_injection", "tests.test_consequential_outer_receipt_crash"),
+        U("tests.test_persistent_evidence_graph_crash"),
+        R("tests.test_promotion_evidence_chain", "concurrent_receipt_claim", 5),
+        B("tests.test_trusted_plan_dispatch", 2, 3),
     ],
     "planning": [
         P(
