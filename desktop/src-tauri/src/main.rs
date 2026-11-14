@@ -3,6 +3,7 @@
 use serde::Serialize;
 use std::{
     env,
+    ffi::OsString,
     fs,
     io::{self, BufRead, BufReader},
     path::PathBuf,
@@ -25,6 +26,32 @@ struct LocalRuntimeInfo {
     project_root: String,
     dashboard_url: String,
     mcp_url: String,
+}
+
+fn cli_command_from_config(
+    executable: Option<OsString>,
+    cli_path: Option<OsString>,
+    python: Option<OsString>,
+) -> (OsString, Vec<OsString>) {
+    if let Some(executable) = executable {
+        return (executable, vec!["up".into()]);
+    }
+    if let Some(cli_path) = cli_path {
+        let python = python.unwrap_or_else(|| {
+            if cfg!(windows) { "python.exe".into() } else { "python3".into() }
+        });
+        return (python, vec![cli_path, "up".into()]);
+    }
+    let executable = if cfg!(windows) { "auren.exe".into() } else { "auren".into() };
+    (executable, vec!["up".into()])
+}
+
+fn cli_command() -> (OsString, Vec<OsString>) {
+    cli_command_from_config(
+        env::var_os("AUREN_EXECUTABLE"),
+        env::var_os("AUREN_CLI_PATH"),
+        env::var_os("AUREN_PYTHON_EXECUTABLE"),
+    )
 }
 
 fn endpoint_from_line(line: &str, prefix: &str, expected_path: &str) -> Option<String> {
@@ -84,19 +111,20 @@ fn start_local(project_root: String, state: State<'_, RuntimeState>) -> Result<L
         *info_slot = None;
     }
 
-    let executable = env::var_os("AUREN_EXECUTABLE").unwrap_or_else(|| {
-        if cfg!(windows) { "auren.exe".into() } else { "auren".into() }
-    });
+    let (executable, mut command_args) = cli_command();
+    command_args.extend([
+        "--project-root".into(), root.as_os_str().to_os_string(),
+        "--dashboard-port".into(), "0".into(),
+        "--mcp-port".into(), "0".into(),
+        "--no-connect".into(), "--no-browser".into(), "--no-chatgpt".into(),
+    ]);
     let mut child = Command::new(executable)
-        .arg("up")
-        .arg("--project-root")
-        .arg(&root)
-        .args(["--dashboard-port", "0", "--mcp-port", "0", "--no-connect", "--no-browser", "--no-chatgpt"])
+        .args(command_args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|_| "could not start the AUREN CLI. Install it and add auren to PATH, or set AUREN_EXECUTABLE.".to_string())?;
+        .map_err(|_| "could not start AUREN. Add the auren launcher to PATH, set AUREN_EXECUTABLE, or set AUREN_CLI_PATH and AUREN_PYTHON_EXECUTABLE.".to_string())?;
 
     let stdout = match child.stdout.take() {
         Some(stdout) => stdout,
@@ -220,6 +248,29 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::endpoint_from_line;
+
+    #[test]
+    fn prefers_an_explicit_executable_and_supports_python_cli_paths() {
+        use std::ffi::OsString;
+        let (exe, args) = super::cli_command_from_config(
+            Some(OsString::from("C:\\tools\\auren.exe")),
+            Some(OsString::from("C:\\AUREN\\auren_cli.py")),
+            Some(OsString::from("python.exe")),
+        );
+        assert_eq!(exe, OsString::from("C:\\tools\\auren.exe"));
+        assert_eq!(args, vec![OsString::from("up")]);
+
+        let (python, args) = super::cli_command_from_config(
+            None,
+            Some(OsString::from("C:\\AUREN\\auren_cli.py")),
+            Some(OsString::from("python.exe")),
+        );
+        assert_eq!(python, OsString::from("python.exe"));
+        assert_eq!(args, vec![
+            OsString::from("C:\\AUREN\\auren_cli.py"),
+            OsString::from("up"),
+        ]);
+    }
 
     #[test]
     fn accepts_only_the_expected_loopback_endpoint_line() {
