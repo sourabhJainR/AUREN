@@ -23,7 +23,9 @@ def test_integrations_profile_init_and_validate(tmp_path: Path, capsys):
         "--project-root", str(tmp_path),
     ]) == 0
     validated = json.loads(capsys.readouterr().out)
-    assert validated["activation_ready"] is True
+    assert validated["configuration_ready"] is True
+    assert validated["route_policy_ready"] is True
+    assert validated["live_activation"] == "not_performed"
     assert validated["private_data_routing"] == "local_only"
 
 
