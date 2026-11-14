@@ -87,11 +87,7 @@ def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
-def load_provider_price_catalog(
-    path: str | Path,
-    *,
-    now: datetime | None = None,
-) -> ProviderPriceCatalog:
+def load_provider_price_catalog(path: str | Path) -> ProviderPriceCatalog:
     """Load and validate a small local catalog; never fetch prices from the network."""
     target = Path(path).expanduser()
     if target.is_symlink() or not target.is_file():
@@ -180,9 +176,6 @@ def load_provider_price_catalog(
             "retrieved_at": retrieved_at,
         }
 
-    current = now or datetime.now(timezone.utc)
-    if current.tzinfo is None or current.utcoffset() is None:
-        raise ProviderPriceCatalogError("now must be timezone-aware")
     return ProviderPriceCatalog(
         version=version,
         currency="USD",
