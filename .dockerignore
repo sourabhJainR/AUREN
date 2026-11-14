@@ -12,3 +12,16 @@ external/TradingDYOR/__pycache__
 external/TradingDYOR/**/__pycache__
 external/TradingDYOR/.pytest_cache
 external/TradingDYOR/**/.pytest_cache
+
+
+# Repository metadata and local build outputs
+.git
+.github
+**/__pycache__/
+**/.pytest_cache/
+**/.venv/
+node_modules/
+desktop/src-tauri/target/
+.env
+**/.env
+**/*.sqlite3
