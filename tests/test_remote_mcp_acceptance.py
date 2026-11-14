@@ -241,30 +241,30 @@ class RemoteMCPAcceptanceTests(unittest.TestCase):
     def test_oauth_provider_must_advertise_pkce_s256_and_refresh(self):
         transport, _ = self._transport(bad_pkce=True)
         with self.assertRaisesRegex(AcceptanceFailure, "PKCE S256"):
-            run_acceptance(ENDPOINT, TOKEN, allowed_hosts=("mcp.example.test",), transport=transport)
+            run_acceptance(ENDPOINT, TOKEN, allowed_hosts=ALLOWED_HOSTS, transport=transport)
         transport, _ = self._transport(omit_refresh=True)
         with self.assertRaisesRegex(AcceptanceFailure, "offline_access"):
-            run_acceptance(ENDPOINT, TOKEN, allowed_hosts=("mcp.example.test",), transport=transport)
+            run_acceptance(ENDPOINT, TOKEN, allowed_hosts=ALLOWED_HOSTS, transport=transport)
 
     def test_profile_metadata_challenge_and_stable_identity_are_required(self):
         transport, _ = self._transport(omit_profile_marker=True)
         with self.assertRaisesRegex(AcceptanceFailure, "get_profile"):
-            run_acceptance(ENDPOINT, TOKEN, allowed_hosts=("mcp.example.test",), transport=transport)
+            run_acceptance(ENDPOINT, TOKEN, allowed_hosts=ALLOWED_HOSTS, transport=transport)
         transport, _ = self._transport(omit_challenge=True)
         with self.assertRaisesRegex(AcceptanceFailure, "OAuth challenge"):
-            run_acceptance(ENDPOINT, TOKEN, allowed_hosts=("mcp.example.test",), transport=transport)
+            run_acceptance(ENDPOINT, TOKEN, allowed_hosts=ALLOWED_HOSTS, transport=transport)
         transport, _ = self._transport(profile_ids=["auren_profile_first", "auren_profile_second"])
         with self.assertRaisesRegex(AcceptanceFailure, "identity changed"):
-            run_acceptance(ENDPOINT, TOKEN, allowed_hosts=("mcp.example.test",), transport=transport)
+            run_acceptance(ENDPOINT, TOKEN, allowed_hosts=ALLOWED_HOSTS, transport=transport)
 
     def test_write_scopes_are_required_only_when_requested(self):
         transport, _ = self._transport(omit_tool="auren.submit_task")
-        result = run_acceptance(ENDPOINT, TOKEN, allowed_hosts=("mcp.example.test",), transport=transport)
+        result = run_acceptance(ENDPOINT, TOKEN, allowed_hosts=ALLOWED_HOSTS, transport=transport)
         self.assertFalse(result["write_tools_verified"])
         transport, _ = self._transport(omit_tool="auren.decide_approval")
         with self.assertRaisesRegex(AcceptanceFailure, "write tools"):
             run_acceptance(
-                ENDPOINT, TOKEN, allowed_hosts=("mcp.example.test",),
+                ENDPOINT, TOKEN, allowed_hosts=ALLOWED_HOSTS,
                 require_write=True, transport=transport,
             )
 
