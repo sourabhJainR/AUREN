@@ -363,5 +363,32 @@ class ContractAlignmentTests(unittest.TestCase):
         self.assertIn("Adversarial test fixture", compatibility)
 
 
+    def test_plug_and_play_guide_matches_real_integration_boundaries(self) -> None:
+        guide_path = ROOT / "docs" / "PLUG_AND_PLAY_INTEGRATIONS.md"
+        self.assertTrue(guide_path.is_file())
+        guide = guide_path.read_text(encoding="utf-8")
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        plugin_doc = (ROOT / "PLUGIN.md").read_text(encoding="utf-8")
+        plugin_manifest = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+        extension_contract = (ROOT / "docs" / "EXTENSION_CONTRACT.md").read_text(encoding="utf-8")
+        local_plugin_doc = (ROOT / "docs" / "LOCAL_PLUGIN_INSTALL.md").read_text(encoding="utf-8")
+
+        self.assertIn("docs/PLUG_AND_PLAY_INTEGRATIONS.md", readme)
+        self.assertIn("does not start a second MCP runtime", plugin_doc)
+        self.assertNotIn("mcpServers", plugin_manifest)
+        self.assertIn("compatibility alias", local_plugin_doc)
+        for token in (
+            "Agent host",
+            "Model provider",
+            "Orchestration framework",
+            "Universal executable plugin loader",
+            "host-registered provider invokers",
+            "live vendor acceptance",
+            "Propose–Probe–Compare–Compose",
+        ):
+            self.assertIn(token, guide)
+        self.assertIn("not a general executable plugin loader", extension_contract)
+
+
 if __name__ == "__main__":
     unittest.main()
