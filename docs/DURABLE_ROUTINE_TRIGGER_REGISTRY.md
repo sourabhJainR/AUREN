@@ -19,7 +19,27 @@ daemon or scheduler is created.
 
 Webhook verification must validate the provider signature, timestamp/replay window,
 and endpoint identity using secrets held outside the routine payload. The registry
-does not implement an HTTP server or secret store.
+does not implement an HTTP server or secret store. For providers using HMAC-SHA256,
+`verify_hmac_webhook_signature` supplies a reusable timestamped verifier. It signs
+the newline-separated timestamp, routine ID, event ID and canonical JSON payload;
+the host extracts provider headers and retrieves the secret from its secret store:
+
+    from portable.durable_routines import verify_hmac_webhook_signature
+
+    def host_signature_verifier(routine_id, event_id, payload):
+        return verify_hmac_webhook_signature(
+            webhook_secret,
+            request_timestamp,
+            request_signature,
+            routine_id=routine_id,
+            event_id=event_id,
+            payload=payload,
+            tolerance_seconds=300,
+        )
+
+The routine registry then deduplicates the authenticated event ID. Providers with
+different signature formats or canonicalization rules still need a provider-specific
+host adapter; do not assume this generic format matches every provider.
 
 ## Minimal integration
 
