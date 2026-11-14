@@ -123,6 +123,8 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("tests/test_lifecycle_projection.py", ("tests.test_lifecycle_projection",), False),
     ("portable/dashboard_server.py", ("tests.test_control_center_api",), True),
     ("portable/onboarding.py", ("tests.test_local_first_onboarding", "tests.test_local_mcp_host"), True),
+    ("portable/local_composition.py", ("tests.test_local_composition", "tests.test_local_vibe_owner_approval", "tests.test_local_mcp_host"), True),
+    ("tests/test_local_composition.py", ("tests.test_local_composition",), True),
     ("tests/test_local_first_onboarding.py", ("tests.test_local_first_onboarding",), True),
     ("tests/test_auren_cli_unified_experience.py", ("tests.test_auren_cli_unified_experience",), True),
     ("tests/test_auren_runtime_progress_cli.py", ("tests.test_auren_runtime_progress_cli",), True),
