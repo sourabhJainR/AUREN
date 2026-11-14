@@ -248,6 +248,30 @@ class TestProviderCosts(unittest.TestCase):
         self.assertEqual(0, estimate.returncode, estimate.stderr)
         self.assertEqual("6.000000", json.loads(estimate.stdout)["estimated_total_usd"])
 
+    def test_installed_auren_cli_exposes_catalog_validation_and_estimation(self):
+        self.path.write_text(json.dumps(catalog_document()), encoding="utf-8")
+        cli = Path(__file__).resolve().parents[1] / "auren_cli.py"
+        validate = subprocess.run(
+            [
+                sys.executable, str(cli), "providers", "cost",
+                "--catalog", str(self.path), "--validate",
+            ],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(0, validate.returncode, validate.stderr)
+        self.assertEqual("valid", json.loads(validate.stdout)["status"])
+        estimate = subprocess.run(
+            [
+                sys.executable, str(cli), "providers", "cost",
+                "--catalog", str(self.path), "--provider", "openai",
+                "--model", "pinned-model-v1", "--input-tokens", "1000000",
+                "--output-tokens", "500000",
+            ],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(0, estimate.returncode, estimate.stderr)
+        self.assertEqual("6.000000", json.loads(estimate.stdout)["estimated_total_usd"])
+
     def test_cli_returns_nonzero_when_exact_price_is_missing(self):
         self.path.write_text(json.dumps(catalog_document(entries=[])), encoding="utf-8")
         script = Path(__file__).resolve().parents[1] / "scripts" / "provider_costs.py"
