@@ -211,7 +211,7 @@ The service currently uses AUREN's SQLite-backed durable stores and is a single-
 | P1 | Add Claude CLI/Desktop/VS Code host acceptance | Plugin, hook, skill, MCP and permission-mode test receipts |
 | P1 | Add Gemini headless and IDE acceptance | JSONL parser tests, MCP and skill discovery receipts |
 | P1 | Run live provider acceptance for configured API vendors | AUREN now has an explicit one-request synthetic API probe with latency, usage and digest evidence; run it per provider. Vendor-specific rate-limit, failover, privacy and production acceptance remain open |
-| P1 | Add provider cost and latency accounting | Provider latency and token usage are now linked to route traces; pinned price-source version and usage-to-cost reconciliation remain open |
+| P1 | Add provider cost and latency accounting | Route traces include provider latency and token usage; exact-model estimates are available with a reviewed, versioned local price catalog. Invoice reconciliation, cache tiers and local-model cost accounting remain open |
 | P2 | Add streaming and provider-specific tool/structured-output conformance | Versioned contract tests for each provider and model family |
 | P2 | Add GitHub Copilot and Gemini Code Assist host acceptance | Product-specific smoke tests; no inference from shared file support |
 | P2 | Add CI environment with vendor CLI installations where licensing permits | Version-pinned, non-mutating provider probes and published evidence |
