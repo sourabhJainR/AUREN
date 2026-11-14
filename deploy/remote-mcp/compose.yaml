@@ -1,0 +1,74 @@
+services:
+  auren-mcp:
+    build:
+      context: ../..
+      dockerfile: deploy/remote-mcp/Dockerfile
+    env_file:
+      - .env
+    environment:
+      AUREN_PROJECT_ROOT: /workspace/project
+      AUREN_HOME: /var/lib/auren
+      AUREN_MCP_BIND_HOST: 0.0.0.0
+      AUREN_MCP_PORT: "8765"
+      AUREN_MCP_ALLOW_PUBLIC_BIND: "1"
+      AUREN_MCP_FORWARDED_ALLOW_IPS: 172.30.0.2
+      AUREN_MCP_CONTROL_DB: /var/lib/auren/remote-mcp-control.sqlite3
+    volumes:
+      - auren_state:/var/lib/auren
+      - ${AUREN_PROJECT_HOST_PATH:?Set AUREN_PROJECT_HOST_PATH in .env}:/workspace/project
+    expose:
+      - "8765"
+    networks:
+      auren-private:
+        ipv4_address: 172.30.0.3
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+    user: "10001:10001"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket; s=socket.create_connection(('127.0.0.1', 8765), timeout=3); s.close()"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  caddy:
+    image: caddy:2.10-alpine
+    environment:
+      AUREN_MCP_DOMAIN: ${AUREN_MCP_DOMAIN:?Set AUREN_MCP_DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      auren-private:
+        ipv4_address: 172.30.0.2
+    depends_on:
+      auren-mcp:
+        condition: service_healthy
+    restart: unless-stopped
+
+networks:
+  auren-private:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+volumes:
+  auren_state:
+  caddy_data:
+  caddy_config:
