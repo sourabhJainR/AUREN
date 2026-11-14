@@ -51,7 +51,7 @@ def _timestamp(value: Any, field: str) -> datetime:
 
 
 def _price(value: Any, field: str) -> Decimal:
-    if isinstance(value, bool) or not isinstance(value, (int, float, Decimal, str)):
+    if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
         raise ProviderPriceCatalogError(f"{field} must be a non-negative decimal")
     try:
         result = Decimal(str(value))
@@ -221,7 +221,7 @@ def estimate_provider_cost(
     }
     if current < catalog.published_at:
         return {**base, "reason": "catalog_not_yet_effective"}
-    if current > catalog.valid_until:
+    if current >= catalog.valid_until:
         return {**base, "reason": "catalog_expired"}
     entry = catalog.entries.get((provider_id, model_id))
     if entry is None:
@@ -230,9 +230,13 @@ def estimate_provider_cost(
     output_tokens = _token_count(usage, ("output_units", "output_tokens", "completion_tokens"), "output_tokens")
     if input_tokens is None or output_tokens is None:
         return {**base, "reason": "provider_usage_incomplete"}
-    input_cost = Decimal(input_tokens) * entry["input_usd_per_million_tokens"] / Decimal(1_000_000)
-    output_cost = Decimal(output_tokens) * entry["output_usd_per_million_tokens"] / Decimal(1_000_000)
-    total = (input_cost + output_cost).quantize(_COST_QUANTUM, rounding=ROUND_HALF_UP)
+    input_cost = (
+        Decimal(input_tokens) * entry["input_usd_per_million_tokens"] / Decimal(1_000_000)
+    ).quantize(_COST_QUANTUM, rounding=ROUND_HALF_UP)
+    output_cost = (
+        Decimal(output_tokens) * entry["output_usd_per_million_tokens"] / Decimal(1_000_000)
+    ).quantize(_COST_QUANTUM, rounding=ROUND_HALF_UP)
+    total = input_cost + output_cost
     return {
         **base,
         "status": "estimated",
@@ -240,8 +244,8 @@ def estimate_provider_cost(
         "output_tokens": output_tokens,
         "input_rate_usd_per_million_tokens": str(entry["input_usd_per_million_tokens"]),
         "output_rate_usd_per_million_tokens": str(entry["output_usd_per_million_tokens"]),
-        "input_cost_usd": str(input_cost.quantize(_COST_QUANTUM, rounding=ROUND_HALF_UP)),
-        "output_cost_usd": str(output_cost.quantize(_COST_QUANTUM, rounding=ROUND_HALF_UP)),
+        "input_cost_usd": str(input_cost),
+        "output_cost_usd": str(output_cost),
         "estimated_total_usd": str(total),
         "source_url": entry["source_url"],
         "price_retrieved_at": entry["retrieved_at"].isoformat(),
