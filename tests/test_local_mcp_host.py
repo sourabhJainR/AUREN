@@ -273,8 +273,8 @@ class LocalMCPHostArgumentTests(unittest.TestCase):
 
 
 @unittest.skipUnless(
-    importlib.util.find_spec("uvicorn"),
-    "live local host acceptance requires optional uvicorn",
+    os.name != "nt" and importlib.util.find_spec("uvicorn"),
+    "live local host acceptance requires POSIX signal handling and optional uvicorn",
 )
 class LocalMCPHostProcessTests(unittest.TestCase):
     def test_local_command_starts_both_services_and_shuts_them_down(self):
@@ -446,8 +446,7 @@ class LocalMCPHostProcessTests(unittest.TestCase):
                 reader.join(timeout=2)
                 if process.stdout is not None:
                     process.stdout.close()
-            if os.name != "nt":
-                self.assertEqual(0, process.returncode, "\n".join(output))
+            self.assertEqual(0, process.returncode, "\n".join(output))
 
 
 class LocalMCPStdioProxyTests(unittest.TestCase):
