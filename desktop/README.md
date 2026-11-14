@@ -9,6 +9,8 @@ AUREN Desktop is a native Tauri 2 shell around the existing single-user local ex
 - Waits for the CLI to report both endpoints ready.
 - Embeds the existing Engineering Console in the native window.
 - Displays the MCP endpoint for local MCP clients.
+- Provides a native folder picker for project selection.
+- Detects when the managed CLI process exits unexpectedly.
 - Stops the managed CLI process when the user stops AUREN or closes the desktop window.
 
 The shell starts AUREN with automatic client configuration and browser launching disabled. It does not edit Codex, Claude, Gemini or other client configuration files.
