@@ -430,5 +430,37 @@ class DurableRoutineRegistryTests(unittest.TestCase):
         self.assertEqual([], self.submissions)
 
 
+    def test_occurrence_receipt_pins_profile_and_policy_digests(self):
+        profile_digest = "a" * 64
+        policy_digest = "b" * 64
+        spec = self.spec(
+            profile_digest=profile_digest,
+            policy_digest=policy_digest,
+        )
+        self.registry.register(spec)
+
+        result = self.registry.dispatch_webhook(
+            spec.routine_id, event_id="evt-pinned-profile", event_type="push",
+            payload={"ref": "refs/heads/main"},
+            authenticate=lambda *_: True, submit=self.submit,
+        )
+
+        occurrence = self.registry.occurrence(result.occurrence_key)
+        receipt = json.loads(occurrence["receipt_json"])
+        self.assertEqual(profile_digest, receipt["profile_digest"])
+        self.assertEqual(policy_digest, receipt["policy_digest"])
+        self.assertEqual(spec.digest, receipt["routine_digest"])
+
+    def test_profile_and_policy_digests_must_be_exact_lowercase_sha256(self):
+        for field_name, value in (
+            ("profile_digest", "A" * 64),
+            ("profile_digest", "a" * 63),
+            ("policy_digest", "not-a-digest"),
+        ):
+            with self.subTest(field=field_name, value=value):
+                with self.assertRaisesRegex(ValueError, "lowercase SHA-256"):
+                    self.spec(**{field_name: value})
+
+
 if __name__ == "__main__":
     unittest.main()
