@@ -726,6 +726,20 @@ class RemoteMCPASGITests(unittest.TestCase):
         )
         self.assertEqual(400, status)
 
+    def test_profile_tool_returns_openai_compatible_structured_content(self):
+        status, _, body = self.request(
+            body={
+                "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": {"name": "auren.get_profile", "arguments": {}},
+            },
+        )
+        self.assertEqual(200, status)
+        result = json.loads(body)["result"]
+        self.assertFalse(result.get("isError", False))
+        profile = result["structuredContent"]
+        self.assertTrue(profile["id"].startswith("auren_"))
+        self.assertEqual(profile, json.loads(result["content"][0]["text"]))
+
     def test_chatgpt_tool_level_oauth_challenge_is_returned_without_a_token(self):
         status, headers, body = self.request(
             body={
