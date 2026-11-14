@@ -205,8 +205,60 @@ def _run_up(args: list[str]) -> int:
 
 
 def _run_providers(args: list[str]) -> int:
-    """Show provider readiness and routing without exposing credentials."""
-    parser = argparse.ArgumentParser(prog="auren providers")
+    """Show provider readiness. Use the cost subcommand for catalog-backed estimates."""
+    if args and args[0] == "cost":
+        parser = argparse.ArgumentParser(prog="auren providers cost")
+        parser.add_argument("--catalog", required=True, help="Reviewed local provider price catalog JSON")
+        parser.add_argument("--validate", action="store_true", help="Validate catalog without estimating")
+        parser.add_argument("--provider", help="Exact provider ID")
+        parser.add_argument("--model", help="Exact pinned model ID")
+        parser.add_argument("--input-tokens", type=int)
+        parser.add_argument("--output-tokens", type=int)
+        options = parser.parse_args(args[1:])
+        try:
+            from datetime import datetime, timezone
+            from portable.provider_costs import (
+                estimate_provider_cost,
+                load_provider_price_catalog,
+            )
+            catalog = load_provider_price_catalog(options.catalog)
+            if options.validate:
+                current = datetime.now(timezone.utc)
+                report = {
+                    "status": "valid",
+                    "catalog_version": catalog.version,
+                    "catalog_digest": catalog.digest,
+                    "currency": catalog.currency,
+                    "entry_count": len(catalog.entries),
+                    "validity_status": (
+                        "not_yet_effective" if current < catalog.published_at
+                        else "expired" if current >= catalog.valid_until
+                        else "effective"
+                    ),
+                    "valid_until": catalog.valid_until.isoformat(),
+                }
+                print(json.dumps(report, indent=2, sort_keys=True))
+                return 0
+            if not options.provider or not options.model:
+                parser.error("cost estimation requires --provider and --model")
+            if options.input_tokens is None or options.output_tokens is None:
+                parser.error("cost estimation requires --input-tokens and --output-tokens")
+            report = estimate_provider_cost(
+                catalog,
+                provider_id=options.provider,
+                model_id=options.model,
+                usage={"input_tokens": options.input_tokens, "output_tokens": options.output_tokens},
+            )
+            print(json.dumps(report, indent=2, sort_keys=True))
+            return 0 if report["status"] == "estimated" else 2
+        except (OSError, ValueError, RuntimeError) as exc:
+            print(f"auren providers cost failed: {exc}", file=sys.stderr)
+            return 2
+
+    parser = argparse.ArgumentParser(
+        prog="auren providers",
+        description="Show provider readiness. Use auren providers cost to validate a price catalog or estimate token cost.",
+    )
     parser.add_argument("--project-root", default=".")
     options = parser.parse_args(args)
     from portable.onboarding import doctor
