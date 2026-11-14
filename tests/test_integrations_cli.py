@@ -42,3 +42,58 @@ def test_integrations_inventory_command_is_read_only(tmp_path: Path, monkeypatch
     report = json.loads(capsys.readouterr().out)
     assert report["schema_version"] == "auren-integration-inventory-v1"
     assert captured["project_root"] == str(tmp_path)
+
+
+
+def test_integrations_probe_local_mcp_is_read_only_and_uses_default_token_path(
+    tmp_path: Path, monkeypatch, capsys,
+):
+    from portable import local_host, mcp_local_client
+
+    token_path = tmp_path / "local-operator.token"
+    captured = {}
+
+    def fake_probe(*, url, token_file):
+        captured["url"] = url
+        captured["token_file"] = Path(token_file)
+        return {
+            "status": "connected",
+            "protocol_version": "2026-07-28",
+            "tool_count": 2,
+            "tools_invoked": False,
+        }
+
+    monkeypatch.setattr(local_host, "local_token_path", lambda: token_path)
+    monkeypatch.setattr(mcp_local_client, "probe_local_mcp", fake_probe)
+    assert main(["integrations", "probe-local-mcp"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "connected"
+    assert report["tools_invoked"] is False
+    assert captured["url"] == "http://127.0.0.1:8765/mcp"
+    assert captured["token_file"] == token_path
+
+
+def test_integrations_probe_local_mcp_accepts_explicit_endpoint_and_token(
+    tmp_path: Path, monkeypatch, capsys,
+):
+    from portable import local_host, mcp_local_client
+
+    captured = {}
+
+    def fake_probe(*, url, token_file):
+        captured["url"] = url
+        captured["token_file"] = Path(token_file)
+        return {"status": "connected", "tools_invoked": False}
+
+    monkeypatch.setattr(local_host, "local_token_path", lambda: tmp_path / "default-token")
+    monkeypatch.setattr(mcp_local_client, "probe_local_mcp", fake_probe)
+    explicit_token = tmp_path / "custom-token"
+    assert main([
+        "integrations", "probe-local-mcp",
+        "--url", "http://127.0.0.1:9876/mcp",
+        "--token-file", str(explicit_token),
+    ]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "connected"
+    assert captured["url"] == "http://127.0.0.1:9876/mcp"
+    assert captured["token_file"] == explicit_token
