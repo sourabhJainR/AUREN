@@ -62,6 +62,44 @@ The router creates a remote provider pool only when `AUREN_REMOTE_PROVIDER_ORDER
 
 The pool attempts providers in the exact configured order. One provider is attempted per supervisor-charged remote attempt. The existing shared execution guard remains authoritative: the provider pool cannot increase the task's attempt count or deadline. The route currently has a maximum of three attempts, and any local attempt consumes that same budget.
 
+## Run a live direct API conformance probe
+
+A live probe is available for a selected direct API adapter. It sends one fixed, synthetic public prompt and checks for an exact response sentinel. It does not read a workspace, repository, task or user prompt.
+
+First configure the selected provider in `AUREN_REMOTE_PROVIDER_ORDER`, set its API key and pinned model ID, and explicitly enable remote inference for the probe process:
+
+PowerShell:
+
+```powershell
+$env:AUREN_REMOTE_PROVIDER_ORDER = "openai"
+$env:AUREN_LOCAL_REMOTE_INFERENCE = "enabled"
+python scripts/provider_conformance.py --live-api --api-provider openai --json
+```
+
+Linux/macOS:
+
+```bash
+export AUREN_REMOTE_PROVIDER_ORDER=openai
+export AUREN_LOCAL_REMOTE_INFERENCE=enabled
+python scripts/provider_conformance.py --live-api --api-provider openai --json
+```
+
+The probe makes one billable provider request. Run it in a shell where the API key and model variables are configured. The selected provider must be present in the valid explicit provider order. It does not require changing the workspace data classification because it sends only the fixed synthetic prompt.
+
+Select multiple providers by repeating `--api-provider`. Use `--api-timeout-seconds` to set a bounded timeout. Add `--write-report` to save the result to `.ai-harness/provider-conformance.json`.
+
+The report records provider/model, response sentinel result, latency, token usage, prompt and response digests, a digest of the provider request ID, and the local trace ID. It does not store the API key, raw prompt, response text or raw request ID. A local trace is written under the AUREN runtime observability directory. The probe does not estimate cost because AUREN does not yet have a pinned, versioned provider price catalogue.
+
+A passing probe confirms only that the selected account accepted this synthetic request and returned the expected response. It does not validate model quality, privacy terms, data retention, residency, rate-limit headroom, IDE/MCP host compatibility or production readiness. Do not treat it as a substitute for task-specific evaluation or independent security review.
+
+## Provider routing telemetry
+
+When a canonical AUREN trace is bound to a route, the hybrid router emits a parent `model.route` span. Direct API inference emits a nested `provider.inference.<provider>` span. Together they record the selected provider/model, attempt count, route outcome, fallback reason, latency, token usage and content digests.
+
+Telemetry does not store raw prompts, completions, API keys or provider request IDs. The route span records task byte length and privacy classification, not task text. Exporter failures are recorded as telemetry failures and do not change routing or authorize fallback. These spans are evidence only; the supervisor, Guard and shared execution budget remain the only authority for dispatch and actions.
+
+Token usage and latency are available when the provider returns them. Monetary cost is not estimated yet because AUREN does not maintain a pinned, versioned price catalogue. Local model calls currently appear in the route summary; provider-specific local runtime accounting remains a follow-up.
+
 ## Per-request provider selection
 
 The local routing API exposes the configured provider catalog without exposing credentials:
