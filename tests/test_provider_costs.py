@@ -182,7 +182,7 @@ class TestProviderCosts(unittest.TestCase):
         document["entries"][0]["input_usd_per_million_tokens"] = "2.0"
         self.path.write_text(json.dumps(document), encoding="utf-8")
         with self.assertRaisesRegex(ProviderPriceCatalogError, "non-negative decimal"):
-            load_provider_price_catalog(self.path, now=NOW)
+            load_provider_price_catalog(self.path)
 
     def test_expiry_timestamp_is_an_exclusive_boundary(self):
         catalog = self.write(catalog_document())
@@ -200,14 +200,14 @@ class TestProviderCosts(unittest.TestCase):
         document["entries"][0]["source_url"] = "http://example.com/pricing"
         self.path.write_text(json.dumps(document), encoding="utf-8")
         with self.assertRaisesRegex(ProviderPriceCatalogError, "HTTPS"):
-            load_provider_price_catalog(self.path, now=NOW)
+            load_provider_price_catalog(self.path)
 
     def test_unknown_fields_are_rejected(self):
         document = catalog_document()
         document["entries"][0]["discount_percent"] = 99
         self.path.write_text(json.dumps(document), encoding="utf-8")
         with self.assertRaisesRegex(ProviderPriceCatalogError, "unknown fields"):
-            load_provider_price_catalog(self.path, now=NOW)
+            load_provider_price_catalog(self.path)
 
     def test_duplicate_json_keys_are_rejected(self):
         self.path.write_text(
@@ -216,7 +216,7 @@ class TestProviderCosts(unittest.TestCase):
             encoding="utf-8",
         )
         with self.assertRaisesRegex(ProviderPriceCatalogError, "duplicate JSON key"):
-            load_provider_price_catalog(self.path, now=NOW)
+            load_provider_price_catalog(self.path)
 
     def test_catalog_file_symlink_is_rejected(self):
         target = Path(self.temp.name) / "target.json"
@@ -226,7 +226,7 @@ class TestProviderCosts(unittest.TestCase):
         except (OSError, NotImplementedError):
             self.skipTest("symlinks are unavailable on this platform")
         with self.assertRaisesRegex(ProviderPriceCatalogError, "not a symlink"):
-            load_provider_price_catalog(self.path, now=NOW)
+            load_provider_price_catalog(self.path)
 
     def test_catalog_cli_validates_and_estimates_without_network(self):
         self.path.write_text(json.dumps(catalog_document()), encoding="utf-8")
