@@ -776,5 +776,38 @@ class DurableRoutineRegistryTests(unittest.TestCase):
         ))
 
 
+    def test_interval_terminal_reconciliation_recovers_schedule_advance_after_restart(self):
+        spec = self.spec(trigger="interval", event_type=None, interval_seconds=60)
+        self.registry.register(spec)
+        with closing(self.registry._connect()) as db:
+            cursor_text = db.execute(
+                "SELECT next_run_at FROM routines WHERE routine_id=?",
+                (spec.routine_id,),
+            ).fetchone()["next_run_at"]
+        cursor = datetime.fromisoformat(cursor_text)
+        trigger_key = f"{spec.routine_id}:v{spec.version}:{cursor.isoformat(timespec='microseconds')}"
+        submitted = self.registry._dispatch(
+            spec.routine_id, spec.trigger, trigger_key,
+            submit=self.submit, approval=None, reconcile=None,
+            scheduled_at=cursor, schedule_cursor=cursor,
+            expected_version=spec.version,
+        )
+        self.assertEqual("submitted", submitted.status)
+
+        now = cursor + timedelta(minutes=5)
+        self.registry.reconcile_occurrences(
+            routine_id=spec.routine_id,
+            reconcile=lambda _key: {"id": submitted.task_id, "state": "completed", "attempts": 1},
+        )
+        recovered = self.registry.dispatch_due(now=now, submit=self.submit)
+        self.assertEqual("completed", recovered[0].status)
+        with closing(self.registry._connect()) as db:
+            next_run_at = db.execute(
+                "SELECT next_run_at FROM routines WHERE routine_id=?",
+                (spec.routine_id,),
+            ).fetchone()["next_run_at"]
+        self.assertGreater(datetime.fromisoformat(next_run_at), now)
+
+
 if __name__ == "__main__":
     unittest.main()
