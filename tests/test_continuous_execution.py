@@ -201,7 +201,9 @@ def test_failed_goal_outcome_uses_persisted_backoff(tmp_path):
         goal_reconcilers={"AUREN:test:failed-outcome": reconcile},
         max_goal_retries=3,
     )
-    supervisor.run(poll_seconds=2, batch_size=1, max_cycles=1)
+    # Keep the persisted retry window beyond slow Windows CI startup so this
+    # restart assertion tests backoff persistence rather than timer expiry.
+    supervisor.run(poll_seconds=60, batch_size=1, max_cycles=1)
     health = supervisor.status()["goal_health"]
     assert calls == ["called"]
     assert health[0]["status"] == "backoff"
@@ -213,7 +215,7 @@ def test_failed_goal_outcome_uses_persisted_backoff(tmp_path):
         goal_reconcilers={"AUREN:test:failed-outcome": reconcile},
         max_goal_retries=3,
     )
-    replacement.run(poll_seconds=2, batch_size=1, max_cycles=1)
+    replacement.run(poll_seconds=60, batch_size=1, max_cycles=1)
     assert calls == ["called"]
     assert any(
         event["event_type"] == "goal_reconciliation_backoff_wait"
