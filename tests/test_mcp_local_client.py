@@ -143,6 +143,8 @@ def test_local_mcp_probe_rejects_invalid_tool_names_and_duplicate_cursors(tmp_pa
     token_file.write_text("x" * 64, encoding="utf-8")
     token_file.chmod(0o600)
 
+    page = {"count": 0}
+
     def fake_post(url, token, payload, *, protocol_version=None, timeout_seconds=60.0):
         request = json.loads(payload.decode("utf-8"))
         if request.get("method") == "initialize":
@@ -152,9 +154,11 @@ def test_local_mcp_probe_rejects_invalid_tool_names_and_duplicate_cursors(tmp_pa
             }).encode("utf-8")
         if request.get("method") == "notifications/initialized":
             return None
+        page["count"] += 1
+        name = "auren.ok" if page["count"] == 1 else "auren.ok-2"
         return json.dumps({
             "jsonrpc": "2.0", "id": request["id"],
-            "result": {"tools": [{"name": "auren.ok"}], "nextCursor": "repeat"},
+            "result": {"tools": [{"name": name}], "nextCursor": "repeat"},
         }).encode("utf-8")
 
     monkeypatch.setattr(mcp_stdio_proxy, "post_message", fake_post)
@@ -175,3 +179,28 @@ def test_local_mcp_probe_rejects_non_loopback_before_reading_token_or_network(tm
             token_file=tmp_path / "missing-token",
         )
     assert called == []
+
+
+
+def test_local_mcp_probe_rejects_non_printable_tool_names(tmp_path, monkeypatch):
+    token_file = tmp_path / "token"
+    token_file.write_text("x" * 64, encoding="utf-8")
+    token_file.chmod(0o600)
+
+    def fake_post(url, token, payload, *, protocol_version=None, timeout_seconds=60.0):
+        request = json.loads(payload.decode("utf-8"))
+        if request.get("method") == "initialize":
+            return json.dumps({
+                "jsonrpc": "2.0", "id": 1,
+                "result": {"protocolVersion": LOCAL_PROTOCOL_VERSION},
+            }).encode("utf-8")
+        if request.get("method") == "notifications/initialized":
+            return None
+        return json.dumps({
+            "jsonrpc": "2.0", "id": request["id"],
+            "result": {"tools": [{"name": "auren.\\ninvalid"}]},
+        }).encode("utf-8")
+
+    monkeypatch.setattr(mcp_stdio_proxy, "post_message", fake_post)
+    with pytest.raises(LocalMCPClientError, match="invalid or duplicate"):
+        probe_local_mcp(token_file=token_file)
