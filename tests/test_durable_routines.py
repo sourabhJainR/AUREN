@@ -524,5 +524,41 @@ class DurableRoutineRegistryTests(unittest.TestCase):
             self.spec(concurrency_policy="queue")
 
 
+    def test_cancel_inflight_records_request_without_claiming_terminal_completion(self):
+        spec = self.spec()
+        self.registry.register(spec)
+        submitted = self.registry.dispatch_webhook(
+            spec.routine_id, event_id="evt-cancel", event_type="push",
+            payload={"ref": "main"}, authenticate=lambda *_: True, submit=self.submit,
+        )
+        requests = []
+        outcomes = iter([
+            {"id": submitted.task_id, "state": "running"},
+            {"id": submitted.task_id, "state": "cancelled"},
+        ])
+
+        first = self.registry.cancel_inflight(
+            spec.routine_id,
+            reconcile=lambda _key: next(outcomes),
+            request_cancel=lambda task_id, reason: requests.append((task_id, reason)) or True,
+            reason="operator stop",
+        )
+        self.assertEqual("cancellation_requested", first[0].status)
+        receipt = self.registry.occurrence(submitted.occurrence_key)
+        self.assertEqual("cancellation_requested", receipt["status"])
+        self.assertEqual("cancellation_requested", json.loads(receipt["receipt_json"])["state"])
+        self.assertEqual([(submitted.task_id, "operator stop")], requests)
+
+        second = self.registry.cancel_inflight(
+            spec.routine_id,
+            reconcile=lambda _key: next(outcomes),
+            request_cancel=lambda *_: self.fail("terminal task must not be cancelled again"),
+            reason="operator stop",
+        )
+        self.assertEqual("cancelled", second[0].status)
+        receipt = self.registry.occurrence(submitted.occurrence_key)
+        self.assertEqual("cancelled", receipt["status"])
+
+
 if __name__ == "__main__":
     unittest.main()
