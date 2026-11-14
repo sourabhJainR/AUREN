@@ -207,6 +207,98 @@ class HybridModelRouter:
         execution_guard: RuntimeExecutionGuard | None = None,
         execution_guard_persist: Callable[[Mapping[str, Any]], None] | None = None,
     ) -> RouteResult:
+        """Route a request and attach a privacy-safe decision span when tracing is bound."""
+        active = None
+        try:
+            from .agency_observability import bind_trace_context, current_trace_context
+            active = current_trace_context()
+        except Exception:
+            bind_trace_context = None
+
+        if active is None or bind_trace_context is None:
+            return self._route_impl(
+                request,
+                execution_guard=execution_guard,
+                execution_guard_persist=execution_guard_persist,
+            )
+
+        trace, parent_id = active
+        route_span = None
+        try:
+            route_span = trace.span(
+                "model.route",
+                kind="router",
+                input={
+                    "capability": request.capability if isinstance(request.capability, str) else "invalid",
+                    "privacy": request.privacy if isinstance(request.privacy, str) else "invalid",
+                    "task_bytes": len(request.task.encode("utf-8")) if isinstance(request.task, str) else None,
+                },
+                metadata={
+                    "provider_order": list(request.provider_order) if isinstance(request.provider_order, (list, tuple)) else None,
+                    "max_attempts": request.max_attempts,
+                    "timeout_seconds": request.timeout_seconds,
+                },
+                parent_id=parent_id,
+                phase="routing",
+            )
+        except Exception:
+            route_span = None
+
+        if route_span is None:
+            return self._route_impl(
+                request,
+                execution_guard=execution_guard,
+                execution_guard_persist=execution_guard_persist,
+            )
+
+        try:
+            with bind_trace_context(trace, route_span.span_id):
+                result = self._route_impl(
+                    request,
+                    execution_guard=execution_guard,
+                    execution_guard_persist=execution_guard_persist,
+                )
+        except BaseException as exc:
+            try:
+                route_span.finish(
+                    output={"outcome": "error", "error_type": type(exc).__name__},
+                    status="error",
+                    terminal_reason=type(exc).__name__,
+                )
+            except Exception:
+                pass
+            raise
+
+        try:
+            provider_metadata = result.provider_metadata if isinstance(result.provider_metadata, Mapping) else {}
+            usage = provider_metadata.get("usage")
+            route_span.finish(
+                output={
+                    "outcome": "completed" if result.success else "failed",
+                    "provider": result.provider,
+                    "model": result.model,
+                    "attempts": result.attempts,
+                    "latency_ms": result.latency_ms,
+                    "fallback_reason": result.fallback_reason,
+                    "error_present": result.error is not None,
+                    "usage": usage if isinstance(usage, Mapping) else None,
+                    "response_digest": provider_metadata.get("response_digest"),
+                },
+                status="ok" if result.success else "error",
+                terminal_reason=result.fallback_reason or ("route_failed" if not result.success else None),
+            )
+        except Exception:
+            # Observability must never change routing, fallback or execution authority.
+            pass
+        return result
+
+    def _route_impl(
+        self,
+        request: TaskRouteRequest,
+        *,
+        execution_guard: RuntimeExecutionGuard | None = None,
+        execution_guard_persist: Callable[[Mapping[str, Any]], None] | None = None,
+    ) -> RouteResult:
         attempts_limit = max(1, min(int(request.max_attempts), 3))
         timeout = max(0.1, min(float(request.timeout_seconds), 120.0))
         bounded = TaskRouteRequest(
