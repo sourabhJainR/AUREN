@@ -72,15 +72,18 @@ def _load_authorization_metadata(
     *,
     transport: Callable[..., tuple[int, bytes]],
     refresh_scope: str,
+    allowed_hosts: tuple[str, ...],
 ) -> str:
     if not _https_url(issuer):
         raise AcceptanceFailure("authorization server issuer must be an exact HTTPS URL")
     host = (urlsplit(issuer).hostname or "").lower()
+    if host not in {item.lower() for item in allowed_hosts}:
+        raise AcceptanceFailure("authorization server host is not in the explicit outbound allowlist")
     metadata = None
     metadata_url = None
     for candidate in _authorization_metadata_urls(issuer):
         status, raw = transport(
-            candidate, allowed_hosts=(host,), method="GET",
+            candidate, allowed_hosts=allowed_hosts, method="GET",
             headers={"accept": "application/json"}, timeout=10, max_bytes=64 * 1024,
         )
         if status == 404:
@@ -195,7 +198,7 @@ def run_acceptance(
     if expected_issuer is not None and issuer != expected_issuer:
         raise AcceptanceFailure("protected-resource issuer does not exactly match the configured issuer")
     auth_metadata_url = _load_authorization_metadata(
-        issuer, transport=transport, refresh_scope=refresh_scope,
+        issuer, transport=transport, refresh_scope=refresh_scope, allowed_hosts=allowed_hosts,
     )
 
     def rpc(
