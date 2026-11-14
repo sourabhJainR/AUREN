@@ -595,6 +595,17 @@ class AdaptiveRuntime:
             limit=limit,
         )
 
+    def cancel_routine_occurrence(
+        self, project_root: Path | str, occurrence_key: str, *,
+        reason: str = "operator requested cancellation",
+    ) -> RoutineDispatch:
+        """Request cancellation through the canonical durable task controller."""
+        return self.routine_registry(project_root).request_cancellation(
+            occurrence_key,
+            cancel=self.execution_controller.request_cancellation,
+            reason=reason,
+        )
+
     def ensure_learning_maintenance(self, project_root: Path | str, *, interval_seconds: int | None = None) -> object:
         """Create the project learning schedule once and return its durable receipt."""
         root = Path(project_root).expanduser().resolve()
