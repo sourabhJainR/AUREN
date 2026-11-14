@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import hmac
 from contextlib import closing
 
 from datetime import datetime, timedelta, timezone
@@ -10,7 +11,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from portable.durable_routines import DurableRoutineRegistry, RoutineSpec
+from portable.durable_routines import DurableRoutineRegistry, RoutineSpec, verify_hmac_webhook_signature
 
 
 class DurableRoutineRegistryTests(unittest.TestCase):
@@ -607,6 +608,36 @@ class DurableRoutineRegistryTests(unittest.TestCase):
                  legacy_digest, spec.routine_id),
             )
         self.assertEqual(spec.digest, self.registry.register(spec))
+
+
+    def test_timestamped_hmac_webhook_verification_binds_identity_and_payload(self):
+        now = datetime.now(timezone.utc)
+        timestamp = str(int(now.timestamp()))
+        secret = b"host-secret-for-test"
+        routine_id = "repo-health"
+        event_id = "provider-event-1"
+        payload = {"ref": "refs/heads/main"}
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        signed = "\\n".join((timestamp, routine_id, event_id, canonical)).encode("utf-8")
+        signature = hmac.new(secret, signed, hashlib.sha256).hexdigest()
+
+        self.assertTrue(verify_hmac_webhook_signature(
+            secret, timestamp, signature, routine_id=routine_id,
+            event_id=event_id, payload=payload, now=now,
+        ))
+        self.assertFalse(verify_hmac_webhook_signature(
+            secret, timestamp, signature, routine_id="other-routine",
+            event_id=event_id, payload=payload, now=now,
+        ))
+        self.assertFalse(verify_hmac_webhook_signature(
+            secret, timestamp, signature, routine_id=routine_id,
+            event_id=event_id, payload={"ref": "refs/heads/release"}, now=now,
+        ))
+        self.assertFalse(verify_hmac_webhook_signature(
+            secret, timestamp, signature, routine_id=routine_id,
+            event_id=event_id, payload=payload,
+            now=now + timedelta(minutes=10), tolerance_seconds=300,
+        ))
 
 
 if __name__ == "__main__":
