@@ -74,6 +74,8 @@ def create_runtime(*, project_root: Path) -> AdaptiveRuntime:
     ...
 ~~~
 
+For a reproducible single-host Docker deployment behind Caddy-managed TLS, see [the remote MCP deployment bundle](../deploy/remote-mcp/README.md).
+
 ## Deployment
 
 Install the optional ASGI runner:
