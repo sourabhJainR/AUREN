@@ -98,7 +98,13 @@ fn start_local(project_root: String, state: State<'_, RuntimeState>) -> Result<L
         .spawn()
         .map_err(|_| "could not start the AUREN CLI. Install it and add auren to PATH, or set AUREN_EXECUTABLE.".to_string())?;
 
-    let stdout = child.stdout.take().ok_or_else(|| "AUREN CLI stdout was unavailable".to_string())?;
+    let stdout = match child.stdout.take() {
+        Some(stdout) => stdout,
+        None => {
+            terminate(&mut child);
+            return Err("AUREN CLI stdout was unavailable".into());
+        }
+    };
     if let Some(stderr) = child.stderr.take() {
         thread::spawn(move || {
             let mut reader = BufReader::new(stderr);
@@ -160,6 +166,37 @@ fn start_local(project_root: String, state: State<'_, RuntimeState>) -> Result<L
 }
 
 #[tauri::command]
+fn choose_project_folder() -> Option<String> {
+    rfd::FileDialog::new()
+        .set_title("Choose an AUREN project folder")
+        .pick_folder()
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeStatus {
+    running: bool,
+    info: Option<LocalRuntimeInfo>,
+}
+
+#[tauri::command]
+fn runtime_status(state: State<'_, RuntimeState>) -> Result<RuntimeStatus, String> {
+    let mut child = state.child.lock().map_err(|_| "runtime process lock is unavailable")?;
+    let mut info = state.info.lock().map_err(|_| "runtime state lock is unavailable")?;
+    if let Some(process) = child.as_mut() {
+        if process.try_wait().map_err(|_| "cannot inspect the AUREN CLI process")?.is_some() {
+            child.take();
+            *info = None;
+        }
+    }
+    Ok(RuntimeStatus {
+        running: child.is_some(),
+        info: info.clone(),
+    })
+}
+
+#[tauri::command]
 fn stop_local(state: State<'_, RuntimeState>) -> Result<(), String> {
     stop_runtime(state.inner())
 }
@@ -167,7 +204,7 @@ fn stop_local(state: State<'_, RuntimeState>) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .manage(RuntimeState::default())
-        .invoke_handler(tauri::generate_handler![start_local, stop_local])
+        .invoke_handler(tauri::generate_handler![start_local, stop_local, choose_project_folder, runtime_status])
         .on_window_event(|window, event| {
             if matches!(event, WindowEvent::CloseRequested { .. }) {
                 let state = window.state::<RuntimeState>();
