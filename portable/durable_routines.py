@@ -1105,6 +1105,9 @@ class DurableRoutineRegistry:
             task_state = getattr(task, "state", None) or (
                 task.get("state") if isinstance(task, Mapping) else None
             )
+            attempts = getattr(task, "attempts", None)
+            if attempts is None and isinstance(task, Mapping):
+                attempts = task.get("attempts")
             if not isinstance(task_id, str) or not task_id:
                 self._update_receipt(
                     occurrence_key, status=str(row["status"]),
@@ -1117,12 +1120,19 @@ class DurableRoutineRegistry:
                 ))
                 continue
             if task_state in {"completed", "failed", "cancelled"}:
+                summary = f"Routine {routine_id} {task_state}"
+                if type(attempts) is int and attempts >= 0:
+                    summary += f" after {attempts} attempt(s)"
                 self._update_receipt(
-                    occurrence_key, status=str(task_state),
-                    task_id=task_id,
-                    updates={"state": str(task_state), "terminal_observed_at": _iso(datetime.now(timezone.utc))},
+                    occurrence_key, status=str(task_state), task_id=task_id,
+                    updates={
+                        "state": str(task_state),
+                        "terminal_observed_at": _iso(datetime.now(timezone.utc)),
+                        "terminal_summary": summary,
+                        "escalation_required": task_state == "failed",
+                    },
                 )
-                results.append(RoutineDispatch(occurrence_key, work_key, str(task_state), task_id))
+                results.append(RoutineDispatch(occurrence_key, work_key, str(task_state), task_id, summary))
                 continue
             try:
                 accepted = request_cancel(task_id, reason.strip()) is True
