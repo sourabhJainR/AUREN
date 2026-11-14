@@ -268,6 +268,52 @@ class ProviderRoleProfileTests(unittest.TestCase):
         self.assertNotIn(prompt, json.dumps(records))
         self.assertNotIn("local-result", json.dumps(records))
 
+    def test_profiled_role_trace_records_error_type_without_error_text(self):
+        sensitive_error = "provider error contains sensitive request detail"
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            profile_path = root / "provider_roles.json"
+            trace_path = root / "traces.jsonl"
+            write_provider_role_profile(
+                profile_path,
+                self.document(),
+                apply=True,
+            )
+            tracer = Tracer(LocalExporter(path=trace_path, enabled=True))
+            trace = tracer.start("provider-profile-error-test")
+            with mock.patch(
+                "portable.provider_role_profiles._local_model_invoker",
+                return_value=mock.Mock(side_effect=RuntimeError(sensitive_error)),
+            ):
+                adapters = build_profiled_crew_adapter_inputs(
+                    profile_path,
+                    tools=ApprovedToolRegistry(),
+                )
+            with bind_trace_context(trace):
+                with self.assertRaisesRegex(RuntimeError, "sensitive request detail"):
+                    adapters["specialists"]["backend_api"]["invoker"](
+                        "private prompt",
+                        30,
+                    )
+            tracer.end(trace)
+            records = [
+                json.loads(line)
+                for line in trace_path.read_text(encoding="utf-8").splitlines()
+            ]
+        spans = [
+            item["span"] for item in records
+            if isinstance(item.get("span"), dict)
+            and item["span"].get("name") == "crew.role.invoke"
+        ]
+        self.assertEqual(len(spans), 1)
+        self.assertEqual(spans[0]["status"], "error")
+        self.assertEqual(spans[0]["terminal_reason"], "RuntimeError")
+        self.assertEqual(spans[0]["output"], {
+            "outcome": "error",
+            "error_type": "RuntimeError",
+        })
+        self.assertNotIn(sensitive_error, json.dumps(records))
+
     def test_profile_adapter_inputs_require_host_approved_tools(self):
         document = self.document()
         document["roles"]["backend_api"]["allowed_tools"] = ["read_ticket"]
