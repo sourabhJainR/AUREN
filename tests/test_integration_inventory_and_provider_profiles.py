@@ -164,6 +164,8 @@ class ProviderRoleProfileTests(unittest.TestCase):
             invoke = _role_invoker(
                 remote_binding,
                 environ={
+                    "AUREN_LOCAL_REMOTE_INFERENCE": "enabled",
+                    "AUREN_LOCAL_DATA_CLASSIFICATION": "public",
                     "OPENAI_API_KEY": "test-secret",
                     "OPENAI_MODEL": "gpt-test-pinned",
                 },
