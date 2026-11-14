@@ -83,7 +83,7 @@ def _load_authorization_metadata(
     metadata_url = None
     for candidate in _authorization_metadata_urls(issuer):
         status, raw = transport(
-            candidate, allowed_hosts=allowed_hosts, method="GET",
+            candidate, allowed_hosts=(host,), method="GET",
             headers={"accept": "application/json"}, timeout=10, max_bytes=64 * 1024,
         )
         if status == 404:
