@@ -809,5 +809,55 @@ class DurableRoutineRegistryTests(unittest.TestCase):
         self.assertGreater(datetime.fromisoformat(next_run_at), now)
 
 
+    def test_terminal_outbox_scan_advances_past_already_emitted_receipts(self):
+        spec = self.spec()
+        self.registry.register(spec)
+        first = self.registry.dispatch_webhook(
+            spec.routine_id, event_id="evt-outbox-first", event_type="push",
+            payload={"ref": "main"}, authenticate=lambda *_: True, submit=self.submit,
+        )
+        self.registry.reconcile_occurrences(
+            routine_id=spec.routine_id,
+            reconcile=lambda _key: {"id": first.task_id, "state": "completed", "attempts": 1},
+        )
+        first_event_id = f"routine-terminal:{first.occurrence_key}"
+        self.registry.mark_terminal_event_emitted(first.occurrence_key, first_event_id)
+
+        second = self.registry.dispatch_webhook(
+            spec.routine_id, event_id="evt-outbox-second", event_type="push",
+            payload={"ref": "release"}, authenticate=lambda *_: True, submit=self.submit,
+        )
+        self.registry.reconcile_occurrences(
+            routine_id=spec.routine_id,
+            reconcile=lambda _key: {"id": second.task_id, "state": "failed", "attempts": 2},
+        )
+
+        self.assertEqual((), self.registry.pending_terminal_summaries(limit=1))
+        pending = self.registry.pending_terminal_summaries(limit=1)
+        self.assertEqual(second.occurrence_key, pending[0]["occurrence_key"])
+
+    def test_attention_outbox_scan_advances_past_non_attention_receipts(self):
+        manual = self.spec()
+        self.registry.register(manual)
+        self.registry.dispatch_webhook(
+            manual.routine_id, event_id="evt-no-attention", event_type="push",
+            payload={"ref": "main"}, authenticate=lambda *_: True, submit=self.submit,
+        )
+        interval = self.spec(
+            routine_id="interval-health", trigger="interval", event_type=None,
+            interval_seconds=60,
+        )
+        self.registry.register(interval)
+        scheduled = self.registry.dispatch_due(
+            now=datetime.now(timezone.utc) + timedelta(minutes=5), submit=self.submit,
+        )
+        self.assertEqual(1, len(scheduled))
+
+        self.assertEqual((), self.registry.pending_attention_summaries(limit=1))
+        pending = self.registry.pending_attention_summaries(limit=1)
+        self.assertEqual(scheduled[0].occurrence_key, pending[0]["occurrence_key"])
+        self.assertEqual("routine.schedule_coalesced", pending[0]["event_kind"])
+
+
 if __name__ == "__main__":
     unittest.main()
