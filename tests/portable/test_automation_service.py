@@ -66,11 +66,12 @@ def test_maintenance_service_dispatches_due_routines_on_existing_tick(tmp_path, 
     calls = []
 
     class FakeRuntime:
-        def resume_tasks(self, **_kwargs):
+        def resume_tasks(self, *, limit):
+            calls.append(("resume", limit))
             return []
 
         def dispatch_due_routines(self, project_root, *, limit):
-            calls.append((project_root, limit))
+            calls.append(("routines", project_root, limit))
             return (
                 SimpleNamespace(
                     occurrence_key="occurrence-1",
@@ -97,7 +98,7 @@ def test_maintenance_service_dispatches_due_routines_on_existing_tick(tmp_path, 
 
     result = service.run_once()
 
-    assert calls == [(tmp_path, service.config.maintenance_budget)]
+    assert calls == [("resume", service.config.maintenance_budget), ("routines", tmp_path, service.config.maintenance_budget)]
     assert result["routines"][0]["status"] == "submitted"
     assert result["routines"][0]["task_id"] == "task-1"
 
