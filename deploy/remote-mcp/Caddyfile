@@ -1,4 +1,3 @@
 {$AUREN_MCP_DOMAIN} {
-    encode zstd gzip
     reverse_proxy auren-mcp:8765
 }
