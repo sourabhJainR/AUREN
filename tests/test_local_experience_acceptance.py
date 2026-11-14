@@ -80,11 +80,7 @@ def test_local_acceptance_rejects_non_loopback_dashboard_origins():
         "http://user@127.0.0.1:8765",
     ):
         try:
-            local_acceptance.verify_local_experience(
-                dashboard_url=value,
-                mcp_url="http://127.0.0.1:8766/mcp",
-                token_file="/private/auren-token",
-            )
+            local_acceptance._dashboard_health_url(value)
         except ValueError:
             continue
         assert False, f"expected unsafe dashboard origin to be rejected: {value}"
