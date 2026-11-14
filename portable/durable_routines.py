@@ -75,7 +75,7 @@ class RoutineSpec:
     goal: str | None = None
     deadline_seconds: int | None = None
     approval_required: bool = False
-    enabled: bool = True
+    enabled: bool = False
 
     def __post_init__(self) -> None:
         for field_name in ("routine_id", "handler"):
@@ -251,19 +251,25 @@ class DurableRoutineRegistry:
         if not callable(authenticate):
             raise TypeError("webhook authentication verifier is required")
         try:
-            encoded_event = json.dumps(dict(payload), sort_keys=True, allow_nan=False)
+            encoded_event = json.dumps(
+                dict(payload), sort_keys=True, separators=(",", ":"), allow_nan=False,
+            )
+            # Keep a detached canonical snapshot for the receipt and task payload.
+            # The verifier receives a separate copy so it cannot mutate what is
+            # authenticated and later dispatched.
+            clean_payload = json.loads(encoded_event)
         except (TypeError, ValueError) as exc:
             raise ValueError("webhook payload must be finite JSON data") from exc
         if len(encoded_event.encode("utf-8")) > 64_000:
             raise ValueError("webhook payload exceeds 64 KB")
-        if authenticate(routine_id, event_id, payload) is not True:
+        if authenticate(routine_id, event_id, json.loads(encoded_event)) is not True:
             raise PermissionError("webhook authentication failed")
         spec = self.get(routine_id)
         if spec.trigger != "webhook" or spec.event_type != event_type:
             raise ValueError("webhook event does not match the registered routine")
         return self._dispatch(
             routine_id, "webhook", event_id, submit=submit, approval=approval,
-            reconcile=reconcile, event_payload=payload, expected_version=spec.version,
+            reconcile=reconcile, event_payload=clean_payload, expected_version=spec.version,
         )
 
     def dispatch_due(
