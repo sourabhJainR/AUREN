@@ -68,7 +68,7 @@ This operating model supports the long-term SI and AGI research direction. It do
 
 ## Host bootstrap and provider registration
 
-The portable runtime now exposes an explicit host registration path:
+The portable runtime now exposes an explicit host registration path. For a versioned per-role provider/model configuration, see [Provider Role Profiles](PROVIDER_ROLE_PROFILES.md) and the atomic `register_profiled_crew_adapters(...)` helper. This keeps API keys in the host environment and tool scopes in the canonical approved registry.
 
 - `runtime.register_software_team_persona_adapters(...)` builds and registers all six provider-backed leadership, research, release, and architecture personas.
 - `runtime.register_supervised_software_team_persona_adapters(controller, ...)` binds provider lifecycle receipts to the controller-owned `ProgressJournal`.
