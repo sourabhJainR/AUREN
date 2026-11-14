@@ -618,7 +618,7 @@ class DurableRoutineRegistryTests(unittest.TestCase):
         event_id = "provider-event-1"
         payload = {"ref": "refs/heads/main"}
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-        signed = "\\n".join((timestamp, routine_id, event_id, canonical)).encode("utf-8")
+        signed = "\n".join((timestamp, routine_id, event_id, canonical)).encode("utf-8")
         signature = hmac.new(secret, signed, hashlib.sha256).hexdigest()
 
         self.assertTrue(verify_hmac_webhook_signature(
