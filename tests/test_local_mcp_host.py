@@ -311,9 +311,10 @@ class LocalMCPHostProcessTests(unittest.TestCase):
             env.pop("AUREN_MCP_RUNTIME_FACTORY", None)
             process = subprocess.Popen(
                 [
-                    sys.executable, str(repo_root / "auren_cli.py"), "local",
+                    sys.executable, str(repo_root / "auren_cli.py"), "up",
                     "--project-root", str(project),
-                    "--runtime-factory", "auren_runtime_factory:create_runtime",
+                    "--dashboard-port", "0", "--mcp-port", "0",
+                    "--no-connect", "--no-browser", "--no-chatgpt",
                 ],
                 cwd=repo_root, env=env, stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT, text=True, bufsize=1,
@@ -362,6 +363,19 @@ class LocalMCPHostProcessTests(unittest.TestCase):
                 self.assertEqual("ready", dashboard_health["readiness"])
                 with urllib.request.urlopen(mcp_url.rsplit("/", 1)[0] + "/readyz", timeout=3) as response:
                     self.assertEqual(200, response.status)
+
+                local_acceptance = subprocess.run(
+                    [
+                        sys.executable, str(repo_root / "auren_cli.py"), "verify-local",
+                        "--dashboard-url", dashboard_url, "--mcp-url", mcp_url,
+                    ],
+                    cwd=repo_root, env=env, capture_output=True, text=True, timeout=20,
+                )
+                self.assertEqual(0, local_acceptance.returncode, local_acceptance.stderr + local_acceptance.stdout)
+                acceptance_report = json.loads(local_acceptance.stdout)
+                self.assertEqual("ready", acceptance_report["status"])
+                self.assertTrue(acceptance_report["read_only"])
+                self.assertFalse(acceptance_report["checks"]["mcp"]["tools_invoked"])
 
                 token_path = state_home / "mcp" / "local-operator.token"
                 token = token_path.read_text(encoding="utf-8").strip()
