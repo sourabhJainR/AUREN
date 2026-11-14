@@ -210,7 +210,7 @@ class HybridModelRouter:
         """Route a request and attach a privacy-safe decision span when tracing is bound."""
         active = None
         try:
-            from .agency_observability import bind_trace_context, current_trace_context
+            from .agency_observability import bind_trace_context, current_trace_context, telemetry_usage_metrics
             active = current_trace_context()
         except Exception:
             bind_trace_context = None
@@ -271,7 +271,7 @@ class HybridModelRouter:
 
         try:
             provider_metadata = result.provider_metadata if isinstance(result.provider_metadata, Mapping) else {}
-            usage = provider_metadata.get("usage")
+            usage = telemetry_usage_metrics(provider_metadata.get("usage"))
             route_span.finish(
                 output={
                     "outcome": "completed" if result.success else "failed",
@@ -281,7 +281,7 @@ class HybridModelRouter:
                     "latency_ms": result.latency_ms,
                     "fallback_reason": result.fallback_reason,
                     "error_present": result.error is not None,
-                    "usage": usage if isinstance(usage, Mapping) else None,
+                    "usage": usage,
                     "response_digest": provider_metadata.get("response_digest"),
                 },
                 status="ok" if result.success else "error",
