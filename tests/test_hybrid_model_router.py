@@ -282,24 +282,19 @@ class HybridRouterTests(unittest.TestCase):
             self.assertEqual("ok", route_span.status)
             self.assertEqual("groq", route_span.output["provider"])
             self.assertEqual("pinned-model-v1", route_span.output["model"])
-            self.assertEqual(13, route_span.output["usage"]["total_tokens"])
+            self.assertEqual(13, route_span.output["usage"]["total_units"])
             serialized = trace_path.read_text(encoding="utf-8")
             self.assertNotIn(private_prompt, serialized)
             self.assertNotIn("answer that must not enter telemetry", serialized)
             self.assertNotIn("provider-request-1", serialized)
 
     def test_route_observability_failure_does_not_change_route_result(self):
-        class BrokenTrace:
-            def span(self, *_args, **_kwargs):
-                raise OSError("telemetry unavailable")
-
         router = HybridModelRouter(
             discovery=Discovery([]),
             remote_executor=lambda request: "completed",
             resource_reader=lambda: {},
         )
-        from portable.agency_observability import bind_trace_context
-        # A valid Trace is required by the context binder, so use a Tracer whose
+        # Use a Tracer whose
         # exporter fails and confirm routing still returns its provider result.
         class BrokenExporter:
             enabled = True
