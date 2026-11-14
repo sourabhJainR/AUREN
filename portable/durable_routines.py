@@ -752,6 +752,9 @@ class DurableRoutineRegistry:
                     "approval": approval_receipt,
                     "profile_digest": spec.profile_digest,
                     "policy_digest": spec.policy_digest,
+                    "scheduled_at": _iso(scheduled_at) if scheduled_at is not None else None,
+                    "schedule_cursor": _iso(schedule_cursor) if schedule_cursor is not None else None,
+                    "coalesced_missed_intervals": missed_intervals,
                 }
                 db.execute(
                     """INSERT INTO routine_occurrences
@@ -997,6 +1000,91 @@ class DurableRoutineRegistry:
                 "terminal_event_emitted": False,
                 "terminal_event_error_type": error_type[:128],
                 "terminal_event_last_attempt_at": _iso(datetime.now(timezone.utc)),
+            },
+        )
+
+    def pending_attention_summaries(self, *, limit: int = 64) -> tuple[Mapping[str, Any], ...]:
+        """Return bounded blocked, unknown and coalesced-schedule notices for the trigger inbox."""
+        if type(limit) is not int or not 1 <= limit <= 256:
+            raise ValueError("limit must be between 1 and 256")
+        with closing(self._connect()) as db:
+            rows = db.execute(
+                "SELECT occurrence_key,routine_id,work_key,task_id,status,receipt_json "
+                "FROM routine_occurrences WHERE status IN "
+                "('dispatching','unknown','blocked_approval','blocked_overlap','submitted') "
+                "ORDER BY updated_at,created_at LIMIT ?",
+                (limit,),
+            ).fetchall()
+        pending: list[Mapping[str, Any]] = []
+        for row in rows:
+            try:
+                receipt = json.loads(row["receipt_json"])
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(receipt, Mapping) or receipt.get("attention_event_emitted") is True:
+                continue
+            status = str(row["status"])
+            missed = receipt.get("coalesced_missed_intervals", 0)
+            if status == "blocked_approval":
+                kind = "routine.blocked_approval"
+                summary = f"Routine {row['routine_id']} is blocked pending approval"
+            elif status == "blocked_overlap":
+                kind = "routine.overlap_blocked"
+                summary = f"Routine {row['routine_id']} was skipped because an earlier occurrence is active"
+            elif status in {"dispatching", "unknown"}:
+                kind = "routine.outcome_unknown"
+                summary = f"Routine {row['routine_id']} has an unresolved dispatch outcome"
+            elif type(missed) is int and missed > 0:
+                kind = "routine.schedule_coalesced"
+                summary = f"Routine {row['routine_id']} coalesced {missed} missed interval(s) into one run"
+            else:
+                continue
+            pending.append({
+                "occurrence_key": row["occurrence_key"],
+                "routine_id": row["routine_id"],
+                "work_key": row["work_key"],
+                "task_id": row["task_id"],
+                "status": status,
+                "event_kind": kind,
+                "summary": summary,
+                "missed_intervals": missed if type(missed) is int else 0,
+                "escalation_required": status in {
+                    "blocked_approval", "blocked_overlap", "dispatching", "unknown",
+                },
+            })
+        return tuple(pending)
+
+    def mark_attention_event_emitted(self, occurrence_key: str, event_id: str) -> None:
+        if not isinstance(event_id, str) or not event_id.strip():
+            raise ValueError("event_id is required")
+        occurrence = self.occurrence(occurrence_key)
+        if occurrence is None:
+            raise KeyError(occurrence_key)
+        if occurrence["status"] not in {
+            "dispatching", "unknown", "blocked_approval", "blocked_overlap", "submitted",
+        }:
+            raise ValueError("occurrence is not eligible for an attention event")
+        self._update_receipt(
+            occurrence_key, status=str(occurrence["status"]),
+            updates={
+                "attention_event_emitted": True,
+                "attention_event_id": event_id,
+                "attention_event_emitted_at": _iso(datetime.now(timezone.utc)),
+            },
+        )
+
+    def record_attention_event_error(self, occurrence_key: str, error_type: str) -> None:
+        if not isinstance(error_type, str) or not error_type.strip():
+            raise ValueError("error_type is required")
+        occurrence = self.occurrence(occurrence_key)
+        if occurrence is None:
+            raise KeyError(occurrence_key)
+        self._update_receipt(
+            occurrence_key, status=str(occurrence["status"]),
+            updates={
+                "attention_event_emitted": False,
+                "attention_event_error_type": error_type[:128],
+                "attention_event_last_attempt_at": _iso(datetime.now(timezone.utc)),
             },
         )
 
