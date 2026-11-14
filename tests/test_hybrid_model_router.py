@@ -335,6 +335,9 @@ class HybridRouterTests(unittest.TestCase):
                     result = router.route(TaskRouteRequest(
                         "public task", "general", privacy="public", max_attempts=1,
                     ))
+            tracer.end(trace, status="ok")
+        route_span = next(span for span in trace.spans if span.name == "model.route")
+        self.assertEqual("unavailable", route_span.status)
         self.assertTrue(result.success)
         self.assertEqual("provider-result", result.result)
 
