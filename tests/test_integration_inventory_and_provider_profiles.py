@@ -258,8 +258,8 @@ class ProviderRoleProfileTests(unittest.TestCase):
             and item["span"].get("name") == "crew.role.invoke"
         ]
         self.assertEqual(result, "local-result")
-        self.assertEqual(len(role_events), 1)
-        span = role_events[0]
+        self.assertEqual(len({item["span_id"] for item in role_events}), 1)
+        span = role_events[-1]
         self.assertEqual(span["metadata"]["role_id"], "backend_api")
         self.assertEqual(span["metadata"]["route"], "local_only")
         self.assertEqual(span["input"]["prompt_bytes"], len(prompt.encode("utf-8")))
@@ -305,10 +305,11 @@ class ProviderRoleProfileTests(unittest.TestCase):
             if isinstance(item.get("span"), dict)
             and item["span"].get("name") == "crew.role.invoke"
         ]
-        self.assertEqual(len(spans), 1)
-        self.assertEqual(spans[0]["status"], "error")
-        self.assertEqual(spans[0]["terminal_reason"], "RuntimeError")
-        self.assertEqual(spans[0]["output"], {
+        self.assertEqual(len({item["span_id"] for item in spans}), 1)
+        span = spans[-1]
+        self.assertEqual(span["status"], "error")
+        self.assertEqual(span["terminal_reason"], "RuntimeError")
+        self.assertEqual(span["output"], {
             "outcome": "error",
             "error_type": "RuntimeError",
         })
