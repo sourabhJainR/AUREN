@@ -172,7 +172,7 @@ class DurableRoutineRegistryTests(unittest.TestCase):
         self.assertEqual("submitted", dispatched.status)
         self.assertEqual(1, len(self.submissions))
 
-    def test_approval_gate_blocks_without_creating_occurrence(self):
+    def test_approval_gate_persists_denial_without_dispatching(self):
         spec = self.spec(approval_required=True)
         self.registry.register(spec)
         result = self.registry.dispatch_webhook(
@@ -180,7 +180,40 @@ class DurableRoutineRegistryTests(unittest.TestCase):
             authenticate=lambda *_: True, submit=self.submit,
             approval=lambda _: False,
         )
-        self.assertEqual("blocked", result.status)
+        self.assertEqual("blocked_approval", result.status)
+        self.assertEqual([], self.submissions)
+        occurrence = self.registry.occurrence(result.occurrence_key)
+        self.assertEqual("blocked_approval", occurrence["status"])
+        self.assertFalse(json.loads(occurrence["receipt_json"])["approval"]["approved"])
+
+    def test_structured_approval_receipt_is_persisted(self):
+        spec = self.spec(approval_required=True)
+        self.registry.register(spec)
+        result = self.registry.dispatch_webhook(
+            spec.routine_id, event_id="evt-approval-receipt", event_type="push",
+            payload={"ref": "main"}, authenticate=lambda *_: True, submit=self.submit,
+            approval=lambda _: {
+                "approved": True, "approval_id": "approval-123",
+                "approver": "operator-1", "scope": "routine:repo-health",
+                "decision_digest": "a" * 64,
+                "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+            },
+        )
+        self.assertEqual("submitted", result.status)
+        receipt = json.loads(self.registry.occurrence(result.occurrence_key)["receipt_json"])
+        self.assertEqual("approval-123", receipt["approval"]["approval_id"])
+        self.assertEqual("operator-1", receipt["approval"]["approver"])
+        self.assertEqual("a" * 64, receipt["approval"]["decision_digest"])
+
+    def test_approved_structured_receipt_requires_auditable_identity(self):
+        spec = self.spec(approval_required=True)
+        self.registry.register(spec)
+        result = self.registry.dispatch_webhook(
+            spec.routine_id, event_id="evt-invalid-approval", event_type="push",
+            payload={}, authenticate=lambda *_: True, submit=self.submit,
+            approval=lambda _: {"approved": True},
+        )
+        self.assertEqual("blocked_approval", result.status)
         self.assertEqual([], self.submissions)
 
     def test_uncertain_submit_is_never_replayed_without_authoritative_lookup(self):
@@ -265,7 +298,7 @@ class DurableRoutineRegistryTests(unittest.TestCase):
         retried = self.registry.dispatch_due(
             now=now, submit=self.submit, approval=lambda _: True,
         )
-        self.assertEqual("blocked", blocked[0].status)
+        self.assertEqual("blocked_approval", blocked[0].status)
         self.assertEqual("submitted", retried[0].status)
         self.assertEqual(1, len(self.submissions))
 
