@@ -190,7 +190,7 @@ class RemoteMCPAcceptanceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "allowlisted HTTPS"):
             run_acceptance(
                 "http://mcp.example.test/mcp", TOKEN,
-                allowed_hosts=("mcp.example.test",), transport=lambda *a, **k: (200, b"{}"),
+                allowed_hosts=ALLOWED_HOSTS, transport=lambda *a, **k: (200, b"{}"),
             )
         with self.assertRaisesRegex(ValueError, "allowlisted HTTPS"):
             run_acceptance(
@@ -201,12 +201,12 @@ class RemoteMCPAcceptanceTests(unittest.TestCase):
     def test_non_200_health_fails(self):
         transport, _ = self._transport(health_status=503)
         with self.assertRaisesRegex(AcceptanceFailure, "HTTP 503"):
-            run_acceptance(ENDPOINT, TOKEN, allowed_hosts=("mcp.example.test",), transport=transport)
+            run_acceptance(ENDPOINT, TOKEN, allowed_hosts=ALLOWED_HOSTS, transport=transport)
 
     def test_non_200_readiness_fails(self):
         transport, calls = self._transport(readiness_status=503)
         with self.assertRaisesRegex(AcceptanceFailure, "HTTP 503"):
-            run_acceptance(ENDPOINT, TOKEN, allowed_hosts=("mcp.example.test",), transport=transport)
+            run_acceptance(ENDPOINT, TOKEN, allowed_hosts=ALLOWED_HOSTS, transport=transport)
         self.assertEqual(2, len(calls))
         self.assertTrue(calls[-1][0].endswith("/readyz"))
 
@@ -218,12 +218,12 @@ class RemoteMCPAcceptanceTests(unittest.TestCase):
                 return 200, b'{"status":"not_ready"}'
             return original(url, **kwargs)
         with self.assertRaisesRegex(AcceptanceFailure, "readiness check"):
-            run_acceptance(ENDPOINT, TOKEN, allowed_hosts=("mcp.example.test",), transport=unready)
+            run_acceptance(ENDPOINT, TOKEN, allowed_hosts=ALLOWED_HOSTS, transport=unready)
 
     def test_missing_read_only_tool_fails_without_mutating_server(self):
         transport, calls = self._transport(omit_tool="auren.get_evidence")
         with self.assertRaisesRegex(AcceptanceFailure, "auren.get_evidence"):
-            run_acceptance(ENDPOINT, TOKEN, allowed_hosts=("mcp.example.test",), transport=transport)
+            run_acceptance(ENDPOINT, TOKEN, allowed_hosts=ALLOWED_HOSTS, transport=transport)
         methods = [
             json.loads(kwargs["body"].decode())["method"]
             for _, kwargs in calls if kwargs["method"] == "POST"
@@ -234,7 +234,7 @@ class RemoteMCPAcceptanceTests(unittest.TestCase):
         transport, _ = self._transport(issuer="https://identity.example.test")
         with self.assertRaisesRegex(AcceptanceFailure, "exactly match"):
             run_acceptance(
-                ENDPOINT, TOKEN, allowed_hosts=("mcp.example.test",),
+                ENDPOINT, TOKEN, allowed_hosts=ALLOWED_HOSTS,
                 expected_issuer=ISSUER, transport=transport,
             )
 
@@ -272,7 +272,7 @@ class RemoteMCPAcceptanceTests(unittest.TestCase):
         calls = []
         with self.assertRaisesRegex(ValueError, "access token"):
             run_acceptance(
-                ENDPOINT, "short", allowed_hosts=("mcp.example.test",),
+                ENDPOINT, "short", allowed_hosts=ALLOWED_HOSTS,
                 transport=lambda *a, **k: calls.append((a, k)) or (200, b"{}"),
             )
         self.assertEqual([], calls)
