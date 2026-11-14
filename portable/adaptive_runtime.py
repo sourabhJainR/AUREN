@@ -553,7 +553,7 @@ class AdaptiveRuntime:
 
     def dispatch_manual_routine(
         self, project_root: Path | str, routine_id: str, *, invocation_id: str,
-        approval: Callable[[RoutineSpec], bool] | None = None,
+        approval: Callable[[RoutineSpec], Any] | None = None,
     ) -> RoutineDispatch:
         """Dispatch a manual occurrence through the canonical task controller."""
         return self.routine_registry(project_root).dispatch_manual(
@@ -568,7 +568,7 @@ class AdaptiveRuntime:
         self, project_root: Path | str, routine_id: str, *,
         event_id: str, event_type: str, payload: Mapping[str, Any],
         authenticate: Callable[[str, str, Mapping[str, Any]], bool],
-        approval: Callable[[RoutineSpec], bool] | None = None,
+        approval: Callable[[RoutineSpec], Any] | None = None,
     ) -> RoutineDispatch:
         """Dispatch only after a host-owned webhook verifier accepts the event."""
         return self.routine_registry(project_root).dispatch_webhook(
@@ -584,7 +584,7 @@ class AdaptiveRuntime:
 
     def dispatch_due_routines(
         self, project_root: Path | str, *, now: datetime | None = None,
-        limit: int = 32, approval: Callable[[RoutineSpec], bool] | None = None,
+        limit: int = 32, approval: Callable[[RoutineSpec], Any] | None = None,
     ) -> tuple[RoutineDispatch, ...]:
         """Run a bounded due-routine tick through the existing controller and service."""
         return self.routine_registry(project_root).dispatch_due(
