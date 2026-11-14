@@ -37,3 +37,61 @@ jobs:
         run: docker build --pull -t auren-remote-mcp:ci -f deploy/remote-mcp/Dockerfile .
       - name: Verify runtime imports
         run: docker run --rm --entrypoint python auren-remote-mcp:ci -c "import uvicorn; import portable.remote_mcp_server; print(uvicorn.__version__)"
+      - name: Verify container startup, health and OAuth resource metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker volume create auren-mcp-smoke-state
+          cleanup() {
+            docker rm -f auren-mcp-smoke >/dev/null 2>&1 || true
+            docker volume rm auren-mcp-smoke-state >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          docker run --detach --name auren-mcp-smoke \
+            --publish 127.0.0.1:18765:8765 \
+            --mount source=auren-mcp-smoke-state,target=/var/lib/auren \
+            --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+            --read-only \
+            --env AUREN_HOME=/var/lib/auren \
+            --env AUREN_PROJECT_ROOT=/workspace/project \
+            --env AUREN_MCP_BIND_HOST=0.0.0.0 \
+            --env AUREN_MCP_PORT=8765 \
+            --env AUREN_MCP_ALLOW_PUBLIC_BIND=1 \
+            --env AUREN_MCP_RESOURCE_URL=https://mcp.example.test/mcp \
+            --env AUREN_MCP_AUTHORIZATION_SERVER=https://identity.example.test/ \
+            --env AUREN_MCP_INTROSPECTION_URL=https://identity.example.test/oauth/introspect \
+            --env AUREN_MCP_INTROSPECTION_CLIENT_ID=container-smoke \
+            --env AUREN_MCP_INTROSPECTION_CLIENT_SECRET=not-a-real-secret \
+            --env AUREN_MCP_ALLOWED_HOSTS=mcp.example.test \
+            --env AUREN_MCP_ALLOWED_ORIGINS=https://chatgpt.com \
+            --env AUREN_MCP_CONTROL_DB=/var/lib/auren/remote-mcp-control.sqlite3 \
+            auren-remote-mcp:ci
+          python - <<'PY'
+          import json
+          import time
+          import urllib.error
+          import urllib.request
+
+          base = "http://127.0.0.1:18765"
+          deadline = time.monotonic() + 45
+          last_error = None
+          while time.monotonic() < deadline:
+              try:
+                  for path in ("/healthz", "/readyz"):
+                      with urllib.request.urlopen(base + path, timeout=3) as response:
+                          if response.status != 200:
+                              raise RuntimeError(f"{path} returned {response.status}")
+                  with urllib.request.urlopen(base + "/.well-known/oauth-protected-resource", timeout=3) as response:
+                      metadata = json.loads(response.read().decode("utf-8"))
+                  if metadata.get("resource") != "https://mcp.example.test/mcp":
+                      raise RuntimeError("protected-resource metadata has the wrong resource URI")
+                  if metadata.get("authorization_servers") != ["https://identity.example.test/"]:
+                      raise RuntimeError("protected-resource metadata has the wrong exact issuer")
+                  print("Remote MCP container startup, readiness and OAuth resource metadata passed.")
+                  break
+              except Exception as exc:
+                  last_error = exc
+                  time.sleep(1)
+          else:
+              raise SystemExit(f"remote MCP container did not become ready: {last_error}")
+          PY
