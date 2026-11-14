@@ -543,7 +543,7 @@ class RemoteMCPASGITests(unittest.TestCase):
         service = AurenMCPService(
             self.runtime, project_root=self.root, token_verifier=verifier,
             resource_url="https://mcp.example.test/mcp",
-            authorization_server_url="https://identity.example.test",
+            authorization_server_url="https://identity.example.test/",
             allowed_origins=("https://chat.example.test",),
             allowed_hosts=("mcp.example.test",), require_https=True,
             control_store_path=self.root / "operator-control.sqlite3",
@@ -933,7 +933,7 @@ class RemoteMCPASGITests(unittest.TestCase):
         self.assertEqual(200, status)
         metadata = json.loads(body)
         self.assertEqual("https://mcp.example.test/mcp", metadata["resource"])
-        self.assertEqual(["https://identity.example.test"], metadata["authorization_servers"])
+        self.assertEqual(["https://identity.example.test/"], metadata["authorization_servers"])
 
 
 if __name__ == "__main__":
