@@ -709,5 +709,40 @@ class DurableRoutineRegistryTests(unittest.TestCase):
             self.registry.register(spec)
 
 
+    def test_cancel_inflight_bounded_batches_advance_to_unprocessed_occurrences(self):
+        spec = self.spec()
+        self.registry.register(spec)
+        first = self.registry.dispatch_webhook(
+            spec.routine_id, event_id="evt-batch-1", event_type="push",
+            payload={"ref": "main"}, authenticate=lambda *_: True, submit=self.submit,
+        )
+        second = self.registry.dispatch_webhook(
+            spec.routine_id, event_id="evt-batch-2", event_type="push",
+            payload={"ref": "release"}, authenticate=lambda *_: True, submit=self.submit,
+        )
+        task_by_key = {
+            first.work_key: {"id": first.task_id, "state": "running"},
+            second.work_key: {"id": second.task_id, "state": "running"},
+        }
+        requested = []
+        def reconcile(work_key):
+            return task_by_key[work_key]
+        def request_cancel(task_id, reason):
+            requested.append(task_id)
+            return True
+
+        batch_one = self.registry.cancel_inflight(
+            spec.routine_id, reconcile=reconcile, request_cancel=request_cancel,
+            reason="batch stop", limit=1,
+        )
+        batch_two = self.registry.cancel_inflight(
+            spec.routine_id, reconcile=reconcile, request_cancel=request_cancel,
+            reason="batch stop", limit=1,
+        )
+        self.assertEqual(first.task_id, batch_one[0].task_id)
+        self.assertEqual(second.task_id, batch_two[0].task_id)
+        self.assertEqual([first.task_id, second.task_id], requested)
+
+
 if __name__ == "__main__":
     unittest.main()
