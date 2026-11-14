@@ -23,10 +23,14 @@ does not implement an HTTP server or secret store.
 
 ## Minimal integration
 
-    from portable.durable_routines import DurableRoutineRegistry, RoutineSpec
+The host already owns an AdaptiveRuntime and a project root. Register and enable a
+routine through that runtime; do not create a second scheduler or controller.
 
-    registry = DurableRoutineRegistry(".auren/routines.sqlite")
-    registry.register(RoutineSpec(
+    from pathlib import Path
+    from portable.durable_routines import RoutineSpec
+
+    project_root = Path(".").resolve()
+    spec = RoutineSpec(
         routine_id="repository-health",
         version=1,
         handler="repository_health_check",
@@ -35,30 +39,19 @@ does not implement an HTTP server or secret store.
         interval_seconds=3600,
         timezone="UTC",
         deadline_seconds=900,
-        enabled=True,  # New routines are disabled unless the operator opts in.
-    ))
-
-    # A manual run uses a caller-generated stable invocation ID for idempotency.
-    registry.dispatch_manual(
-        "repository-health", invocation_id="operator-request-2026-11-07-001",
-        submit=lambda handler, payload, **kwargs: controller.submit(handler, payload, **kwargs),
     )
-
-    # The adapter is the canonical ExecutionController instance.
-    def submit(handler, payload, **kwargs):
-        return controller.submit(handler, payload, **kwargs)
-
-    # Preferred host path: the project-scoped registry and controller adapter
-    # are composed by AdaptiveRuntime. The managed MaintenanceService invokes
-    # dispatch_due_routines() on its existing bounded tick.
     runtime.register_routine(project_root, spec)
     runtime.set_routine_enabled(project_root, "repository-health", True)
+
+    # The managed MaintenanceService calls this on its existing bounded tick.
     runtime.dispatch_due_routines(project_root, limit=20)
 
-    # Manual and webhook occurrences use the same canonical controller.
+    # Manual runs use a caller-generated stable invocation ID.
     runtime.dispatch_manual_routine(
         project_root, "repository-health", invocation_id="operator-request-001",
     )
+
+    # The host must verify the provider signature, timestamp and replay window.
     runtime.dispatch_webhook_routine(
         project_root, "repository-triage", event_id="provider-event-123",
         event_type="push", payload={"ref": "refs/heads/main"},
