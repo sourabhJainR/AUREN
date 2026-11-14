@@ -47,7 +47,7 @@ def _strip_jsonc(raw: str) -> str:
             without_comments.append(char)
             if escaped:
                 escaped = False
-            elif char == "\\\\":
+            elif ord(char) == 92:
                 escaped = True
             elif char == '"':
                 in_string = False
@@ -59,7 +59,7 @@ def _strip_jsonc(raw: str) -> str:
             index += 1
         elif char == "/" and following == "/":
             index += 2
-            while index < len(raw) and raw[index] not in "\\r\\n":
+            while index < len(raw) and raw[index] not in (chr(13), chr(10)):
                 index += 1
         elif char == "/" and following == "*":
             index += 2
@@ -83,7 +83,7 @@ def _strip_jsonc(raw: str) -> str:
             result.append(char)
             if escaped:
                 escaped = False
-            elif char == "\\\\":
+            elif ord(char) == 92:
                 escaped = True
             elif char == '"':
                 in_string = False
