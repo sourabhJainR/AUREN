@@ -553,7 +553,7 @@ class DurableRoutineRegistry:
                 active_rows = db.execute(
                     "SELECT occurrence_key,work_key,status FROM routine_occurrences "
                     "WHERE routine_id=? AND occurrence_key<>? "
-                    "AND status IN ('submitted','dispatching','unknown') "
+                    "AND status IN ('submitted','dispatching','unknown','cancellation_requested') "
                     "ORDER BY created_at DESC LIMIT 65",
                     (routine_id, occurrence_key),
                 ).fetchall()
@@ -711,6 +711,59 @@ class DurableRoutineRegistry:
                 "SELECT * FROM routine_occurrences WHERE occurrence_key=?", (occurrence_key,)
             ).fetchone()
         return dict(row) if row else None
+
+    def request_cancellation(
+        self, occurrence_key: str, *, cancel: Callable[..., bool], reason: str,
+    ) -> RoutineDispatch:
+        """Request task cancellation through the canonical controller.
+
+        The occurrence remains nonterminal until the controller confirms its
+        final state. This method records the request, never a false cancellation.
+        """
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > 1000:
+            raise ValueError("cancellation reason must be non-empty text of at most 1000 characters")
+        occurrence = self.occurrence(occurrence_key)
+        if occurrence is None:
+            raise KeyError(occurrence_key)
+        task_id = occurrence.get("task_id")
+        work_key = str(occurrence["work_key"])
+        status = str(occurrence["status"])
+        if status in {"completed", "failed", "cancelled", "skipped_overlap", "blocked_overlap"}:
+            return RoutineDispatch(occurrence_key, work_key, status, task_id)
+        if not isinstance(task_id, str) or not task_id:
+            return RoutineDispatch(
+                occurrence_key, work_key, "unknown",
+                reason="occurrence has no reconciled task ID; cancellation was not attempted",
+            )
+        try:
+            accepted = cancel(task_id, reason=reason.strip())
+        except Exception as exc:
+            self._update_receipt(
+                occurrence_key, status=status,
+                updates={"cancellation_error_type": type(exc).__name__},
+            )
+            return RoutineDispatch(
+                occurrence_key, work_key, "unknown",
+                task_id, f"cancellation request failed ({type(exc).__name__})",
+            )
+        if accepted is not True:
+            return RoutineDispatch(
+                occurrence_key, work_key, "not_cancellable", task_id,
+                "controller did not accept cancellation; task state remains authoritative",
+            )
+        reason_digest = hashlib.sha256(reason.strip().encode("utf-8")).hexdigest()
+        requested_at = _iso(datetime.now(timezone.utc))
+        self._update_receipt(
+            occurrence_key, status="cancellation_requested",
+            updates={
+                "state": "cancellation_requested",
+                "cancellation_requested_at": requested_at,
+                "cancellation_reason_digest": reason_digest,
+            },
+        )
+        return RoutineDispatch(
+            occurrence_key, work_key, "cancellation_requested", task_id,
+        )
 
 
 __all__ = ["DurableRoutineRegistry", "RoutineDispatch", "RoutineSpec"]
