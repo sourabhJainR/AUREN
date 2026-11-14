@@ -87,6 +87,20 @@ class RemoteMCPAcceptanceTests(unittest.TestCase):
                             }},
                             "required": ["id"],
                         }
+                    elif name in {
+                        "auren.service_status", "auren.list_tasks", "auren.get_task",
+                    }:
+                        tool["_meta"]["securitySchemes"] = [
+                            {"type": "oauth2", "scopes": ["auren:tasks:read"]},
+                        ]
+                    elif name == "auren.get_evidence":
+                        tool["_meta"]["securitySchemes"] = [
+                            {"type": "oauth2", "scopes": ["auren:evidence:read"]},
+                        ]
+                    elif name in {"auren.list_approvals", "auren.get_approval"}:
+                        tool["_meta"]["securitySchemes"] = [
+                            {"type": "oauth2", "scopes": ["auren:approvals:read"]},
+                        ]
                     elif name == "auren.submit_task":
                         tool["_meta"]["securitySchemes"] = [
                             {"type": "oauth2", "scopes": ["auren:tasks:write"]},
