@@ -70,6 +70,8 @@ def _text(value: Any, field: str, *, maximum: int = 200) -> str:
 
 def _model_id(value: Any, field: str) -> str:
     result = _text(value, field)
+    if any(character.isspace() for character in result):
+        raise ProviderRoleProfileError(f"{field} must not contain whitespace")
     if result.casefold() in {"latest", "unknown", "unversioned"} or result.casefold().endswith(":latest"):
         raise ProviderRoleProfileError(f"{field} must identify a pinned model, not a mutable latest alias")
     return result
@@ -132,6 +134,8 @@ def _parse_profile(raw: Any, path: Path) -> ProviderRoleProfile:
     role_values = raw.get("roles")
     if not isinstance(role_values, Mapping) or not role_values:
         raise ProviderRoleProfileError("roles must be a non-empty object")
+    if any(not isinstance(role_id, str) for role_id in role_values):
+        raise ProviderRoleProfileError("role IDs must be strings")
     unknown = set(role_values) - PROFILE_ROLES
     if unknown:
         raise ProviderRoleProfileError("unknown role IDs: " + ", ".join(sorted(unknown)))
@@ -162,7 +166,11 @@ def _parse_profile(raw: Any, path: Path) -> ProviderRoleProfile:
         tools = item.get("allowed_tools")
         if (
             not isinstance(tools, list) or len(tools) > 64
-            or any(not isinstance(name, str) or not name.strip() or len(name) > 128 for name in tools)
+            or any(
+                not isinstance(name, str) or not name.strip() or len(name) > 128
+                or not name.isprintable() or any(character.isspace() for character in name)
+                for name in tools
+            )
             or len(set(tools)) != len(tools)
         ):
             raise ProviderRoleProfileError(f"role {role_id}.allowed_tools must be a unique list of at most 64 names")
@@ -195,7 +203,9 @@ def _parse_profile(raw: Any, path: Path) -> ProviderRoleProfile:
 
 def load_provider_role_profile(path: str | Path) -> ProviderRoleProfile:
     """Load a bounded regular profile file and reject duplicate or unknown fields."""
-    target = Path(path).expanduser()
+    target = Path(os.path.abspath(Path(path).expanduser()))
+    if any(parent.is_symlink() for parent in target.parents):
+        raise ProviderRoleProfileError("refusing to read through a symlinked profile directory")
     if target.is_symlink() or not target.is_file():
         raise ProviderRoleProfileError("provider role profile is missing or is not a regular file")
     if target.stat().st_size > MAX_PROFILE_BYTES:
@@ -260,6 +270,8 @@ def write_provider_role_profile(
     apply: bool = False,
 ) -> dict[str, Any]:
     """Preview or create a profile without overwriting an existing file."""
+    if type(apply) is not bool:
+        raise ProviderRoleProfileError("apply must be a boolean")
     target = Path(os.path.abspath(Path(path).expanduser()))
     parsed = _parse_profile(document, target)
     payload = _canonical(parsed.as_dict()) + b"\n"
@@ -277,7 +289,9 @@ def write_provider_role_profile(
         if parent.is_symlink():
             raise ProviderRoleProfileError("refusing to write through a symlinked profile directory")
     target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if target.parent.is_symlink() or target.exists() or target.is_symlink():
+    if any(parent.is_symlink() for parent in target.parents):
+        raise ProviderRoleProfileError("refusing to write through a symlinked profile directory")
+    if target.exists() or target.is_symlink():
         raise ProviderRoleProfileError("profile path exists or became unsafe; refusing to overwrite")
     temporary = target.with_name(target.name + ".tmp-" + str(os.getpid()))
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
