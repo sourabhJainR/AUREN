@@ -257,6 +257,12 @@ class DurableRoutineRegistry:
                     # are loaded. Compare normalized definitions so an upgrade
                     # does not make an unchanged legacy routine look mutated.
                     stored_payload = json.loads(current["spec_json"])
+                    if not isinstance(stored_payload, dict):
+                        raise ValueError("persisted routine definition is corrupt")
+                    stored_digest_payload = dict(stored_payload)
+                    stored_digest_payload.pop("enabled", None)
+                    if current["spec_digest"] != _digest(stored_digest_payload):
+                        raise ValueError("persisted routine definition digest mismatch")
                     requested_payload = dict(payload)
                     for field_name, default in (
                         ("profile_digest", None),
