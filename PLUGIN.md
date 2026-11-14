@@ -22,6 +22,8 @@ From Claude Code:
 
 ## What it does
 
+The native Claude Code package supplies the shared Agent Skill and prompt hook. It does not start a separate MCP runtime. Run `auren up` in the target repository to start the canonical local host and configure Claude Code's MCP connection through the authenticated local bridge. For hosted Claude, configure the separately deployed HTTPS MCP endpoint and OAuth.
+
 The plugin provides a single adaptive engineering run by default. It classifies the task, profiles the repository, discovers available optional extensions, retrieves precise code context, implements using local conventions, verifies the result, performs review, repairs failures when justified, and records evidence-backed learning.
 
 ## Optional extensions
