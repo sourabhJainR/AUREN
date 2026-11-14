@@ -609,6 +609,7 @@ class AdaptiveRuntime:
     def cancel_routine_occurrences(
         self, project_root: Path | str, routine_id: str, *,
         reason: str = "operator requested routine cancellation",
+        limit: int = 64,
     ) -> tuple[RoutineDispatch, ...]:
         """Request cancellation of every non-terminal occurrence via the durable controller."""
         return self.routine_registry(project_root).cancel_inflight(
@@ -618,6 +619,7 @@ class AdaptiveRuntime:
                 task_id, reason=message,
             ),
             reason=reason,
+            limit=limit,
         )
 
     def ensure_learning_maintenance(self, project_root: Path | str, *, interval_seconds: int | None = None) -> object:
