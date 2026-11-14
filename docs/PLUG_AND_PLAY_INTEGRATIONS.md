@@ -205,11 +205,11 @@ The remaining Harness²-aligned work is tracked in [issue #692](https://github.c
 
 ## Additional improvements worth prioritising
 
-The first integration inventory and role-profile setup are now implemented. Remaining work:
+The integration inventory, role-profile setup and signed data-only pack lock manager are implemented. Remaining work:
 
 1. **Live host acceptance harness:** smoke-test tool discovery, OAuth refresh/revocation, identity scopes, task submission, cancellation, restart and evidence retrieval for each supported client/version.
 2. **Harness experiment operations:** complete resume, parallel/sequential modes, experiment-tree UI, per-candidate cost/quality/safety reporting and independent evaluator custody.
-3. **Provider observability:** record model/provider version, latency, token usage, cost, route reason, fallback and task outcome without logging secrets or sensitive prompts.
+3. **Per-task cost attribution:** attach reviewed exact-model price estimates to hybrid route traces and local-model usage, then reconcile estimates with provider billing exports. Current cost estimates cover direct API probes and explicit token-count inputs.
 
 ## Validation and readiness
 
