@@ -252,13 +252,34 @@ class HybridModelRouter:
             )
 
         try:
-            with bind_trace_context(trace, route_span.span_id):
-                result = self._route_impl(
-                    request,
-                    execution_guard=execution_guard,
-                    execution_guard_persist=execution_guard_persist,
+            trace_context = bind_trace_context(trace, route_span.span_id)
+            trace_context.__enter__()
+        except Exception:
+            try:
+                route_span.finish(
+                    output={"outcome": "telemetry_unavailable"},
+                    status="unavailable",
+                    terminal_reason="trace_context_bind_failed",
                 )
+            except Exception:
+                pass
+            return self._route_impl(
+                request,
+                execution_guard=execution_guard,
+                execution_guard_persist=execution_guard_persist,
+            )
+
+        try:
+            result = self._route_impl(
+                request,
+                execution_guard=execution_guard,
+                execution_guard_persist=execution_guard_persist,
+            )
         except BaseException as exc:
+            try:
+                trace_context.__exit__(type(exc), exc, exc.__traceback__)
+            except Exception:
+                pass
             try:
                 route_span.finish(
                     output={"outcome": "error", "error_type": type(exc).__name__},
@@ -268,6 +289,12 @@ class HybridModelRouter:
             except Exception:
                 pass
             raise
+        else:
+            try:
+                trace_context.__exit__(None, None, None)
+            except Exception:
+                # A trace context reset failure cannot change the provider result.
+                pass
 
         try:
             provider_metadata = result.provider_metadata if isinstance(result.provider_metadata, Mapping) else {}
