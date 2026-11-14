@@ -129,9 +129,10 @@ verification and dispatch so verifier-side mutation cannot change the accepted e
 - `cancel_routine_occurrence` records a cancellation request and calls the durable
   controller cancellation API. The occurrence remains `cancellation_requested`, not
   `cancelled`, until the controller reports a terminal outcome.
-- `cancel_routine_occurrences` reconciles every non-terminal occurrence by stable work key,
-  then requests cancellation through the canonical controller. Missing or uncertain task
-  records remain unknown; terminal states are copied from the controller into the receipt.
+- `cancel_routine_occurrences` reconciles a bounded batch (default 64, maximum 256) of
+  non-terminal occurrences by stable work key, then requests cancellation through the
+  canonical controller. Missing or uncertain task records remain unknown; terminal states
+  are copied from the controller into the receipt.
 - Routine storage records configuration and trigger receipts only. It does not duplicate
   task state, queue ownership, or execution status.
 - Interval ticks are bounded (maximum 256 occurrences per call); the host owns process
