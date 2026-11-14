@@ -57,3 +57,47 @@ def test_native_service_definitions_use_foreground_host(tmp_path) -> None:
     assert "last_day_of_month" not in linux  # calendar truth lives in the durable scheduler
     assert "com.auren.AURENMaintenance" in plist
     assert "AUREN_MAINTENANCE_TIME" in plist
+
+def test_maintenance_service_dispatches_due_routines_on_existing_tick(tmp_path, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from portable.maintenance_service import MaintenanceService
+
+    calls = []
+
+    class FakeRuntime:
+        def resume_tasks(self, **_kwargs):
+            return []
+
+        def dispatch_due_routines(self, project_root, *, limit):
+            calls.append((project_root, limit))
+            return (
+                SimpleNamespace(
+                    occurrence_key="occurrence-1",
+                    work_key="routine:repo-health:v1:occurrence-1",
+                    status="submitted",
+                    task_id="task-1",
+                    reason=None,
+                ),
+            )
+
+        def maintenance_tick(self, *_args, **_kwargs):
+            return None
+
+    class FakeDaemon:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def checkpoint(self):
+            return SimpleNamespace(healthy=True)
+
+    monkeypatch.setattr("portable.maintenance_service.AdaptiveRuntime", lambda *_args, **_kwargs: FakeRuntime())
+    monkeypatch.setattr("portable.maintenance_service.PersistentSupervisorDaemon", FakeDaemon)
+    service = MaintenanceService(MaintenanceServiceConfig(project_root=tmp_path))
+
+    result = service.run_once()
+
+    assert calls == [(tmp_path, service.config.maintenance_budget)]
+    assert result["routines"][0]["status"] == "submitted"
+    assert result["routines"][0]["task_id"] == "task-1"
+
