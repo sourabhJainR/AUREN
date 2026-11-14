@@ -314,16 +314,19 @@ These are model-provider APIs, not interchangeable MCP host applications. AUREN 
 
 ## Read-only deployment acceptance
 
-After deploying the service behind TLS and configuring the external OAuth authorization server, run the live acceptance probe with a short-lived read-only access token. The probe verifies HTTPS/host allowlisting, health, protected-resource metadata, modern `server/discover`, modern cacheable `tools/list`, legacy `initialize` fallback and the minimum read-only operator tools. It does not submit tasks or make approval/admission changes.
+After deploying the service behind TLS and configuring the external OAuth authorization server, run the live acceptance probe with a short-lived read-only access token. The probe verifies HTTPS and explicit outbound host allowlisting, health/readiness, exact protected-resource and OAuth issuer metadata, authorization-server discovery, PKCE S256, CIMD/DCR, refresh-token support, modern `server/discover`, modern cacheable `tools/list`, legacy `initialize` fallback, read-tool scopes, the ChatGPT OAuth challenge and stable `get_profile` structured output. It does not submit tasks or make approval/admission changes.
 
 ```bash
 export AUREN_MCP_ENDPOINT=https://mcp.example.com/mcp
 export AUREN_MCP_ALLOWED_HOSTS=mcp.example.com
 export AUREN_MCP_ACCESS_TOKEN="<short-lived-read-only-token>"
 python scripts/remote_mcp_acceptance.py
+
+# With a token that includes task-write and approval-decision scopes:
+python scripts/remote_mcp_acceptance.py --require-write
 ```
 
-The token is read from the environment and is never printed. Use a principal with read, status and evidence scopes only. A successful probe proves both MCP protocol eras against the deployed endpoint; it does not replace vendor-specific ChatGPT/Codex/Claude/Gemini/IDE acceptance, load testing, OAuth lifecycle tests or independent security review.
+The token is read from the environment and is never printed. The outbound allowlist must include the MCP host and OAuth issuer/authorization/token/registration hosts. Use a principal with read, status, evidence and approval-read scopes for the first probe. Add `--require-write` only with a full-scope token. A successful probe proves both MCP protocol eras and the ChatGPT OAuth/profile contract against the deployed endpoint; it does not replace a live ChatGPT browser authorization flow, controlled task execution, load testing, OAuth lifecycle tests or independent security review.
 
 ## Production boundary and remaining gates
 
