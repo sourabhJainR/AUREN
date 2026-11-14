@@ -68,10 +68,11 @@ This operating model supports the long-term SI and AGI research direction. It do
 
 ## Host bootstrap and provider registration
 
-The portable runtime now exposes an explicit host registration path:
+The portable runtime now exposes a supervised host registration path. For a versioned per-role provider/model configuration, see [Provider Role Profiles](PROVIDER_ROLE_PROFILES.md) and `register_supervised_profiled_crew_adapters(controller, profile_path, tools=...)`. This binds progress to the controller-owned journal, keeps API keys in the host environment and checks tool scopes against the canonical approved registry.
 
 - `runtime.register_software_team_persona_adapters(...)` builds and registers all six provider-backed leadership, research, release, and architecture personas.
 - `runtime.register_supervised_software_team_persona_adapters(controller, ...)` binds provider lifecycle receipts to the controller-owned `ProgressJournal`.
+- `runtime.register_supervised_profiled_crew_adapters(controller, profile_path, tools=...)` is the preferred path for versioned role profiles. The lower-level `register_profiled_crew_adapters(...)` is for bootstrap code that explicitly owns journal wiring.
 - Both paths require a complete mapping of provider invokers, provider IDs, pinned provider versions, and per-persona approved read-only tool scopes. Partial registration is rejected before the runtime registry is changed.
 - The host owns provider clients, credentials, network policy, timeout choices, and tool handlers. AUREN does not discover credentials or enable a provider by default.
 - Adapters return proposals only. They cannot mutate repositories, approve their own work, merge, promote, or bypass the supervisor.

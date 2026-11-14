@@ -192,6 +192,123 @@ def register_supervised_software_team_persona_adapters(
     }
     return register_software_team_persona_adapters(**configuration)
 
+
+def register_profiled_crew_adapters(
+    profile_path: str | Path,
+    *,
+    tools: Any | None = None,
+    progress_journal: Any | None = None,
+    replace: bool = False,
+    environ: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Build and atomically register provider-backed graph-team adapters from a role profile.
+
+    The profile supplies provider/model routing and may narrow read-only tool
+    scopes. The host still supplies the canonical ApprovedToolRegistry and
+    progress journal. An empty registry is the safe default.
+    """
+    from portable.crew_adapters import (
+        ApprovedToolRegistry,
+        SPECIALIST_CREW_IDS,
+        SOFTWARE_TEAM_PERSONA_IDS,
+        build_provider_backed_specialist_crew_adapters,
+        build_provider_backed_software_team_persona_adapters,
+    )
+    from portable.progress_journal import ProgressJournal
+    from portable.provider_role_profiles import build_profiled_crew_adapter_inputs
+
+    if tools is None:
+        tools = ApprovedToolRegistry()
+    if not isinstance(tools, ApprovedToolRegistry):
+        raise TypeError("tools must be the canonical ApprovedToolRegistry")
+    if progress_journal is not None and not isinstance(progress_journal, ProgressJournal):
+        raise TypeError("progress_journal must be the canonical ProgressJournal")
+    if type(replace) is not bool:
+        raise ValueError("replace must be a boolean")
+
+    prepared = build_profiled_crew_adapter_inputs(
+        profile_path,
+        tools=tools,
+        environ=environ,
+    )
+    adapters: dict[str, Any] = {}
+    specialist_config = prepared["specialists"]
+    if specialist_config:
+        adapters.update(build_provider_backed_specialist_crew_adapters(
+            provider_invokers={
+                role_id: item["invoker"] for role_id, item in specialist_config.items()
+            },
+            provider_ids={
+                role_id: item["provider_id"] for role_id, item in specialist_config.items()
+            },
+            provider_versions={
+                role_id: item["provider_version"] for role_id, item in specialist_config.items()
+            },
+            tools=tools,
+            allowed_tools_by_crew={
+                role_id: item["allowed_tools"] for role_id, item in specialist_config.items()
+            },
+            timeout_seconds_by_crew={
+                role_id: item["timeout_seconds"] for role_id, item in specialist_config.items()
+            },
+            progress_callbacks_by_crew=(
+                {role_id: progress_journal.record_provider_event for role_id in SPECIALIST_CREW_IDS}
+                if progress_journal is not None else None
+            ),
+        ))
+    persona_config = prepared["personas"]
+    if persona_config:
+        adapters.update(build_provider_backed_software_team_persona_adapters(
+            provider_invokers={
+                role_id: item["invoker"] for role_id, item in persona_config.items()
+            },
+            provider_ids={
+                role_id: item["provider_id"] for role_id, item in persona_config.items()
+            },
+            provider_versions={
+                role_id: item["provider_version"] for role_id, item in persona_config.items()
+            },
+            tools=tools,
+            allowed_tools_by_persona={
+                role_id: item["allowed_tools"] for role_id, item in persona_config.items()
+            },
+            timeout_seconds_by_persona={
+                role_id: item["timeout_seconds"] for role_id, item in persona_config.items()
+            },
+            progress_callbacks_by_persona=(
+                {role_id: progress_journal.record_provider_event for role_id in SOFTWARE_TEAM_PERSONA_IDS}
+                if progress_journal is not None else None
+            ),
+        ))
+    if not adapters:
+        raise ValueError("provider role profile contains no complete graph-team role family")
+    # Validate the complete combined set before changing the live registry.
+    register_crew_adapters(adapters, replace=replace)
+    return adapters
+
+
+def register_supervised_profiled_crew_adapters(
+    controller: Any,
+    profile_path: str | Path,
+    *,
+    tools: Any | None = None,
+    replace: bool = False,
+    environ: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Register a provider profile using the controller-owned progress journal."""
+    from portable.progress_journal import ProgressJournal
+
+    journal = getattr(controller, "progress_journal", None)
+    if not isinstance(journal, ProgressJournal):
+        raise TypeError("controller must expose its canonical ProgressJournal")
+    return register_profiled_crew_adapters(
+        profile_path,
+        tools=tools,
+        progress_journal=journal,
+        replace=replace,
+        environ=environ,
+    )
+
 def _requires_crew_contract(route: dict[str, Any], phase: str) -> bool:
     if phase not in {"poc", "debug", "execute", "repair", "review"}:
         return False
