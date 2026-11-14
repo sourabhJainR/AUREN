@@ -586,11 +586,27 @@ class AdaptiveRuntime:
         self, project_root: Path | str, *, now: datetime | None = None,
         limit: int = 32, approval: Callable[[RoutineSpec], Any] | None = None,
     ) -> tuple[RoutineDispatch, ...]:
-        """Run a bounded due-routine tick through the existing controller and service."""
-        return self.routine_registry(project_root).dispatch_due(
+        """Reconcile prior outcomes, then dispatch a bounded due-routine tick."""
+        registry = self.routine_registry(project_root)
+        registry.reconcile_occurrences(
+            reconcile=self.execution_controller.task_by_work_key,
+            limit=min(64, max(1, limit)),
+        )
+        return registry.dispatch_due(
             now=now or datetime.now(timezone.utc),
             submit=self.execution_controller.submit,
             approval=approval,
+            reconcile=self.execution_controller.task_by_work_key,
+            limit=limit,
+        )
+
+    def reconcile_routine_occurrences(
+        self, project_root: Path | str, *, routine_id: str | None = None,
+        limit: int = 64,
+    ) -> tuple[RoutineDispatch, ...]:
+        """Return bounded terminal summaries from canonical task state."""
+        return self.routine_registry(project_root).reconcile_occurrences(
+            routine_id=routine_id,
             reconcile=self.execution_controller.task_by_work_key,
             limit=limit,
         )
