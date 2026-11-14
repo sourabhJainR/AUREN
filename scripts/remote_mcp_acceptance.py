@@ -291,6 +291,9 @@ def run_acceptance(
         or profile_meta.get("openai/profile") is not True
         or not _has_oauth_scope(profile_tool, "auren:tasks:read", top_level=True)
         or not _has_oauth_scope(profile_tool, "auren:tasks:read")
+        or not isinstance(profile_schema, Mapping)
+        or profile_schema.get("type") != "object"
+        or "id" not in profile_schema.get("required", [])
         or not isinstance(profile_id_schema, Mapping)
         or profile_id_schema.get("type") != "string"
         or profile_id_schema.get("minLength") != 1
