@@ -129,7 +129,7 @@ class RoutineSpec:
             raise ValueError("deadline_seconds must be between 1 and 86400")
         if type(self.approval_required) is not bool or type(self.enabled) is not bool:
             raise ValueError("approval_required and enabled must be booleans")
-        if self.concurrency_policy not in {"allow", "skip"}:
+        if not isinstance(self.concurrency_policy, str) or self.concurrency_policy not in {"allow", "skip"}:
             raise ValueError("concurrency_policy must be allow or skip")
         for field_name in ("profile_digest", "policy_digest"):
             value = getattr(self, field_name)
