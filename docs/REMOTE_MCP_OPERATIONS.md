@@ -37,7 +37,7 @@ The service does not implement an OAuth authorization server. An established ide
 | auren.pause_admissions | auren:admin | Stop accepting new MCP tasks; does not stop active work |
 | auren.resume_admissions | auren:admin | Reopen MCP task admission |
 
-Every tool publishes per-tool OAuth securitySchemes metadata in both the OpenAI top-level extension and the MCP _meta compatibility field. ChatGPT-specific profile metadata is provided by auren.get_profile, which sets _meta.openai/profile and an outputSchema. Its response includes structuredContent and the same JSON object in text content. The profile ID is generated once per exact issuer/subject pair and persisted; it does not contain the subject or email.
+Every tool publishes per-tool OAuth securitySchemes in `_meta`. The designated `auren.get_profile` tool also publishes the top-level `securitySchemes` field required by OpenAI's profile-tool contract. ChatGPT-specific profile metadata is provided by auren.get_profile, which sets _meta.openai/profile and an outputSchema. Its response includes structuredContent and the same JSON object in text content. The profile ID is generated once per exact issuer/subject pair and persisted; it does not contain the subject or email.
 
 Tool schemas are validated again by the server. Unknown arguments are rejected. The workspace root is configured by the host and cannot be supplied by the model. There is no general shell, arbitrary file-write, arbitrary network-fetch or unrestricted provider tool.
 
