@@ -5,6 +5,7 @@ operator-attested receipt is not an independent vendor or identity verification.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -12,7 +13,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import tempfile
-from typing import Any, Mapping
+from typing import Any, Iterator, Mapping
 from urllib.parse import urlsplit
 
 
@@ -194,13 +195,11 @@ def _read_state(path: Path) -> dict[str, Any]:
     return data
 
 
-def _write_state(path: Path, state: Mapping[str, Any]) -> None:
-    payload = _canonical(state) + b"\n"
-    if len(payload) > _MAX_FILE_BYTES:
-        raise IntegrationAcceptanceError("acceptance receipt file exceeds the maximum size")
+@contextmanager
+def _exclusive_lock(path: Path) -> Iterator[None]:
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if any(parent.is_symlink() for parent in path.parents) or path.is_symlink():
-        raise IntegrationAcceptanceError("refusing to write through a symlinked acceptance receipt path")
+    if any(parent.is_symlink() for parent in path.parents):
+        raise IntegrationAcceptanceError("refusing to lock through a symlinked acceptance receipt directory")
     lock_path = path.with_name(path.name + ".lock")
     if lock_path.is_symlink():
         raise IntegrationAcceptanceError("refusing a symlinked acceptance receipt lock")
@@ -212,23 +211,7 @@ def _write_state(path: Path, state: Mapping[str, Any]) -> None:
         os.write(lock_fd, str(os.getpid()).encode("ascii"))
         os.fsync(lock_fd)
         os.close(lock_fd)
-        fd, temporary_name = tempfile.mkstemp(
-            prefix=f".{path.name}.", suffix=".tmp", dir=path.parent,
-        )
-        temporary = Path(temporary_name)
-        try:
-            try:
-                os.fchmod(fd, 0o600)
-            except (AttributeError, OSError):
-                pass
-            with os.fdopen(fd, "wb") as stream:
-                stream.write(payload)
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temporary, path)
-        finally:
-            if temporary.exists():
-                temporary.unlink()
+        yield
     finally:
         try:
             os.close(lock_fd)
@@ -238,6 +221,32 @@ def _write_state(path: Path, state: Mapping[str, Any]) -> None:
             lock_path.unlink()
         except FileNotFoundError:
             pass
+
+
+def _write_state(path: Path, state: Mapping[str, Any]) -> None:
+    payload = _canonical(state) + b"\n"
+    if len(payload) > _MAX_FILE_BYTES:
+        raise IntegrationAcceptanceError("acceptance receipt file exceeds the maximum size")
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if any(parent.is_symlink() for parent in path.parents) or path.is_symlink():
+        raise IntegrationAcceptanceError("refusing to write through a symlinked acceptance receipt path")
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent,
+    )
+    temporary = Path(temporary_name)
+    try:
+        try:
+            os.fchmod(fd, 0o600)
+        except (AttributeError, OSError):
+            pass
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
 
 
 def record_integration_acceptance(
@@ -288,19 +297,21 @@ def record_integration_acceptance(
     path = _path(project_root)
     if not apply:
         return {"status": "preview", "path": str(path), "receipt": record}
-    state = _read_state(path)
-    key = (record["integration_kind"], record["integration_id"])
-    receipts = [
-        item for item in state["receipts"]
-        if (item["integration_kind"], item["integration_id"]) != key
-    ]
-    receipts.append(record)
-    if len(receipts) > _MAX_RECEIPTS:
-        raise IntegrationAcceptanceError("acceptance receipt count exceeds the maximum")
-    state["revision"] += 1
-    state["receipts"] = sorted(receipts, key=lambda item: (item["integration_kind"], item["integration_id"]))
-    _write_state(path, state)
-    return {"status": "recorded", "path": str(path), "revision": state["revision"], "receipt": record}
+    with _exclusive_lock(path):
+        state = _read_state(path)
+        key = (record["integration_kind"], record["integration_id"])
+        receipts = [
+            item for item in state["receipts"]
+            if (item["integration_kind"], item["integration_id"]) != key
+        ]
+        receipts.append(record)
+        if len(receipts) > _MAX_RECEIPTS:
+            raise IntegrationAcceptanceError("acceptance receipt count exceeds the maximum")
+        state["revision"] += 1
+        state["receipts"] = sorted(receipts, key=lambda item: (item["integration_kind"], item["integration_id"]))
+        _write_state(path, state)
+        revision = state["revision"]
+    return {"status": "recorded", "path": str(path), "revision": revision, "receipt": record}
 
 
 def integration_acceptance_report(
@@ -319,7 +330,7 @@ def integration_acceptance_report(
     path = _path(project_root)
     state = _read_state(path)
     receipts = []
-    summary = {"fresh_pass": 0, "fresh_fail": 0, "stale": 0}
+    summary = {"fresh_pass": 0, "fresh_fail": 0, "stale": 0, "invalid": 0}
     for raw in state["receipts"]:
         record = _validate_record(raw)
         tested_at = _timestamp(record["tested_at"], "tested_at")
@@ -331,6 +342,8 @@ def integration_acceptance_report(
             freshness = "fresh"
         if freshness == "stale":
             summary["stale"] += 1
+        elif freshness == "invalid":
+            summary["invalid"] += 1
         elif freshness == "fresh" and record["status"] == "pass":
             summary["fresh_pass"] += 1
         elif freshness == "fresh" and record["status"] == "fail":
