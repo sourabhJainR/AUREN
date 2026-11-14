@@ -257,5 +257,43 @@ class AdaptiveRuntimeRoutineIntegrationTests(unittest.TestCase):
         self.assertEqual(2, len(attempts))
 
 
+    def test_blocked_approval_emits_high_priority_routine_attention_event(self):
+        spec = self.spec(approval_required=True)
+        self.runtime.register_routine(self.project, spec)
+        blocked = self.runtime.dispatch_manual_routine(
+            self.project, spec.routine_id, invocation_id="routine-approval-attention",
+            approval=lambda _spec: False,
+        )
+        event_id = (
+            f"routine-attention:routine.blocked_approval:{blocked.occurrence_key}:0"
+        )
+        event = self.runtime.trigger_runtime.get_event(event_id)
+        self.assertEqual("routine.blocked_approval", event.kind)
+        self.assertEqual(0, event.priority)
+        self.assertTrue(event.payload["escalation_required"])
+        occurrence = self.runtime.routine_registry(self.project).occurrence(blocked.occurrence_key)
+        self.assertTrue(json.loads(occurrence["receipt_json"])["attention_event_emitted"])
+
+    def test_coalesced_schedule_emits_routine_attention_event(self):
+        spec = self.spec(trigger="interval", interval_seconds=60)
+        self.runtime.register_routine(self.project, spec)
+
+        results = self.runtime.dispatch_due_routines(
+            self.project, now=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+
+        self.assertEqual(1, len(results))
+        self.assertEqual("submitted", results[0].status)
+        occurrence = self.runtime.routine_registry(self.project).occurrence(results[0].occurrence_key)
+        receipt = json.loads(occurrence["receipt_json"])
+        missed = receipt["coalesced_missed_intervals"]
+        self.assertGreater(missed, 0)
+        event_id = f"routine-attention:routine.schedule_coalesced:{results[0].occurrence_key}:{missed}"
+        event = self.runtime.trigger_runtime.get_event(event_id)
+        self.assertEqual("routine.schedule_coalesced", event.kind)
+        self.assertEqual(missed, event.payload["missed_intervals"])
+        self.assertFalse(event.payload["escalation_required"])
+
+
 if __name__ == "__main__":
     unittest.main()
