@@ -198,7 +198,7 @@ def test_local_mcp_probe_rejects_non_printable_tool_names(tmp_path, monkeypatch)
             return None
         return json.dumps({
             "jsonrpc": "2.0", "id": request["id"],
-            "result": {"tools": [{"name": "auren.\\ninvalid"}]},
+            "result": {"tools": [{"name": "auren.\ninvalid"}]},
         }).encode("utf-8")
 
     monkeypatch.setattr(mcp_stdio_proxy, "post_message", fake_post)
