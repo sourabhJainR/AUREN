@@ -136,6 +136,9 @@ def run_acceptance(
     token: str,
     *,
     allowed_hosts: tuple[str, ...],
+    expected_issuer: str | None = None,
+    refresh_scope: str = "offline_access",
+    require_write: bool = False,
     transport: Callable[..., tuple[int, bytes]] = guarded_https_get,
 ) -> dict[str, Any]:
     """Verify TLS endpoint, health, OAuth resource metadata and read-only MCP discovery.
@@ -185,12 +188,18 @@ def run_acceptance(
     if metadata.get("resource") != endpoint:
         raise AcceptanceFailure("protected-resource metadata does not match the configured endpoint")
     auth_servers = metadata.get("authorization_servers", [])
-    if not isinstance(auth_servers, list):
-        raise AcceptanceFailure("authorization_servers metadata must be an array")
+    if not isinstance(auth_servers, list) or len(auth_servers) != 1 or not isinstance(auth_servers[0], str):
+        raise AcceptanceFailure("protected-resource metadata must identify exactly one OAuth issuer")
+    issuer = auth_servers[0]
+    if expected_issuer is not None and issuer != expected_issuer:
+        raise AcceptanceFailure("protected-resource issuer does not exactly match the configured issuer")
+    auth_metadata_url = _load_authorization_metadata(
+        issuer, transport=transport, refresh_scope=refresh_scope,
+    )
 
     def rpc(
         method: str, request_id: int, params: Mapping[str, Any] | None = None,
-        *, protocol_version: str = LEGACY_PROTOCOL_VERSION,
+        *, protocol_version: str = LEGACY_PROTOCOL_VERSION, include_auth: bool = True,
     ) -> Mapping[str, Any]:
         payload: dict[str, Any] = {"jsonrpc": "2.0", "id": request_id, "method": method}
         if params is not None:
@@ -198,9 +207,10 @@ def run_acceptance(
         request_headers = {
             "accept": "application/json, text/event-stream",
             "content-type": "application/json",
-            "authorization": "Bearer " + token,
             "mcp-protocol-version": protocol_version,
         }
+        if include_auth:
+            request_headers["authorization"] = "Bearer " + token
         if protocol_version == MODERN_PROTOCOL_VERSION:
             request_headers["mcp-method"] = method
             if isinstance(params, Mapping):
@@ -263,6 +273,31 @@ def run_acceptance(
     missing = sorted(REQUIRED_READ_TOOLS - names)
     if missing:
         raise AcceptanceFailure("required read-only tools are missing: " + ", ".join(missing))
+    tool_by_name = {
+        item["name"]: item for item in tools
+        if isinstance(item, Mapping) and isinstance(item.get("name"), str)
+    }
+    profile_tool = tool_by_name["auren.get_profile"]
+    profile_meta = profile_tool.get("_meta", {})
+    profile_schema = profile_tool.get("outputSchema", {})
+    profile_id_schema = profile_schema.get("properties", {}).get("id", {}) if isinstance(profile_schema, Mapping) else {}
+    if (
+        not isinstance(profile_meta, Mapping)
+        or profile_meta.get("openai/profile") is not True
+        or not _has_oauth_scope(profile_tool, "auren:tasks:read", top_level=True)
+        or not _has_oauth_scope(profile_tool, "auren:tasks:read")
+        or not isinstance(profile_id_schema, Mapping)
+        or profile_id_schema.get("type") != "string"
+        or profile_id_schema.get("minLength") != 1
+        or profile_id_schema.get("pattern") != r"\S"
+    ):
+        raise AcceptanceFailure("get_profile is missing OpenAI profile metadata, schema or read-scope declarations")
+    write_tools_verified = all(
+        name in tool_by_name and _has_oauth_scope(tool_by_name[name], scope)
+        for name, scope in REQUIRED_WRITE_SCOPES.items()
+    )
+    if require_write and not write_tools_verified:
+        raise AcceptanceFailure("write tools or their required OAuth scopes are missing")
 
     initialized = rpc("initialize", 3, {
         "protocolVersion": LEGACY_PROTOCOL_VERSION,
@@ -284,6 +319,48 @@ def run_acceptance(
     if missing:
         raise AcceptanceFailure("legacy required read-only tools are missing: " + ", ".join(missing))
 
+    challenge = rpc(
+        "tools/call", 5,
+        {"name": "auren.get_profile", "arguments": {}},
+        include_auth=False,
+    )
+    challenges = challenge.get("_meta", {}).get("mcp/www_authenticate", [])
+    challenge_text = " ".join(item for item in challenges if isinstance(item, str)) if isinstance(challenges, list) else ""
+    if (
+        challenge.get("isError") is not True
+        or "resource_metadata=" not in challenge_text
+        or "error=" not in challenge_text
+        or "error_description=" not in challenge_text
+    ):
+        raise AcceptanceFailure("unauthenticated profile call did not return a ChatGPT OAuth challenge")
+
+    profile_result = rpc(
+        "tools/call", 6, {"name": "auren.get_profile", "arguments": {}},
+    )
+    profile = profile_result.get("structuredContent")
+    content = profile_result.get("content", [])
+    if (
+        not isinstance(profile, Mapping)
+        or not isinstance(profile.get("id"), str)
+        or not re.search(r"\S", profile["id"])
+        or not isinstance(content, list) or not content
+        or not isinstance(content[0], Mapping)
+        or content[0].get("type") != "text"
+    ):
+        raise AcceptanceFailure("authenticated get_profile returned an invalid structured profile")
+    try:
+        text_profile = json.loads(content[0]["text"])
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise AcceptanceFailure("get_profile text content is not valid JSON") from exc
+    if text_profile != profile:
+        raise AcceptanceFailure("get_profile structuredContent and text content do not match")
+    repeated_profile = rpc(
+        "tools/call", 7, {"name": "auren.get_profile", "arguments": {}},
+    )
+    repeated = repeated_profile.get("structuredContent")
+    if not isinstance(repeated, Mapping) or repeated.get("id") != profile["id"]:
+        raise AcceptanceFailure("get_profile identity changed between calls")
+
     return {
         "status": "accepted",
         "endpoint": endpoint,
@@ -293,7 +370,12 @@ def run_acceptance(
         "server_version": server_info.get("version"),
         "tool_count": len(names),
         "required_read_tools": sorted(REQUIRED_READ_TOOLS),
-        "authorization_server_count": len(auth_servers),
+        "authorization_server": issuer,
+        "authorization_metadata_url": auth_metadata_url,
+        "oauth_discovery_verified": True,
+        "profile_identity_verified": True,
+        "tool_level_oauth_challenge_verified": True,
+        "write_tools_verified": write_tools_verified,
         "live_task_mutations": 0,
     }
 
@@ -303,11 +385,19 @@ def main() -> int:
     parser.add_argument("--endpoint", default=os.environ.get("AUREN_MCP_ENDPOINT", ""))
     parser.add_argument("--token-env", default="AUREN_MCP_ACCESS_TOKEN")
     parser.add_argument("--allowed-hosts", default=os.environ.get("AUREN_MCP_ALLOWED_HOSTS", ""))
+    parser.add_argument("--expected-issuer", default=os.environ.get("AUREN_MCP_AUTHORIZATION_SERVER", ""))
+    parser.add_argument("--refresh-scope", default=os.environ.get("AUREN_MCP_REFRESH_SCOPE", "offline_access"))
+    parser.add_argument("--require-write", action="store_true", default=os.environ.get("AUREN_MCP_REQUIRE_WRITE") == "1")
     args = parser.parse_args()
     token = os.environ.get(args.token_env, "")
     hosts = tuple(item.strip() for item in args.allowed_hosts.split(",") if item.strip())
     try:
-        report = run_acceptance(args.endpoint, token, allowed_hosts=hosts)
+        report = run_acceptance(
+            args.endpoint, token, allowed_hosts=hosts,
+            expected_issuer=args.expected_issuer or None,
+            refresh_scope=args.refresh_scope,
+            require_write=args.require_write,
+        )
     except Exception as exc:
         print(json.dumps({"status": "failed", "error": str(exc)[:400]}, sort_keys=True))
         return 1
