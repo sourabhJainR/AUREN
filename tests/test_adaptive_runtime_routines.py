@@ -128,8 +128,9 @@ class AdaptiveRuntimeRoutineIntegrationTests(unittest.TestCase):
             self.project, spec.routine_id, invocation_id="operator-run-uncertain",
         )
 
-        self.assertEqual("unknown", first.status)
-        self.assertEqual("submitted", recovered.status)
+        self.assertEqual("submitted", first.status)
+        self.assertEqual("duplicate", recovered.status)
+        self.assertEqual("original-task", first.task_id)
         self.assertEqual("original-task", recovered.task_id)
         self.assertEqual(["submit"], calls)
 
