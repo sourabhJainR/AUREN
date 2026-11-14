@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from typing import Any, Callable, Mapping
 from urllib.parse import urlsplit
 
@@ -13,8 +14,22 @@ LEGACY_PROTOCOL_VERSION = "2025-11-25"
 MODERN_PROTOCOL_VERSION = "2026-07-28"
 REQUIRED_READ_TOOLS = frozenset({
     "auren.get_profile", "auren.service_status", "auren.list_tasks",
-    "auren.get_task", "auren.get_evidence",
+    "auren.get_task", "auren.get_evidence", "auren.list_approvals",
+    "auren.get_approval",
 })
+REQUIRED_READ_SCOPES = {
+    "auren.get_profile": "auren:tasks:read",
+    "auren.service_status": "auren:tasks:read",
+    "auren.list_tasks": "auren:tasks:read",
+    "auren.get_task": "auren:tasks:read",
+    "auren.get_evidence": "auren:evidence:read",
+    "auren.list_approvals": "auren:approvals:read",
+    "auren.get_approval": "auren:approvals:read",
+}
+REQUIRED_WRITE_SCOPES = {
+    "auren.submit_task": "auren:tasks:write",
+    "auren.decide_approval": "auren:approvals:decide",
+}
 
 
 class AcceptanceFailure(RuntimeError):
@@ -35,11 +50,118 @@ def _json_response(status: int, raw: bytes, stage: str) -> Mapping[str, Any]:
     return value
 
 
+def _https_url(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    parsed = urlsplit(value)
+    try:
+        port = parsed.port
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == "https" and bool(parsed.hostname)
+        and parsed.username is None and parsed.password is None
+        and port in {None, 443} and not parsed.query and not parsed.fragment
+    )
+
+
+def _authorization_metadata_urls(issuer: str) -> tuple[str, ...]:
+    parsed = urlsplit(issuer)
+    origin = f"https://{parsed.netloc}"
+    path = parsed.path.rstrip("/")
+    urls = (
+        origin + "/.well-known/oauth-authorization-server" + path,
+        issuer.rstrip("/") + "/.well-known/openid-configuration",
+    )
+    return tuple(dict.fromkeys(urls))
+
+
+def _load_authorization_metadata(
+    issuer: str,
+    *,
+    transport: Callable[..., tuple[int, bytes]],
+    refresh_scope: str,
+    allowed_hosts: tuple[str, ...],
+) -> str:
+    if not _https_url(issuer):
+        raise AcceptanceFailure("authorization server issuer must be an exact HTTPS URL")
+    host = (urlsplit(issuer).hostname or "").lower()
+    if host not in {item.lower() for item in allowed_hosts}:
+        raise AcceptanceFailure("authorization server host is not in the explicit outbound allowlist")
+    metadata = None
+    metadata_url = None
+    for candidate in _authorization_metadata_urls(issuer):
+        status, raw = transport(
+            candidate, allowed_hosts=(host,), method="GET",
+            headers={"accept": "application/json"}, timeout=10, max_bytes=64 * 1024,
+        )
+        if status == 404:
+            continue
+        metadata = _json_response(status, raw, "authorization-server metadata")
+        metadata_url = candidate
+        break
+    if not isinstance(metadata, Mapping) or metadata_url is None:
+        raise AcceptanceFailure("OAuth authorization-server discovery metadata was not found")
+    if metadata.get("issuer") != issuer:
+        raise AcceptanceFailure("OAuth discovery issuer does not exactly match protected-resource metadata")
+    allowlist = {item.lower() for item in allowed_hosts}
+    for key in ("authorization_endpoint", "token_endpoint"):
+        endpoint_value = metadata.get(key)
+        if not _https_url(endpoint_value):
+            raise AcceptanceFailure(f"OAuth discovery {key} must be an HTTPS URL")
+        if (urlsplit(endpoint_value).hostname or "").lower() not in allowlist:
+            raise AcceptanceFailure(f"OAuth discovery {key} host is not in the explicit outbound allowlist")
+    challenges = metadata.get("code_challenge_methods_supported")
+    if not isinstance(challenges, list) or "S256" not in challenges:
+        raise AcceptanceFailure("OAuth provider must advertise PKCE S256")
+    auth_methods = metadata.get("token_endpoint_auth_methods_supported")
+    if not isinstance(auth_methods, list) or not ({"none", "private_key_jwt"} & set(auth_methods)):
+        raise AcceptanceFailure("OAuth provider must support none or private_key_jwt client authentication")
+    registration_endpoint = metadata.get("registration_endpoint")
+    if registration_endpoint is not None and (
+        not _https_url(registration_endpoint)
+        or (urlsplit(registration_endpoint).hostname or "").lower() not in allowlist
+    ):
+        raise AcceptanceFailure("OAuth registration endpoint must be HTTPS and explicitly allowlisted")
+    if metadata.get("client_id_metadata_document_supported") is not True and not _https_url(registration_endpoint):
+        raise AcceptanceFailure("OAuth provider must support CIMD or dynamic client registration")
+    response_types = metadata.get("response_types_supported")
+    if isinstance(response_types, list) and "code" not in response_types:
+        raise AcceptanceFailure("OAuth provider does not advertise the authorization-code response")
+    grant_types = metadata.get("grant_types_supported")
+    if isinstance(grant_types, list) and "authorization_code" not in grant_types:
+        raise AcceptanceFailure("OAuth provider does not advertise the authorization-code grant")
+    scopes = metadata.get("scopes_supported")
+    if not (
+        isinstance(scopes, list) and refresh_scope in scopes
+        or isinstance(grant_types, list) and "refresh_token" in grant_types
+    ):
+        raise AcceptanceFailure(f"OAuth provider must support {refresh_scope} or advertise refresh-token grants")
+    return metadata_url
+
+
+def _has_oauth_scope(tool: Mapping[str, Any], scope: str, *, top_level: bool = False) -> bool:
+    meta = tool.get("_meta")
+    source = tool.get("securitySchemes") if top_level else (meta.get("securitySchemes") if isinstance(meta, Mapping) else None)
+    if not isinstance(source, list):
+        return False
+    return any(
+        isinstance(item, Mapping)
+        and item.get("type") == "oauth2"
+        and isinstance(item.get("scopes"), list)
+        and scope in item["scopes"]
+        for item in source
+    )
+
+
 def run_acceptance(
     endpoint: str,
     token: str,
     *,
     allowed_hosts: tuple[str, ...],
+    expected_issuer: str | None = None,
+    refresh_scope: str = "offline_access",
+    require_write: bool = False,
     transport: Callable[..., tuple[int, bytes]] = guarded_https_get,
 ) -> dict[str, Any]:
     """Verify TLS endpoint, health, OAuth resource metadata and read-only MCP discovery.
@@ -89,12 +211,18 @@ def run_acceptance(
     if metadata.get("resource") != endpoint:
         raise AcceptanceFailure("protected-resource metadata does not match the configured endpoint")
     auth_servers = metadata.get("authorization_servers", [])
-    if not isinstance(auth_servers, list):
-        raise AcceptanceFailure("authorization_servers metadata must be an array")
+    if not isinstance(auth_servers, list) or len(auth_servers) != 1 or not isinstance(auth_servers[0], str):
+        raise AcceptanceFailure("protected-resource metadata must identify exactly one OAuth issuer")
+    issuer = auth_servers[0]
+    if expected_issuer is not None and issuer != expected_issuer:
+        raise AcceptanceFailure("protected-resource issuer does not exactly match the configured issuer")
+    auth_metadata_url = _load_authorization_metadata(
+        issuer, transport=transport, refresh_scope=refresh_scope, allowed_hosts=allowed_hosts,
+    )
 
     def rpc(
         method: str, request_id: int, params: Mapping[str, Any] | None = None,
-        *, protocol_version: str = LEGACY_PROTOCOL_VERSION,
+        *, protocol_version: str = LEGACY_PROTOCOL_VERSION, include_auth: bool = True,
     ) -> Mapping[str, Any]:
         payload: dict[str, Any] = {"jsonrpc": "2.0", "id": request_id, "method": method}
         if params is not None:
@@ -102,9 +230,10 @@ def run_acceptance(
         request_headers = {
             "accept": "application/json, text/event-stream",
             "content-type": "application/json",
-            "authorization": "Bearer " + token,
             "mcp-protocol-version": protocol_version,
         }
+        if include_auth:
+            request_headers["authorization"] = "Bearer " + token
         if protocol_version == MODERN_PROTOCOL_VERSION:
             request_headers["mcp-method"] = method
             if isinstance(params, Mapping):
@@ -167,6 +296,41 @@ def run_acceptance(
     missing = sorted(REQUIRED_READ_TOOLS - names)
     if missing:
         raise AcceptanceFailure("required read-only tools are missing: " + ", ".join(missing))
+    tool_by_name = {
+        item["name"]: item for item in tools
+        if isinstance(item, Mapping) and isinstance(item.get("name"), str)
+    }
+    missing_scopes = sorted(
+        name for name, scope in REQUIRED_READ_SCOPES.items()
+        if not _has_oauth_scope(tool_by_name[name], scope)
+    )
+    if missing_scopes:
+        raise AcceptanceFailure("required read-only OAuth scopes are missing: " + ", ".join(missing_scopes))
+    profile_tool = tool_by_name["auren.get_profile"]
+    profile_meta = profile_tool.get("_meta", {})
+    profile_schema = profile_tool.get("outputSchema", {})
+    profile_properties = profile_schema.get("properties", {}) if isinstance(profile_schema, Mapping) else {}
+    profile_id_schema = profile_properties.get("id", {}) if isinstance(profile_properties, Mapping) else {}
+    if (
+        not isinstance(profile_meta, Mapping)
+        or profile_meta.get("openai/profile") is not True
+        or not _has_oauth_scope(profile_tool, "auren:tasks:read", top_level=True)
+        or not _has_oauth_scope(profile_tool, "auren:tasks:read")
+        or not isinstance(profile_schema, Mapping)
+        or profile_schema.get("type") != "object"
+        or "id" not in profile_schema.get("required", [])
+        or not isinstance(profile_id_schema, Mapping)
+        or profile_id_schema.get("type") != "string"
+        or profile_id_schema.get("minLength") != 1
+        or profile_id_schema.get("pattern") != r"\S"
+    ):
+        raise AcceptanceFailure("get_profile is missing OpenAI profile metadata, schema or read-scope declarations")
+    write_tools_verified = all(
+        name in tool_by_name and _has_oauth_scope(tool_by_name[name], scope)
+        for name, scope in REQUIRED_WRITE_SCOPES.items()
+    )
+    if require_write and not write_tools_verified:
+        raise AcceptanceFailure("write tools or their required OAuth scopes are missing")
 
     initialized = rpc("initialize", 3, {
         "protocolVersion": LEGACY_PROTOCOL_VERSION,
@@ -188,6 +352,51 @@ def run_acceptance(
     if missing:
         raise AcceptanceFailure("legacy required read-only tools are missing: " + ", ".join(missing))
 
+    challenge = rpc(
+        "tools/call", 5,
+        {"name": "auren.get_profile", "arguments": {}},
+        include_auth=False,
+    )
+    challenge_meta = challenge.get("_meta")
+    challenges = challenge_meta.get("mcp/www_authenticate", []) if isinstance(challenge_meta, Mapping) else []
+    challenge_text = " ".join(item for item in challenges if isinstance(item, str)) if isinstance(challenges, list) else ""
+    if (
+        challenge.get("isError") is not True
+        or "resource_metadata=" not in challenge_text
+        or metadata_url not in challenge_text
+        or "error=" not in challenge_text
+        or "error_description=" not in challenge_text
+    ):
+        raise AcceptanceFailure("unauthenticated profile call did not return a ChatGPT OAuth challenge")
+
+    profile_result = rpc(
+        "tools/call", 6, {"name": "auren.get_profile", "arguments": {}},
+    )
+    profile = profile_result.get("structuredContent")
+    content = profile_result.get("content", [])
+    if (
+        not isinstance(profile, Mapping)
+        or not isinstance(profile.get("id"), str)
+        or not re.search(r"\S", profile["id"])
+        or not isinstance(content, list) or not content
+        or not isinstance(content[0], Mapping)
+        or content[0].get("type") != "text"
+        or not isinstance(content[0].get("text"), str)
+    ):
+        raise AcceptanceFailure("authenticated get_profile returned an invalid structured profile")
+    try:
+        text_profile = json.loads(content[0]["text"])
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise AcceptanceFailure("get_profile text content is not valid JSON") from exc
+    if text_profile != profile:
+        raise AcceptanceFailure("get_profile structuredContent and text content do not match")
+    repeated_profile = rpc(
+        "tools/call", 7, {"name": "auren.get_profile", "arguments": {}},
+    )
+    repeated = repeated_profile.get("structuredContent")
+    if not isinstance(repeated, Mapping) or repeated.get("id") != profile["id"]:
+        raise AcceptanceFailure("get_profile identity changed between calls")
+
     return {
         "status": "accepted",
         "endpoint": endpoint,
@@ -197,7 +406,12 @@ def run_acceptance(
         "server_version": server_info.get("version"),
         "tool_count": len(names),
         "required_read_tools": sorted(REQUIRED_READ_TOOLS),
-        "authorization_server_count": len(auth_servers),
+        "authorization_server": issuer,
+        "authorization_metadata_url": auth_metadata_url,
+        "oauth_discovery_verified": True,
+        "profile_identity_verified": True,
+        "tool_level_oauth_challenge_verified": True,
+        "write_tools_verified": write_tools_verified,
         "live_task_mutations": 0,
     }
 
@@ -206,12 +420,20 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--endpoint", default=os.environ.get("AUREN_MCP_ENDPOINT", ""))
     parser.add_argument("--token-env", default="AUREN_MCP_ACCESS_TOKEN")
-    parser.add_argument("--allowed-hosts", default=os.environ.get("AUREN_MCP_ALLOWED_HOSTS", ""))
+    parser.add_argument("--allowed-hosts", default=os.environ.get("AUREN_MCP_ACCEPTANCE_ALLOWED_HOSTS", os.environ.get("AUREN_MCP_ALLOWED_HOSTS", "")))
+    parser.add_argument("--expected-issuer", default=os.environ.get("AUREN_MCP_AUTHORIZATION_SERVER", ""))
+    parser.add_argument("--refresh-scope", default=os.environ.get("AUREN_MCP_REFRESH_SCOPE", "offline_access"))
+    parser.add_argument("--require-write", action="store_true", default=os.environ.get("AUREN_MCP_REQUIRE_WRITE") == "1")
     args = parser.parse_args()
     token = os.environ.get(args.token_env, "")
     hosts = tuple(item.strip() for item in args.allowed_hosts.split(",") if item.strip())
     try:
-        report = run_acceptance(args.endpoint, token, allowed_hosts=hosts)
+        report = run_acceptance(
+            args.endpoint, token, allowed_hosts=hosts,
+            expected_issuer=args.expected_issuer or None,
+            refresh_scope=args.refresh_scope,
+            require_write=args.require_write,
+        )
     except Exception as exc:
         print(json.dumps({"status": "failed", "error": str(exc)[:400]}, sort_keys=True))
         return 1
