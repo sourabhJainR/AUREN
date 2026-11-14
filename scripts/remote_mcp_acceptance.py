@@ -363,6 +363,7 @@ def run_acceptance(
     if (
         challenge.get("isError") is not True
         or "resource_metadata=" not in challenge_text
+        or metadata_url not in challenge_text
         or "error=" not in challenge_text
         or "error_description=" not in challenge_text
     ):
@@ -380,6 +381,7 @@ def run_acceptance(
         or not isinstance(content, list) or not content
         or not isinstance(content[0], Mapping)
         or content[0].get("type") != "text"
+        or not isinstance(content[0].get("text"), str)
     ):
         raise AcceptanceFailure("authenticated get_profile returned an invalid structured profile")
     try:
