@@ -32,7 +32,7 @@ def _dashboard_health_url(value: str) -> str:
         parsed.scheme != "http" or parsed.hostname != "127.0.0.1"
         or parsed.port is None or not 1 <= parsed.port <= 65535
         or parsed.username is not None or parsed.password is not None
-        or parsed.path not in {"", "/"} or parsed.query or parsed.fragment
+        or parsed.path not in {"", "/", "/control-center"} or parsed.query or parsed.fragment
     ):
         raise ValueError("dashboard URL must be an explicit http://127.0.0.1:<port> origin")
     return f"http://127.0.0.1:{parsed.port}/api/health"
@@ -75,8 +75,8 @@ def verify_local_experience(
         discovered = set(mcp.get("tool_names", []))
         missing = sorted(_REQUIRED_TOOLS - discovered)
         report["checks"]["mcp"] = {
-            "status": "ready" if not missing else "blocked",
-            "authenticated": bool(mcp.get("authenticated")),
+            "status": "ready" if not missing and mcp.get("authenticated") is True else "blocked",
+            "authenticated": mcp.get("authenticated") is True,
             "protocol_version": mcp.get("protocol_version"),
             "server_info": mcp.get("server_info", {}),
             "tool_count": mcp.get("tool_count", 0),
