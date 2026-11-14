@@ -396,12 +396,18 @@ def _role_invoker(
         remote_opt_in and workspace_classification in {"public", "non_sensitive"}
         and provider_allowed
     )
-    try:
-        provider = OpenAICompatibleProvider.from_environment(binding.provider_id, environ=env)
-    except (TypeError, ValueError):
-        if local is None:
-            raise
-        provider = None
+    provider = None
+    if local is None and not remote_policy_ready:
+        raise PermissionError(
+            "remote-only role requires an allowlisted provider, explicit remote opt-in "
+            "and a public or non-sensitive workspace"
+        )
+    if remote_policy_ready:
+        try:
+            provider = OpenAICompatibleProvider.from_environment(binding.provider_id, environ=env)
+        except (TypeError, ValueError):
+            if local is None:
+                raise
 
     def invoke(prompt: str, timeout_seconds: int) -> str:
         privacy = _prompt_privacy(prompt)
