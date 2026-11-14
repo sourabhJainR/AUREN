@@ -68,22 +68,20 @@ fn start_local(project_root: String, state: State<'_, RuntimeState>) -> Result<L
 
     let mut child_slot = state.child.lock().map_err(|_| "runtime process lock is unavailable")?;
     let mut info_slot = state.info.lock().map_err(|_| "runtime state lock is unavailable")?;
-    if let Some(child) = child_slot.as_mut() {
-        match child.try_wait().map_err(|_| "cannot inspect the AUREN CLI process")? {
-            None => {
-                if let Some(info) = info_slot.as_ref() {
-                    if info.project_root == root.to_string_lossy() {
-                        return Ok(info.clone());
-                    }
-                    return Err("AUREN is already running for another project. Stop it before switching projects.".into());
+    if child_slot.is_some() {
+        let process_status = child_slot.as_mut().expect("child presence was checked")
+            .try_wait().map_err(|_| "cannot inspect the AUREN CLI process")?;
+        if process_status.is_none() {
+            if let Some(info) = info_slot.as_ref() {
+                if info.project_root == root.to_string_lossy().as_ref() {
+                    return Ok(info.clone());
                 }
-                return Err("AUREN is already starting. Wait for startup to finish.".into());
+                return Err("AUREN is already running for another project. Stop it before switching projects.".into());
             }
-            Some(_) => {
-                child_slot.take();
-                *info_slot = None;
-            }
+            return Err("AUREN is already starting. Wait for startup to finish.".into());
         }
+        child_slot.take();
+        *info_slot = None;
     }
 
     let executable = env::var_os("AUREN_EXECUTABLE").unwrap_or_else(|| {
