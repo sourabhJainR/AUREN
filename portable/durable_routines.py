@@ -944,7 +944,7 @@ class DurableRoutineRegistry:
             rows = db.execute(
                 "SELECT occurrence_key,work_key,task_id,status FROM routine_occurrences "
                 "WHERE routine_id=? AND status IN ('dispatching','unknown','submitted','cancellation_requested') "
-                "ORDER BY created_at LIMIT ?",
+                "ORDER BY updated_at,created_at LIMIT ?",
                 (routine_id, limit),
             ).fetchall()
         reason_digest = hashlib.sha256(reason.strip().encode("utf-8")).hexdigest()
@@ -955,12 +955,22 @@ class DurableRoutineRegistry:
             try:
                 task = reconcile(work_key)
             except Exception as exc:
+                self._update_receipt(
+                    occurrence_key, status=str(row["status"]),
+                    updates={"cancellation_reconcile_error_type": type(exc).__name__,
+                             "cancellation_last_checked_at": _iso(datetime.now(timezone.utc))},
+                )
                 results.append(RoutineDispatch(
                     occurrence_key, work_key, "unknown",
                     reason=f"task reconciliation failed: {type(exc).__name__}",
                 ))
                 continue
             if task is None:
+                self._update_receipt(
+                    occurrence_key, status=str(row["status"]),
+                    updates={"cancellation_task_missing": True,
+                             "cancellation_last_checked_at": _iso(datetime.now(timezone.utc))},
+                )
                 results.append(RoutineDispatch(
                     occurrence_key, work_key, "unknown",
                     reason="canonical task record is unavailable; cancellation outcome is unknown",
@@ -973,6 +983,11 @@ class DurableRoutineRegistry:
                 task.get("state") if isinstance(task, Mapping) else None
             )
             if not isinstance(task_id, str) or not task_id:
+                self._update_receipt(
+                    occurrence_key, status=str(row["status"]),
+                    updates={"cancellation_task_identity_missing": True,
+                             "cancellation_last_checked_at": _iso(datetime.now(timezone.utc))},
+                )
                 results.append(RoutineDispatch(
                     occurrence_key, work_key, "unknown",
                     reason="canonical task lookup returned no task identity",
@@ -989,6 +1004,11 @@ class DurableRoutineRegistry:
             try:
                 accepted = request_cancel(task_id, reason.strip()) is True
             except Exception as exc:
+                self._update_receipt(
+                    occurrence_key, status=str(row["status"]), task_id=task_id,
+                    updates={"cancellation_request_error_type": type(exc).__name__,
+                             "cancellation_last_checked_at": _iso(datetime.now(timezone.utc))},
+                )
                 results.append(RoutineDispatch(
                     occurrence_key, work_key, "unknown", task_id,
                     reason=f"controller cancellation request failed: {type(exc).__name__}",
@@ -1010,10 +1030,30 @@ class DurableRoutineRegistry:
                     reason="request accepted; task remains non-terminal until controller confirms cancellation",
                 ))
             else:
-                results.append(RoutineDispatch(
-                    occurrence_key, work_key, "not_cancelled", task_id,
-                    reason="controller did not accept cancellation; inspect authoritative task state",
-                ))
+                try:
+                    latest = reconcile(work_key)
+                except Exception:
+                    latest = None
+                latest_state = (
+                    latest.get("state") if isinstance(latest, Mapping)
+                    else getattr(latest, "state", None)
+                ) if latest is not None else None
+                if latest_state in {"completed", "failed", "cancelled"}:
+                    self._update_receipt(
+                        occurrence_key, status=latest_state, task_id=task_id,
+                        updates={"state": latest_state, "terminal_observed_at": _iso(datetime.now(timezone.utc))},
+                    )
+                    results.append(RoutineDispatch(occurrence_key, work_key, latest_state, task_id))
+                else:
+                    self._update_receipt(
+                        occurrence_key, status=str(row["status"]), task_id=task_id,
+                        updates={"cancellation_not_accepted": True,
+                                 "cancellation_last_checked_at": _iso(datetime.now(timezone.utc))},
+                    )
+                    results.append(RoutineDispatch(
+                        occurrence_key, work_key, "not_cancelled", task_id,
+                        reason="controller did not accept cancellation; inspect authoritative task state",
+                    ))
         return tuple(results)
 
     def occurrence(self, occurrence_key: str) -> Mapping[str, Any] | None:
