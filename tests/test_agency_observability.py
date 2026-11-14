@@ -20,6 +20,28 @@ def _export_trace_in_process(path: str, index: int) -> None:
 
 
 class TestAgencyObservability(unittest.TestCase):
+    def test_usage_metrics_keep_counts_without_weakening_secret_redaction(self):
+        from portable.agency_observability import telemetry_usage_metrics
+
+        self.assertEqual(
+            {"input_units": 11, "output_units": 7, "total_units": 18},
+            telemetry_usage_metrics({
+                "prompt_tokens": 11,
+                "input_tokens": 99,
+                "completion_tokens": 7,
+                "output_tokens": 88,
+                "total_tokens": 18,
+                "api_key": "must-not-be-copied",
+                "untrusted_tokens": "not-a-number",
+            }),
+        )
+        self.assertEqual(
+            {"input_units": 12},
+            telemetry_usage_metrics({"input_tokens": 12, "prompt_tokens": -1}),
+        )
+        self.assertEqual({}, telemetry_usage_metrics({"prompt_tokens": True, "total_tokens": -1}))
+
+
     def setUp(self):
         self._temporary_directory = tempfile.TemporaryDirectory()
         self.tmp_path = Path(self._temporary_directory.name)

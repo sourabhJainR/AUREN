@@ -2,6 +2,14 @@
 
 AUREN separates integration discovery, configuration, trust and activation. The integration inventory is read-only. A provider role profile selects a pinned provider/model for each graph-team role; it does not grant tools or action authority.
 
+## Relationship to canonical AgentProfiles
+
+The canonical identity and execution profile remains `config/agent_profiles.v1.json`, loaded by `portable.agent_profiles`. It owns the canonical role and manager, action classes, capability requirements, tool preferences, workspace mode, memory namespace, budget defaults, deadline and approval policy. Its revision and digest are bound to durable task intent and checked by the supervisor.
+
+The `.auren/provider_roles.json` file is a separate adapter configuration. It maps graph adapter IDs such as `backend_api` and `qa_reviewer` to provider/model clients. It does not create a new agent identity, manager, memory namespace, action scope or approval policy. It does not replace the canonical AgentProfile registry or its import/rollback workflow.
+
+Important current boundary: the provider-profile registration helper validates the provider profile, provider allowlist and host-approved tool names, but it does not itself prove that each selected model satisfies the canonical AgentProfile's required capabilities and provider preferences. The trusted host must perform that check through its provider-readiness/assignment path before assigning a worker. Do not treat adapter registration or a successful API probe as proof of persona suitability.
+
 ## 1. Inspect integrations
 
 From the AUREN checkout:

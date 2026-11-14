@@ -1,6 +1,7 @@
 """Hybrid routing policy and bounded fallback regression tests."""
 import time
 import unittest
+from unittest import mock
 import tempfile
 from pathlib import Path
 from threading import Event, Thread
@@ -282,24 +283,19 @@ class HybridRouterTests(unittest.TestCase):
             self.assertEqual("ok", route_span.status)
             self.assertEqual("groq", route_span.output["provider"])
             self.assertEqual("pinned-model-v1", route_span.output["model"])
-            self.assertEqual(13, route_span.output["usage"]["total_tokens"])
+            self.assertEqual(13, route_span.output["usage"]["total_units"])
             serialized = trace_path.read_text(encoding="utf-8")
             self.assertNotIn(private_prompt, serialized)
             self.assertNotIn("answer that must not enter telemetry", serialized)
             self.assertNotIn("provider-request-1", serialized)
 
     def test_route_observability_failure_does_not_change_route_result(self):
-        class BrokenTrace:
-            def span(self, *_args, **_kwargs):
-                raise OSError("telemetry unavailable")
-
         router = HybridModelRouter(
             discovery=Discovery([]),
             remote_executor=lambda request: "completed",
             resource_reader=lambda: {},
         )
-        from portable.agency_observability import bind_trace_context
-        # A valid Trace is required by the context binder, so use a Tracer whose
+        # Use a Tracer whose
         # exporter fails and confirm routing still returns its provider result.
         class BrokenExporter:
             enabled = True
@@ -318,6 +314,32 @@ class HybridRouterTests(unittest.TestCase):
             ))
         self.assertTrue(result.success)
         self.assertEqual("completed", result.result)
+
+    def test_route_context_binding_failure_does_not_block_provider_execution(self):
+        from portable.agency_observability import LocalExporter, Tracer, bind_trace_context
+
+        with tempfile.TemporaryDirectory() as directory:
+            tracer = Tracer(LocalExporter(Path(directory) / "trace.jsonl", enabled=True))
+            trace = tracer.start("route-context-bind-failure")
+            router = HybridModelRouter(
+                discovery=Discovery([]),
+                remote_executor=lambda _request: "provider-result",
+                resource_reader=lambda: {},
+            )
+            context = bind_trace_context(trace)
+            with context:
+                with mock.patch(
+                    "portable.agency_observability.bind_trace_context",
+                    side_effect=RuntimeError("trace context unavailable"),
+                ):
+                    result = router.route(TaskRouteRequest(
+                        "public task", "general", privacy="public", max_attempts=1,
+                    ))
+            tracer.end(trace, status="ok")
+        route_span = next(span for span in trace.spans if span.name == "model.route")
+        self.assertEqual("unavailable", route_span.status)
+        self.assertTrue(result.success)
+        self.assertEqual("provider-result", result.result)
 
     def test_attempts_are_clamped_to_three(self):
         calls = []

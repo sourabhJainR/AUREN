@@ -64,6 +64,13 @@ After setting the environment, restart AUREN so it inherits the new configuratio
 
 Look for remote_model_providers.status = configured_not_live_validated. This confirms only that provider names, credential variables and model IDs are present. Run a vendor-specific read-only conformance probe before production use. Check account access, rate limits, model availability, latency, usage, cost, data retention, training, residency and intended-use terms.
 
+For a direct API smoke test, select one provider explicitly:
+
+    $env:AUREN_LOCAL_REMOTE_INFERENCE = "enabled"
+    python scripts/provider_conformance.py --live-api --api-provider openai --json
+
+The command sends one fixed synthetic prompt, not workspace or task content, and may incur a small provider charge. The provider must be in `AUREN_REMOTE_PROVIDER_ORDER`. Repeat `--api-provider` to test more providers. The result records latency, token usage and digests; it never prints credentials or stores the raw prompt or response. See [Model Provider Integration](MODEL_PROVIDER_INTEGRATION.md#run-a-live-direct-api-conformance-probe) for Linux/macOS commands and the limits of this check.
+
 ## 3. Use a local model
 
 Install and start Ollama or another Ollama-compatible local endpoint. Pull a model that fits your machine:

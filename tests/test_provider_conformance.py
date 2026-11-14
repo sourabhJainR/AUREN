@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from scripts import provider_conformance
-from portable.remote_model_providers import PROVIDER_SPECS
-from pathlib import Path
+from portable.remote_model_providers import PROVIDER_SPECS, RemoteModelResponse
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "provider_conformance.py"
@@ -143,6 +144,246 @@ class ProviderConformanceTests(unittest.TestCase):
         self.assertIn("AGENTS.md", cursor_rule.read_text(encoding="utf-8"))
         self.assertIn("GROQ_API_KEY", matrix_doc)
         self.assertIn("XAI_API_KEY", matrix_doc)
+
+    def test_direct_api_probe_requires_explicit_public_remote_policy(self):
+        environment = {
+            "AUREN_REMOTE_PROVIDER_ORDER": "openai",
+            "AUREN_LOCAL_DATA_CLASSIFICATION": "public",
+            "OPENAI_API_KEY": "test-provider-secret",
+            "OPENAI_MODEL": "pinned-test-model",
+        }
+        with patch(
+            "portable.remote_model_providers.OpenAICompatibleProvider.from_environment",
+            side_effect=AssertionError("blocked probe must not construct a provider"),
+        ) as factory:
+            result = provider_conformance.live_api_probe(
+                "openai", environ=environment,
+            )
+        self.assertEqual("blocked", result.status)
+        self.assertEqual("remote inference opt-in is not enabled", result.detail)
+        factory.assert_not_called()
+
+    def test_direct_api_probe_records_safe_acceptance_evidence(self):
+        class FakeProvider:
+            model = "pinned-test-model"
+
+            def complete(self, prompt, *, timeout_seconds):
+                self.prompt = prompt
+                self.timeout_seconds = timeout_seconds
+                return RemoteModelResponse(
+                    provider="openai",
+                    model=self.model,
+                    content="AUREN_PROVIDER_PROBE_OK",
+                    usage={"input_tokens": 12, "output_tokens": 4, "total_tokens": 16, "untrusted_extra": "do-not-persist"},
+                    request_id="provider-request-id",
+                    finish_reason="stop",
+                    latency_ms=25.5,
+                    response_digest="a" * 64,
+                )
+
+        environment = {
+            "AUREN_REMOTE_PROVIDER_ORDER": "openai",
+            "AUREN_LOCAL_REMOTE_INFERENCE": "enabled",
+            "AUREN_LOCAL_DATA_CLASSIFICATION": "private",
+            "OPENAI_API_KEY": "test-provider-secret",
+            "OPENAI_MODEL": "pinned-test-model",
+        }
+        provider = FakeProvider()
+        with tempfile.TemporaryDirectory() as directory:
+            trace_path = Path(directory) / "probe-traces.jsonl"
+            with patch(
+                "portable.remote_model_providers.OpenAICompatibleProvider.from_environment",
+                return_value=provider,
+            ):
+                result = provider_conformance.live_api_probe(
+                    "openai", environ=environment, trace_path=trace_path,
+                )
+            trace_text = trace_path.read_text(encoding="utf-8")
+
+        self.assertEqual("pass", result.status)
+        self.assertTrue(result.evidence["sentinel_match"])
+        self.assertEqual("pinned-test-model", result.evidence["model"])
+        self.assertEqual(16, result.evidence["usage"]["total_units"])
+        self.assertNotIn("untrusted_extra", result.evidence["usage"])
+        self.assertEqual(25.5, result.evidence["latency_ms"])
+        self.assertEqual(64, len(result.evidence["prompt_digest"]))
+        self.assertNotIn("test-provider-secret", json.dumps(result.evidence))
+        self.assertNotIn(provider.prompt, trace_text)
+        self.assertNotIn("AUREN_PROVIDER_PROBE_OK", trace_text)
+        self.assertNotIn("provider-request-id", trace_text)
+        self.assertIn("provider.api_acceptance_probe", trace_text)
+        self.assertIn("total_units", trace_text)
+        self.assertIn('"total_units":16', trace_text)
+
+    def test_direct_api_probe_does_not_persist_untrusted_reported_model_name(self):
+        class FakeProvider:
+            model = "pinned-test-model"
+
+            def complete(self, prompt, *, timeout_seconds):
+                return RemoteModelResponse(
+                    provider="openai",
+                    model="unexpected-model-name-with-sensitive-suffix",
+                    content="AUREN_PROVIDER_PROBE_OK",
+                    usage={"total_tokens": 2},
+                    request_id=None,
+                    finish_reason="stop",
+                    latency_ms=5.0,
+                    response_digest="d" * 64,
+                )
+
+        environment = {
+            "AUREN_REMOTE_PROVIDER_ORDER": "openai",
+            "AUREN_LOCAL_REMOTE_INFERENCE": "enabled",
+            "OPENAI_API_KEY": "test-provider-secret",
+            "OPENAI_MODEL": "pinned-test-model",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            trace_path = Path(directory) / "probe-traces.jsonl"
+            with patch(
+                "portable.remote_model_providers.OpenAICompatibleProvider.from_environment",
+                return_value=FakeProvider(),
+            ):
+                result = provider_conformance.live_api_probe(
+                    "openai", environ=environment, trace_path=trace_path,
+                )
+            trace_text = trace_path.read_text(encoding="utf-8")
+        self.assertEqual("fail", result.status)
+        self.assertEqual("pinned-test-model", result.evidence["model"])
+        self.assertFalse(result.evidence["model_identity_match"])
+        self.assertEqual(64, len(result.evidence["reported_model_digest"]))
+        self.assertNotIn("unexpected-model-name-with-sensitive-suffix", json.dumps(result.evidence))
+        self.assertNotIn("unexpected-model-name-with-sensitive-suffix", trace_text)
+
+    def test_direct_api_probe_fails_without_exposing_provider_error_or_output(self):
+        class BrokenProvider:
+            model = "pinned-test-model"
+
+            def complete(self, prompt, *, timeout_seconds):
+                raise RuntimeError("provider response contains secret material")
+
+        environment = {
+            "AUREN_REMOTE_PROVIDER_ORDER": "openai",
+            "AUREN_LOCAL_REMOTE_INFERENCE": "enabled",
+            "AUREN_LOCAL_DATA_CLASSIFICATION": "non_sensitive",
+            "OPENAI_API_KEY": "test-provider-secret",
+            "OPENAI_MODEL": "pinned-test-model",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            trace_path = Path(directory) / "probe-traces.jsonl"
+            with patch(
+                "portable.remote_model_providers.OpenAICompatibleProvider.from_environment",
+                return_value=BrokenProvider(),
+            ):
+                result = provider_conformance.live_api_probe(
+                    "openai", environ=environment, trace_path=trace_path,
+                )
+            trace_text = trace_path.read_text(encoding="utf-8")
+
+        self.assertEqual("fail", result.status)
+        self.assertEqual("RuntimeError", result.evidence["error_type"])
+        self.assertNotIn("secret material", json.dumps(result.evidence))
+        self.assertNotIn("test-provider-secret", trace_text)
+        self.assertNotIn("secret material", trace_text)
+
+    def test_direct_api_probe_rejects_unexpected_model_response(self):
+        class FakeProvider:
+            model = "pinned-test-model"
+
+            def complete(self, prompt, *, timeout_seconds):
+                return RemoteModelResponse(
+                    provider="openai", model=self.model, content="unexpected output",
+                    usage={}, request_id=None, finish_reason="stop",
+                    latency_ms=5.0, response_digest="c" * 64,
+                )
+
+        environment = {
+            "AUREN_REMOTE_PROVIDER_ORDER": "openai",
+            "AUREN_LOCAL_REMOTE_INFERENCE": "enabled",
+            "OPENAI_API_KEY": "test-provider-secret",
+            "OPENAI_MODEL": "pinned-test-model",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            trace_path = Path(directory) / "probe-traces.jsonl"
+            with patch(
+                "portable.remote_model_providers.OpenAICompatibleProvider.from_environment",
+                return_value=FakeProvider(),
+            ):
+                result = provider_conformance.live_api_probe(
+                    "openai", environ=environment, trace_path=trace_path,
+                )
+            trace_text = trace_path.read_text(encoding="utf-8")
+        self.assertEqual("fail", result.status)
+        self.assertFalse(result.evidence["sentinel_match"])
+        self.assertNotIn("unexpected output", trace_text)
+
+    def test_run_reports_selected_api_probe_without_claiming_full_release_readiness(self):
+        passed = provider_conformance.Check(
+            "api-live-probe", "pass", "synthetic API probe passed",
+            {"provider": "openai", "model": "pinned-test-model"},
+        )
+        with patch.object(provider_conformance, "live_api_probe", return_value=passed):
+            report = provider_conformance.run(
+                live_api=True, api_providers=["openai"],
+            )
+        self.assertTrue(report["api_probe_ready"])
+        self.assertFalse(report["release_ready"])
+        self.assertEqual("pass", report["api_providers"][0]["status"])
+        self.assertEqual("live_api", report["mode"])
+
+    def test_direct_api_probe_requires_selected_provider_to_be_allowlisted(self):
+        environment = {
+            "AUREN_REMOTE_PROVIDER_ORDER": "groq",
+            "AUREN_LOCAL_REMOTE_INFERENCE": "enabled",
+            "AUREN_LOCAL_DATA_CLASSIFICATION": "public",
+            "OPENAI_API_KEY": "test-provider-secret",
+            "OPENAI_MODEL": "pinned-test-model",
+        }
+        with patch(
+            "portable.remote_model_providers.OpenAICompatibleProvider.from_environment",
+            side_effect=AssertionError("unlisted provider must not be called"),
+        ) as factory:
+            result = provider_conformance.live_api_probe(
+                "openai", environ=environment,
+            )
+        self.assertEqual("blocked", result.status)
+        factory.assert_not_called()
+
+    def test_run_deduplicates_selected_api_providers_to_avoid_double_charging(self):
+        passed = provider_conformance.Check(
+            "api-live-probe", "pass", "synthetic API probe passed",
+            {"provider": "openai", "model": "pinned-test-model"},
+        )
+        with patch.object(provider_conformance, "live_api_probe", return_value=passed) as probe:
+            report = provider_conformance.run(
+                live_api=True, api_providers=["openai", "openai"],
+            )
+        self.assertEqual(1, probe.call_count)
+        self.assertEqual(1, len(report["api_providers"]))
+
+    def test_api_probe_cli_rejects_duplicate_provider_selection(self):
+        completed = subprocess.run(
+            [
+                sys.executable, str(SCRIPT), "--live-api",
+                "--api-provider", "openai", "--api-provider", "openai", "--json",
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertNotEqual(0, completed.returncode)
+        self.assertIn("duplicate --api-provider values", completed.stderr)
+
+    def test_api_probe_cli_requires_explicit_provider_selection(self):
+        completed = subprocess.run(
+            [sys.executable, str(SCRIPT), "--live-api", "--json"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertNotEqual(0, completed.returncode)
+        self.assertIn("--live-api requires at least one --api-provider", completed.stderr)
 
     def test_static_harness_passes_without_installed_providers(self):
         completed = subprocess.run(
