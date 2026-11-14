@@ -926,6 +926,7 @@ class DurableRoutineRegistry:
         reconcile: Callable[[str], Any | None],
         request_cancel: Callable[[str, str], bool],
         reason: str,
+        limit: int = 64,
     ) -> tuple[RoutineDispatch, ...]:
         """Request cancellation through the canonical controller for all live occurrences.
 
@@ -936,12 +937,15 @@ class DurableRoutineRegistry:
             raise ValueError("cancellation reason must be non-empty text of at most 1000 characters")
         if not callable(reconcile) or not callable(request_cancel):
             raise TypeError("authoritative reconciliation and cancellation callbacks are required")
+        if type(limit) is not int or not 1 <= limit <= 256:
+            raise ValueError("limit must be between 1 and 256")
+        self.get(routine_id)
         with closing(self._connect()) as db:
             rows = db.execute(
                 "SELECT occurrence_key,work_key,task_id,status FROM routine_occurrences "
                 "WHERE routine_id=? AND status IN ('dispatching','unknown','submitted','cancellation_requested') "
-                "ORDER BY created_at",
-                (routine_id,),
+                "ORDER BY created_at LIMIT ?",
+                (routine_id, limit),
             ).fetchall()
         reason_digest = hashlib.sha256(reason.strip().encode("utf-8")).hexdigest()
         results: list[RoutineDispatch] = []
