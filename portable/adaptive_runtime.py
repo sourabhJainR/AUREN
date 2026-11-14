@@ -565,8 +565,10 @@ class AdaptiveRuntime:
             approval=approval,
             reconcile=self.execution_controller.task_by_work_key,
         )
-        self.reconcile_routine_occurrences(project_root, routine_id=routine_id, limit=64)
-        return result
+        reconciled = self.reconcile_routine_occurrences(
+            project_root, routine_id=routine_id, limit=64,
+        )
+        return self._apply_routine_reconciliation(result, reconciled)
 
     def dispatch_webhook_routine(
         self, project_root: Path | str, routine_id: str, *,
@@ -585,8 +587,10 @@ class AdaptiveRuntime:
             approval=approval,
             reconcile=self.execution_controller.task_by_work_key,
         )
-        self.reconcile_routine_occurrences(project_root, routine_id=routine_id, limit=64)
-        return result
+        reconciled = self.reconcile_routine_occurrences(
+            project_root, routine_id=routine_id, limit=64,
+        )
+        return self._apply_routine_reconciliation(result, reconciled)
 
     def dispatch_due_routines(
         self, project_root: Path | str, *, now: datetime | None = None,
@@ -602,8 +606,21 @@ class AdaptiveRuntime:
             reconcile=self.execution_controller.task_by_work_key,
             limit=limit,
         )
-        self.reconcile_routine_occurrences(project_root, limit=64)
-        return results
+        reconciled = self.reconcile_routine_occurrences(project_root, limit=64)
+        return tuple(self._apply_routine_reconciliation(item, reconciled) for item in results)
+
+    @staticmethod
+    def _apply_routine_reconciliation(
+        result: RoutineDispatch, reconciled: tuple[RoutineDispatch, ...],
+    ) -> RoutineDispatch:
+        if result.status not in {"dispatching", "unknown", "submitted"}:
+            return result
+        for item in reconciled:
+            if item.occurrence_key == result.occurrence_key and item.status in {
+                "submitted", "completed", "failed", "cancelled",
+            }:
+                return item
+        return result
 
     def reconcile_routine_occurrences(
         self, project_root: Path | str, *, routine_id: str | None = None,
