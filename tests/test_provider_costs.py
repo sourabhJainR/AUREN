@@ -248,6 +248,15 @@ class TestProviderCosts(unittest.TestCase):
         self.assertEqual(0, estimate.returncode, estimate.stderr)
         self.assertEqual("6.000000", json.loads(estimate.stdout)["estimated_total_usd"])
 
+    def test_installed_provider_help_mentions_cost_command(self):
+        cli = Path(__file__).resolve().parents[1] / "auren_cli.py"
+        result = subprocess.run(
+            [sys.executable, str(cli), "providers", "--help"],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("auren providers cost", result.stdout)
+
     def test_installed_auren_cli_exposes_catalog_validation_and_estimation(self):
         self.path.write_text(json.dumps(catalog_document()), encoding="utf-8")
         cli = Path(__file__).resolve().parents[1] / "auren_cli.py"
