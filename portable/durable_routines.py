@@ -890,9 +890,17 @@ class DurableRoutineRegistry:
         task_id: str | None = None,
     ) -> None:
         """Update receipt state without discarding immutable trigger identity metadata."""
-        now = _iso(datetime.now(timezone.utc))
         with self._lock, closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
+            latest_updated = db.execute(
+                "SELECT MAX(updated_at) FROM routine_occurrences",
+            ).fetchone()[0]
+            now_value = datetime.now(timezone.utc)
+            if latest_updated:
+                latest_value = _utc(datetime.fromisoformat(latest_updated))
+                if now_value <= latest_value:
+                    now_value = latest_value + timedelta(microseconds=1)
+            now = _iso(now_value)
             row = db.execute(
                 "SELECT receipt_json FROM routine_occurrences WHERE occurrence_key=?",
                 (occurrence_key,),
