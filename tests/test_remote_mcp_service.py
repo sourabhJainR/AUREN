@@ -875,6 +875,7 @@ class RemoteMCPASGITests(unittest.TestCase):
         self.assertEqual(200, status)
         metadata = json.loads(body)
         self.assertEqual("https://mcp.example.test/mcp", metadata["resource"])
+        self.assertEqual(["https://identity.example.test/"], metadata["authorization_servers"])
         self.assertEqual(
             "https://github.com/sourabhJainR/AUREN/blob/main/docs/REMOTE_MCP_PRIVACY.md",
             metadata["resource_policy_uri"],
