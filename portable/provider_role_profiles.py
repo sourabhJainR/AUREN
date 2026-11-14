@@ -13,7 +13,6 @@ import os
 from pathlib import Path
 import re
 import stat
-import tempfile
 from typing import Any, Mapping
 
 from .crew_adapters import (
@@ -374,6 +373,7 @@ def _role_invoker(
     local = _local_model_invoker(binding.local_model_id) if binding.local_model_id else None
     remote_opt_in = env.get("AUREN_LOCAL_REMOTE_INFERENCE", "").strip().lower() == "enabled"
     workspace_classification = env.get("AUREN_LOCAL_DATA_CLASSIFICATION", "").strip().lower()
+    remote_policy_ready = remote_opt_in and workspace_classification in {"public", "non_sensitive"}
 
     def invoke(prompt: str, timeout_seconds: int) -> str:
         privacy = _prompt_privacy(prompt)
@@ -431,6 +431,7 @@ def provider_role_profile_report(
             "allowed_tools": list(binding.allowed_tools),
             "timeout_seconds": binding.timeout_seconds,
             "route": route,
+            "route_ready": configured and (binding.provider_id == "ollama" or remote_policy_ready or binding.local_model_id is not None),
             "authenticated": "not_tested",
             "live_tested": "not_tested",
         })
@@ -442,7 +443,10 @@ def provider_role_profile_report(
         "profile_digest": profile.digest,
         "role_count": len(profile.roles),
         "roles": roles,
-        "activation_ready": all(item["configured"] for item in roles),
+        "remote_policy_ready": remote_policy_ready,
+        "private_data_routing": "local_only",
+        "activation_ready": all(item["route_ready"] for item in roles),
+        "activation_scope": "configuration_only_not_live_tested",
         "authority_note": "provider/model routing only; tools, Guard, approvals and task authority remain host-owned",
     }
 
