@@ -107,7 +107,10 @@ work on the same managed tick. Terminal receipts include a short summary, observ
 terminal state and attempt count when available. They are placed in the existing durable
 trigger inbox with deterministic IDs (`routine-terminal:<occurrence_key>`) and event
 kinds `routine.completed`, `routine.failed` or `routine.cancelled`. Failed outcomes set
-`escalation_required=true` and use higher trigger priority. The receipt acts as an
+`escalation_required=true` and use higher trigger priority. Blocked approvals,
+overlap refusals, unresolved dispatch outcomes and coalesced missed intervals also
+produce attention events (`routine.blocked_approval`, `routine.overlap_blocked`,
+`routine.outcome_unknown`, `routine.schedule_coalesced`). The receipt acts as an
 outbox: if inbox emission fails, the event remains pending for a later tick; repeated
 emission uses the same event ID and content. Hosts consume these events through the
 existing `dispatch_triggers` handler path. This is not an external notification
