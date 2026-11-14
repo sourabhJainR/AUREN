@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -197,7 +198,7 @@ class AdaptiveRuntimeRoutineIntegrationTests(unittest.TestCase):
         self.assertEqual("completed", occurrence["status"])
         self.assertEqual(
             "Routine repository-health completed after 2 attempt(s)",
-            __import__("json").loads(occurrence["receipt_json"])["terminal_summary"],
+            json.loads(occurrence["receipt_json"])["terminal_summary"],
         )
 
 
