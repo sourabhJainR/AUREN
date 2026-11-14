@@ -733,10 +733,10 @@ class AurenMCPService:
                     "destructiveHint": consequential,
                     "openWorldHint": consequential,
                 },
-                "securitySchemes": security_schemes,
                 "_meta": {"securitySchemes": security_schemes},
             }
             if name == "auren.get_profile":
+                tool["securitySchemes"] = security_schemes
                 tool["outputSchema"] = {
                     "$schema": "https://json-schema.org/draft/2020-12/schema",
                     "type": "object",
