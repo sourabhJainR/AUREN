@@ -590,7 +590,7 @@ class AdaptiveRuntime:
         registry = self.routine_registry(project_root)
         registry.reconcile_occurrences(
             reconcile=self.execution_controller.task_by_work_key,
-            limit=min(64, max(1, limit)),
+            limit=64,
         )
         return registry.dispatch_due(
             now=now or datetime.now(timezone.utc),
