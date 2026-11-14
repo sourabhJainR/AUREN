@@ -51,6 +51,11 @@ routine through that runtime; do not create a second scheduler or controller.
         project_root, "repository-health", invocation_id="operator-request-001",
     )
 
+    # Request cancellation of live occurrences; this does not claim completion.
+    runtime.cancel_routine_occurrences(
+        project_root, "repository-health", reason="operator requested stop",
+    )
+
     # The host must verify the provider signature, timestamp and replay window.
     runtime.dispatch_webhook_routine(
         project_root, "repository-triage", event_id="provider-event-123",
@@ -101,6 +106,10 @@ verification and dispatch so verifier-side mutation cannot change the accepted e
   Without a reconciliation adapter, replay is refused.
 - The canonical controller remains responsible for handler classification, role scope,
   deployment admission, budgets, deadlines, task leases, cancellation, and execution.
+- `cancel_routine_occurrences` reconciles each occurrence by stable work key, then requests
+  cancellation through `ExecutionController.request_cancellation`. The receipt records the
+  request and reason digest; it remains non-terminal until the controller reports a terminal
+  task state. Unknown task outcomes are not described as cancelled.
 - Routine storage records configuration and trigger receipts only. It does not duplicate
   task state, queue ownership, or execution status.
 - Interval ticks are bounded (maximum 256 occurrences per call); the host owns process
@@ -114,7 +123,8 @@ denial, unknown-outcome recovery, one-time scheduling, interval coalescing and t
 fail-closed skip overlap policy. The
 AdaptiveRuntime integration tests cover project isolation and canonical-controller
 submission/reconciliation. These tests do not prove live provider webhook signatures,
-concurrent schedule policy, profile pinning, completion summaries or multi-host failover.
+concurrent schedule policy, profile pinning, cancellation propagation through every delegated tool,
+completion summaries or multi-host failover.
 
 Repository tests do not establish production scheduler failover, webhook signature
 verification against a live provider, cross-host admission, or durable deployment
