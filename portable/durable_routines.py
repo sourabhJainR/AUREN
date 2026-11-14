@@ -677,6 +677,97 @@ class DurableRoutineRegistry:
             updates={"state": "unknown", "error_type": error_type},
         )
 
+    def cancel_inflight(
+        self, routine_id: str, *,
+        reconcile: Callable[[str], Any | None],
+        request_cancel: Callable[[str, str], bool],
+        reason: str,
+    ) -> tuple[RoutineDispatch, ...]:
+        """Request cancellation through the canonical controller for all live occurrences.
+
+        A cancellation request is not reported as completion. The task controller
+        remains the authority for the eventual terminal task state.
+        """
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > 1000:
+            raise ValueError("cancellation reason must be non-empty text of at most 1000 characters")
+        if not callable(reconcile) or not callable(request_cancel):
+            raise TypeError("authoritative reconciliation and cancellation callbacks are required")
+        with closing(self._connect()) as db:
+            rows = db.execute(
+                "SELECT occurrence_key,work_key,task_id,status FROM routine_occurrences "
+                "WHERE routine_id=? AND status IN ('dispatching','unknown','submitted','cancellation_requested') "
+                "ORDER BY created_at",
+                (routine_id,),
+            ).fetchall()
+        reason_digest = hashlib.sha256(reason.strip().encode("utf-8")).hexdigest()
+        results: list[RoutineDispatch] = []
+        for row in rows:
+            occurrence_key = str(row["occurrence_key"])
+            work_key = str(row["work_key"])
+            try:
+                task = reconcile(work_key)
+            except Exception as exc:
+                results.append(RoutineDispatch(
+                    occurrence_key, work_key, "unknown",
+                    reason=f"task reconciliation failed: {type(exc).__name__}",
+                ))
+                continue
+            if task is None:
+                results.append(RoutineDispatch(
+                    occurrence_key, work_key, "unknown",
+                    reason="canonical task record is unavailable; cancellation outcome is unknown",
+                ))
+                continue
+            task_id = getattr(task, "id", None) or (
+                task.get("id") if isinstance(task, Mapping) else None
+            )
+            task_state = getattr(task, "state", None) or (
+                task.get("state") if isinstance(task, Mapping) else None
+            )
+            if not isinstance(task_id, str) or not task_id:
+                results.append(RoutineDispatch(
+                    occurrence_key, work_key, "unknown",
+                    reason="canonical task lookup returned no task identity",
+                ))
+                continue
+            if task_state in {"completed", "failed", "cancelled"}:
+                self._update_receipt(
+                    occurrence_key, status=str(task_state),
+                    task_id=task_id,
+                    updates={"state": str(task_state), "terminal_observed_at": _iso(datetime.now(timezone.utc))},
+                )
+                results.append(RoutineDispatch(occurrence_key, work_key, str(task_state), task_id))
+                continue
+            try:
+                accepted = request_cancel(task_id, reason.strip()) is True
+            except Exception as exc:
+                results.append(RoutineDispatch(
+                    occurrence_key, work_key, "unknown", task_id,
+                    reason=f"controller cancellation request failed: {type(exc).__name__}",
+                ))
+                continue
+            if accepted:
+                self._update_receipt(
+                    occurrence_key, status="cancellation_requested",
+                    task_id=task_id,
+                    updates={
+                        "state": "cancellation_requested",
+                        "cancellation_reason_digest": reason_digest,
+                        "cancellation_requested_at": _iso(datetime.now(timezone.utc)),
+                        "task_state_at_cancellation": task_state,
+                    },
+                )
+                results.append(RoutineDispatch(
+                    occurrence_key, work_key, "cancellation_requested", task_id,
+                    reason="request accepted; task remains non-terminal until controller confirms cancellation",
+                ))
+            else:
+                results.append(RoutineDispatch(
+                    occurrence_key, work_key, "not_cancelled", task_id,
+                    reason="controller did not accept cancellation; inspect authoritative task state",
+                ))
+        return tuple(results)
+
     def occurrence(self, occurrence_key: str) -> Mapping[str, Any] | None:
         with closing(self._connect()) as db:
             row = db.execute(
