@@ -341,6 +341,109 @@ class HybridRouterTests(unittest.TestCase):
         self.assertTrue(result.success)
         self.assertEqual("provider-result", result.result)
 
+    def test_local_inference_emits_parented_privacy_safe_provider_span(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trace_path = Path(directory) / "traces.jsonl"
+            tracer = Tracer(LocalExporter(trace_path, enabled=True))
+            trace = tracer.start("local-model-task")
+            supervisor = trace.span("supervisor", phase="supervisor")
+            router = HybridModelRouter(
+                discovery=Discovery(["qwen2.5-coder:7b"]),
+                remote_executor=lambda _request: self.fail("private task must not use remote inference"),
+                resource_reader=lambda: {},
+            )
+            response_context = mock.MagicMock()
+            response_context.__enter__.return_value.read.return_value = (
+                b'{"response":"local answer must not enter telemetry",'
+                b'"prompt_eval_count":7,"eval_count":4,"total_duration":25000000}'
+            )
+            private_prompt = "private source text must not enter telemetry"
+            with mock.patch(
+                "portable.hybrid_model_router.open_loopback_request",
+                return_value=response_context,
+            ):
+                with bind_trace_context(trace, supervisor.span_id):
+                    result = router.route(TaskRouteRequest(
+                        private_prompt, "coding", privacy="private", max_attempts=1,
+                    ))
+            supervisor.finish({"dispatch_completed": True})
+            tracer.end(trace)
+
+            self.assertTrue(result.success)
+            self.assertEqual("local answer must not enter telemetry", result.result)
+            route_span = next(span for span in trace.spans if span.name == "model.route")
+            inference_span = next(span for span in trace.spans if span.name == "provider.inference.ollama")
+            self.assertEqual(supervisor.span_id, route_span.parent_id)
+            self.assertEqual(route_span.span_id, inference_span.parent_id)
+            self.assertEqual("ollama", inference_span.provider)
+            self.assertEqual("qwen2.5-coder:7b", inference_span.model)
+            self.assertEqual("provider", inference_span.phase)
+            self.assertEqual("ok", inference_span.status)
+            self.assertEqual(
+                {"input_units": 7, "output_units": 4, "total_units": 11},
+                inference_span.output["usage"],
+            )
+            self.assertEqual(64, len(inference_span.output["response_digest"]))
+            serialized = trace_path.read_text(encoding="utf-8")
+            self.assertNotIn(private_prompt, serialized)
+            self.assertNotIn("local answer must not enter telemetry", serialized)
+
+    def test_local_inference_telemetry_failure_does_not_block_local_execution(self):
+        class BrokenTrace:
+            def span(self, *_args, **_kwargs):
+                raise OSError("telemetry unavailable")
+
+        router = HybridModelRouter(
+            discovery=Discovery([]),
+            remote_executor=lambda _request: None,
+            resource_reader=lambda: {},
+        )
+        response_context = mock.MagicMock()
+        response_context.__enter__.return_value.read.return_value = b'{"response":"local result"}'
+        with mock.patch(
+            "portable.agency_observability.current_trace_context",
+            return_value=(BrokenTrace(), None),
+        ), mock.patch(
+            "portable.hybrid_model_router.open_loopback_request",
+            return_value=response_context,
+        ):
+            result = router._execute_local(
+                TaskRouteRequest("private prompt", "general", privacy="private"),
+                "llama3.2:3b",
+            )
+        self.assertEqual("local result", result)
+
+    def test_local_inference_error_span_excludes_prompt_and_exception_text(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trace_path = Path(directory) / "traces.jsonl"
+            tracer = Tracer(LocalExporter(trace_path, enabled=True))
+            trace = tracer.start("local-model-error")
+            router = HybridModelRouter(
+                discovery=Discovery([]),
+                remote_executor=lambda _request: None,
+                resource_reader=lambda: {},
+            )
+            private_prompt = "private local prompt"
+            with mock.patch(
+                "portable.agency_observability.current_trace_context",
+                return_value=(trace, None),
+            ), mock.patch(
+                "portable.hybrid_model_router.open_loopback_request",
+                side_effect=TimeoutError("provider error contains private detail"),
+            ):
+                with self.assertRaisesRegex(TimeoutError, "private detail"):
+                    router._execute_local(
+                        TaskRouteRequest(private_prompt, "general", privacy="private"),
+                        "llama3.2:3b",
+                    )
+            tracer.end(trace, status="error")
+            inference_span = next(span for span in trace.spans if span.name == "provider.inference.ollama")
+            self.assertEqual("error", inference_span.status)
+            self.assertEqual({"outcome": "error", "error_type": "TimeoutError"}, inference_span.output)
+            serialized = trace_path.read_text(encoding="utf-8")
+            self.assertNotIn(private_prompt, serialized)
+            self.assertNotIn("provider error contains private detail", serialized)
+
     def test_attempts_are_clamped_to_three(self):
         calls = []
         router = HybridModelRouter(discovery=Discovery([]),
