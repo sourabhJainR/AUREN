@@ -272,7 +272,7 @@ class OpenAICompatibleProvider:
         # to create telemetry; the untraced validator remains authoritative.
         if isinstance(prompt, str) and len(prompt) <= 256 * 1024:
             try:
-                from .agency_observability import current_trace_context
+                from .agency_observability import current_trace_context, telemetry_usage_metrics
                 active = current_trace_context()
                 if active is not None:
                     trace, parent_span_id = active
@@ -328,7 +328,7 @@ class OpenAICompatibleProvider:
                         "outcome": "completed",
                         "response_digest": result.response_digest,
                         "completion_bytes": len(result.content.encode("utf-8")),
-                        "usage": dict(result.usage),
+                        "usage": telemetry_usage_metrics(result.usage),
                         "latency_ms": result.latency_ms,
                         "finish_reason": safe_finish_reason,
                         "tool_call_count": len(result.tool_calls),
