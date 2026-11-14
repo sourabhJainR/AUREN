@@ -325,10 +325,26 @@ class DurableRoutineRegistry:
                     spec.routine_id, spec.version, schedule_cursor,
                 )
                 if existing is not None:
-                    dispatched = self._recover_scheduled_occurrence(
-                        existing, now=instant, interval_seconds=interval,
-                        reconcile=reconcile,
-                    )
+                    if existing["status"] == "blocked_approval":
+                        existing_receipt = json.loads(existing["receipt_json"])
+                        existing_scheduled = _utc(datetime.fromisoformat(
+                            existing_receipt.get("scheduled_at") or _iso(schedule_cursor)
+                        ))
+                        missed_intervals = max(
+                            0, int((instant - schedule_cursor).total_seconds() // interval)
+                        )
+                        trigger_key = f"{spec.routine_id}:v{spec.version}:{_iso(existing_scheduled)}"
+                        dispatched = self._dispatch(
+                            spec.routine_id, spec.trigger, trigger_key, submit=submit,
+                            approval=approval, reconcile=reconcile,
+                            scheduled_at=existing_scheduled, schedule_cursor=schedule_cursor,
+                            expected_version=spec.version, missed_intervals=missed_intervals,
+                        )
+                    else:
+                        dispatched = self._recover_scheduled_occurrence(
+                            existing, now=instant, interval_seconds=interval,
+                            reconcile=reconcile,
+                        )
                     results.append(dispatched)
                     if dispatched.status in {"submitted", "duplicate"}:
                         next_run = self._next_interval_after(
