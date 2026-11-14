@@ -49,6 +49,12 @@ class ImpactPolicyTests(unittest.TestCase):
                 "tests.test_local_first_onboarding",
                 "tests.test_local_mcp_host",
             },
+            "portable/local_composition.py": {
+                "tests.test_local_composition",
+                "tests.test_local_vibe_owner_approval",
+                "tests.test_local_mcp_host",
+            },
+            "tests/test_local_composition.py": {"tests.test_local_composition"},
             "portable/auren_runtime.py": {"tests.test_auren_runtime_progress_cli"},
             "portable/dashboard_server.py": {"tests.test_control_center_api"},
             "tests/test_local_first_onboarding.py": {"tests.test_local_first_onboarding"},
