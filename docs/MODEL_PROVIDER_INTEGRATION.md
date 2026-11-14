@@ -98,7 +98,7 @@ When a canonical AUREN trace is bound to a route, the hybrid router emits a pare
 
 Telemetry does not store raw prompts, completions, API keys or provider request IDs. The route span records task byte length and privacy classification, not task text. Exporter failures are recorded as telemetry failures and do not change routing or authorize fallback. These spans are evidence only; the supervisor, Guard and shared execution budget remain the only authority for dispatch and actions.
 
-Token usage and latency are available when the provider returns them. Local Ollama-compatible inference now emits a `provider.inference.ollama` child span when a canonical trace is active. It records provider/model, measured latency, input/output token counts when the endpoint supplies them, response size and a response digest. Raw prompts and responses are not recorded, and telemetry failure does not change local execution. Monetary cost is not estimated yet because AUREN does not maintain a pinned, versioned price catalogue.
+Token usage and latency are available when the provider returns them. Local Ollama-compatible inference now emits a `provider.inference.ollama` child span when a canonical trace is active. It records provider/model, measured latency, input/output token counts when the endpoint supplies them, response size and a response digest. Raw prompts and responses are not recorded, and telemetry failure does not change local execution. Direct API cost estimates are available through an operator-reviewed, versioned exact-model price catalog. They are not invoices; local-model cost and billing reconciliation remain open.
 
 ## Per-request provider selection
 

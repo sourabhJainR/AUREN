@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sourabhJainR/AUREN/blob/main/schemas/provider-price-catalog.v1.schema.json",
+  "title": "AUREN Provider Price Catalog v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "catalog_version",
+    "currency",
+    "published_at",
+    "valid_until",
+    "source_policy",
+    "entries"
+  ],
+  "properties": {
+    "schema_version": { "const": "auren.provider-price-catalog.v1" },
+    "catalog_version": { "type": "string", "minLength": 1, "maxLength": 100, "pattern": "^\\S+$" },
+    "currency": { "const": "USD" },
+    "published_at": { "type": "string", "format": "date-time" },
+    "valid_until": { "type": "string", "format": "date-time" },
+    "source_policy": { "const": "official-provider-pricing" },
+    "entries": {
+      "type": "array",
+      "maxItems": 5000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "provider_id",
+          "model_id",
+          "input_usd_per_million_tokens",
+          "output_usd_per_million_tokens",
+          "source_url",
+          "retrieved_at"
+        ],
+        "properties": {
+          "provider_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$" },
+          "model_id": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^\\S+$", "not": { "enum": ["latest", "default", "auto"] } },
+          "input_usd_per_million_tokens": { "type": "number", "minimum": 0, "maximum": 1000000 },
+          "output_usd_per_million_tokens": { "type": "number", "minimum": 0, "maximum": 1000000 },
+          "source_url": { "type": "string", "format": "uri", "pattern": "^https://" },
+          "retrieved_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  }
+}

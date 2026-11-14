@@ -1,0 +1,9 @@
+{
+  "schema_version": "auren.provider-price-catalog.v1",
+  "catalog_version": "2026-11-14.1",
+  "currency": "USD",
+  "published_at": "2026-11-14T00:00:00Z",
+  "valid_until": "2026-12-14T00:00:00Z",
+  "source_policy": "official-provider-pricing",
+  "entries": []
+}
