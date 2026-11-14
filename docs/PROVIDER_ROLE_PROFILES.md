@@ -1,86 +1,134 @@
-# AUREN provider role profiles
+# AUREN Integration Inventory and Provider Role Profiles
 
-A provider role profile assigns a pinned model route to each graph-team role. It is a routing configuration, not an authority document.
+AUREN separates integration discovery, configuration, trust and activation. The integration inventory is read-only. A provider role profile selects a pinned provider/model for each graph-team role; it does not grant tools or action authority.
 
-## Quick start
+## 1. Inspect integrations
 
-Run this from the AUREN checkout or installed runtime:
+From the AUREN checkout:
 
-```bash
-# Read-only inventory of hosts, providers, skills and optional integrations
-auren integrations
-
-# Create a local-only profile for all 14 graph-team roles
-auren integrations profile init --provider ollama --model <pinned-local-model-id> --apply
-
-# Validate the profile and inspect configured providers
-auren integrations profile validate
+```powershell
+python auren_cli.py integrations --project-root .
 ```
 
-The starter profile assigns the same model to all roles and gives every role an empty tool scope. Edit `.auren/provider_roles.json` to choose different providers and models for individual roles.
-
-For a remote provider with a local model for private work:
+Or use the installed CLI:
 
 ```bash
-# Keep credentials in the environment or a secret manager
-export OPENAI_API_KEY="<secret>"
-export AUREN_LOCAL_REMOTE_INFERENCE=enabled
-export AUREN_LOCAL_DATA_CLASSIFICATION=public
-
-auren integrations profile init \
-  --provider openai \
-  --model <pinned-remote-model-id> \
-  --local-model <pinned-local-model-id> \
-  --apply
-
-auren integrations profile validate
+auren integrations --project-root .
 ```
 
-Use the provider's exact model ID. Do not use mutable aliases such as `latest`. For Windows PowerShell, use `$env:OPENAI_API_KEY = "..." ` and set the two AUREN environment variables with the same names.
+The JSON report covers local MCP hosts, Agent Skills, provider CLIs, remote model APIs, the local Ollama-compatible runtime, provider capability manifests and the graph-team provider profile.
 
-## Profile shape
+Readiness states are separate:
 
-The default file is `.auren/provider_roles.json`. It contains:
+| State | Meaning |
+|---|---|
+| Detected | A local executable, config file, endpoint or manifest was found |
+| Configured | Required local configuration is present |
+| Authenticated | A credential check succeeded; otherwise `not_tested` |
+| Live tested | A versioned host/provider acceptance receipt exists; otherwise `not_tested` |
+| Enabled | Current AUREN configuration and policy permit use; this is not a quality or safety verdict |
 
-- A schema version, profile ID and revision.
-- One provider/model binding for each configured role.
-- A bounded timeout.
-- An explicit list of read-only tools approved for that role.
-- An optional local model ID for private-task routing.
+The command does not edit client files or send remote model requests. It uses the existing local readiness checks, which may inspect the local Ollama-compatible endpoint. API key values are never returned. VS Code JSONC comments and trailing commas are supported. Provider capability manifests are reported as untrusted metadata and are never imported or executed.
 
-The profile supports the eight core specialist roles and the six software-team leadership, architecture, research and release personas. A profile may contain either complete role family or both. Partial family registration is rejected.
+## 2. Create and validate a profile
 
-API keys, tokens, endpoints with embedded credentials and other secrets do not belong in the profile. Credentials are loaded from the existing provider environment variables. The `custom` provider also requires an HTTPS endpoint and exact hostname allowlist.
+Preview a local-first profile for all 14 graph-team roles:
 
-## Register the profile in the graph-team host
+```powershell
+python auren_cli.py integrations profile init --project-root . --provider ollama --model llama3.2:3b
+```
 
-The runtime host exposes `register_profiled_crew_adapters` in `.ai-harness/runtime/__init__.py`. Call it during the existing host bootstrap after the canonical controller and approved tool registry are ready:
+Create the file only after reviewing the preview:
+
+```powershell
+python auren_cli.py integrations profile init --project-root . --provider ollama --model llama3.2:3b --apply
+```
+
+The default file is `.auren/provider_roles.json`. The command will not overwrite an existing file. Use a reviewed new revision and keep a backup when changing an existing profile.
+
+Inspect and validate:
+
+```powershell
+python auren_cli.py integrations profile show --project-root .
+python auren_cli.py integrations profile validate --project-root .
+```
+
+Validation checks the schema, pinned model IDs, provider configuration and remote-routing policy. It does not call a vendor API. The report uses `live_activation: not_performed`; validation is not a live acceptance receipt.
+
+## 3. Configure models by role
+
+Each role entry has this shape:
+
+```json
+{
+  "provider_id": "openai",
+  "model_id": "gpt-model-version",
+  "timeout_seconds": 90,
+  "allowed_tools": [],
+  "local_model_id": "llama3.2:3b"
+}
+```
+
+You can select a different provider and model for each role. The supported role IDs are:
+
+- Specialists: `backend_api`, `database_schema`, `dotnet`, `end_user_validation`, `frontend_ui`, `product_pm`, `qa_reviewer`, `security_privacy`.
+- Leadership and research: `ceo_sponsor`, `cto_sponsor`, `engineering_manager`, `release_operations`, `research_evaluation`, `solution_architect`.
+
+A profile may contain either complete role family or both. Partial family registration is rejected. The starter profile writes both complete families with empty tool scopes.
+
+Use pinned model IDs. Mutable aliases such as `latest` are rejected. API keys, tokens and secrets do not belong in profile JSON. Keep credentials in the runtime environment or a secret manager.
+
+## 4. Enable remote providers
+
+A remote role is eligible only when all of these conditions hold:
+
+1. The provider has a configured credential and model.
+2. The provider ID is included in the explicit `AUREN_REMOTE_PROVIDER_ORDER` pool.
+3. `AUREN_LOCAL_REMOTE_INFERENCE=enabled` is set.
+4. The workspace classification is `public` or `non_sensitive`.
+5. The individual task request is explicitly marked `public` or `non_sensitive`.
+
+For example, in a controlled test environment:
+
+```powershell
+$env:AUREN_REMOTE_PROVIDER_ORDER = "openai"
+$env:AUREN_LOCAL_REMOTE_INFERENCE = "enabled"
+$env:AUREN_LOCAL_DATA_CLASSIFICATION = "public"
+$env:OPENAI_API_KEY = "<secret-manager-injected-value>"
+$env:OPENAI_MODEL = "<current-model-id>"
+```
+
+The exact model ID in each role profile is the pinned selection used by that role. Never put a real key in the profile, repository, task prompt or logs.
+
+Private and restricted tasks never go to a remote provider. If a role has a `local_model_id`, it can fall back to that local model. Without a local fallback, the remote call is denied when privacy or remote-policy checks fail. A configured local fallback is not proof that the model is installed or suitable; check local model status separately.
+
+## 5. Register the profile in a trusted host
+
+Creating a profile does not silently activate providers. Register it during trusted runtime bootstrap after the canonical controller and approved read-only tool registry are ready:
 
 ```python
-adapters = register_profiled_crew_adapters(
+from runtime import register_supervised_profiled_crew_adapters
+
+adapters = register_supervised_profiled_crew_adapters(
+    controller,
     project_root / ".auren" / "provider_roles.json",
-    tools=approved_tool_registry,
-    progress_journal=controller.progress_journal,
+    tools=approved_read_only_tools,
 )
 ```
 
-The helper builds every selected role adapter first, then registers the combined set in one operation. If any provider, model, role, tool scope or adapter is invalid, registration fails before the live registry changes.
+The controller must expose its canonical `ProgressJournal`. The host supplies the `ApprovedToolRegistry`; profile tool names must be a subset of that registry. Use the same host-owned registry and shared team-budget enforcer as the rest of the graph runtime when shared team-budget settlement is required.
 
-If no tools are passed, the helper uses an empty `ApprovedToolRegistry`. To expose read-only tools, pass the host's canonical registry and list only those exact tool names in the profile. The registry rejects side-effecting tools. The profile cannot add tools that the host has not approved.
+Registration builds the complete selected role family and validates all adapters before updating the runtime registry. The adapters remain proposal-only. They cannot add tools, write files, approve actions, bypass Guard, change execution budgets or authorize deployment. The supervisor remains responsible for dispatch, approvals, verification and adoption.
 
-## Privacy and authority rules
+The lower-level `register_profiled_crew_adapters` helper is intended for trusted bootstrap code that explicitly owns progress-journal wiring. Prefer the supervised wrapper for normal host composition. A running runtime does not hot-reload profile changes; restart or explicitly re-bootstrap after a revision.
 
-- `ollama` profiles use the loopback-only local model endpoint.
-- Remote model profiles accept remote work only when the task explicitly declares `public` or `non_sensitive`, `AUREN_LOCAL_REMOTE_INFERENCE=enabled`, and the workspace classification is also `public` or `non_sensitive`.
-- Private or restricted tasks use the configured `local_model_id`. If no local model is configured, the remote invoker rejects the task. It does not send private data to the remote provider.
-- Remote inference remains proposal-only. The model cannot run tools, approve work, edit a repository, merge, release or deploy.
-- Provider calls remain inside the provider-backed crew adapter's bounded wait and shared team-budget enforcement.
-- A profile digest and exact model ID are included in the adapter's version identity.
+## 6. Readiness and limitations
 
-A valid profile does not prove that a model is installed, that credentials authenticate, that a vendor account has access, or that the model meets quality or safety requirements. Use the inventory and a separate live conformance receipt before production use.
+- Provider order is checked against the configured remote provider pool. Invalid or duplicate provider order disables remote routing.
+- Profile tool scopes can narrow the host's approved read-only tools but cannot expand the registry.
+- Model and profile identity are pinned in the provider-backed adapter version.
+- Provider calls use the adapter's bounded wait. Shared team-budget settlement is enforced when the host supplies the canonical registry with its team-budget enforcer.
+- Profile validation does not authenticate a vendor account, test model quality or verify privacy terms.
+- This is not a universal executable plugin loader. Third-party code remains outside the profile format and must use a reviewed integration boundary.
 
-## Inventory states
-
-`auren integrations` reports detected, configured, authenticated, live-tested and enabled as separate states. It does not change client configuration or send requests to remote model APIs. Authentication and live acceptance remain `not_tested` until an explicit acceptance flow records evidence.
-
-Provider capability manifests are treated as untrusted metadata. They are never imported or executed by the inventory command.
+See [Plug-and-Play Integrations](PLUG_AND_PLAY_INTEGRATIONS.md), [Model Provider Integration](MODEL_PROVIDER_INTEGRATION.md), [Unified Graph/Crew Runtime](UNIFIED_GRAPH_CREW_RUNTIME.md) and [Extension Contract](EXTENSION_CONTRACT.md).
