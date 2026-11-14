@@ -286,6 +286,29 @@ def register_profiled_crew_adapters(
     register_crew_adapters(adapters, replace=replace)
     return adapters
 
+
+def register_supervised_profiled_crew_adapters(
+    controller: Any,
+    profile_path: str | Path,
+    *,
+    tools: Any | None = None,
+    replace: bool = False,
+    environ: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Register a provider profile using the controller-owned progress journal."""
+    from portable.progress_journal import ProgressJournal
+
+    journal = getattr(controller, "progress_journal", None)
+    if not isinstance(journal, ProgressJournal):
+        raise TypeError("controller must expose its canonical ProgressJournal")
+    return register_profiled_crew_adapters(
+        profile_path,
+        tools=tools,
+        progress_journal=journal,
+        replace=replace,
+        environ=environ,
+    )
+
 def _requires_crew_contract(route: dict[str, Any], phase: str) -> bool:
     if phase not in {"poc", "debug", "execute", "repair", "review"}:
         return False
