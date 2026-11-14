@@ -195,7 +195,7 @@ Harness² identifies eight editable parts around a model. AUREN has correspondin
 | Scripts | Allowlisted subprocess and provider adapters | Explicit and bounded; not arbitrary script execution |
 | Plugins | Native Claude Code plugin, MCP integrations and data-only extension contract | Partial; no universal executable plugin runtime |
 
-Harness² also demonstrates task-level Propose–Probe–Compose and persistent harness learning. AUREN has an AUREN-native bounded experiment controller with manifest digests, shared execution budgets, baseline/candidate probes, separate evaluator receipts, isolation attestation checks, atomic adoption and rollback. The controller is not itself a sandbox.
+Harness² also demonstrates task-level Propose–Probe–Compose and persistent harness learning. AUREN has an AUREN-native bounded Propose–Probe–Compare–Compose experiment controller with manifest digests, shared execution budgets, baseline/candidate probes, separate evaluator receipts, isolation attestation checks, atomic adoption and rollback. The controller is not itself a sandbox.
 
 The remaining Harness²-aligned work is tracked in [issue #692](https://github.com/sourabhJainR/AUREN/issues/692): production isolation/evaluator trust roots, resumable experiment recovery, explicit parallel and sequential exploration, durable provenance-aware learning, component-specific change policy, transfer/holdout evaluation and dashboard integration. Do not describe repository test fixtures as independent isolation or evaluation evidence.
 
