@@ -579,7 +579,23 @@ class DurableRoutineRegistry:
                 if previous["status"] == "submitted":
                     db.execute("COMMIT")
                     return RoutineDispatch(occurrence_key, work_key, "duplicate", previous["task_id"])
-                if previous["status"] in {"dispatching", "unknown"}:
+                if previous["status"] == "blocked_approval":
+                    if not approval_allowed:
+                        db.execute("COMMIT")
+                        return RoutineDispatch(
+                            occurrence_key, work_key, "blocked_approval",
+                            reason="required approval remains absent, denied, expired, or invalid",
+                        )
+                    previous_receipt["approval"] = approval_receipt
+                    previous_receipt["state"] = "dispatching"
+                    db.execute(
+                        "UPDATE routine_occurrences SET status='dispatching',receipt_json=?,updated_at=? "
+                        "WHERE occurrence_key=? AND status='blocked_approval'",
+                        (json.dumps(previous_receipt, sort_keys=True), now, occurrence_key),
+                    )
+                    db.execute("COMMIT")
+                    previous = None
+                elif previous["status"] in {"dispatching", "unknown"}:
                     db.execute("COMMIT")
                     if reconcile is None:
                         return RoutineDispatch(occurrence_key, work_key, "unknown",
@@ -600,8 +616,9 @@ class DurableRoutineRegistry:
                                                reason="reconciliation returned no task identity")
                     self._mark_submitted(occurrence_key, task_id, {"reconciled": True})
                     return RoutineDispatch(occurrence_key, work_key, "submitted", task_id)
-                db.execute("COMMIT")
-                return RoutineDispatch(occurrence_key, work_key, previous["status"])
+                else:
+                    db.execute("COMMIT")
+                    return RoutineDispatch(occurrence_key, work_key, previous["status"])
             if current["version"] != expected_version:
                 db.execute("COMMIT")
                 return RoutineDispatch(
