@@ -553,7 +553,7 @@ class AdaptiveRuntime:
 
     def dispatch_manual_routine(
         self, project_root: Path | str, routine_id: str, *, invocation_id: str,
-        approval: Callable[[RoutineSpec], bool] | None = None,
+        approval: Callable[[RoutineSpec], Any] | None = None,
     ) -> RoutineDispatch:
         """Dispatch a manual occurrence through the canonical task controller."""
         return self.routine_registry(project_root).dispatch_manual(
@@ -568,7 +568,7 @@ class AdaptiveRuntime:
         self, project_root: Path | str, routine_id: str, *,
         event_id: str, event_type: str, payload: Mapping[str, Any],
         authenticate: Callable[[str, str, Mapping[str, Any]], bool],
-        approval: Callable[[RoutineSpec], bool] | None = None,
+        approval: Callable[[RoutineSpec], Any] | None = None,
     ) -> RoutineDispatch:
         """Dispatch only after a host-owned webhook verifier accepts the event."""
         return self.routine_registry(project_root).dispatch_webhook(
@@ -584,7 +584,7 @@ class AdaptiveRuntime:
 
     def dispatch_due_routines(
         self, project_root: Path | str, *, now: datetime | None = None,
-        limit: int = 32, approval: Callable[[RoutineSpec], bool] | None = None,
+        limit: int = 32, approval: Callable[[RoutineSpec], Any] | None = None,
     ) -> tuple[RoutineDispatch, ...]:
         """Run a bounded due-routine tick through the existing controller and service."""
         return self.routine_registry(project_root).dispatch_due(
@@ -593,6 +593,17 @@ class AdaptiveRuntime:
             approval=approval,
             reconcile=self.execution_controller.task_by_work_key,
             limit=limit,
+        )
+
+    def cancel_routine_occurrence(
+        self, project_root: Path | str, occurrence_key: str, *,
+        reason: str = "operator requested cancellation",
+    ) -> RoutineDispatch:
+        """Request cancellation through the canonical durable task controller."""
+        return self.routine_registry(project_root).request_cancellation(
+            occurrence_key,
+            cancel=self.execution_controller.request_cancellation,
+            reason=reason,
         )
 
     def cancel_routine_occurrences(
