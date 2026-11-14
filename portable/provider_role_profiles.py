@@ -363,13 +363,11 @@ def _role_invoker(
     binding: RoleProviderBinding,
     *,
     environ: Mapping[str, str],
-    profile_binding: str,
 ):
     if binding.provider_id == "ollama":
         return _local_model_invoker(binding.model_id)
 
     env = _environment_for_binding(binding, environ)
-    provider = OpenAICompatibleProvider.from_environment(binding.provider_id, environ=env)
     local = _local_model_invoker(binding.local_model_id) if binding.local_model_id else None
     remote_opt_in = env.get("AUREN_LOCAL_REMOTE_INFERENCE", "").strip().lower() == "enabled"
     workspace_classification = env.get("AUREN_LOCAL_DATA_CLASSIFICATION", "").strip().lower()
@@ -412,7 +410,7 @@ def provider_role_profile_report(
     roles = []
     for role_id, binding in sorted(profile.roles.items()):
         if binding.provider_id == "ollama":
-            configured = True
+            remote_configured = False
             credential_configured = False
             route = "local_only"
         else:
@@ -421,26 +419,29 @@ def provider_role_profile_report(
                     binding.provider_id,
                     environ=_environment_for_binding(binding, env),
                 )
-                configured = True
+                remote_configured = True
             except (TypeError, ValueError):
-                configured = False
+                remote_configured = False
             credential_configured = (
                 bool(env.get("AUREN_CUSTOM_PROVIDER_API_KEY"))
                 if binding.provider_id == "custom"
                 else bool(env.get(PROVIDER_SPECS[binding.provider_id].api_key_env))
             )
             route = "hybrid_local_private_remote_public" if binding.local_model_id else "remote_public_only"
+        configured = binding.provider_id == "ollama" or remote_configured or binding.local_model_id is not None
         roles.append({
             "role_id": role_id,
             "provider_id": binding.provider_id,
             "model_id": binding.model_id,
             "local_model_id": binding.local_model_id,
             "configured": configured,
+            "remote_provider_configured": remote_configured,
+            "local_fallback_configured": binding.provider_id == "ollama" or binding.local_model_id is not None,
             "credential_configured": credential_configured,
             "allowed_tools": list(binding.allowed_tools),
             "timeout_seconds": binding.timeout_seconds,
             "route": route,
-            "route_policy_ready": configured and (binding.provider_id == "ollama" or remote_policy_ready or binding.local_model_id is not None),
+            "route_policy_ready": configured and (binding.provider_id == "ollama" or (remote_configured and remote_policy_ready) or binding.local_model_id is not None),
             "authenticated": "not_tested",
             "live_tested": "not_tested",
         })
