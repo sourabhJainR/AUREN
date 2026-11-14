@@ -78,6 +78,15 @@ def _token_count(usage: Mapping[str, Any], names: tuple[str, ...], field: str) -
     return values[0]
 
 
+def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ProviderPriceCatalogError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
 def load_provider_price_catalog(
     path: str | Path,
     *,
@@ -94,13 +103,21 @@ def load_provider_price_catalog(
     if not raw or len(raw) > _MAX_CATALOG_BYTES:
         raise ProviderPriceCatalogError("price catalog must be between 1 byte and 1 MB")
     try:
-        document = json.loads(raw.decode("utf-8"), parse_float=Decimal)
+        document = json.loads(
+            raw.decode("utf-8"), parse_float=Decimal, object_pairs_hook=_unique_object,
+        )
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ProviderPriceCatalogError("price catalog must be valid UTF-8 JSON") from exc
     if not isinstance(document, dict) or document.get("schema_version") != _CATALOG_SCHEMA:
         raise ProviderPriceCatalogError(f"schema_version must be {_CATALOG_SCHEMA}")
+    allowed_catalog_keys = {
+        "schema_version", "catalog_version", "currency", "published_at",
+        "valid_until", "source_policy", "entries",
+    }
+    if set(document) != allowed_catalog_keys:
+        raise ProviderPriceCatalogError("price catalog contains missing or unknown top-level fields")
     version = document.get("catalog_version")
-    if not isinstance(version, str) or not version.strip() or len(version) > 100:
+    if not isinstance(version, str) or not version.strip() or version != version.strip() or len(version) > 100:
         raise ProviderPriceCatalogError("catalog_version is required")
     if document.get("currency") != "USD":
         raise ProviderPriceCatalogError("only USD price catalogs are currently supported")
@@ -120,6 +137,12 @@ def load_provider_price_catalog(
         prefix = f"entries[{index}]"
         if not isinstance(entry, dict):
             raise ProviderPriceCatalogError(f"{prefix} must be an object")
+        allowed_entry_keys = {
+            "provider_id", "model_id", "input_usd_per_million_tokens",
+            "output_usd_per_million_tokens", "source_url", "retrieved_at",
+        }
+        if set(entry) != allowed_entry_keys:
+            raise ProviderPriceCatalogError(f"{prefix} contains missing or unknown fields")
         provider = entry.get("provider_id")
         model = entry.get("model_id")
         if not isinstance(provider, str) or not _PROVIDER_ID.fullmatch(provider):
