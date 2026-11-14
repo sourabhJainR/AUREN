@@ -20,7 +20,11 @@ from .crew_adapters import (
     SOFTWARE_TEAM_PERSONA_IDS,
     SPECIALIST_CREW_IDS,
 )
-from .remote_model_providers import OpenAICompatibleProvider, PROVIDER_SPECS
+from .remote_model_providers import (
+    OpenAICompatibleProvider,
+    PROVIDER_SPECS,
+    provider_configuration_report,
+)
 
 PROFILE_SCHEMA_VERSION = "auren-provider-role-profile-v1"
 DEFAULT_PROFILE_FILENAME = "provider_roles.json"
@@ -373,7 +377,14 @@ def _role_invoker(
     local = _local_model_invoker(binding.local_model_id) if binding.local_model_id else None
     remote_opt_in = env.get("AUREN_LOCAL_REMOTE_INFERENCE", "").strip().lower() == "enabled"
     workspace_classification = env.get("AUREN_LOCAL_DATA_CLASSIFICATION", "").strip().lower()
-    remote_policy_ready = remote_opt_in and workspace_classification in {"public", "non_sensitive"}
+    provider_report = provider_configuration_report(environ=env)
+    provider_order = provider_report.get("provider_order", [])
+    provider_order_valid = bool(provider_order) and not provider_report.get("errors")
+    provider_allowed = provider_order_valid and binding.provider_id in provider_order
+    remote_policy_ready = (
+        remote_opt_in and workspace_classification in {"public", "non_sensitive"}
+        and provider_allowed
+    )
     try:
         provider = OpenAICompatibleProvider.from_environment(binding.provider_id, environ=env)
     except (TypeError, ValueError):
@@ -408,7 +419,13 @@ def provider_role_profile_report(
     env = os.environ if environ is None else environ
     remote_opt_in = env.get("AUREN_LOCAL_REMOTE_INFERENCE", "").strip().lower() == "enabled"
     workspace_classification = env.get("AUREN_LOCAL_DATA_CLASSIFICATION", "").strip().lower()
-    remote_policy_ready = remote_opt_in and workspace_classification in {"public", "non_sensitive"}
+    provider_report = provider_configuration_report(environ=env)
+    provider_order = provider_report.get("provider_order", [])
+    provider_order_valid = bool(provider_order) and not provider_report.get("errors")
+    remote_policy_ready = (
+        remote_opt_in and workspace_classification in {"public", "non_sensitive"}
+        and provider_order_valid
+    )
     roles = []
     for role_id, binding in sorted(profile.roles.items()):
         if binding.provider_id == "ollama":
@@ -430,6 +447,7 @@ def provider_role_profile_report(
                 else bool(env.get(PROVIDER_SPECS[binding.provider_id].api_key_env))
             )
             route = "hybrid_local_private_remote_public" if binding.local_model_id else "remote_public_only"
+        provider_ordered = binding.provider_id in provider_order if isinstance(provider_order, list) else False
         configured = binding.provider_id == "ollama" or remote_configured or binding.local_model_id is not None
         roles.append({
             "role_id": role_id,
@@ -438,12 +456,13 @@ def provider_role_profile_report(
             "local_model_id": binding.local_model_id,
             "configured": configured,
             "remote_provider_configured": remote_configured,
+            "provider_ordered": provider_ordered,
             "local_fallback_configured": binding.provider_id == "ollama" or binding.local_model_id is not None,
             "credential_configured": credential_configured,
             "allowed_tools": list(binding.allowed_tools),
             "timeout_seconds": binding.timeout_seconds,
             "route": route,
-            "route_policy_ready": configured and (binding.provider_id == "ollama" or (remote_configured and remote_policy_ready) or binding.local_model_id is not None),
+            "route_policy_ready": configured and (binding.provider_id == "ollama" or (remote_configured and remote_policy_ready and provider_ordered) or binding.local_model_id is not None),
             "authenticated": "not_tested",
             "live_tested": "not_tested",
         })
