@@ -24,9 +24,15 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi"],
+    "targets": [
+      "nsis",
+      "msi"
+    ],
     "category": "DeveloperTool",
     "shortDescription": "Native shell for the local AUREN engineering workspace",
-    "longDescription": "A native desktop shell that manages the existing AUREN CLI, local MCP service and browser-based Engineering Console."
+    "longDescription": "A native desktop shell that manages the existing AUREN CLI, local MCP service and browser-based Engineering Console.",
+    "icon": [
+      "icons/icon.ico"
+    ]
   }
 }
