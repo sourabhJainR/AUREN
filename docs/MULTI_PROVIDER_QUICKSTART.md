@@ -1,5 +1,7 @@
 # AUREN multi-LLM and AI infrastructure quickstart
 
+For a single entry point covering local installation, coding hosts, orchestration frameworks, model APIs and extension boundaries, see [Plug-and-Play Integrations](PLUG_AND_PLAY_INTEGRATIONS.md).
+
 AUREN supports two separate integration layers:
 
 1. **Inference providers** supply model responses to AUREN's own router.

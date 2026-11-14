@@ -1,6 +1,8 @@
 # Adaptive AI Coding Orchestrator
 
-Adaptive, repository-aware AI software engineering orchestration for Claude Code and compatible Agent Skills environments.
+Adaptive, repository-aware AI software engineering orchestration. This repository packages a native Claude Code plugin; other supported clients connect through Agent Skills, repository instructions, MCP or the AUREN CLI. See the [plug-and-play integration guide](docs/PLUG_AND_PLAY_INTEGRATIONS.md) for the exact path and acceptance status for each host.
+
+**Important:** `auren plugin install` starts the local AUREN runtime and configures supported MCP clients. It is not the Claude marketplace plugin installer. The Claude plugin is installed with the `/plugin marketplace add` and `/plugin install` commands below.
 
 ## Install from this repository
 
@@ -19,6 +21,8 @@ From Claude Code:
 ```
 
 ## What it does
+
+The native Claude Code package supplies the shared Agent Skill and prompt hook. It does not start a second MCP runtime. Run `auren up` in the target repository to start the canonical local host and configure Claude Code's MCP connection through the authenticated local bridge. For hosted Claude, configure the separately deployed HTTPS MCP endpoint and OAuth.
 
 The plugin provides a single adaptive engineering run by default. It classifies the task, profiles the repository, discovers available optional extensions, retrieves precise code context, implements using local conventions, verifies the result, performs review, repairs failures when justified, and records evidence-backed learning.
 

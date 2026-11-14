@@ -69,6 +69,31 @@ Extensions must not receive credentials unless the user explicitly configured th
 The extension contract is versioned independently from individual providers. Breaking changes require a contract version bump and compatibility test.
 
 
+## Plug-and-play integration model
+
+AUREN supports integrations through four explicit paths:
+
+1. **Agent Skills:** portable task procedures loaded by compatible hosts or discovered from documented skill directories.
+2. **MCP:** external tools and remote AUREN operator services connected through a host's MCP client.
+3. **Provider adapters:** explicit model or capability adapters registered by the runtime host with pinned versions, credentials, scopes and bounded execution.
+4. **Native host packages:** host-specific packaging such as the Claude Code plugin in `.claude-plugin/`.
+
+These paths are not interchangeable. An Agent Skill provides instructions; it does not grant tools. MCP discovery exposes a tool schema; it does not grant authorization. A provider manifest describes a capability; it does not prove that a provider is trustworthy or callable. A host plugin package does not create a second AUREN controller.
+
+## Installation, trust and activation
+
+Treat the lifecycle as separate steps:
+
+- **Discover:** read bounded metadata and report what is available.
+- **Install:** place a package or configure a host using the host's supported mechanism; preserve backups and report the exact files changed.
+- **Verify:** validate schema, version compatibility, source digest and required executables/handshakes.
+- **Trust:** establish provenance and independently validate any claimed signer or isolation boundary.
+- **Authorize:** bind the extension to an explicit caller, project, capability, scope, budget and policy.
+- **Activate:** register the reviewed adapter with the canonical runtime. Never activate solely because a package is installed or discovered.
+- **Observe and remove:** retain a digest-bound audit trail, support disable/revoke and restore the previous known-good configuration.
+
+The current `ExtensionRegistry` implements the descriptive manifest/discovery portion. It is **not** a general executable plugin loader. AUREN intentionally does not import arbitrary Python packages or execute extension-provided code from a manifest. Executable integrations must use a reviewed adapter or a bounded subprocess boundary. Optional extension failure may degrade to another eligible capability; a required capability or authority check must fail closed.
+
 ## Implemented data-only contract
 
 The public, versioned contract is implemented in `portable.extension_contract` as `ExtensionManifest` and `ExtensionRegistry`. The registry validates schema version, semantic version syntax, unique capabilities and permissions, bounded output and timeout values, and deterministic manifest digests. Registration is idempotent for the same digest and rejects conflicting reuse of a provider name.
