@@ -118,9 +118,9 @@ After the hosted endpoint and OAuth provider pass acceptance:
 2. Select the plus button, then choose Add custom MCP server.
 3. Enter a name and the public HTTPS MCP endpoint URL. Use the Tunnel option only for a configured Secure MCP Tunnel.
 4. Configure OAuth and complete the identity-provider sign-in.
-5. Review the risk warning and create the connection.
-6. Review the discovered tools and metadata. Confirm they match the scopes granted to the signed-in principal.
-7. Start with read-only tools. Enable task submission and approval decisions only after the workspace plan, user scopes and approver allowlist are correct.
+5. Review the risk warning and acknowledge it.
+6. Select Create as a plugin, then review the discovered tools and metadata.
+7. Confirm the tools match the scopes granted to the signed-in principal. Start with read-only tools; enable task submission and approval decisions only after the workspace plan, user scopes and approver allowlist are correct.
 
 The current Plugins flow does not require enabling Developer Mode first. The legacy custom-app flow has different steps: workspace admins/owners use Workspace Settings > Apps > Create, while authorized users use Settings > Apps > Create. Follow the current OpenAI guide and workspace-admin policy because these controls can change.
 
