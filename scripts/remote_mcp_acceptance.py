@@ -95,16 +95,26 @@ def _load_authorization_metadata(
         raise AcceptanceFailure("OAuth authorization-server discovery metadata was not found")
     if metadata.get("issuer") != issuer:
         raise AcceptanceFailure("OAuth discovery issuer does not exactly match protected-resource metadata")
+    allowlist = {item.lower() for item in allowed_hosts}
     for key in ("authorization_endpoint", "token_endpoint"):
-        if not _https_url(metadata.get(key)):
+        endpoint_value = metadata.get(key)
+        if not _https_url(endpoint_value):
             raise AcceptanceFailure(f"OAuth discovery {key} must be an HTTPS URL")
+        if (urlsplit(endpoint_value).hostname or "").lower() not in allowlist:
+            raise AcceptanceFailure(f"OAuth discovery {key} host is not in the explicit outbound allowlist")
     challenges = metadata.get("code_challenge_methods_supported")
     if not isinstance(challenges, list) or "S256" not in challenges:
         raise AcceptanceFailure("OAuth provider must advertise PKCE S256")
     auth_methods = metadata.get("token_endpoint_auth_methods_supported")
     if not isinstance(auth_methods, list) or not ({"none", "private_key_jwt"} & set(auth_methods)):
         raise AcceptanceFailure("OAuth provider must support none or private_key_jwt client authentication")
-    if metadata.get("client_id_metadata_document_supported") is not True and not _https_url(metadata.get("registration_endpoint")):
+    registration_endpoint = metadata.get("registration_endpoint")
+    if registration_endpoint is not None and (
+        not _https_url(registration_endpoint)
+        or (urlsplit(registration_endpoint).hostname or "").lower() not in allowlist
+    ):
+        raise AcceptanceFailure("OAuth registration endpoint must be HTTPS and explicitly allowlisted")
+    if metadata.get("client_id_metadata_document_supported") is not True and not _https_url(registration_endpoint):
         raise AcceptanceFailure("OAuth provider must support CIMD or dynamic client registration")
     response_types = metadata.get("response_types_supported")
     if isinstance(response_types, list) and "code" not in response_types:
