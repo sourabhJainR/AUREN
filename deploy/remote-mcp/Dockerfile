@@ -3,7 +3,7 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
-    HOME=/home/auren \
+    HOME=/var/lib/auren/home \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 RUN apt-get update \
@@ -14,8 +14,8 @@ WORKDIR /app
 COPY . /app
 
 RUN python -m pip install --no-cache-dir "uvicorn[standard]>=0.30,<1" \
-    && mkdir -p /var/lib/auren /workspace/project /home/auren \
-    && chown -R 10001:10001 /var/lib/auren /workspace/project /home/auren
+    && mkdir -p /var/lib/auren/home /workspace/project \
+    && chown -R 10001:10001 /var/lib/auren /workspace/project
 
 USER 10001:10001
 
