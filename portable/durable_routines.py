@@ -603,6 +603,18 @@ class DurableRoutineRegistry:
                             occurrence_key, work_key, "blocked_approval",
                             reason="required approval remains absent, denied, expired, or invalid",
                         )
+                    if current["version"] != expected_version:
+                        db.execute("COMMIT")
+                        return RoutineDispatch(
+                            occurrence_key, work_key, "stale",
+                            reason="routine version changed before approval retry",
+                        )
+                    if not current["enabled"]:
+                        db.execute("COMMIT")
+                        return RoutineDispatch(
+                            occurrence_key, work_key, "disabled",
+                            reason="routine is disabled",
+                        )
                     previous_receipt["approval"] = approval_receipt
                     previous_receipt["state"] = "dispatching"
                     db.execute(
