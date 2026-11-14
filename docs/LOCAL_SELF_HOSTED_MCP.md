@@ -153,3 +153,20 @@ The local host must be running before the stdio client starts. If the client sup
 - **Tools without MCP support:** use the AUREN dashboard for observation, or choose an MCP-capable local host / supported stdio adapter.
 
 Keep consequential tool approvals enabled in the client. Client-side approval prompts do not replace AUREN's server-side authorization, policy, admission and approval checks.
+
+## 7. Verify the complete local experience
+
+After startup, use the exact console origin printed by `auren up` or `auren local`. The dashboard port can be selected dynamically, so do not assume it is 8765.
+
+```bash
+auren verify-local --dashboard-url http://127.0.0.1:<assigned-dashboard-port>
+```
+
+The command performs read-only checks:
+- Dashboard health reports `readiness: ready`.
+- The local MCP endpoint accepts the owner token and completes the supported protocol handshake.
+- MCP tool discovery includes the core profile, service status, task, cancellation, approval and evidence tools.
+
+It does not invoke tools, submit work, approve actions, or call remote model APIs. It returns a secret-free JSON report and exits non-zero if either service is unhealthy or required tools are missing. Supply `--mcp-url` and `--token-file` only when using non-default local settings.
+
+This verifies the AUREN local service boundary. It does not prove that a separately installed Codex, Claude, Gemini or ChatGPT client has loaded the configuration; each real client still needs its own smoke test.

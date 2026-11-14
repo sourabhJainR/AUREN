@@ -204,6 +204,32 @@ def _run_up(args: list[str]) -> int:
     return local_main(local_args)
 
 
+
+def _run_verify_local(args: list[str]) -> int:
+    """Verify the local browser console and authenticated MCP endpoint without invoking tools."""
+    parser = argparse.ArgumentParser(
+        prog="auren verify-local",
+        description="Run read-only acceptance checks against the local AUREN console and MCP host.",
+    )
+    parser.add_argument("--dashboard-url", required=True, help="Exact loopback origin printed by auren up")
+    parser.add_argument("--mcp-url", default="http://127.0.0.1:8765/mcp")
+    parser.add_argument("--token-file", default=None)
+    options = parser.parse_args(args)
+    try:
+        from portable.local_acceptance import render_report, verify_local_experience
+        from portable.local_host import local_token_path
+        report = verify_local_experience(
+            dashboard_url=options.dashboard_url,
+            mcp_url=options.mcp_url,
+            token_file=str(Path(options.token_file).expanduser() if options.token_file else local_token_path()),
+        )
+        print(render_report(report), end="")
+        return 0 if report["status"] == "ready" else 2
+    except (OSError, ValueError, RuntimeError) as exc:
+        print(f"auren verify-local blocked: {exc}", file=sys.stderr)
+        return 2
+
+
 def _run_providers(args: list[str]) -> int:
     """Show provider readiness. Use the cost subcommand for catalog-backed estimates."""
     if args and args[0] == "cost":
@@ -1012,7 +1038,7 @@ def main(argv: list[str] | None = None) -> int:
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog=(
                 "Quick start: auren up\n"
-                "Useful commands: auren task submit --task \"...\" | auren providers | auren integrations | auren progress --json | "
+                "Useful commands: auren task submit --task \"...\" | auren verify-local | auren providers | auren integrations | auren progress --json | "
                 "auren continuous status | auren doctor\n"
                 "Full usage: docs/USAGE_AND_PLATFORM_INTEGRATION.md"
             ),
@@ -1052,6 +1078,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_dashboard(args[1:])
     if args and args[0] == "up":
         return _run_up(args[1:])
+    if args and args[0] == "verify-local":
+        return _run_verify_local(args[1:])
     if args and args[0] == "providers":
         return _run_providers(args[1:])
     if args and args[0] == "integrations":
