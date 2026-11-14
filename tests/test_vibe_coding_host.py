@@ -1874,6 +1874,7 @@ class VibeHostReadinessTests(unittest.TestCase):
             provider="codex",
             reviewer_provider=reviewer_provider,
             allow_workspace_writes=True,
+            test_commands=(("python", "-m", "unittest"),),
             mcp_tools=tools or {
                 "web_search": {"argv": ["search-mcp"]},
                 "security": {"argv": ["security-mcp"]},
@@ -1912,6 +1913,18 @@ class VibeHostReadinessTests(unittest.TestCase):
             )
         self.assertEqual("blocked", result["status"])
         self.assertIn("mcp_command_missing:security", result["issues"])
+
+    def test_readiness_blocks_when_a_configured_test_runner_is_missing(self):
+        config = self._config()
+        config.test_commands = (("missing-test-runner",),)
+        def resolve(command):
+            return None if command == "missing-test-runner" else f"/fake/bin/{command}"
+        with patch("portable.vibe_coding_host.shutil.which", side_effect=resolve):
+            result = inspect_vibe_host_readiness(
+                config, provider_fabric=_ReadinessProviderFabric({"codex", "claude"}),
+            )
+        self.assertEqual("blocked", result["status"])
+        self.assertIn("test_command_missing:0", result["issues"])
 
     def test_external_independent_review_tool_does_not_require_reviewer_cli(self):
         config = self._config(
