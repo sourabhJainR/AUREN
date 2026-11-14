@@ -45,7 +45,7 @@ class TestProviderCosts(unittest.TestCase):
 
     def write(self, document):
         self.path.write_text(json.dumps(document), encoding="utf-8")
-        return load_provider_price_catalog(self.path, now=NOW)
+        return load_provider_price_catalog(self.path)
 
     def test_exact_model_cost_uses_decimal_rates_and_token_counts(self):
         catalog = self.write(catalog_document())
@@ -175,7 +175,7 @@ class TestProviderCosts(unittest.TestCase):
         document["entries"][0]["model_id"] = "latest"
         self.path.write_text(json.dumps(document), encoding="utf-8")
         with self.assertRaisesRegex(ProviderPriceCatalogError, "exact pinned"):
-            load_provider_price_catalog(self.path, now=NOW)
+            load_provider_price_catalog(self.path)
 
     def test_string_price_values_are_rejected(self):
         document = catalog_document()
