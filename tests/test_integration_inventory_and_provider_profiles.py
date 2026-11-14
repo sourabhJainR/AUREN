@@ -160,22 +160,49 @@ class ProviderRoleProfileTests(unittest.TestCase):
         with mock.patch(
             "portable.provider_role_profiles.OpenAICompatibleProvider.from_environment",
             return_value=provider,
+        ) as provider_factory:
+            with self.assertRaises(PermissionError):
+                _role_invoker(
+                    remote_binding,
+                    environ={
+                        "AUREN_LOCAL_REMOTE_INFERENCE": "enabled",
+                        "AUREN_LOCAL_DATA_CLASSIFICATION": "public",
+                        "OPENAI_API_KEY": "test-secret",
+                        "OPENAI_MODEL": "gpt-test-pinned",
+                    },
+                )
+        provider_factory.assert_not_called()
+        provider.complete.assert_not_called()
+
+    def test_allowlisted_remote_profile_can_call_only_for_public_tasks(self):
+        binding = _parse_profile(
+            self.document(provider_id="openai"),
+            Path("provider_roles.json"),
+        ).roles["backend_api"]
+        provider = mock.Mock()
+        provider.complete.return_value = type("Response", (), {"content": "remote-result"})()
+        environment = {
+            "AUREN_REMOTE_PROVIDER_ORDER": "openai",
+            "AUREN_LOCAL_REMOTE_INFERENCE": "enabled",
+            "AUREN_LOCAL_DATA_CLASSIFICATION": "public",
+            "OPENAI_API_KEY": "test-secret",
+            "OPENAI_MODEL": "gpt-test-pinned",
+        }
+        with mock.patch(
+            "portable.provider_role_profiles.OpenAICompatibleProvider.from_environment",
+            return_value=provider,
         ):
-            invoke = _role_invoker(
-                remote_binding,
-                environ={
-                    "AUREN_LOCAL_REMOTE_INFERENCE": "enabled",
-                    "AUREN_LOCAL_DATA_CLASSIFICATION": "public",
-                    "OPENAI_API_KEY": "test-secret",
-                    "OPENAI_MODEL": "gpt-test-pinned",
-                },
-            )
-            prompt = "Return a proposal\n" + json.dumps({
+            invoke = _role_invoker(binding, environ=environment)
+            public_prompt = "Return a proposal\n" + json.dumps({
                 "task_request": {"privacy": "public"},
             })
+            self.assertEqual(invoke(public_prompt, 10), "remote-result")
+            private_prompt = "Return a proposal\n" + json.dumps({
+                "task_request": {"privacy": "private"},
+            })
             with self.assertRaises(PermissionError):
-                invoke(prompt, 10)
-        provider.complete.assert_not_called()
+                invoke(private_prompt, 10)
+        provider.complete.assert_called_once()
 
     def test_private_or_missing_privacy_is_never_classified_as_public(self):
         self.assertEqual(_prompt_privacy("no structured context"), "private")
