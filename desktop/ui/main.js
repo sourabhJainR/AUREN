@@ -40,7 +40,7 @@ startButton.addEventListener("click", async () => {
     return;
   }
   setBusy(true);
-  runtimeState.textContent = "Starting local services";
+  runtimeState.textContent = "Starting and verifying local services";
   runtimeState.classList.remove("ready");
   try {
     const result = await invoke("start_local", { projectRoot: root });
