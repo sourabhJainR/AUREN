@@ -595,6 +595,20 @@ class AdaptiveRuntime:
             limit=limit,
         )
 
+    def cancel_routine_occurrences(
+        self, project_root: Path | str, routine_id: str, *,
+        reason: str = "operator requested routine cancellation",
+    ) -> tuple[RoutineDispatch, ...]:
+        """Request cancellation of every non-terminal occurrence via the durable controller."""
+        return self.routine_registry(project_root).cancel_inflight(
+            routine_id,
+            reconcile=self.execution_controller.task_by_work_key,
+            request_cancel=lambda task_id, message: self.execution_controller.request_cancellation(
+                task_id, reason=message,
+            ),
+            reason=reason,
+        )
+
     def ensure_learning_maintenance(self, project_root: Path | str, *, interval_seconds: int | None = None) -> object:
         """Create the project learning schedule once and return its durable receipt."""
         root = Path(project_root).expanduser().resolve()
