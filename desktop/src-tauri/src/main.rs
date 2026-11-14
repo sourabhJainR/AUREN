@@ -54,6 +54,49 @@ fn cli_command() -> (OsString, Vec<OsString>) {
     )
 }
 
+fn verification_command_from_config(
+    executable: Option<OsString>,
+    cli_path: Option<OsString>,
+    python: Option<OsString>,
+    dashboard_url: &str,
+    mcp_url: &str,
+) -> (OsString, Vec<OsString>) {
+    let (executable, mut args) = cli_command_from_config(executable, cli_path, python);
+    if let Some(command) = args.last_mut() {
+        *command = "verify-local".into();
+    }
+    args.extend([
+        "--dashboard-url".into(), dashboard_url.into(),
+        "--mcp-url".into(), mcp_url.into(),
+    ]);
+    (executable, args)
+}
+
+fn verify_local_endpoints(dashboard_url: &str, mcp_url: &str) -> Result<(), String> {
+    let (executable, args) = verification_command_from_config(
+        env::var_os("AUREN_EXECUTABLE"),
+        env::var_os("AUREN_CLI_PATH"),
+        env::var_os("AUREN_PYTHON_EXECUTABLE"),
+        dashboard_url,
+        mcp_url,
+    );
+    let output = Command::new(executable)
+        .args(args)
+        .output()
+        .map_err(|_| "could not run AUREN's read-only local acceptance check".to_string())?;
+    if !output.status.success() {
+        return Err("AUREN local acceptance failed. Check the CLI output with auren verify-local.".into());
+    }
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|_| "AUREN local acceptance returned an invalid report".to_string())?;
+    if report.get("status").and_then(serde_json::Value::as_str) != Some("ready")
+        || report.get("read_only").and_then(serde_json::Value::as_bool) != Some(true)
+    {
+        return Err("AUREN local acceptance did not confirm a ready, read-only result".into());
+    }
+    Ok(())
+}
+
 fn endpoint_from_line(line: &str, prefix: &str, expected_path: &str) -> Option<String> {
     let url = line.strip_prefix(prefix)?.trim();
     let rest = url.strip_prefix("http://127.0.0.1:")?;
@@ -183,6 +226,11 @@ fn start_local(project_root: String, state: State<'_, RuntimeState>) -> Result<L
         return Err("AUREN did not report both local endpoints within 35 seconds".into());
     };
 
+    if let Err(error) = verify_local_endpoints(&dashboard_url, &mcp_url) {
+        terminate(&mut child);
+        return Err(error);
+    }
+
     let info = LocalRuntimeInfo {
         project_root: root.to_string_lossy().into_owned(),
         dashboard_url,
@@ -247,7 +295,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::endpoint_from_line;
+    use super::{endpoint_from_line, verification_command_from_config};
 
     #[test]
     fn prefers_an_explicit_executable_and_supports_python_cli_paths() {
@@ -270,6 +318,37 @@ mod tests {
             OsString::from("C:\\AUREN\\auren_cli.py"),
             OsString::from("up"),
         ]);
+    }
+
+    #[test]
+    fn builds_read_only_acceptance_command_for_installed_and_checkout_launchers() {
+        use std::ffi::OsString;
+        let (exe, args) = verification_command_from_config(
+            Some(OsString::from("auren.exe")),
+            None,
+            None,
+            "http://127.0.0.1:43120/control-center",
+            "http://127.0.0.1:43121/mcp",
+        );
+        assert_eq!(exe, OsString::from("auren.exe"));
+        assert_eq!(args, vec![
+            OsString::from("verify-local"),
+            OsString::from("--dashboard-url"),
+            OsString::from("http://127.0.0.1:43120/control-center"),
+            OsString::from("--mcp-url"),
+            OsString::from("http://127.0.0.1:43121/mcp"),
+        ]);
+
+        let (python, checkout_args) = verification_command_from_config(
+            None,
+            Some(OsString::from("C:\AUREN\auren_cli.py")),
+            Some(OsString::from("python.exe")),
+            "http://127.0.0.1:43120/control-center",
+            "http://127.0.0.1:43121/mcp",
+        );
+        assert_eq!(python, OsString::from("python.exe"));
+        assert_eq!(checkout_args[0], OsString::from("C:\AUREN\auren_cli.py"));
+        assert_eq!(checkout_args[1], OsString::from("verify-local"));
     }
 
     #[test]
