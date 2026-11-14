@@ -230,6 +230,14 @@ class RemoteMCPAcceptanceTests(unittest.TestCase):
         ]
         self.assertEqual(["server/discover", "tools/list"], methods)
 
+    def test_oauth_issuer_host_must_be_explicitly_allowlisted(self):
+        transport, _ = self._transport()
+        with self.assertRaisesRegex(AcceptanceFailure, "explicit outbound allowlist"):
+            run_acceptance(
+                ENDPOINT, TOKEN, allowed_hosts=("mcp.example.test",),
+                expected_issuer=ISSUER, transport=transport,
+            )
+
     def test_exact_expected_issuer_is_required(self):
         transport, _ = self._transport(issuer="https://identity.example.test")
         with self.assertRaisesRegex(AcceptanceFailure, "exactly match"):
