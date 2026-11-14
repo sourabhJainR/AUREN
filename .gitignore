@@ -1,4 +1,5 @@
 .ai-harness/runs/
+.ai-harness/provider-prices.json
 .ai-harness/worktrees/
 .ai-harness/worktrees.json
 .ai-harness/memory/observations.jsonl
