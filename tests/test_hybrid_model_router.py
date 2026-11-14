@@ -1,10 +1,13 @@
 """Hybrid routing policy and bounded fallback regression tests."""
 import time
 import unittest
+import tempfile
+from pathlib import Path
 from threading import Event, Thread
 from portable.hybrid_model_router import HybridModelRouter, TaskRouteRequest
 from portable.runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
 from portable.remote_model_providers import RemoteModelResponse, RemoteProviderError
+from portable.agency_observability import LocalExporter, Tracer, bind_trace_context
 
 class Discovery:
     def __init__(self, names):
@@ -236,6 +239,85 @@ class HybridRouterTests(unittest.TestCase):
         self.assertEqual(2, guard.attempts_used)
         self.assertEqual(12, result.provider_metadata["usage"]["total_tokens"])
         self.assertEqual("req-2", result.provider_metadata["request_id"])
+
+    def test_route_emits_parented_privacy_safe_decision_span(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trace_path = Path(directory) / "traces.jsonl"
+            tracer = Tracer(LocalExporter(trace_path, enabled=True))
+            trace = tracer.start(
+                "supervised-model-task",
+                run_id="run-route-observation",
+                task_id="task-route-observation",
+            )
+            supervisor = trace.span("supervisor", phase="supervisor")
+            router = HybridModelRouter(
+                discovery=Discovery([]),
+                remote_executor=lambda request: RemoteModelResponse(
+                    provider="groq",
+                    model="pinned-model-v1",
+                    content="answer that must not enter telemetry",
+                    usage={"prompt_tokens": 9, "completion_tokens": 4, "total_tokens": 13},
+                    request_id="provider-request-1",
+                    finish_reason="stop",
+                    latency_ms=17.5,
+                    response_digest="b" * 64,
+                ),
+                resource_reader=lambda: {},
+            )
+            private_prompt = "public task payload that must not be persisted"
+            with bind_trace_context(trace, supervisor.span_id):
+                result = router.route(TaskRouteRequest(
+                    private_prompt, "general", privacy="public", max_attempts=2,
+                    provider_order=("groq",),
+                ))
+            supervisor.finish({"dispatch_completed": True})
+            tracer.end(trace)
+
+            self.assertTrue(result.success)
+            route_spans = [span for span in trace.spans if span.name == "model.route"]
+            self.assertEqual(1, len(route_spans))
+            route_span = route_spans[0]
+            self.assertEqual(supervisor.span_id, route_span.parent_id)
+            self.assertEqual("routing", route_span.phase)
+            self.assertEqual("ok", route_span.status)
+            self.assertEqual("groq", route_span.output["provider"])
+            self.assertEqual("pinned-model-v1", route_span.output["model"])
+            self.assertEqual(13, route_span.output["usage"]["total_tokens"])
+            serialized = trace_path.read_text(encoding="utf-8")
+            self.assertNotIn(private_prompt, serialized)
+            self.assertNotIn("answer that must not enter telemetry", serialized)
+            self.assertNotIn("provider-request-1", serialized)
+
+    def test_route_observability_failure_does_not_change_route_result(self):
+        class BrokenTrace:
+            def span(self, *_args, **_kwargs):
+                raise OSError("telemetry unavailable")
+
+        router = HybridModelRouter(
+            discovery=Discovery([]),
+            remote_executor=lambda request: "completed",
+            resource_reader=lambda: {},
+        )
+        from portable.agency_observability import bind_trace_context
+        # A valid Trace is required by the context binder, so use a Tracer whose
+        # exporter fails and confirm routing still returns its provider result.
+        class BrokenExporter:
+            enabled = True
+
+            def export(self, _trace):
+                raise OSError("telemetry unavailable")
+
+            def export_event(self, *_args):
+                raise OSError("telemetry unavailable")
+
+        tracer = Tracer(BrokenExporter())
+        trace = tracer.start("broken-export")
+        with bind_trace_context(trace):
+            result = router.route(TaskRouteRequest(
+                "public task", "general", privacy="public", max_attempts=1,
+            ))
+        self.assertTrue(result.success)
+        self.assertEqual("completed", result.result)
 
     def test_attempts_are_clamped_to_three(self):
         calls = []
