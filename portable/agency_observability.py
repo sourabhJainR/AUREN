@@ -92,6 +92,25 @@ def _safe(value: Any, limit: int = 4000, _depth: int = 0) -> Any:
         return value
     return f"[UNSUPPORTED_TYPE:{type(value).__name__}]"
 
+def telemetry_usage_metrics(value: Mapping[str, Any] | None) -> dict[str, int]:
+    """Rename known token counters before telemetry redaction without weakening secret filters."""
+    if not isinstance(value, Mapping):
+        return {}
+    aliases = {
+        "input_units": ("prompt_tokens", "input_tokens"),
+        "output_units": ("completion_tokens", "output_tokens"),
+        "total_units": ("total_tokens",),
+    }
+    result: dict[str, int] = {}
+    for target, names in aliases.items():
+        for name in names:
+            number = value.get(name)
+            if type(number) is int and 0 <= number <= 10**12:
+                result[target] = number
+                break
+    return result
+
+
 @dataclass
 class Score:
     name: str
