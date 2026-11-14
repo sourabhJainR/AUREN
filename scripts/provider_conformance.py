@@ -233,7 +233,7 @@ def live_api_probe(
         }
         probe_span.finish(
             output={
-                key: telemetry_usage_metrics(value) if key == "usage" else value
+                key: value
                 for key, value in evidence.items()
                 if key not in {"trace_id", "request_id_digest"}
             },
