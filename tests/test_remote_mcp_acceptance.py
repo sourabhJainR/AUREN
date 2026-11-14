@@ -147,10 +147,13 @@ class RemoteMCPAcceptanceTests(unittest.TestCase):
         self.assertTrue(result["write_tools_verified"])
         self.assertEqual(11, len(calls))
         self.assertEqual(
-            ALLOWED_HOSTS,
+            ("identity.example.test",),
             next(kwargs["allowed_hosts"] for url, kwargs in calls if "oauth-authorization-server" in url),
         )
-        self.assertTrue(all(kwargs["allowed_hosts"] == ALLOWED_HOSTS for _, kwargs in calls))
+        self.assertTrue(all(
+            kwargs["allowed_hosts"] == (("identity.example.test",) if "oauth-authorization-server" in url else ("mcp.example.test",))
+            for url, kwargs in calls
+        ))
         post_calls = [call for call in calls if call[1]["method"] == "POST"]
         self.assertEqual(
             ["server/discover", "tools/list", "initialize", "tools/list", "tools/call", "tools/call", "tools/call"],
