@@ -929,6 +929,72 @@ class DurableRoutineRegistry:
             updates={"state": "unknown", "error_type": error_type},
         )
 
+    def pending_terminal_summaries(self, *, limit: int = 64) -> tuple[Mapping[str, Any], ...]:
+        """Return terminal receipts whose summary event has not reached the trigger inbox."""
+        if type(limit) is not int or not 1 <= limit <= 256:
+            raise ValueError("limit must be between 1 and 256")
+        with closing(self._connect()) as db:
+            rows = db.execute(
+                "SELECT occurrence_key,routine_id,work_key,task_id,status,receipt_json "
+                "FROM routine_occurrences WHERE status IN ('completed','failed','cancelled') "
+                "ORDER BY updated_at,created_at LIMIT ?",
+                (limit,),
+            ).fetchall()
+        pending: list[Mapping[str, Any]] = []
+        for row in rows:
+            try:
+                receipt = json.loads(row["receipt_json"])
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(receipt, Mapping) or receipt.get("terminal_event_emitted") is True:
+                continue
+            pending.append({
+                "occurrence_key": row["occurrence_key"],
+                "routine_id": row["routine_id"],
+                "work_key": row["work_key"],
+                "task_id": row["task_id"],
+                "status": row["status"],
+                "summary": receipt.get("terminal_summary"),
+                "escalation_required": receipt.get("escalation_required") is True,
+            })
+        return tuple(pending)
+
+    def mark_terminal_event_emitted(self, occurrence_key: str, event_id: str) -> None:
+        """Mark the deterministic trigger event as accepted by the canonical inbox."""
+        if not isinstance(event_id, str) or not event_id.strip():
+            raise ValueError("event_id is required")
+        occurrence = self.occurrence(occurrence_key)
+        if occurrence is None:
+            raise KeyError(occurrence_key)
+        if occurrence["status"] not in {"completed", "failed", "cancelled"}:
+            raise ValueError("only terminal routine occurrences can emit summary events")
+        self._update_receipt(
+            occurrence_key, status=str(occurrence["status"]),
+            updates={
+                "terminal_event_emitted": True,
+                "terminal_event_id": event_id,
+                "terminal_event_emitted_at": _iso(datetime.now(timezone.utc)),
+            },
+        )
+
+    def record_terminal_event_error(self, occurrence_key: str, error_type: str) -> None:
+        """Keep failed event delivery retryable without changing terminal task state."""
+        if not isinstance(error_type, str) or not error_type.strip():
+            raise ValueError("error_type is required")
+        occurrence = self.occurrence(occurrence_key)
+        if occurrence is None:
+            raise KeyError(occurrence_key)
+        if occurrence["status"] not in {"completed", "failed", "cancelled"}:
+            raise ValueError("only terminal routine occurrences can record summary delivery errors")
+        self._update_receipt(
+            occurrence_key, status=str(occurrence["status"]),
+            updates={
+                "terminal_event_emitted": False,
+                "terminal_event_error_type": error_type[:128],
+                "terminal_event_last_attempt_at": _iso(datetime.now(timezone.utc)),
+            },
+        )
+
     def reconcile_occurrences(
         self, *, reconcile: Callable[[str], Any | None],
         routine_id: str | None = None, limit: int = 64,
