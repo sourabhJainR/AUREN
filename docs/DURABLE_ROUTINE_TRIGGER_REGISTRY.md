@@ -67,7 +67,14 @@ tick; the routine registry does not own process lifetime or scheduling wakeups. 
 routine-store failure is reported separately and does not suppress the existing
 adaptive-maintenance lane.
 New RoutineSpec values default to disabled. An operator must explicitly enable a
-routine before manual, scheduled or webhook dispatch is accepted.
+routine before manual, scheduled or webhook dispatch is accepted. The optional
+`concurrency_policy` is `allow` by default or `skip`. Under `skip`, admission is
+serialized in the registry transaction and checks submitted, dispatching, unknown,
+and cancellation-requested occurrences across routine versions. Every prior task
+must be authoritatively reconciled to a terminal state before another occurrence is
+submitted. Missing task records, lookup errors, and more than 64 unresolved candidates
+fail closed. A concurrently reserved dispatching occurrence blocks a second run;
+it is not treated as absent.
 
 The runtime adapters submit with a stable routine work key and reconcile uncertain
 submissions through ExecutionController.task_by_work_key. A RoutineSpec may pin an
@@ -94,6 +101,9 @@ verification and dispatch so verifier-side mutation cannot change the accepted e
   Without a reconciliation adapter, replay is refused.
 - The canonical controller remains responsible for handler classification, role scope,
   deployment admission, budgets, deadlines, task leases, cancellation, and execution.
+- `cancel_routine_occurrence` records a cancellation request and calls the durable
+  controller cancellation API. The occurrence remains `cancellation_requested`, not
+  `cancelled`, until the controller reports a terminal outcome.
 - Routine storage records configuration and trigger receipts only. It does not duplicate
   task state, queue ownership, or execution status.
 - Interval ticks are bounded (maximum 256 occurrences per call); the host owns process
@@ -103,10 +113,12 @@ verification and dispatch so verifier-side mutation cannot change the accepted e
 
 tests/test_durable_routines.py covers version immutability, event authentication,
 duplicate delivery, verifier mutation isolation, disabled-by-default behavior, approval
-denial, unknown-outcome recovery, one-time scheduling and interval coalescing. The
-AdaptiveRuntime integration tests cover project isolation and canonical-controller
-submission/reconciliation. These tests do not prove live provider webhook signatures,
-concurrent schedule policy, profile pinning, completion summaries or multi-host failover.
+denial, unknown-outcome recovery, one-time scheduling, interval coalescing,
+fail-closed overlap admission (including concurrent dispatching occurrences and
+prior routine revisions), cancellation request receipts and legacy definition upgrades.
+The AdaptiveRuntime integration tests cover project isolation, canonical-controller
+submission/reconciliation and durable cancellation wiring. These tests do not prove
+live provider webhook signatures, completion summaries or multi-host failover.
 
 Repository tests do not establish production scheduler failover, webhook signature
 verification against a live provider, cross-host admission, or durable deployment
