@@ -5,6 +5,7 @@ never sends private prompts to remote providers and never retries without a hard
 attempt/time budget. Resource metrics are best-effort and labelled when absent.
 """
 from __future__ import annotations
+import hashlib
 import json
 import math
 import time
@@ -63,25 +64,96 @@ class HybridModelRouter:
         self.resource_reader = resource_reader or self._resources
 
     def _execute_local(self, request: TaskRouteRequest, model: str) -> Any:
-        """Run a bounded Ollama-compatible generation request against loopback only."""
-        base_url = validate_loopback_base_url(
-            getattr(self.discovery, "base_url", "http://127.0.0.1:11434")
-        )
-        timeout = min(float(request.timeout_seconds), 120.0)
-        if timeout <= 0:
-            raise TimeoutError("local execution timeout budget exhausted")
-        payload = json.dumps({"model": model, "prompt": request.task, "stream": False,
-                              "options": {"num_predict": 1024}}).encode("utf-8")
-        req = urllib.request.Request(base_url + "/api/generate", data=payload,
-            headers={"Content-Type": "application/json", "Accept": "application/json"}, method="POST")
-        with open_loopback_request(req, timeout=timeout) as response:
-            raw = response.read(1024 * 1024 + 1)
-        if len(raw) > 1024 * 1024:
-            raise ValueError("local model response exceeds size limit")
-        decoded = json.loads(raw.decode("utf-8"))
-        if not isinstance(decoded, dict) or not isinstance(decoded.get("response"), str):
-            raise ValueError("local model returned an invalid response")
-        return decoded["response"]
+        """Run local inference and emit privacy-safe Ollama telemetry when tracing is bound."""
+        span = None
+        telemetry_usage_metrics = None
+        started = time.monotonic()
+        try:
+            from .agency_observability import current_trace_context, telemetry_usage_metrics
+            active = current_trace_context()
+        except Exception:
+            active = None
+        if active is not None:
+            try:
+                trace, parent_span_id = active
+                prompt = request.task if isinstance(request.task, str) else ""
+                prompt_bytes = len(prompt.encode("utf-8"))
+                prompt_digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+                span = trace.span(
+                    "provider.inference.ollama",
+                    kind="provider",
+                    input={"prompt_bytes": prompt_bytes, "prompt_digest": prompt_digest},
+                    metadata={
+                        "provider": "ollama",
+                        "privacy": request.privacy if isinstance(request.privacy, str) else "unknown",
+                    },
+                    parent_id=parent_span_id,
+                    phase="provider",
+                    provider="ollama",
+                    model=model if isinstance(model, str) else None,
+                )
+            except Exception:
+                # Local inference must remain available when telemetry is unavailable.
+                span = None
+
+        try:
+            base_url = validate_loopback_base_url(
+                getattr(self.discovery, "base_url", "http://127.0.0.1:11434")
+            )
+            timeout = min(float(request.timeout_seconds), 120.0)
+            if timeout <= 0:
+                raise TimeoutError("local execution timeout budget exhausted")
+            payload = json.dumps({"model": model, "prompt": request.task, "stream": False,
+                                  "options": {"num_predict": 1024}}).encode("utf-8")
+            req = urllib.request.Request(base_url + "/api/generate", data=payload,
+                headers={"Content-Type": "application/json", "Accept": "application/json"}, method="POST")
+            with open_loopback_request(req, timeout=timeout) as response:
+                raw = response.read(1024 * 1024 + 1)
+            if len(raw) > 1024 * 1024:
+                raise ValueError("local model response exceeds size limit")
+            decoded = json.loads(raw.decode("utf-8"))
+            if not isinstance(decoded, dict) or not isinstance(decoded.get("response"), str):
+                raise ValueError("local model returned an invalid response")
+            result = decoded["response"]
+            if span is not None:
+                try:
+                    input_tokens = decoded.get("prompt_eval_count")
+                    output_tokens = decoded.get("eval_count")
+                    usage = telemetry_usage_metrics({
+                        "prompt_tokens": input_tokens,
+                        "completion_tokens": output_tokens,
+                        "total_tokens": (
+                            input_tokens + output_tokens
+                            if type(input_tokens) is int and input_tokens >= 0
+                            and type(output_tokens) is int and output_tokens >= 0
+                            else None
+                        ),
+                    }) if callable(telemetry_usage_metrics) else {}
+                    response_bytes = len(result.encode("utf-8"))
+                    span.finish(
+                        output={
+                            "outcome": "completed",
+                            "response_bytes": response_bytes,
+                            "response_digest": hashlib.sha256(result.encode("utf-8")).hexdigest(),
+                            "latency_ms": round((time.monotonic() - started) * 1000, 2),
+                            "usage": usage,
+                        },
+                        status="ok",
+                    )
+                except Exception:
+                    pass
+            return result
+        except BaseException as exc:
+            if span is not None:
+                try:
+                    span.finish(
+                        output={"outcome": "error", "error_type": type(exc).__name__},
+                        status="error",
+                        terminal_reason=type(exc).__name__,
+                    )
+                except Exception:
+                    pass
+            raise
 
     @staticmethod
     def _resources():
