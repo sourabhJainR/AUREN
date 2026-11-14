@@ -378,7 +378,7 @@ class ContractAlignmentTests(unittest.TestCase):
         self.assertNotIn("mcpServers", plugin_manifest)
         self.assertIn("compatibility alias", local_plugin_doc)
         for token in (
-            "Agent host",
+            "AI host",
             "Model provider",
             "Orchestration framework",
             "Universal executable plugin loader",
