@@ -522,8 +522,10 @@ class AdaptiveRuntime:
         return WorldMegaModel(self.persistent_memory, project_key)
 
     def emit_trigger(self, kind: str, payload: Mapping[str, Any], *, event_id: str | None = None,
-                     max_attempts: int = 3) -> TriggerEvent:
-        return self.trigger_runtime.emit(kind, payload, event_id=event_id, max_attempts=max_attempts)
+                     max_attempts: int = 3, priority: int = 1) -> TriggerEvent:
+        return self.trigger_runtime.emit(
+            kind, payload, event_id=event_id, max_attempts=max_attempts, priority=priority,
+        )
 
     def dispatch_triggers(self, handler: Any, *, limit: int = 20) -> list[Any]:
         return self.trigger_runtime.dispatch_due(handler, limit=limit)
@@ -588,10 +590,7 @@ class AdaptiveRuntime:
     ) -> tuple[RoutineDispatch, ...]:
         """Reconcile prior outcomes, then dispatch a bounded due-routine tick."""
         registry = self.routine_registry(project_root)
-        registry.reconcile_occurrences(
-            reconcile=self.execution_controller.task_by_work_key,
-            limit=64,
-        )
+        self.reconcile_routine_occurrences(project_root, limit=64)
         return registry.dispatch_due(
             now=now or datetime.now(timezone.utc),
             submit=self.execution_controller.submit,
@@ -604,12 +603,45 @@ class AdaptiveRuntime:
         self, project_root: Path | str, *, routine_id: str | None = None,
         limit: int = 64,
     ) -> tuple[RoutineDispatch, ...]:
-        """Return bounded terminal summaries from canonical task state."""
-        return self.routine_registry(project_root).reconcile_occurrences(
+        """Reconcile task outcomes and enqueue idempotent terminal summary events."""
+        registry = self.routine_registry(project_root)
+        results = registry.reconcile_occurrences(
             routine_id=routine_id,
             reconcile=self.execution_controller.task_by_work_key,
             limit=limit,
         )
+        for item in registry.pending_terminal_summaries(limit=limit):
+            state = str(item["status"])
+            event_kind = {
+                "completed": "routine.completed",
+                "failed": "routine.failed",
+                "cancelled": "routine.cancelled",
+            }.get(state)
+            if event_kind is None:
+                continue
+            occurrence_key = str(item["occurrence_key"])
+            event_id = f"routine-terminal:{occurrence_key}"
+            payload = {
+                "routine_id": str(item["routine_id"]),
+                "occurrence_key": occurrence_key,
+                "work_key": str(item["work_key"]),
+                "task_id": item.get("task_id"),
+                "state": state,
+                "summary": str(item["summary"]),
+                "escalation_required": item["escalation_required"] is True,
+            }
+            try:
+                self.emit_trigger(
+                    event_kind, payload, event_id=event_id, max_attempts=5,
+                    priority=0 if state == "failed" else 1,
+                )
+                registry.mark_terminal_event_emitted(occurrence_key, event_id)
+            except Exception as exc:
+                try:
+                    registry.record_terminal_event_error(occurrence_key, type(exc).__name__)
+                except Exception:
+                    pass
+        return results
 
     def cancel_routine_occurrence(
         self, project_root: Path | str, occurrence_key: str, *,
