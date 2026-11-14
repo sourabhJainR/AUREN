@@ -88,7 +88,8 @@ def test_profile_report_marks_remote_provider_disabled_without_privacy_opt_in(tm
         load_provider_role_profile(path),
         environ={"OPENAI_API_KEY": "x" * 32},
     )
-    assert report["activation_ready"] is False
+    assert report["route_policy_ready"] is False
+    assert report["live_activation"] == "not_performed"
     assert report["private_data_routing"] == "local_only"
     assert report["roles"][0]["authenticated"] == "not_tested"
 
@@ -110,6 +111,7 @@ def test_profiled_adapter_inputs_keep_private_tasks_local_and_public_tasks_guard
     local_calls = []
     env = {
         "OPENAI_API_KEY": "x" * 32,
+        "AUREN_REMOTE_PROVIDER_ORDER": "openai",
         "AUREN_LOCAL_REMOTE_INFERENCE": "enabled",
         "AUREN_LOCAL_DATA_CLASSIFICATION": "public",
     }
