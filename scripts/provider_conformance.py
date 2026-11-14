@@ -147,6 +147,7 @@ def live_api_probe(
     environ: dict[str, str] | None = None,
     transport=None,
     trace_path: Path | None = None,
+    price_catalog_path: str | Path | None = None,
 ) -> Check:
     """Send one synthetic public prompt to one explicitly allowlisted model API."""
     from portable.remote_model_providers import OpenAICompatibleProvider, PROVIDER_SPECS, provider_configuration_report
@@ -210,6 +211,26 @@ def live_api_probe(
             response.content.strip() == "AUREN_PROVIDER_PROBE_OK"
             and provider_identity_match and model_identity_match
         )
+        cost_estimate: dict[str, Any] = {
+            "status": "unavailable",
+            "reason": "price_catalog_not_supplied",
+        }
+        if price_catalog_path is not None:
+            try:
+                from portable.provider_costs import estimate_provider_cost, load_provider_price_catalog
+                price_catalog = load_provider_price_catalog(price_catalog_path)
+                cost_estimate = estimate_provider_cost(
+                    price_catalog,
+                    provider_id=provider,
+                    model_id=response.model,
+                    usage=response.usage,
+                )
+            except Exception as price_error:
+                cost_estimate = {
+                    "status": "unavailable",
+                    "reason": "price_catalog_invalid",
+                    "error_type": type(price_error).__name__,
+                }
         evidence = {
             "provider": provider,
             "model": response.model,
@@ -225,7 +246,7 @@ def live_api_probe(
                 if isinstance(response.request_id, str) and response.request_id else None
             ),
             "trace_id": trace.trace_id,
-            "cost_estimate": "not_available_no_pinned_price_catalog",
+            "cost_estimate": cost_estimate,
         }
         probe_span.finish(
             output={
@@ -271,6 +292,7 @@ def run(
     live_api: bool = False,
     api_providers: tuple[str, ...] | list[str] = (),
     api_timeout_seconds: float = 30.0,
+    price_catalog_path: str | Path | None = None,
 ) -> dict[str, Any]:
     matrix = load_matrix()
     static = contract_checks(matrix)
@@ -284,7 +306,10 @@ def run(
     static_pass = not any(c.status == "fail" for c in static)
     selected_api_providers = tuple(dict.fromkeys(api_providers))
     api_probes = (
-        [asdict(live_api_probe(provider, timeout_seconds=api_timeout_seconds)) for provider in selected_api_providers]
+        [asdict(live_api_probe(
+            provider, timeout_seconds=api_timeout_seconds,
+            price_catalog_path=price_catalog_path,
+        )) for provider in selected_api_providers]
         if live_api else []
     )
     api_probe_ready = bool(api_probes) and all(item["status"] == "pass" for item in api_probes)
@@ -316,6 +341,7 @@ def main() -> int:
     parser.add_argument("--live-api", action="store_true", help="send one synthetic public prompt to each selected direct model API; may incur provider charges")
     parser.add_argument("--api-provider", action="append", choices=sorted(set(PROVIDER_SPECS) | {"custom"}), default=[], help="select a direct API provider for --live-api; repeat to test more than one")
     parser.add_argument("--api-timeout-seconds", type=float, default=30.0)
+    parser.add_argument("--price-catalog", help="optional reviewed local provider price catalog for exact-model cost estimates")
     parser.add_argument("--write-report", action="store_true", help="persist the JSON report under .ai-harness")
     parser.add_argument("--json", action="store_true", help="emit machine-readable output")
     args = parser.parse_args()
@@ -323,11 +349,14 @@ def main() -> int:
         parser.error("--live-api requires at least one --api-provider")
     if args.api_provider and not args.live_api:
         parser.error("--api-provider requires --live-api")
+    if args.price_catalog and not args.live_api:
+        parser.error("--price-catalog requires --live-api")
     if len(set(args.api_provider)) != len(args.api_provider):
         parser.error("duplicate --api-provider values would repeat billable API probes")
     report = run(
         live=args.live, write_report=args.write_report, live_api=args.live_api,
         api_providers=args.api_provider, api_timeout_seconds=args.api_timeout_seconds,
+        price_catalog_path=args.price_catalog,
     )
     if args.json:
         print(json.dumps(report, indent=2))
