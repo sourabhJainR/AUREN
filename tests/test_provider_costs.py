@@ -111,6 +111,30 @@ class TestProviderCosts(unittest.TestCase):
         )
         self.assertEqual("catalog_not_yet_effective", result["reason"])
 
+    def test_future_source_retrieval_is_not_used_for_estimates(self):
+        document = catalog_document()
+        document["entries"][0]["retrieved_at"] = "2026-11-20T00:00:00Z"
+        catalog = self.write(document)
+        result = estimate_provider_cost(
+            catalog,
+            provider_id="openai",
+            model_id="pinned-model-v1",
+            usage={"input_tokens": 10, "output_tokens": 10},
+            now=NOW,
+        )
+        self.assertEqual("price_source_not_yet_retrieved", result["reason"])
+
+    def test_estimate_rejects_mutable_model_alias(self):
+        catalog = self.write(catalog_document())
+        with self.assertRaisesRegex(ProviderPriceCatalogError, "exact pinned"):
+            estimate_provider_cost(
+                catalog,
+                provider_id="openai",
+                model_id="latest",
+                usage={"input_tokens": 1, "output_tokens": 1},
+                now=NOW,
+            )
+
     def test_missing_usage_is_not_treated_as_zero(self):
         catalog = self.write(catalog_document())
         result = estimate_provider_cost(
