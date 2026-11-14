@@ -256,7 +256,7 @@ def write_provider_role_profile(
     apply: bool = False,
 ) -> dict[str, Any]:
     """Preview or create a profile without overwriting an existing file."""
-    target = Path(path).expanduser()
+    target = Path(os.path.abspath(Path(path).expanduser()))
     parsed = _parse_profile(document, target)
     payload = _canonical(parsed.as_dict()) + b"\n"
     if not apply:
@@ -285,9 +285,11 @@ def write_provider_role_profile(
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())
-        if target.exists() or target.is_symlink():
-            raise ProviderRoleProfileError("profile appeared during creation; refusing overwrite")
-        os.replace(temporary, target)
+        # A hard-link publish is atomic and fails if another process created
+        # the destination. os.replace would silently overwrite that file in a
+        # race between the existence check and publication.
+        os.link(temporary, target)
+        temporary.unlink()
         if os.name != "nt":
             target.chmod(stat.S_IRUSR | stat.S_IWUSR)
     except BaseException:
