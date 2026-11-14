@@ -1,7 +1,7 @@
 """Durable trigger registry for AUREN routines.
 
 This module owns routine definitions and trigger receipts only. It deliberately
-does not schedule processes, queue tasks, own approvals, or execute handlers.
+does not schedule processes, queue tasks, decide approvals, or execute handlers.
 Every occurrence is submitted through the canonical ExecutionController adapter.
 """
 from __future__ import annotations
@@ -10,6 +10,7 @@ from contextlib import closing
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
+import hmac
 import json
 from pathlib import Path
 import sqlite3
@@ -42,6 +43,8 @@ CREATE TABLE IF NOT EXISTS routine_occurrences (
 );
 CREATE INDEX IF NOT EXISTS idx_routine_occurrences_routine
 ON routine_occurrences(routine_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_routine_occurrences_updated
+ON routine_occurrences(updated_at, created_at);
 """
 
 
@@ -59,6 +62,58 @@ def _iso(value: datetime) -> str:
 def _digest(value: Any) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def verify_hmac_webhook_signature(
+    secret: bytes | str,
+    timestamp: str | int,
+    signature: str,
+    *,
+    routine_id: str,
+    event_id: str,
+    payload: Mapping[str, Any],
+    now: datetime | None = None,
+    tolerance_seconds: int = 300,
+) -> bool:
+    """Verify a timestamped HMAC-SHA256 webhook envelope without storing secrets.
+
+    The signed bytes bind the timestamp, routine identity, event identity and
+    canonical JSON payload. The registry separately persists event IDs to reject
+    redelivery. Provider-specific header parsing remains the host's responsibility.
+    """
+    if isinstance(secret, str):
+        secret_bytes = secret.encode("utf-8")
+    elif isinstance(secret, bytes):
+        secret_bytes = secret
+    else:
+        return False
+    if not secret_bytes or not isinstance(signature, str) or type(timestamp) is bool:
+        return False
+    if (
+        not isinstance(routine_id, str) or not routine_id.strip()
+        or not isinstance(event_id, str) or not event_id.strip()
+        or type(tolerance_seconds) is not int or not 1 <= tolerance_seconds <= 3600
+    ):
+        return False
+    try:
+        timestamp_value = int(timestamp)
+        canonical_payload = json.dumps(
+            dict(payload), sort_keys=True, separators=(",", ":"), allow_nan=False,
+        )
+        current_time = _utc(now).timestamp()
+        within_window = abs(current_time - timestamp_value) <= tolerance_seconds
+    except (TypeError, ValueError, OverflowError):
+        return False
+    if not within_window:
+        return False
+    signed = "\n".join((
+        str(timestamp_value), routine_id, event_id, canonical_payload,
+    )).encode("utf-8")
+    expected = hmac.new(secret_bytes, signed, hashlib.sha256).hexdigest()
+    supplied = signature.strip()
+    if supplied.lower().startswith("sha256="):
+        supplied = supplied[7:]
+    return hmac.compare_digest(expected, supplied.lower())
 
 
 @dataclass(frozen=True)
@@ -129,7 +184,7 @@ class RoutineSpec:
             raise ValueError("deadline_seconds must be between 1 and 86400")
         if type(self.approval_required) is not bool or type(self.enabled) is not bool:
             raise ValueError("approval_required and enabled must be booleans")
-        if self.concurrency_policy not in {"allow", "skip"}:
+        if not isinstance(self.concurrency_policy, str) or self.concurrency_policy not in {"allow", "skip"}:
             raise ValueError("concurrency_policy must be allow or skip")
         for field_name in ("profile_digest", "policy_digest"):
             value = getattr(self, field_name)
@@ -193,14 +248,33 @@ class DurableRoutineRegistry:
         with self._lock, closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
             current = db.execute(
-                "SELECT version,spec_digest FROM routines WHERE routine_id=?",
+                "SELECT version,spec_digest,spec_json FROM routines WHERE routine_id=?",
                 (spec.routine_id,),
             ).fetchone()
             if current:
                 if spec.version < current["version"]:
                     raise ValueError("routine version cannot move backwards")
                 if spec.version == current["version"]:
-                    if spec.digest != current["spec_digest"]:
+                    # New optional fields are defaulted when older persisted specs
+                    # are loaded. Compare normalized definitions so an upgrade
+                    # does not make an unchanged legacy routine look mutated.
+                    stored_payload = json.loads(current["spec_json"])
+                    if not isinstance(stored_payload, dict):
+                        raise ValueError("persisted routine definition is corrupt")
+                    stored_digest_payload = dict(stored_payload)
+                    stored_digest_payload.pop("enabled", None)
+                    if current["spec_digest"] != _digest(stored_digest_payload):
+                        raise ValueError("persisted routine definition digest mismatch")
+                    requested_payload = dict(payload)
+                    for field_name, default in (
+                        ("profile_digest", None),
+                        ("policy_digest", None),
+                        ("concurrency_policy", "allow"),
+                    ):
+                        stored_payload.setdefault(field_name, default)
+                    stored_payload.pop("enabled", None)
+                    requested_payload.pop("enabled", None)
+                    if stored_payload != requested_payload:
                         raise ValueError("same routine version has different content")
                     db.execute("COMMIT")
                     return spec.digest
@@ -243,7 +317,7 @@ class DurableRoutineRegistry:
 
     def dispatch_manual(
         self, routine_id: str, *, invocation_id: str, submit: Callable[..., Any],
-        approval: Callable[[RoutineSpec], bool] | None = None,
+        approval: Callable[[RoutineSpec], Any] | None = None,
         reconcile: Callable[[str], Any | None] | None = None,
     ) -> RoutineDispatch:
         if not isinstance(invocation_id, str) or not invocation_id.strip() or len(invocation_id) > 256:
@@ -256,7 +330,7 @@ class DurableRoutineRegistry:
     def dispatch_webhook(
         self, routine_id: str, *, event_id: str, event_type: str,
         payload: Mapping[str, Any], authenticate: Callable[[str, str, Mapping[str, Any]], bool],
-        submit: Callable[..., Any], approval: Callable[[RoutineSpec], bool] | None = None,
+        submit: Callable[..., Any], approval: Callable[[RoutineSpec], Any] | None = None,
         reconcile: Callable[[str], Any | None] | None = None,
     ) -> RoutineDispatch:
         if not isinstance(event_id, str) or not event_id.strip() or len(event_id) > 256:
@@ -287,7 +361,7 @@ class DurableRoutineRegistry:
 
     def dispatch_due(
         self, *, now: datetime, submit: Callable[..., Any],
-        approval: Callable[[RoutineSpec], bool] | None = None,
+        approval: Callable[[RoutineSpec], Any] | None = None,
         reconcile: Callable[[str], Any | None] | None = None,
         limit: int = 32,
     ) -> tuple[RoutineDispatch, ...]:
@@ -312,12 +386,28 @@ class DurableRoutineRegistry:
                     spec.routine_id, spec.version, schedule_cursor,
                 )
                 if existing is not None:
-                    dispatched = self._recover_scheduled_occurrence(
-                        existing, now=instant, interval_seconds=interval,
-                        reconcile=reconcile,
-                    )
+                    if existing["status"] == "blocked_approval":
+                        existing_receipt = json.loads(existing["receipt_json"])
+                        existing_scheduled = _utc(datetime.fromisoformat(
+                            existing_receipt.get("scheduled_at") or _iso(schedule_cursor)
+                        ))
+                        missed_intervals = max(
+                            0, int((instant - schedule_cursor).total_seconds() // interval)
+                        )
+                        trigger_key = f"{spec.routine_id}:v{spec.version}:{_iso(existing_scheduled)}"
+                        dispatched = self._dispatch(
+                            spec.routine_id, spec.trigger, trigger_key, submit=submit,
+                            approval=approval, reconcile=reconcile,
+                            scheduled_at=existing_scheduled, schedule_cursor=schedule_cursor,
+                            expected_version=spec.version, missed_intervals=missed_intervals,
+                        )
+                    else:
+                        dispatched = self._recover_scheduled_occurrence(
+                            existing, now=instant, interval_seconds=interval,
+                            reconcile=reconcile,
+                        )
                     results.append(dispatched)
-                    if dispatched.status in {"submitted", "duplicate"}:
+                    if dispatched.status in {"submitted", "duplicate", "completed", "failed", "cancelled"}:
                         next_run = self._next_interval_after(
                             schedule_cursor, instant, interval,
                         )
@@ -408,6 +498,33 @@ class DurableRoutineRegistry:
                              "coalesced_after_submission": True},
                 )
             return RoutineDispatch(occurrence_key, work_key, "duplicate", occurrence.get("task_id"))
+        if status == "cancellation_requested":
+            if reconcile is None:
+                return RoutineDispatch(
+                    occurrence_key, work_key, "cancellation_requested", occurrence.get("task_id"),
+                    "cancellation outcome requires authoritative task-state reconciliation",
+                )
+            try:
+                recovered = reconcile(work_key)
+            except Exception as exc:
+                return RoutineDispatch(
+                    occurrence_key, work_key, "unknown", occurrence.get("task_id"),
+                    f"cancellation reconciliation failed ({type(exc).__name__})",
+                )
+            task_state = (
+                recovered.get("state") if isinstance(recovered, Mapping)
+                else getattr(recovered, "state", None)
+            ) if recovered is not None else None
+            if task_state in {"completed", "failed", "cancelled"}:
+                self._update_receipt(
+                    occurrence_key, status=task_state,
+                    updates={"state": task_state, "terminal_reconciled": True},
+                )
+                return RoutineDispatch(occurrence_key, work_key, "duplicate", occurrence.get("task_id"))
+            return RoutineDispatch(
+                occurrence_key, work_key, "cancellation_requested", occurrence.get("task_id"),
+                "task remains nonterminal after cancellation request",
+            )
         if status not in {"dispatching", "unknown"}:
             return RoutineDispatch(occurrence_key, work_key, status)
         if reconcile is None:
@@ -454,7 +571,7 @@ class DurableRoutineRegistry:
 
     def _dispatch(
         self, routine_id: str, trigger_kind: str, trigger_key: str, *,
-        submit: Callable[..., Any], approval: Callable[[RoutineSpec], bool] | None,
+        submit: Callable[..., Any], approval: Callable[[RoutineSpec], Any] | None,
         reconcile: Callable[[str], Any | None] | None,
         event_payload: Mapping[str, Any] | None = None,
         scheduled_at: datetime | None = None,
@@ -468,8 +585,70 @@ class DurableRoutineRegistry:
             raise ValueError("expected routine version must be a positive integer")
         if type(missed_intervals) is not int or missed_intervals < 0:
             raise ValueError("missed_intervals must be a non-negative integer")
-        if spec.approval_required and (approval is None or approval(spec) is not True):
-            return RoutineDispatch("", "", "blocked", reason="required approval is absent")
+        approval_receipt: dict[str, Any] | None = None
+        approval_allowed = True
+        if spec.approval_required:
+            approval_result: Any = False
+            approval_error: str | None = None
+            if approval is not None:
+                try:
+                    approval_result = approval(spec)
+                except Exception as exc:
+                    approval_error = type(exc).__name__
+            if approval_result is True:
+                approval_receipt = {
+                    "approved": True, "evidence_type": "trusted_callback_boolean",
+                }
+            elif approval_result is False or approval is None or approval_error:
+                approval_receipt = {
+                    "approved": False,
+                    "evidence_type": "trusted_callback_boolean" if approval is not None else "missing_verifier",
+                }
+                if approval_error:
+                    approval_receipt["error_type"] = approval_error
+                approval_allowed = False
+            elif isinstance(approval_result, Mapping):
+                try:
+                    encoded_approval = json.dumps(
+                        dict(approval_result), sort_keys=True, separators=(",", ":"), allow_nan=False,
+                    )
+                    if len(encoded_approval.encode("utf-8")) > 16_384:
+                        raise ValueError("approval receipt exceeds 16 KB")
+                    decision = json.loads(encoded_approval)
+                    approved_value = decision.get("approved")
+                    if type(approved_value) is not bool:
+                        raise ValueError("approval receipt requires a boolean approved field")
+                    approval_receipt = {
+                        "approved": approved_value, "evidence_type": "structured",
+                    }
+                    for field_name in ("approval_id", "approver", "scope", "decision_digest", "expires_at"):
+                        if field_name in decision:
+                            approval_receipt[field_name] = decision[field_name]
+                    if approved_value:
+                        for field_name in ("approval_id", "approver", "scope", "decision_digest"):
+                            value = approval_receipt.get(field_name)
+                            if not isinstance(value, str) or not value.strip():
+                                raise ValueError(f"approved receipt requires {field_name}")
+                        digest_value = approval_receipt["decision_digest"]
+                        if len(digest_value) != 64 or any(c not in "0123456789abcdef" for c in digest_value):
+                            raise ValueError("decision_digest must be a lowercase SHA-256 digest")
+                        expires_at = approval_receipt.get("expires_at")
+                        if expires_at is not None:
+                            expiry = _utc(datetime.fromisoformat(expires_at))
+                            if expiry <= datetime.now(timezone.utc):
+                                approval_receipt["approved"] = False
+                    approval_allowed = approval_receipt["approved"] is True
+                except (TypeError, ValueError) as exc:
+                    approval_receipt = {
+                        "approved": False, "evidence_type": "invalid_structured_receipt",
+                        "error_type": type(exc).__name__,
+                    }
+                    approval_allowed = False
+            else:
+                approval_receipt = {
+                    "approved": False, "evidence_type": "invalid_verifier_result",
+                }
+                approval_allowed = False
         occurrence_key = _digest({
             "routine_id": routine_id, "version": expected_version,
             "trigger_kind": trigger_kind, "trigger_key": trigger_key,
@@ -496,6 +675,7 @@ class DurableRoutineRegistry:
                 "SELECT status,task_id,receipt_json FROM routine_occurrences WHERE occurrence_key=?",
                 (occurrence_key,),
             ).fetchone()
+            resuming_approval = False
             if previous:
                 previous_receipt = json.loads(previous["receipt_json"])
                 if previous_receipt.get("trigger_digest") != trigger_digest:
@@ -504,7 +684,35 @@ class DurableRoutineRegistry:
                 if previous["status"] == "submitted":
                     db.execute("COMMIT")
                     return RoutineDispatch(occurrence_key, work_key, "duplicate", previous["task_id"])
-                if previous["status"] in {"dispatching", "unknown"}:
+                if previous["status"] == "blocked_approval":
+                    if not approval_allowed:
+                        db.execute("COMMIT")
+                        return RoutineDispatch(
+                            occurrence_key, work_key, "blocked_approval",
+                            reason="required approval remains absent, denied, expired, or invalid",
+                        )
+                    if current["version"] != expected_version:
+                        db.execute("COMMIT")
+                        return RoutineDispatch(
+                            occurrence_key, work_key, "stale",
+                            reason="routine version changed before approval retry",
+                        )
+                    if not current["enabled"]:
+                        db.execute("COMMIT")
+                        return RoutineDispatch(
+                            occurrence_key, work_key, "disabled",
+                            reason="routine is disabled",
+                        )
+                    previous_receipt["approval"] = approval_receipt
+                    previous_receipt["state"] = "dispatching"
+                    db.execute(
+                        "UPDATE routine_occurrences SET status='dispatching',receipt_json=?,updated_at=? "
+                        "WHERE occurrence_key=? AND status='blocked_approval'",
+                        (json.dumps(previous_receipt, sort_keys=True), now, occurrence_key),
+                    )
+                    resuming_approval = True
+                    previous = None
+                elif previous["status"] in {"dispatching", "unknown"}:
                     db.execute("COMMIT")
                     if reconcile is None:
                         return RoutineDispatch(occurrence_key, work_key, "unknown",
@@ -525,8 +733,9 @@ class DurableRoutineRegistry:
                                                reason="reconciliation returned no task identity")
                     self._mark_submitted(occurrence_key, task_id, {"reconciled": True})
                     return RoutineDispatch(occurrence_key, work_key, "submitted", task_id)
-                db.execute("COMMIT")
-                return RoutineDispatch(occurrence_key, work_key, previous["status"])
+                else:
+                    db.execute("COMMIT")
+                    return RoutineDispatch(occurrence_key, work_key, previous["status"])
             if current["version"] != expected_version:
                 db.execute("COMMIT")
                 return RoutineDispatch(
@@ -536,17 +745,40 @@ class DurableRoutineRegistry:
             if not current["enabled"]:
                 db.execute("COMMIT")
                 return RoutineDispatch("", "", "disabled", reason="routine is disabled")
+            if spec.approval_required and not approval_allowed:
+                receipt = {
+                    "state": "blocked_approval", "routine_digest": spec.digest,
+                    "trigger_digest": trigger_digest,
+                    "approval": approval_receipt,
+                    "profile_digest": spec.profile_digest,
+                    "policy_digest": spec.policy_digest,
+                    "scheduled_at": _iso(scheduled_at) if scheduled_at is not None else None,
+                    "schedule_cursor": _iso(schedule_cursor) if schedule_cursor is not None else None,
+                    "coalesced_missed_intervals": missed_intervals,
+                }
+                db.execute(
+                    """INSERT INTO routine_occurrences
+                       (occurrence_key,routine_id,routine_version,trigger_kind,status,work_key,
+                        receipt_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)""",
+                    (occurrence_key, routine_id, expected_version, trigger_kind, "blocked_approval",
+                     work_key, json.dumps(receipt, sort_keys=True), now, now),
+                )
+                db.execute("COMMIT")
+                return RoutineDispatch(
+                    occurrence_key, work_key, "blocked_approval",
+                    reason="required approval is absent, denied, expired, or invalid",
+                )
             if spec.concurrency_policy == "skip":
                 active_rows = db.execute(
-                    "SELECT work_key,task_id FROM routine_occurrences "
-                    "WHERE routine_id=? AND routine_version=? AND occurrence_key<>? "
-                    "AND status IN ('dispatching','unknown','submitted') "
-                    "ORDER BY created_at DESC LIMIT 64",
-                    (routine_id, expected_version, occurrence_key),
+                    "SELECT occurrence_key,work_key,status FROM routine_occurrences "
+                    "WHERE routine_id=? AND occurrence_key<>? "
+                    "AND status IN ('submitted','dispatching','unknown','cancellation_requested') "
+                    "ORDER BY created_at DESC LIMIT 65",
+                    (routine_id, occurrence_key),
                 ).fetchall()
-                active_work_keys = [row["work_key"] for row in active_rows]
+                active_rows = [dict(row) for row in active_rows]
             else:
-                active_work_keys = []
+                active_rows = []
             receipt = {
                 "state": "dispatching", "routine_digest": spec.digest,
                 "trigger_digest": trigger_digest,
@@ -555,17 +787,28 @@ class DurableRoutineRegistry:
                 "coalesced_missed_intervals": missed_intervals,
                 "profile_digest": spec.profile_digest,
                 "policy_digest": spec.policy_digest,
+                "approval": approval_receipt,
             }
-            db.execute(
-                """INSERT INTO routine_occurrences
-                   (occurrence_key,routine_id,routine_version,trigger_kind,status,work_key,
-                    receipt_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)""",
-                (occurrence_key, routine_id, expected_version, trigger_kind, "dispatching",
-                 work_key, json.dumps(receipt, sort_keys=True), now, now),
-            )
+            if not resuming_approval:
+                db.execute(
+                    """INSERT INTO routine_occurrences
+                       (occurrence_key,routine_id,routine_version,trigger_kind,status,work_key,
+                        receipt_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)""",
+                    (occurrence_key, routine_id, expected_version, trigger_kind, "dispatching",
+                     work_key, json.dumps(receipt, sort_keys=True), now, now),
+                )
             db.execute("COMMIT")
 
-        if active_work_keys:
+        if active_rows:
+            if len(active_rows) > 64:
+                self._update_receipt(
+                    occurrence_key, status="blocked_overlap",
+                    updates={"state": "blocked_overlap", "overlap_resolution": "candidate_limit_exceeded"},
+                )
+                return RoutineDispatch(
+                    occurrence_key, work_key, "blocked_overlap",
+                    reason="too many prior occurrences require reconciliation; dispatch refused",
+                )
             if reconcile is None:
                 self._update_receipt(
                     occurrence_key, status="blocked_overlap",
@@ -575,7 +818,8 @@ class DurableRoutineRegistry:
                     occurrence_key, work_key, "blocked_overlap",
                     reason="overlap policy requires authoritative task-state lookup; dispatch refused",
                 )
-            for active_work_key in active_work_keys:
+            for active_row in active_rows:
+                active_work_key = active_row["work_key"]
                 try:
                     active_task = reconcile(active_work_key)
                 except Exception as exc:
@@ -591,11 +835,12 @@ class DurableRoutineRegistry:
                 if active_task is None:
                     self._update_receipt(
                         occurrence_key, status="blocked_overlap",
-                        updates={"state": "blocked_overlap", "overlap_resolution": "prior_task_missing"},
+                        updates={"state": "blocked_overlap", "overlap_resolution": "prior_task_missing",
+                                 "overlap_work_key": active_work_key},
                     )
                     return RoutineDispatch(
                         occurrence_key, work_key, "blocked_overlap",
-                        reason="prior submitted occurrence is absent from authoritative task store",
+                        reason="prior occurrence has no authoritative task record; dispatch refused",
                     )
                 task_state = (
                     active_task.get("state") if isinstance(active_task, Mapping)
@@ -614,6 +859,10 @@ class DurableRoutineRegistry:
                         occurrence_key, work_key, "skipped_overlap",
                         reason="an earlier occurrence is not terminal",
                     )
+                self._update_receipt(
+                    active_row["occurrence_key"], status=task_state,
+                    updates={"state": task_state, "terminal_reconciled": True},
+                )
 
         payload = dict(spec.payload)
         if event_payload is not None:
@@ -646,9 +895,17 @@ class DurableRoutineRegistry:
         task_id: str | None = None,
     ) -> None:
         """Update receipt state without discarding immutable trigger identity metadata."""
-        now = _iso(datetime.now(timezone.utc))
         with self._lock, closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
+            latest_updated = db.execute(
+                "SELECT MAX(updated_at) FROM routine_occurrences",
+            ).fetchone()[0]
+            now_value = datetime.now(timezone.utc)
+            if latest_updated:
+                latest_value = _utc(datetime.fromisoformat(latest_updated))
+                if now_value <= latest_value:
+                    now_value = latest_value + timedelta(microseconds=1)
+            now = _iso(now_value)
             row = db.execute(
                 "SELECT receipt_json FROM routine_occurrences WHERE occurrence_key=?",
                 (occurrence_key,),
@@ -677,11 +934,297 @@ class DurableRoutineRegistry:
             updates={"state": "unknown", "error_type": error_type},
         )
 
+    def pending_terminal_summaries(self, *, limit: int = 64) -> tuple[Mapping[str, Any], ...]:
+        """Return terminal receipts whose summary event has not reached the trigger inbox."""
+        if type(limit) is not int or not 1 <= limit <= 256:
+            raise ValueError("limit must be between 1 and 256")
+        with closing(self._connect()) as db:
+            rows = db.execute(
+                "SELECT occurrence_key,routine_id,work_key,task_id,status,receipt_json "
+                "FROM routine_occurrences WHERE status IN ('completed','failed','cancelled') "
+                "ORDER BY updated_at,created_at LIMIT ?",
+                (limit,),
+            ).fetchall()
+        pending: list[Mapping[str, Any]] = []
+        for row in rows:
+            try:
+                receipt = json.loads(row["receipt_json"])
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(receipt, Mapping):
+                continue
+            if receipt.get("terminal_event_emitted") is True:
+                self._update_receipt(
+                    str(row["occurrence_key"]), status=str(row["status"]),
+                    updates={"terminal_event_checked_at": _iso(datetime.now(timezone.utc))},
+                )
+                continue
+            summary = receipt.get("terminal_summary")
+            if not isinstance(summary, str) or not summary.strip():
+                summary = f"Routine {row['routine_id']} {row['status']}"
+            pending.append({
+                "occurrence_key": row["occurrence_key"],
+                "routine_id": row["routine_id"],
+                "work_key": row["work_key"],
+                "task_id": row["task_id"],
+                "status": row["status"],
+                "summary": summary,
+                "escalation_required": receipt.get("escalation_required") is True,
+            })
+        return tuple(pending)
+
+    def mark_terminal_event_emitted(self, occurrence_key: str, event_id: str) -> None:
+        """Mark the deterministic trigger event as accepted by the canonical inbox."""
+        if not isinstance(event_id, str) or not event_id.strip():
+            raise ValueError("event_id is required")
+        occurrence = self.occurrence(occurrence_key)
+        if occurrence is None:
+            raise KeyError(occurrence_key)
+        if occurrence["status"] not in {"completed", "failed", "cancelled"}:
+            raise ValueError("only terminal routine occurrences can emit summary events")
+        self._update_receipt(
+            occurrence_key, status=str(occurrence["status"]),
+            updates={
+                "terminal_event_emitted": True,
+                "terminal_event_id": event_id,
+                "terminal_event_emitted_at": _iso(datetime.now(timezone.utc)),
+            },
+        )
+
+    def record_terminal_event_error(self, occurrence_key: str, error_type: str) -> None:
+        """Keep failed event delivery retryable without changing terminal task state."""
+        if not isinstance(error_type, str) or not error_type.strip():
+            raise ValueError("error_type is required")
+        occurrence = self.occurrence(occurrence_key)
+        if occurrence is None:
+            raise KeyError(occurrence_key)
+        if occurrence["status"] not in {"completed", "failed", "cancelled"}:
+            raise ValueError("only terminal routine occurrences can record summary delivery errors")
+        self._update_receipt(
+            occurrence_key, status=str(occurrence["status"]),
+            updates={
+                "terminal_event_emitted": False,
+                "terminal_event_error_type": error_type[:128],
+                "terminal_event_last_attempt_at": _iso(datetime.now(timezone.utc)),
+            },
+        )
+
+    def pending_attention_summaries(self, *, limit: int = 64) -> tuple[Mapping[str, Any], ...]:
+        """Return bounded blocked, unknown and coalesced-schedule notices for the trigger inbox."""
+        if type(limit) is not int or not 1 <= limit <= 256:
+            raise ValueError("limit must be between 1 and 256")
+        with closing(self._connect()) as db:
+            rows = db.execute(
+                "SELECT occurrence_key,routine_id,work_key,task_id,status,receipt_json "
+                "FROM routine_occurrences WHERE status IN "
+                "('dispatching','unknown','blocked_approval','blocked_overlap','submitted') "
+                "ORDER BY updated_at,created_at LIMIT ?",
+                (limit,),
+            ).fetchall()
+        pending: list[Mapping[str, Any]] = []
+        for row in rows:
+            try:
+                receipt = json.loads(row["receipt_json"])
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(receipt, Mapping):
+                continue
+            status = str(row["status"])
+            if receipt.get("attention_event_emitted") is True:
+                self._update_receipt(
+                    str(row["occurrence_key"]), status=status,
+                    updates={"attention_event_checked_at": _iso(datetime.now(timezone.utc))},
+                )
+                continue
+            missed = receipt.get("coalesced_missed_intervals", 0)
+            if status == "blocked_approval":
+                kind = "routine.blocked_approval"
+                summary = f"Routine {row['routine_id']} is blocked pending approval"
+            elif status == "blocked_overlap":
+                kind = "routine.overlap_blocked"
+                summary = f"Routine {row['routine_id']} was skipped because an earlier occurrence is active"
+            elif status in {"dispatching", "unknown"}:
+                kind = "routine.outcome_unknown"
+                summary = f"Routine {row['routine_id']} has an unresolved dispatch outcome"
+            elif type(missed) is int and missed > 0:
+                kind = "routine.schedule_coalesced"
+                summary = f"Routine {row['routine_id']} coalesced {missed} missed interval(s) into one run"
+            else:
+                self._update_receipt(
+                    str(row["occurrence_key"]), status=status,
+                    updates={"attention_checked_at": _iso(datetime.now(timezone.utc))},
+                )
+                continue
+            pending.append({
+                "occurrence_key": row["occurrence_key"],
+                "routine_id": row["routine_id"],
+                "work_key": row["work_key"],
+                "task_id": row["task_id"],
+                "status": status,
+                "event_kind": kind,
+                "summary": summary,
+                "missed_intervals": missed if type(missed) is int else 0,
+                "escalation_required": status in {
+                    "blocked_approval", "blocked_overlap", "dispatching", "unknown",
+                },
+            })
+        return tuple(pending)
+
+    def mark_attention_event_emitted(self, occurrence_key: str, event_id: str) -> None:
+        if not isinstance(event_id, str) or not event_id.strip():
+            raise ValueError("event_id is required")
+        occurrence = self.occurrence(occurrence_key)
+        if occurrence is None:
+            raise KeyError(occurrence_key)
+        if occurrence["status"] not in {
+            "dispatching", "unknown", "blocked_approval", "blocked_overlap", "submitted",
+        }:
+            raise ValueError("occurrence is not eligible for an attention event")
+        self._update_receipt(
+            occurrence_key, status=str(occurrence["status"]),
+            updates={
+                "attention_event_emitted": True,
+                "attention_event_id": event_id,
+                "attention_event_emitted_at": _iso(datetime.now(timezone.utc)),
+            },
+        )
+
+    def record_attention_event_error(self, occurrence_key: str, error_type: str) -> None:
+        if not isinstance(error_type, str) or not error_type.strip():
+            raise ValueError("error_type is required")
+        occurrence = self.occurrence(occurrence_key)
+        if occurrence is None:
+            raise KeyError(occurrence_key)
+        self._update_receipt(
+            occurrence_key, status=str(occurrence["status"]),
+            updates={
+                "attention_event_emitted": False,
+                "attention_event_error_type": error_type[:128],
+                "attention_event_last_attempt_at": _iso(datetime.now(timezone.utc)),
+            },
+        )
+
+    def reconcile_occurrences(
+        self, *, reconcile: Callable[[str], Any | None],
+        routine_id: str | None = None, limit: int = 64,
+    ) -> tuple[RoutineDispatch, ...]:
+        """Refresh bounded occurrence receipts from canonical task state.
+
+        Terminal summaries are evidence projections, not independent task state.
+        Failed outcomes are flagged for host-owned escalation; this method does
+        not send notifications or change execution authority.
+        """
+        if not callable(reconcile):
+            raise TypeError("authoritative task reconciliation callback is required")
+        if type(limit) is not int or not 1 <= limit <= 256:
+            raise ValueError("limit must be between 1 and 256")
+        if routine_id is not None:
+            self.get(routine_id)
+        query = (
+            "SELECT occurrence_key,work_key,routine_id,status FROM routine_occurrences "
+            "WHERE status IN ('dispatching','unknown','submitted','cancellation_requested')"
+        )
+        params: list[Any] = []
+        if routine_id is not None:
+            query += " AND routine_id=?"
+            params.append(routine_id)
+        query += " ORDER BY updated_at,created_at LIMIT ?"
+        params.append(limit)
+        with closing(self._connect()) as db:
+            rows = db.execute(query, params).fetchall()
+
+        results: list[RoutineDispatch] = []
+        for row in rows:
+            occurrence_key = str(row["occurrence_key"])
+            work_key = str(row["work_key"])
+            current_status = str(row["status"])
+            observed_at = _iso(datetime.now(timezone.utc))
+            try:
+                task = reconcile(work_key)
+            except Exception as exc:
+                self._update_receipt(
+                    occurrence_key, status=current_status,
+                    updates={"reconciliation_error_type": type(exc).__name__,
+                             "last_reconciled_at": observed_at},
+                )
+                results.append(RoutineDispatch(
+                    occurrence_key, work_key, "unknown",
+                    reason=f"canonical task reconciliation failed ({type(exc).__name__})",
+                ))
+                continue
+            if task is None:
+                self._update_receipt(
+                    occurrence_key, status=current_status,
+                    updates={"canonical_task_missing": True, "last_reconciled_at": observed_at},
+                )
+                results.append(RoutineDispatch(
+                    occurrence_key, work_key, "unknown",
+                    reason="canonical task record is unavailable; outcome remains unknown",
+                ))
+                continue
+            task_id = getattr(task, "id", None) or (
+                task.get("id") if isinstance(task, Mapping) else None
+            )
+            task_state = getattr(task, "state", None) or (
+                task.get("state") if isinstance(task, Mapping) else None
+            )
+            attempts = getattr(task, "attempts", None)
+            if attempts is None and isinstance(task, Mapping):
+                attempts = task.get("attempts")
+            if not isinstance(task_id, str) or not task_id:
+                self._update_receipt(
+                    occurrence_key, status=current_status,
+                    updates={"canonical_task_identity_missing": True, "last_reconciled_at": observed_at},
+                )
+                results.append(RoutineDispatch(
+                    occurrence_key, work_key, "unknown",
+                    reason="canonical task lookup returned no task identity",
+                ))
+                continue
+            if task_state in {"completed", "failed", "cancelled"}:
+                summary = f"Routine {row['routine_id']} {task_state}"
+                if type(attempts) is int and attempts >= 0:
+                    summary += f" after {attempts} attempt(s)"
+                self._update_receipt(
+                    occurrence_key, status=str(task_state), task_id=task_id,
+                    updates={
+                        "state": str(task_state),
+                        "terminal_observed_at": observed_at,
+                        "terminal_summary": summary,
+                        "escalation_required": task_state == "failed",
+                    },
+                )
+                results.append(RoutineDispatch(
+                    occurrence_key, work_key, str(task_state), task_id, summary,
+                ))
+                continue
+            if current_status in {"dispatching", "unknown"}:
+                self._mark_submitted(
+                    occurrence_key, task_id,
+                    {"reconciled": True, "last_task_state": task_state,
+                     "last_reconciled_at": observed_at},
+                )
+                results.append(RoutineDispatch(
+                    occurrence_key, work_key, "submitted", task_id,
+                    "canonical task found; execution remains non-terminal",
+                ))
+            else:
+                self._update_receipt(
+                    occurrence_key, status=current_status, task_id=task_id,
+                    updates={"last_task_state": task_state, "last_reconciled_at": observed_at},
+                )
+                results.append(RoutineDispatch(
+                    occurrence_key, work_key, current_status, task_id,
+                    "execution remains non-terminal",
+                ))
+        return tuple(results)
+
     def cancel_inflight(
         self, routine_id: str, *,
         reconcile: Callable[[str], Any | None],
         request_cancel: Callable[[str, str], bool],
         reason: str,
+        limit: int = 64,
     ) -> tuple[RoutineDispatch, ...]:
         """Request cancellation through the canonical controller for all live occurrences.
 
@@ -692,12 +1235,15 @@ class DurableRoutineRegistry:
             raise ValueError("cancellation reason must be non-empty text of at most 1000 characters")
         if not callable(reconcile) or not callable(request_cancel):
             raise TypeError("authoritative reconciliation and cancellation callbacks are required")
+        if type(limit) is not int or not 1 <= limit <= 256:
+            raise ValueError("limit must be between 1 and 256")
+        self.get(routine_id)
         with closing(self._connect()) as db:
             rows = db.execute(
                 "SELECT occurrence_key,work_key,task_id,status FROM routine_occurrences "
                 "WHERE routine_id=? AND status IN ('dispatching','unknown','submitted','cancellation_requested') "
-                "ORDER BY created_at",
-                (routine_id,),
+                "ORDER BY updated_at,created_at LIMIT ?",
+                (routine_id, limit),
             ).fetchall()
         reason_digest = hashlib.sha256(reason.strip().encode("utf-8")).hexdigest()
         results: list[RoutineDispatch] = []
@@ -707,12 +1253,22 @@ class DurableRoutineRegistry:
             try:
                 task = reconcile(work_key)
             except Exception as exc:
+                self._update_receipt(
+                    occurrence_key, status=str(row["status"]),
+                    updates={"cancellation_reconcile_error_type": type(exc).__name__,
+                             "cancellation_last_checked_at": _iso(datetime.now(timezone.utc))},
+                )
                 results.append(RoutineDispatch(
                     occurrence_key, work_key, "unknown",
                     reason=f"task reconciliation failed: {type(exc).__name__}",
                 ))
                 continue
             if task is None:
+                self._update_receipt(
+                    occurrence_key, status=str(row["status"]),
+                    updates={"cancellation_task_missing": True,
+                             "cancellation_last_checked_at": _iso(datetime.now(timezone.utc))},
+                )
                 results.append(RoutineDispatch(
                     occurrence_key, work_key, "unknown",
                     reason="canonical task record is unavailable; cancellation outcome is unknown",
@@ -724,23 +1280,43 @@ class DurableRoutineRegistry:
             task_state = getattr(task, "state", None) or (
                 task.get("state") if isinstance(task, Mapping) else None
             )
+            attempts = getattr(task, "attempts", None)
+            if attempts is None and isinstance(task, Mapping):
+                attempts = task.get("attempts")
             if not isinstance(task_id, str) or not task_id:
+                self._update_receipt(
+                    occurrence_key, status=str(row["status"]),
+                    updates={"cancellation_task_identity_missing": True,
+                             "cancellation_last_checked_at": _iso(datetime.now(timezone.utc))},
+                )
                 results.append(RoutineDispatch(
                     occurrence_key, work_key, "unknown",
                     reason="canonical task lookup returned no task identity",
                 ))
                 continue
             if task_state in {"completed", "failed", "cancelled"}:
+                summary = f"Routine {routine_id} {task_state}"
+                if type(attempts) is int and attempts >= 0:
+                    summary += f" after {attempts} attempt(s)"
                 self._update_receipt(
-                    occurrence_key, status=str(task_state),
-                    task_id=task_id,
-                    updates={"state": str(task_state), "terminal_observed_at": _iso(datetime.now(timezone.utc))},
+                    occurrence_key, status=str(task_state), task_id=task_id,
+                    updates={
+                        "state": str(task_state),
+                        "terminal_observed_at": _iso(datetime.now(timezone.utc)),
+                        "terminal_summary": summary,
+                        "escalation_required": task_state == "failed",
+                    },
                 )
-                results.append(RoutineDispatch(occurrence_key, work_key, str(task_state), task_id))
+                results.append(RoutineDispatch(occurrence_key, work_key, str(task_state), task_id, summary))
                 continue
             try:
                 accepted = request_cancel(task_id, reason.strip()) is True
             except Exception as exc:
+                self._update_receipt(
+                    occurrence_key, status=str(row["status"]), task_id=task_id,
+                    updates={"cancellation_request_error_type": type(exc).__name__,
+                             "cancellation_last_checked_at": _iso(datetime.now(timezone.utc))},
+                )
                 results.append(RoutineDispatch(
                     occurrence_key, work_key, "unknown", task_id,
                     reason=f"controller cancellation request failed: {type(exc).__name__}",
@@ -762,10 +1338,30 @@ class DurableRoutineRegistry:
                     reason="request accepted; task remains non-terminal until controller confirms cancellation",
                 ))
             else:
-                results.append(RoutineDispatch(
-                    occurrence_key, work_key, "not_cancelled", task_id,
-                    reason="controller did not accept cancellation; inspect authoritative task state",
-                ))
+                try:
+                    latest = reconcile(work_key)
+                except Exception:
+                    latest = None
+                latest_state = (
+                    latest.get("state") if isinstance(latest, Mapping)
+                    else getattr(latest, "state", None)
+                ) if latest is not None else None
+                if latest_state in {"completed", "failed", "cancelled"}:
+                    self._update_receipt(
+                        occurrence_key, status=latest_state, task_id=task_id,
+                        updates={"state": latest_state, "terminal_observed_at": _iso(datetime.now(timezone.utc))},
+                    )
+                    results.append(RoutineDispatch(occurrence_key, work_key, latest_state, task_id))
+                else:
+                    self._update_receipt(
+                        occurrence_key, status=str(row["status"]), task_id=task_id,
+                        updates={"cancellation_not_accepted": True,
+                                 "cancellation_last_checked_at": _iso(datetime.now(timezone.utc))},
+                    )
+                    results.append(RoutineDispatch(
+                        occurrence_key, work_key, "not_cancelled", task_id,
+                        reason="controller did not accept cancellation; inspect authoritative task state",
+                    ))
         return tuple(results)
 
     def occurrence(self, occurrence_key: str) -> Mapping[str, Any] | None:
@@ -775,5 +1371,58 @@ class DurableRoutineRegistry:
             ).fetchone()
         return dict(row) if row else None
 
+    def request_cancellation(
+        self, occurrence_key: str, *, cancel: Callable[..., bool], reason: str,
+    ) -> RoutineDispatch:
+        """Request task cancellation through the canonical controller.
 
-__all__ = ["DurableRoutineRegistry", "RoutineDispatch", "RoutineSpec"]
+        The occurrence remains nonterminal until the controller confirms its
+        final state. This method records the request, never a false cancellation.
+        """
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > 1000:
+            raise ValueError("cancellation reason must be non-empty text of at most 1000 characters")
+        occurrence = self.occurrence(occurrence_key)
+        if occurrence is None:
+            raise KeyError(occurrence_key)
+        task_id = occurrence.get("task_id")
+        work_key = str(occurrence["work_key"])
+        status = str(occurrence["status"])
+        if status in {"completed", "failed", "cancelled", "skipped_overlap", "blocked_overlap"}:
+            return RoutineDispatch(occurrence_key, work_key, status, task_id)
+        if not isinstance(task_id, str) or not task_id:
+            return RoutineDispatch(
+                occurrence_key, work_key, "unknown",
+                reason="occurrence has no reconciled task ID; cancellation was not attempted",
+            )
+        try:
+            accepted = cancel(task_id, reason=reason.strip())
+        except Exception as exc:
+            self._update_receipt(
+                occurrence_key, status=status,
+                updates={"cancellation_error_type": type(exc).__name__},
+            )
+            return RoutineDispatch(
+                occurrence_key, work_key, "unknown",
+                task_id, f"cancellation request failed ({type(exc).__name__})",
+            )
+        if accepted is not True:
+            return RoutineDispatch(
+                occurrence_key, work_key, "not_cancellable", task_id,
+                "controller did not accept cancellation; task state remains authoritative",
+            )
+        reason_digest = hashlib.sha256(reason.strip().encode("utf-8")).hexdigest()
+        requested_at = _iso(datetime.now(timezone.utc))
+        self._update_receipt(
+            occurrence_key, status="cancellation_requested",
+            updates={
+                "state": "cancellation_requested",
+                "cancellation_requested_at": requested_at,
+                "cancellation_reason_digest": reason_digest,
+            },
+        )
+        return RoutineDispatch(
+            occurrence_key, work_key, "cancellation_requested", task_id,
+        )
+
+
+__all__ = ["DurableRoutineRegistry", "RoutineDispatch", "RoutineSpec", "verify_hmac_webhook_signature"]

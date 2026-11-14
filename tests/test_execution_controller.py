@@ -2955,3 +2955,22 @@ def test_task_by_work_key_recovers_same_durable_task_after_restart(tmp_path: Pat
             pass
         else:
             raise AssertionError("invalid work_key must be rejected")
+
+
+def test_request_cancellation_rejects_non_cancellable_task_state(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    controller.register_handler(
+        "tests.durable_handler", durable_handler, execution_class="read_only",
+    )
+    task = controller.submit("tests.durable_handler", {"id": "approval-wait"})
+    with closing(sqlite3.connect(controller.db_path)) as db:
+        db.execute("UPDATE tasks SET state='waiting_approval' WHERE id=?", (task.id,))
+        db.commit()
+
+    assert controller.request_cancellation(task.id, reason="operator stop") is False
+    with closing(sqlite3.connect(controller.db_path)) as db:
+        state, cancel_requested = db.execute(
+            "SELECT state,cancel_requested FROM tasks WHERE id=?", (task.id,),
+        ).fetchone()
+    assert state == "waiting_approval"
+    assert cancel_requested == 0

@@ -522,8 +522,10 @@ class AdaptiveRuntime:
         return WorldMegaModel(self.persistent_memory, project_key)
 
     def emit_trigger(self, kind: str, payload: Mapping[str, Any], *, event_id: str | None = None,
-                     max_attempts: int = 3) -> TriggerEvent:
-        return self.trigger_runtime.emit(kind, payload, event_id=event_id, max_attempts=max_attempts)
+                     max_attempts: int = 3, priority: int = 1) -> TriggerEvent:
+        return self.trigger_runtime.emit(
+            kind, payload, event_id=event_id, max_attempts=max_attempts, priority=priority,
+        )
 
     def dispatch_triggers(self, handler: Any, *, limit: int = 20) -> list[Any]:
         return self.trigger_runtime.dispatch_due(handler, limit=limit)
@@ -553,25 +555,29 @@ class AdaptiveRuntime:
 
     def dispatch_manual_routine(
         self, project_root: Path | str, routine_id: str, *, invocation_id: str,
-        approval: Callable[[RoutineSpec], bool] | None = None,
+        approval: Callable[[RoutineSpec], Any] | None = None,
     ) -> RoutineDispatch:
         """Dispatch a manual occurrence through the canonical task controller."""
-        return self.routine_registry(project_root).dispatch_manual(
+        result = self.routine_registry(project_root).dispatch_manual(
             routine_id,
             invocation_id=invocation_id,
             submit=self.execution_controller.submit,
             approval=approval,
             reconcile=self.execution_controller.task_by_work_key,
         )
+        reconciled = self.reconcile_routine_occurrences(
+            project_root, routine_id=routine_id, limit=64,
+        )
+        return self._apply_routine_reconciliation(result, reconciled)
 
     def dispatch_webhook_routine(
         self, project_root: Path | str, routine_id: str, *,
         event_id: str, event_type: str, payload: Mapping[str, Any],
         authenticate: Callable[[str, str, Mapping[str, Any]], bool],
-        approval: Callable[[RoutineSpec], bool] | None = None,
+        approval: Callable[[RoutineSpec], Any] | None = None,
     ) -> RoutineDispatch:
         """Dispatch only after a host-owned webhook verifier accepts the event."""
-        return self.routine_registry(project_root).dispatch_webhook(
+        result = self.routine_registry(project_root).dispatch_webhook(
             routine_id,
             event_id=event_id,
             event_type=event_type,
@@ -581,33 +587,143 @@ class AdaptiveRuntime:
             approval=approval,
             reconcile=self.execution_controller.task_by_work_key,
         )
+        reconciled = self.reconcile_routine_occurrences(
+            project_root, routine_id=routine_id, limit=64,
+        )
+        return self._apply_routine_reconciliation(result, reconciled)
 
     def dispatch_due_routines(
         self, project_root: Path | str, *, now: datetime | None = None,
-        limit: int = 32, approval: Callable[[RoutineSpec], bool] | None = None,
+        limit: int = 32, approval: Callable[[RoutineSpec], Any] | None = None,
     ) -> tuple[RoutineDispatch, ...]:
-        """Run a bounded due-routine tick through the existing controller and service."""
-        return self.routine_registry(project_root).dispatch_due(
+        """Reconcile prior outcomes, then dispatch a bounded due-routine tick."""
+        registry = self.routine_registry(project_root)
+        self.reconcile_routine_occurrences(project_root, limit=64)
+        results = registry.dispatch_due(
             now=now or datetime.now(timezone.utc),
             submit=self.execution_controller.submit,
             approval=approval,
             reconcile=self.execution_controller.task_by_work_key,
             limit=limit,
         )
+        reconciled = self.reconcile_routine_occurrences(project_root, limit=64)
+        return tuple(self._apply_routine_reconciliation(item, reconciled) for item in results)
+
+    @staticmethod
+    def _apply_routine_reconciliation(
+        result: RoutineDispatch, reconciled: tuple[RoutineDispatch, ...],
+    ) -> RoutineDispatch:
+        if result.status not in {"dispatching", "unknown", "submitted"}:
+            return result
+        for item in reconciled:
+            if item.occurrence_key == result.occurrence_key and item.status in {
+                "submitted", "completed", "failed", "cancelled",
+            }:
+                return item
+        return result
+
+    def reconcile_routine_occurrences(
+        self, project_root: Path | str, *, routine_id: str | None = None,
+        limit: int = 64,
+    ) -> tuple[RoutineDispatch, ...]:
+        """Reconcile task outcomes and enqueue idempotent terminal summary events."""
+        registry = self.routine_registry(project_root)
+        results = registry.reconcile_occurrences(
+            routine_id=routine_id,
+            reconcile=self.execution_controller.task_by_work_key,
+            limit=limit,
+        )
+        for item in registry.pending_terminal_summaries(limit=limit):
+            state = str(item["status"])
+            event_kind = {
+                "completed": "routine.completed",
+                "failed": "routine.failed",
+                "cancelled": "routine.cancelled",
+            }.get(state)
+            if event_kind is None:
+                continue
+            occurrence_key = str(item["occurrence_key"])
+            event_id = f"routine-terminal:{occurrence_key}"
+            payload = {
+                "routine_id": str(item["routine_id"]),
+                "occurrence_key": occurrence_key,
+                "work_key": str(item["work_key"]),
+                "task_id": item.get("task_id"),
+                "state": state,
+                "summary": str(item["summary"]),
+                "escalation_required": item["escalation_required"] is True,
+            }
+            try:
+                self.emit_trigger(
+                    event_kind, payload, event_id=event_id, max_attempts=5,
+                    priority=0 if state == "failed" else 1,
+                )
+                registry.mark_terminal_event_emitted(occurrence_key, event_id)
+            except Exception as exc:
+                try:
+                    registry.record_terminal_event_error(occurrence_key, type(exc).__name__)
+                except Exception:
+                    pass
+        for item in registry.pending_attention_summaries(limit=limit):
+            occurrence_key = str(item["occurrence_key"])
+            event_kind = str(item["event_kind"])
+            missed_intervals = int(item["missed_intervals"])
+            event_id = f"routine-attention:{event_kind}:{occurrence_key}:{missed_intervals}"
+            payload = {
+                "routine_id": str(item["routine_id"]),
+                "occurrence_key": occurrence_key,
+                "work_key": str(item["work_key"]),
+                "task_id": item.get("task_id"),
+                "state": str(item["status"]),
+                "summary": str(item["summary"]),
+                "missed_intervals": missed_intervals,
+                "escalation_required": item["escalation_required"] is True,
+            }
+            try:
+                self.emit_trigger(
+                    event_kind, payload, event_id=event_id, max_attempts=5,
+                    priority=0 if item["escalation_required"] else 1,
+                )
+                registry.mark_attention_event_emitted(occurrence_key, event_id)
+            except Exception as exc:
+                try:
+                    registry.record_attention_event_error(occurrence_key, type(exc).__name__)
+                except Exception:
+                    pass
+        return results
+
+    def cancel_routine_occurrence(
+        self, project_root: Path | str, occurrence_key: str, *,
+        reason: str = "operator requested cancellation",
+    ) -> RoutineDispatch:
+        """Request cancellation through the canonical durable task controller."""
+        result = self.routine_registry(project_root).request_cancellation(
+            occurrence_key,
+            cancel=self.execution_controller.request_cancellation,
+            reason=reason,
+        )
+        self.reconcile_routine_occurrences(project_root, limit=64)
+        return result
 
     def cancel_routine_occurrences(
         self, project_root: Path | str, routine_id: str, *,
         reason: str = "operator requested routine cancellation",
+        limit: int = 64,
     ) -> tuple[RoutineDispatch, ...]:
         """Request cancellation of every non-terminal occurrence via the durable controller."""
-        return self.routine_registry(project_root).cancel_inflight(
+        results = self.routine_registry(project_root).cancel_inflight(
             routine_id,
             reconcile=self.execution_controller.task_by_work_key,
             request_cancel=lambda task_id, message: self.execution_controller.request_cancellation(
                 task_id, reason=message,
             ),
             reason=reason,
+            limit=limit,
         )
+        self.reconcile_routine_occurrences(
+            project_root, routine_id=routine_id, limit=limit,
+        )
+        return results
 
     def ensure_learning_maintenance(self, project_root: Path | str, *, interval_seconds: int | None = None) -> object:
         """Create the project learning schedule once and return its durable receipt."""

@@ -2678,7 +2678,7 @@ class ExecutionController:
     def request_cancellation(self, task_id: str, *, reason: str = "operator requested cancellation") -> bool:
         """Durably request cancellation; active handlers observe a live Event.
 
-        Returns False for an already terminal or missing task. The request does
+        Returns False unless the task is pending or running. The request does
         not claim the task is cancelled: the owning worker must stop and commit
         the terminal state, or consequential work must remain blocked for
         reconciliation if the remote outcome is ambiguous.
@@ -2690,7 +2690,7 @@ class ExecutionController:
         with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT state FROM tasks WHERE id=?", (task_id,)).fetchone()
-            if row is None or row[0] in {"completed", "failed", "cancelled", "blocked_reconciliation"}:
+            if row is None or row[0] not in {"pending", "running"}:
                 return False
             reason_digest = hashlib.sha256(reason.strip().encode("utf-8")).hexdigest()
             db.execute(
