@@ -361,6 +361,16 @@ class LocalMCPHostProcessTests(unittest.TestCase):
                 with urllib.request.urlopen(dashboard_url.rsplit("/", 1)[0] + "/api/health", timeout=3) as response:
                     dashboard_health = json.loads(response.read().decode("utf-8"))
                 self.assertEqual("ready", dashboard_health["readiness"])
+                with urllib.request.urlopen(dashboard_url.rsplit("/", 1)[0] + "/", timeout=3) as response:
+                    dashboard_html = response.read().decode("utf-8")
+                    self.assertEqual(200, response.status)
+                    self.assertIn("<title>AUREN Engineering Console</title>", dashboard_html)
+                    self.assertIn("/assets/app.js", dashboard_html)
+                    self.assertIn("/assets/sessions.js", dashboard_html)
+                for asset in ("/assets/styles.css", "/assets/app.js", "/assets/sessions.js"):
+                    with urllib.request.urlopen(dashboard_url.rsplit("/", 1)[0] + asset, timeout=3) as response:
+                        self.assertEqual(200, response.status)
+                        self.assertGreater(len(response.read()), 0)
                 with urllib.request.urlopen(mcp_url.rsplit("/", 1)[0] + "/readyz", timeout=3) as response:
                     self.assertEqual(200, response.status)
 
