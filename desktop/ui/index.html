@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#111827">
+  <title>AUREN Desktop</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">LOCAL ENGINEERING WORKSPACE</p>
+        <h1>AUREN</h1>
+      </div>
+      <div id="runtime-state" class="state" role="status">Not running</div>
+    </header>
+
+    <section id="launcher" class="launcher">
+      <div class="intro">
+        <h2>Start your local workspace</h2>
+        <p>AUREN runs on this machine. The desktop shell manages the existing CLI, MCP service and browser console as one runtime.</p>
+      </div>
+      <label for="project-root">Project folder</label>
+      <div class="launch-row">
+        <input id="project-root" type="text" autocomplete="off" spellcheck="false" placeholder="C:\work\my-project">
+        <button id="browse" class="secondary">Browse</button>
+        <button id="start" class="primary">Start AUREN</button>
+      </div>
+      <p class="hint">Install the AUREN CLI first and make sure <code>auren</code> is available on PATH. Set AUREN_EXECUTABLE to use a custom executable path.</p>
+      <p id="error" class="error" role="alert" hidden></p>
+    </section>
+
+    <section id="workspace" class="workspace" hidden>
+      <div class="workspace-bar">
+        <div>
+          <span class="label">MCP endpoint</span>
+          <code id="mcp-url"></code>
+        </div>
+        <button id="stop" class="secondary">Stop AUREN</button>
+      </div>
+      <iframe id="console" title="AUREN Engineering Console" referrerpolicy="no-referrer"></iframe>
+    </section>
+  </main>
+  <script src="./main.js"></script>
+</body>
+</html>

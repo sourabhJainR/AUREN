@@ -1,0 +1,14 @@
+[package]
+name = "auren-desktop"
+version = "1.0.0"
+description = "Native desktop shell for the AUREN local runtime"
+authors = ["AUREN"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+tauri = { version = "2", features = [] }
+rfd = "0.15"

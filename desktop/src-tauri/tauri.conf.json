@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "AUREN Desktop",
+  "version": "1.0.0",
+  "identifier": "com.auren.desktop",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "AUREN Desktop",
+        "width": 1440,
+        "height": 920,
+        "minWidth": 980,
+        "minHeight": 680
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-src http://127.0.0.1:*; connect-src ipc: http://ipc.localhost http://127.0.0.1:*"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis",
+      "msi"
+    ],
+    "category": "DeveloperTool",
+    "shortDescription": "Native shell for the local AUREN engineering workspace",
+    "longDescription": "A native desktop shell that manages the existing AUREN CLI, local MCP service and browser-based Engineering Console.",
+    "icon": [
+      "icons/icon.ico"
+    ]
+  }
+}

@@ -18,6 +18,10 @@ AUREN is a provider-neutral operating system for an AI engineering company. It c
 See [Software Team Operating Model](docs/SOFTWARE_TEAM_OPERATING_MODEL.md) for role boundaries, manager/leadership flow, and execution gates. Independent SI/AGI capability experiments are conducted in [AUREN Capability Lab](https://github.com/sourabhJainR/firstTestproj); the lab is not an AUREN runtime dependency.
 
 
+## Native desktop application
+
+AUREN now has a native Windows-first desktop shell built with Tauri. It manages the existing local CLI process and embeds the current Engineering Console; it does not create a second runtime or MCP server. See the [AUREN Desktop setup and release notes](desktop/README.md). The initial shell requires the AUREN CLI to be installed separately; signed self-contained installers and automatic updates remain release gates.
+
 ## Model and tool-provider integration
 
 For the local single-user release gate, run `auren verify-local --dashboard-url http://127.0.0.1:<assigned-port>` after startup. This read-only check verifies dashboard readiness and authenticated MCP tool discovery. See the [local self-hosted MCP guide](docs/LOCAL_SELF_HOSTED_MCP.md) for details.

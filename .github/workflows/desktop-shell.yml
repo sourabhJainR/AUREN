@@ -1,0 +1,46 @@
+name: AUREN Desktop Shell
+
+on:
+  pull_request:
+    paths:
+      - "desktop/**"
+      - ".github/workflows/desktop-shell.yml"
+  push:
+    branches: [main]
+    paths:
+      - "desktop/**"
+      - ".github/workflows/desktop-shell.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  windows-native-shell:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Tauri CLI
+        working-directory: desktop
+        run: npm install --no-audit --no-fund
+      - name: Check native Rust host
+        working-directory: desktop
+        run: npm run check
+      - name: Test native runtime lifecycle helpers
+        run: cargo test --manifest-path desktop/src-tauri/Cargo.toml
+      - name: Validate desktop JavaScript
+        run: node --check desktop/ui/main.js
+      - name: Build Windows desktop installers
+        working-directory: desktop
+        run: npm run build
+      - name: Publish installer artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: auren-desktop-windows
+          path: |
+            desktop/src-tauri/target/release/bundle/msi/*.msi
+            desktop/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
