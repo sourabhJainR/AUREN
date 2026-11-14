@@ -1,7 +1,7 @@
 """Durable trigger registry for AUREN routines.
 
 This module owns routine definitions and trigger receipts only. It deliberately
-does not schedule processes, queue tasks, own approvals, or execute handlers.
+does not schedule processes, queue tasks, decide approvals, or execute handlers.
 Every occurrence is submitted through the canonical ExecutionController adapter.
 """
 from __future__ import annotations
