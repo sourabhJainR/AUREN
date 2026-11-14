@@ -10,6 +10,7 @@ from contextlib import closing
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
+import hmac
 import json
 from pathlib import Path
 import sqlite3
@@ -59,6 +60,57 @@ def _iso(value: datetime) -> str:
 def _digest(value: Any) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def verify_hmac_webhook_signature(
+    secret: bytes | str,
+    timestamp: str | int,
+    signature: str,
+    *,
+    routine_id: str,
+    event_id: str,
+    payload: Mapping[str, Any],
+    now: datetime | None = None,
+    tolerance_seconds: int = 300,
+) -> bool:
+    """Verify a timestamped HMAC-SHA256 webhook envelope without storing secrets.
+
+    The signed bytes bind the timestamp, routine identity, event identity and
+    canonical JSON payload. The registry separately persists event IDs to reject
+    redelivery. Provider-specific header parsing remains the host's responsibility.
+    """
+    if isinstance(secret, str):
+        secret_bytes = secret.encode("utf-8")
+    elif isinstance(secret, bytes):
+        secret_bytes = secret
+    else:
+        return False
+    if not secret_bytes or not isinstance(signature, str):
+        return False
+    if (
+        not isinstance(routine_id, str) or not routine_id.strip()
+        or not isinstance(event_id, str) or not event_id.strip()
+        or type(tolerance_seconds) is not int or not 1 <= tolerance_seconds <= 3600
+    ):
+        return False
+    try:
+        timestamp_value = int(timestamp)
+        canonical_payload = json.dumps(
+            dict(payload), sort_keys=True, separators=(",", ":"), allow_nan=False,
+        )
+        current_time = _utc(now).timestamp()
+    except (TypeError, ValueError, OverflowError):
+        return False
+    if abs(current_time - timestamp_value) > tolerance_seconds:
+        return False
+    signed = "\n".join((
+        str(timestamp_value), routine_id, event_id, canonical_payload,
+    )).encode("utf-8")
+    expected = hmac.new(secret_bytes, signed, hashlib.sha256).hexdigest()
+    supplied = signature.strip()
+    if supplied.lower().startswith("sha256="):
+        supplied = supplied[7:]
+    return hmac.compare_digest(expected, supplied.lower())
 
 
 @dataclass(frozen=True)
@@ -923,4 +975,4 @@ class DurableRoutineRegistry:
         )
 
 
-__all__ = ["DurableRoutineRegistry", "RoutineDispatch", "RoutineSpec"]
+__all__ = ["DurableRoutineRegistry", "RoutineDispatch", "RoutineSpec", "verify_hmac_webhook_signature"]
