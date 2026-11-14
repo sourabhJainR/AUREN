@@ -951,7 +951,13 @@ class DurableRoutineRegistry:
                 receipt = json.loads(row["receipt_json"])
             except (TypeError, ValueError):
                 continue
-            if not isinstance(receipt, Mapping) or receipt.get("terminal_event_emitted") is True:
+            if not isinstance(receipt, Mapping):
+                continue
+            if receipt.get("terminal_event_emitted") is True:
+                self._update_receipt(
+                    str(row["occurrence_key"]), status=str(row["status"]),
+                    updates={"terminal_event_checked_at": _iso(datetime.now(timezone.utc))},
+                )
                 continue
             summary = receipt.get("terminal_summary")
             if not isinstance(summary, str) or not summary.strip():
@@ -1021,9 +1027,15 @@ class DurableRoutineRegistry:
                 receipt = json.loads(row["receipt_json"])
             except (TypeError, ValueError):
                 continue
-            if not isinstance(receipt, Mapping) or receipt.get("attention_event_emitted") is True:
+            if not isinstance(receipt, Mapping):
                 continue
             status = str(row["status"])
+            if receipt.get("attention_event_emitted") is True:
+                self._update_receipt(
+                    str(row["occurrence_key"]), status=status,
+                    updates={"attention_event_checked_at": _iso(datetime.now(timezone.utc))},
+                )
+                continue
             missed = receipt.get("coalesced_missed_intervals", 0)
             if status == "blocked_approval":
                 kind = "routine.blocked_approval"
@@ -1038,6 +1050,10 @@ class DurableRoutineRegistry:
                 kind = "routine.schedule_coalesced"
                 summary = f"Routine {row['routine_id']} coalesced {missed} missed interval(s) into one run"
             else:
+                self._update_receipt(
+                    str(row["occurrence_key"]), status=status,
+                    updates={"attention_checked_at": _iso(datetime.now(timezone.utc))},
+                )
                 continue
             pending.append({
                 "occurrence_key": row["occurrence_key"],
