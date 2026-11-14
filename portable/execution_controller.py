@@ -2678,7 +2678,7 @@ class ExecutionController:
     def request_cancellation(self, task_id: str, *, reason: str = "operator requested cancellation") -> bool:
         """Durably request cancellation; active handlers observe a live Event.
 
-        Returns False for an already terminal or missing task. The request does
+        Returns False unless the task is pending or running. The request does
         not claim the task is cancelled: the owning worker must stop and commit
         the terminal state, or consequential work must remain blocked for
         reconciliation if the remote outcome is ambiguous.
