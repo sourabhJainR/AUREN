@@ -347,3 +347,6 @@ python -m unittest discover -s tests -p '*trigger_runtime*' -v
 ~~~
 
 After deployment, test the endpoint with MCP Inspector and every target host. Verify initialization, protocol negotiation, tool discovery before OAuth, the OAuth linking flow, scopes, tool errors, idempotency, task status, evidence, cancellation, approval authorization, readiness, rate limiting, revocation and restart recovery.
+
+
+For a reproducible single-host Docker deployment behind Caddy-managed TLS, see [the remote MCP deployment bundle](../deploy/remote-mcp/README.md).
