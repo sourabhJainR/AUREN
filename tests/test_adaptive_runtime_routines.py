@@ -133,5 +133,26 @@ class AdaptiveRuntimeRoutineIntegrationTests(unittest.TestCase):
         self.assertEqual(["submit"], calls)
 
 
+    def test_routine_cancellation_uses_durable_execution_controller(self):
+        spec = self.spec()
+        self.runtime.register_routine(self.project, spec)
+        dispatched = self.runtime.dispatch_manual_routine(
+            self.project, spec.routine_id, invocation_id="cancel-runtime-test",
+        )
+        requests = []
+        self.runtime.execution_controller.request_cancellation = (
+            lambda task_id, reason: requests.append((task_id, reason)) or True
+        )
+
+        result = self.runtime.cancel_routine_occurrence(
+            self.project, dispatched.occurrence_key, reason="operator stop",
+        )
+
+        self.assertEqual("cancellation_requested", result.status)
+        self.assertEqual([(dispatched.task_id, "operator stop")], requests)
+        occurrence = self.runtime.routine_registry(self.project).occurrence(dispatched.occurrence_key)
+        self.assertEqual("cancellation_requested", occurrence["status"])
+
+
 if __name__ == "__main__":
     unittest.main()
