@@ -71,12 +71,13 @@ def test_local_acceptance_fails_closed_when_dashboard_or_required_tools_are_miss
     assert "auren.submit_task" in report["checks"]["mcp"]["missing_required_tools"]
 
 
-def test_local_acceptance_rejects_non_loopback_dashboard_origins():
+def test_local_acceptance_accepts_printed_console_url_and_rejects_unsafe_origins():
+    assert local_acceptance._dashboard_health_url("http://127.0.0.1:8765/control-center") == "http://127.0.0.1:8765/api/health"
     for value in (
         "http://localhost:8765",
         "http://0.0.0.0:8765",
         "https://127.0.0.1:8765",
-        "http://127.0.0.1:8765/control-center",
+        "http://127.0.0.1:8765/not-the-console",
         "http://user@127.0.0.1:8765",
     ):
         try:
