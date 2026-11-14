@@ -50,7 +50,8 @@ def test_inventory_separates_detection_configuration_and_live_acceptance(tmp_pat
     assert all(host["configured"] for host in report["mcp_hosts"])
     assert all(host["authenticated"] == "not_tested" for host in report["mcp_hosts"])
     assert all(host["live_tested"] == "not_tested" for host in report["mcp_hosts"])
-    assert report["remote_model_providers"]["providers"][0]["enabled"] is True
+    openai = next(item for item in report["remote_model_providers"]["providers"] if item["id"] == "openai")
+    assert openai["enabled"] is True
     assert report["local_model_provider"]["model_ids"] == ["qwen2.5-coder:14b"]
     assert report["provider_capability_manifests"][0]["trust"] == "untrusted_metadata_only"
     assert report["agent_skills"][0]["id"] == "ai-coding-orchestrator"
