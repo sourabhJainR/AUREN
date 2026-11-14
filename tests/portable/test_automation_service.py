@@ -101,4 +101,41 @@ def test_maintenance_service_dispatches_due_routines_on_existing_tick(tmp_path, 
     assert calls == [("resume", service.config.maintenance_budget), ("routines", tmp_path, service.config.maintenance_budget)]
     assert result["routines"][0]["status"] == "submitted"
     assert result["routines"][0]["task_id"] == "task-1"
+    assert result["routine_error"] is None
+
+def test_routine_dispatch_failure_does_not_skip_maintenance(tmp_path, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from portable.maintenance_service import MaintenanceService
+
+    maintenance_calls = []
+
+    class FakeRuntime:
+        def resume_tasks(self, *, limit):
+            return []
+
+        def dispatch_due_routines(self, *_args, **_kwargs):
+            raise RuntimeError("routine store unavailable")
+
+        def maintenance_tick(self, *_args, **_kwargs):
+            maintenance_calls.append("maintenance")
+            return SimpleNamespace(digest="maintenance-receipt")
+
+    class FakeDaemon:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def checkpoint(self):
+            return SimpleNamespace(healthy=True)
+
+    monkeypatch.setattr("portable.maintenance_service.AdaptiveRuntime", lambda *_args, **_kwargs: FakeRuntime())
+    monkeypatch.setattr("portable.maintenance_service.PersistentSupervisorDaemon", FakeDaemon)
+    service = MaintenanceService(MaintenanceServiceConfig(project_root=tmp_path))
+
+    result = service.run_once()
+
+    assert maintenance_calls == ["maintenance"]
+    assert result["routines"] == []
+    assert result["routine_error"] == "RuntimeError"
+    assert result["maintenance"]["digest"] == "maintenance-receipt"
 
