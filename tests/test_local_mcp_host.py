@@ -273,8 +273,8 @@ class LocalMCPHostArgumentTests(unittest.TestCase):
 
 
 @unittest.skipUnless(
-    os.name != "nt" and importlib.util.find_spec("uvicorn"),
-    "live local host acceptance requires POSIX signal handling and optional uvicorn",
+    importlib.util.find_spec("uvicorn"),
+    "live local host acceptance requires optional uvicorn",
 )
 class LocalMCPHostProcessTests(unittest.TestCase):
     def test_local_command_starts_both_services_and_shuts_them_down(self):
@@ -361,6 +361,16 @@ class LocalMCPHostProcessTests(unittest.TestCase):
                 with urllib.request.urlopen(dashboard_url.rsplit("/", 1)[0] + "/api/health", timeout=3) as response:
                     dashboard_health = json.loads(response.read().decode("utf-8"))
                 self.assertEqual("ready", dashboard_health["readiness"])
+                with urllib.request.urlopen(dashboard_url.rsplit("/", 1)[0] + "/", timeout=3) as response:
+                    dashboard_html = response.read().decode("utf-8")
+                    self.assertEqual(200, response.status)
+                    self.assertIn("<title>AUREN Engineering Console</title>", dashboard_html)
+                    self.assertIn("/assets/app.js", dashboard_html)
+                    self.assertIn("/assets/sessions.js", dashboard_html)
+                for asset in ("/assets/styles.css", "/assets/app.js", "/assets/sessions.js"):
+                    with urllib.request.urlopen(dashboard_url.rsplit("/", 1)[0] + asset, timeout=3) as response:
+                        self.assertEqual(200, response.status)
+                        self.assertGreater(len(response.read()), 0)
                 with urllib.request.urlopen(mcp_url.rsplit("/", 1)[0] + "/readyz", timeout=3) as response:
                     self.assertEqual(200, response.status)
 
@@ -446,7 +456,8 @@ class LocalMCPHostProcessTests(unittest.TestCase):
                 reader.join(timeout=2)
                 if process.stdout is not None:
                     process.stdout.close()
-            self.assertEqual(0, process.returncode, "\n".join(output))
+            if os.name != "nt":
+                self.assertEqual(0, process.returncode, "\n".join(output))
 
 
 class LocalMCPStdioProxyTests(unittest.TestCase):
