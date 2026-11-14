@@ -75,6 +75,8 @@ class RoutineSpec:
     goal: str | None = None
     deadline_seconds: int | None = None
     approval_required: bool = False
+    profile_digest: str | None = None
+    policy_digest: str | None = None
     enabled: bool = False
 
     def __post_init__(self) -> None:
@@ -126,6 +128,14 @@ class RoutineSpec:
             raise ValueError("deadline_seconds must be between 1 and 86400")
         if type(self.approval_required) is not bool or type(self.enabled) is not bool:
             raise ValueError("approval_required and enabled must be booleans")
+        for field_name in ("profile_digest", "policy_digest"):
+            value = getattr(self, field_name)
+            if value is not None and (
+                not isinstance(value, str)
+                or len(value) != 64
+                or any(character not in "0123456789abcdef" for character in value)
+            ):
+                raise ValueError(f"{field_name} must be a lowercase SHA-256 digest")
 
     @property
     def digest(self) -> str:
@@ -529,6 +539,8 @@ class DurableRoutineRegistry:
                 "scheduled_at": _iso(scheduled_at) if scheduled_at is not None else None,
                 "schedule_cursor": _iso(schedule_cursor) if schedule_cursor is not None else None,
                 "coalesced_missed_intervals": missed_intervals,
+                "profile_digest": spec.profile_digest,
+                "policy_digest": spec.policy_digest,
             }
             db.execute(
                 """INSERT INTO routine_occurrences

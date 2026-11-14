@@ -70,8 +70,14 @@ New RoutineSpec values default to disabled. An operator must explicitly enable a
 routine before manual, scheduled or webhook dispatch is accepted.
 
 The runtime adapters submit with a stable routine work key and reconcile uncertain
-submissions through ExecutionController.task_by_work_key. Approval-required
-routines remain blocked unless the host supplies an approval verifier. Webhook
+submissions through ExecutionController.task_by_work_key. A RoutineSpec may pin an
+optional lowercase SHA-256 `profile_digest` and `policy_digest`; both values are copied
+into the immutable occurrence receipt alongside the routine-definition digest. A
+changed profile or policy therefore requires a new routine version and creates a new
+evidence identity. These fields are evidence bindings only: the host must resolve and
+validate the referenced profile and policy before registration or dispatch. A digest
+in a receipt does not itself authorize execution or prove that a policy was enforced.
+Approval-required routines remain blocked unless the host supplies an approval verifier. Webhook
 authentication is a host-owned callback; the registry snapshots canonical JSON before
 verification and dispatch so verifier-side mutation cannot change the accepted event.
 
