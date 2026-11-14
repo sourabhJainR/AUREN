@@ -2,9 +2,11 @@
 
 Tracking: issue #1216.
 
-The registry provides durable routine definitions and idempotent occurrence receipts.
+The registry provides project-scoped durable routine definitions and idempotent occurrence receipts.
 It is deliberately not a scheduler, task queue, approval store, or execution runtime.
-Every occurrence is submitted through the canonical ExecutionController.submit API.
+AdaptiveRuntime binds it to the canonical ExecutionController; the existing
+MaintenanceService tick dispatches due one-time and interval occurrences. No second
+daemon or scheduler is created.
 
 ## Supported triggers
 
@@ -33,6 +35,7 @@ does not implement an HTTP server or secret store.
         interval_seconds=3600,
         timezone="UTC",
         deadline_seconds=900,
+        enabled=True,  # New routines are disabled unless the operator opts in.
     ))
 
     # A manual run uses a caller-generated stable invocation ID for idempotency.
@@ -45,13 +48,37 @@ does not implement an HTTP server or secret store.
     def submit(handler, payload, **kwargs):
         return controller.submit(handler, payload, **kwargs)
 
-    # Called by an existing managed service tick; this module creates no daemon.
-    registry.dispatch_due(
-        now=clock.now(),
-        submit=submit,
-        approval=trusted_approval_adapter,
-        reconcile=controller_lookup_by_work_key,
+    # Preferred host path: the project-scoped registry and controller adapter
+    # are composed by AdaptiveRuntime. The managed MaintenanceService invokes
+    # dispatch_due_routines() on its existing bounded tick.
+    runtime.register_routine(project_root, spec)
+    runtime.set_routine_enabled(project_root, "repository-health", True)
+    runtime.dispatch_due_routines(project_root, limit=20)
+
+    # Manual and webhook occurrences use the same canonical controller.
+    runtime.dispatch_manual_routine(
+        project_root, "repository-health", invocation_id="operator-request-001",
     )
+    runtime.dispatch_webhook_routine(
+        project_root, "repository-triage", event_id="provider-event-123",
+        event_type="push", payload={"ref": "refs/heads/main"},
+        authenticate=host_signature_verifier,
+    )
+
+## Runtime integration
+
+Routine databases are stored below AUREN's canonical state root under a project-key
+namespace. This keeps routines and event IDs isolated between repositories. The
+maintenance service calls the bounded due-routine dispatcher as part of its existing
+tick; the routine registry does not own process lifetime or scheduling wakeups.
+New RoutineSpec values default to disabled. An operator must explicitly enable a
+routine before manual, scheduled or webhook dispatch is accepted.
+
+The runtime adapters submit with a stable routine work key and reconcile uncertain
+submissions through ExecutionController.task_by_work_key. Approval-required
+routines remain blocked unless the host supplies an approval verifier. Webhook
+authentication is a host-owned callback; the registry snapshots canonical JSON before
+verification and dispatch so verifier-side mutation cannot change the accepted event.
 
 ## Safety and recovery contract
 
@@ -74,8 +101,11 @@ does not implement an HTTP server or secret store.
 ## Verification status and remaining deployment gates
 
 tests/test_durable_routines.py covers version immutability, event authentication,
-duplicate delivery, approval denial, unknown-outcome recovery, one-time scheduling,
-interval scheduling, and disabled routines.
+duplicate delivery, verifier mutation isolation, disabled-by-default behavior, approval
+denial, unknown-outcome recovery, one-time scheduling and interval coalescing. The
+AdaptiveRuntime integration tests cover project isolation and canonical-controller
+submission/reconciliation. These tests do not prove live provider webhook signatures,
+concurrent schedule policy, profile pinning, completion summaries or multi-host failover.
 
 Repository tests do not establish production scheduler failover, webhook signature
 verification against a live provider, cross-host admission, or durable deployment
