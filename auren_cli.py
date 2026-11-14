@@ -255,7 +255,10 @@ def _run_providers(args: list[str]) -> int:
             print(f"auren providers cost failed: {exc}", file=sys.stderr)
             return 2
 
-    parser = argparse.ArgumentParser(prog="auren providers")
+    parser = argparse.ArgumentParser(
+        prog="auren providers",
+        description="Show provider readiness. Use `auren providers cost` to validate a price catalog or estimate token cost.",
+    )
     parser.add_argument("--project-root", default=".")
     options = parser.parse_args(args)
     from portable.onboarding import doctor
