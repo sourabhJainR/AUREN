@@ -184,11 +184,13 @@ struct RuntimeStatus {
 fn runtime_status(state: State<'_, RuntimeState>) -> Result<RuntimeStatus, String> {
     let mut child = state.child.lock().map_err(|_| "runtime process lock is unavailable")?;
     let mut info = state.info.lock().map_err(|_| "runtime state lock is unavailable")?;
-    if let Some(process) = child.as_mut() {
-        if process.try_wait().map_err(|_| "cannot inspect the AUREN CLI process")?.is_some() {
-            child.take();
-            *info = None;
-        }
+    let exited = match child.as_mut() {
+        Some(process) => process.try_wait().map_err(|_| "cannot inspect the AUREN CLI process")?.is_some(),
+        None => false,
+    };
+    if exited {
+        child.take();
+        *info = None;
     }
     Ok(RuntimeStatus {
         running: child.is_some(),
