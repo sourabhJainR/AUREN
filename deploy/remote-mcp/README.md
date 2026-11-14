@@ -62,7 +62,7 @@ Run the live OAuth/MCP acceptance probe from a trusted operator machine after de
 
 ~~~bash
 export AUREN_MCP_ENDPOINT=https://mcp.example.com/mcp
-export AUREN_MCP_ALLOWED_HOSTS=mcp.example.com,identity.example.com
+export AUREN_MCP_ACCEPTANCE_ALLOWED_HOSTS=mcp.example.com,identity.example.com
 export AUREN_MCP_AUTHORIZATION_SERVER=https://identity.example.com/
 export AUREN_MCP_ACCESS_TOKEN="$(secret-manager read auren/mcp/test-access-token)"
 python scripts/remote_mcp_acceptance.py
