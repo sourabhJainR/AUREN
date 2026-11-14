@@ -17,12 +17,13 @@ The shell starts AUREN with automatic client configuration and browser launching
 
 ## Prerequisites
 
-- AUREN CLI installed and available as `auren` on PATH.
+- Either the `auren` launcher on PATH, or an AUREN checkout with `auren_cli.py`.
+- For a checkout, set `AUREN_CLI_PATH` to the full `auren_cli.py` path. Optionally set `AUREN_PYTHON_EXECUTABLE`; it defaults to `python.exe` on Windows.
 - Node.js and npm.
 - Rust stable toolchain.
 - Windows: Microsoft C++ Build Tools and WebView2 runtime.
 
-To use a non-default CLI executable, set `AUREN_EXECUTABLE` to its full path before launching the desktop app.
+To use a non-default CLI executable, set `AUREN_EXECUTABLE` to its full path. This takes priority over `AUREN_CLI_PATH`.
 
 ## Development
 
