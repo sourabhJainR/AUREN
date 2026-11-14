@@ -789,7 +789,7 @@ class RemoteMCPASGITests(unittest.TestCase):
         self.assertIn("auren.submit_task", tools)
         expected_scheme = [{"type": "oauth2", "scopes": ["auren:tasks:write"]}]
         self.assertEqual(expected_scheme, tools["auren.submit_task"]["_meta"]["securitySchemes"])
-        self.assertEqual(expected_scheme, tools["auren.submit_task"]["securitySchemes"])
+        self.assertNotIn("securitySchemes", tools["auren.submit_task"])
         self.assertTrue(tools["auren.get_profile"]["_meta"]["openai/profile"])
         self.assertEqual(
             [{"type": "oauth2", "scopes": ["auren:tasks:read"]}],
