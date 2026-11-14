@@ -67,7 +67,14 @@ tick; the routine registry does not own process lifetime or scheduling wakeups. 
 routine-store failure is reported separately and does not suppress the existing
 adaptive-maintenance lane.
 New RoutineSpec values default to disabled. An operator must explicitly enable a
-routine before manual, scheduled or webhook dispatch is accepted.
+routine before manual, scheduled or webhook dispatch is accepted. `concurrency_policy`
+can be `allow` (the compatibility default) or `skip`. With `skip`, the registry checks
+prior submitted occurrences through the canonical task lookup; pending, running, or
+otherwise non-terminal work blocks a new occurrence and leaves a durable
+`skipped_overlap` receipt. Missing task records or lookup failures produce a durable
+`blocked_overlap` receipt and do not dispatch. This is a bounded skip policy, not a
+queued/coalesced backlog; operators can retry with a new invocation/event ID after the
+prior task reaches a terminal state.
 
 The runtime adapters submit with a stable routine work key and reconcile uncertain
 submissions through ExecutionController.task_by_work_key. A RoutineSpec may pin an
@@ -103,7 +110,8 @@ verification and dispatch so verifier-side mutation cannot change the accepted e
 
 tests/test_durable_routines.py covers version immutability, event authentication,
 duplicate delivery, verifier mutation isolation, disabled-by-default behavior, approval
-denial, unknown-outcome recovery, one-time scheduling and interval coalescing. The
+denial, unknown-outcome recovery, one-time scheduling, interval coalescing and the
+fail-closed skip overlap policy. The
 AdaptiveRuntime integration tests cover project isolation and canonical-controller
 submission/reconciliation. These tests do not prove live provider webhook signatures,
 concurrent schedule policy, profile pinning, completion summaries or multi-host failover.
