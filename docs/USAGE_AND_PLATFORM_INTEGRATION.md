@@ -74,7 +74,7 @@ Submission prints its caller-scoped idempotency key. Reuse `--idempotency-key` w
 
 The common interaction path is:
 - **Chat, IDE and desktop clients:** connect to AUREN through the local MCP server.
-- **CLI:** use `auren task submit/list/status/cancel/evidence/approvals/decide-approval` for the same authenticated MCP task API, plus `auren progress --json`, `auren continuous status`, `auren providers`, and the read-only `auren integrations` inventory.
+- **CLI:** use `auren task submit/list/status/cancel/evidence/approvals/decide-approval` for the same authenticated MCP task API, plus `auren progress --json`, `auren continuous status`, `auren providers`, the read-only `auren integrations` inventory, and `auren integrations probe-local-mcp` for an authenticated, no-tool local MCP handshake check.
 - **Desktop console:** the browser opens the same local Session Control Center and durable progress view.
 - **Hosted chat clients:** deploy the authenticated remote MCP service and configure its HTTPS endpoint and OAuth provider. A loopback URL cannot be used from a cloud-hosted chat service.
 

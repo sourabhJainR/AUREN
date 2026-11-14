@@ -42,7 +42,7 @@ The first-run path validates or creates the minimal project profile, starts the 
 ```bash
 auren doctor --project-root .
 auren providers --project-root .
-auren integrations --project-root .
+auren integrations --project-root .\nauren integrations probe-local-mcp   # authenticated local handshake and tool listing; invokes none
 auren plugin connect                 # preview detected client changes
 auren plugin connect --apply         # apply backed-up client changes
 auren up --no-connect                # leave client settings untouched

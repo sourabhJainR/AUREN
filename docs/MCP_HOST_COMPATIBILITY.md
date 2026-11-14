@@ -8,7 +8,7 @@ AUREN's remote operator service exposes one MCP endpoint. An MCP-capable host co
 
 The examples use `https://mcp.example.com/mcp`. Replace it with the deployed AUREN endpoint. The remote service and its external OAuth authorization server must be deployed first. Do not paste long-lived bearer tokens into shared configuration files.
 
-Safe configuration templates for the CLI and IDE hosts are under [`integrations/mcp/`](../integrations/mcp/README.md). They contain placeholders only and no credentials.
+Safe configuration templates for the CLI and IDE hosts are under [`integrations/mcp/`](../integrations/mcp/README.md). They contain placeholders only and no credentials.\n\nFor the local AUREN endpoint, run `auren integrations probe-local-mcp` to verify the authenticated MCP handshake and complete `tools/list` response. The probe invokes no tools and sends no model requests. It validates AUREN's local endpoint, not the installed IDE's own acceptance; each vendor client still needs a separate smoke test.
 
 ## Compatibility status
 
