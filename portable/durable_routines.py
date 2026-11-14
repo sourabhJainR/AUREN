@@ -481,8 +481,70 @@ class DurableRoutineRegistry:
             raise ValueError("expected routine version must be a positive integer")
         if type(missed_intervals) is not int or missed_intervals < 0:
             raise ValueError("missed_intervals must be a non-negative integer")
-        if spec.approval_required and (approval is None or approval(spec) is not True):
-            return RoutineDispatch("", "", "blocked", reason="required approval is absent")
+        approval_receipt: dict[str, Any] | None = None
+        approval_allowed = True
+        if spec.approval_required:
+            approval_result: Any = False
+            approval_error: str | None = None
+            if approval is not None:
+                try:
+                    approval_result = approval(spec)
+                except Exception as exc:
+                    approval_error = type(exc).__name__
+            if approval_result is True:
+                approval_receipt = {
+                    "approved": True, "evidence_type": "trusted_callback_boolean",
+                }
+            elif approval_result is False or approval is None or approval_error:
+                approval_receipt = {
+                    "approved": False,
+                    "evidence_type": "trusted_callback_boolean" if approval is not None else "missing_verifier",
+                }
+                if approval_error:
+                    approval_receipt["error_type"] = approval_error
+                approval_allowed = False
+            elif isinstance(approval_result, Mapping):
+                try:
+                    encoded_approval = json.dumps(
+                        dict(approval_result), sort_keys=True, separators=(",", ":"), allow_nan=False,
+                    )
+                    if len(encoded_approval.encode("utf-8")) > 16_384:
+                        raise ValueError("approval receipt exceeds 16 KB")
+                    decision = json.loads(encoded_approval)
+                    approved_value = decision.get("approved")
+                    if type(approved_value) is not bool:
+                        raise ValueError("approval receipt requires a boolean approved field")
+                    approval_receipt = {
+                        "approved": approved_value, "evidence_type": "structured",
+                    }
+                    for field_name in ("approval_id", "approver", "scope", "decision_digest", "expires_at"):
+                        if field_name in decision:
+                            approval_receipt[field_name] = decision[field_name]
+                    if approved_value:
+                        for field_name in ("approval_id", "approver", "scope", "decision_digest"):
+                            value = approval_receipt.get(field_name)
+                            if not isinstance(value, str) or not value.strip():
+                                raise ValueError(f"approved receipt requires {field_name}")
+                        digest_value = approval_receipt["decision_digest"]
+                        if len(digest_value) != 64 or any(c not in "0123456789abcdef" for c in digest_value):
+                            raise ValueError("decision_digest must be a lowercase SHA-256 digest")
+                        expires_at = approval_receipt.get("expires_at")
+                        if expires_at is not None:
+                            expiry = _utc(datetime.fromisoformat(expires_at))
+                            if expiry <= datetime.now(timezone.utc):
+                                approval_receipt["approved"] = False
+                    approval_allowed = approval_receipt["approved"] is True
+                except (TypeError, ValueError) as exc:
+                    approval_receipt = {
+                        "approved": False, "evidence_type": "invalid_structured_receipt",
+                        "error_type": type(exc).__name__,
+                    }
+                    approval_allowed = False
+            else:
+                approval_receipt = {
+                    "approved": False, "evidence_type": "invalid_verifier_result",
+                }
+                approval_allowed = False
         occurrence_key = _digest({
             "routine_id": routine_id, "version": expected_version,
             "trigger_kind": trigger_kind, "trigger_key": trigger_key,
@@ -549,6 +611,26 @@ class DurableRoutineRegistry:
             if not current["enabled"]:
                 db.execute("COMMIT")
                 return RoutineDispatch("", "", "disabled", reason="routine is disabled")
+            if spec.approval_required and not approval_allowed:
+                receipt = {
+                    "state": "blocked_approval", "routine_digest": spec.digest,
+                    "trigger_digest": trigger_digest,
+                    "approval": approval_receipt,
+                    "profile_digest": spec.profile_digest,
+                    "policy_digest": spec.policy_digest,
+                }
+                db.execute(
+                    """INSERT INTO routine_occurrences
+                       (occurrence_key,routine_id,routine_version,trigger_kind,status,work_key,
+                        receipt_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)""",
+                    (occurrence_key, routine_id, expected_version, trigger_kind, "blocked_approval",
+                     work_key, json.dumps(receipt, sort_keys=True), now, now),
+                )
+                db.execute("COMMIT")
+                return RoutineDispatch(
+                    occurrence_key, work_key, "blocked_approval",
+                    reason="required approval is absent, denied, expired, or invalid",
+                )
             if spec.concurrency_policy == "skip":
                 active_rows = db.execute(
                     "SELECT occurrence_key,work_key,status FROM routine_occurrences "
@@ -568,6 +650,7 @@ class DurableRoutineRegistry:
                 "coalesced_missed_intervals": missed_intervals,
                 "profile_digest": spec.profile_digest,
                 "policy_digest": spec.policy_digest,
+                "approval": approval_receipt,
             }
             db.execute(
                 """INSERT INTO routine_occurrences
