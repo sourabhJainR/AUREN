@@ -101,6 +101,15 @@ submitted. Missing task records, lookup errors, and more than 64 unresolved cand
 fail closed. A concurrently reserved dispatching occurrence blocks a second run;
 it is not treated as absent.
 
+The existing `dispatch_due_routines` adapter first reconciles up to 64 prior
+non-terminal occurrence receipts through the canonical task lookup, then dispatches due
+work on the same managed tick. Terminal receipts include a short summary, observed
+terminal state and attempt count when available. Failed outcomes set
+`escalation_required=true` for the host's existing operator surface. The registry does
+not send notifications or invent failure details; hosts can also call
+`reconcile_routine_occurrences` to retrieve a bounded batch of summaries. Repeated
+calls advance through older receipt updates without adding another scheduler.
+
 The runtime adapters submit with a stable routine work key and reconcile uncertain
 submissions through ExecutionController.task_by_work_key. A RoutineSpec may pin an
 optional lowercase SHA-256 `profile_digest` and `policy_digest`; both values are copied
@@ -148,7 +157,7 @@ prior routine revisions), durable approval decisions, cancellation request recei
 and legacy definition upgrades, plus bulk cancellation reconciliation.
 The AdaptiveRuntime integration tests cover project isolation, canonical-controller
 submission/reconciliation and durable cancellation wiring. These tests do not prove
-live provider webhook signatures, completion summaries or multi-host failover.
+live provider webhook signatures, external notification delivery or multi-host failover.
 
 Repository tests do not establish production scheduler failover, webhook signature
 verification against a live provider, cross-host admission, or durable deployment
