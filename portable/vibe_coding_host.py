@@ -565,6 +565,10 @@ class ProviderCliAgent:
             raise ValueError("allow_workspace_writes must be a boolean")
         if not 5 <= timeout_seconds <= 1800:
             raise ValueError("agent timeout must be between 5 and 1800 seconds")
+        if provider is not None and provider not in {"codex", "claude"}:
+            raise AdapterUnavailable(
+                f"unsupported Vibe Coding CLI adapter: {provider}; supported adapters are codex and claude"
+            )
         self.fabric = ProviderFabric()
         discovered = self.fabric.discover()
         preferred = (provider,) if provider else ("codex", "claude")
@@ -2535,6 +2539,82 @@ def load_host_config(path: str | Path | None = None) -> VibeHostConfig:
         provider_capabilities=provider_capabilities,
         approval_mode=approval_mode,
     )
+
+
+def inspect_vibe_host_readiness(config: VibeHostConfig, *, provider_fabric: Any | None = None) -> dict[str, Any]:
+    """Perform a read-only preflight before local task admission.
+
+    Discovery is advisory; this checks only that the exact adapters required by
+    the configured workflow are present. It does not invoke a model, start an
+    MCP server, or claim live provider conformance.
+    """
+    issues: list[str] = []
+    tool_status: dict[str, str] = {}
+    tools = config.mcp_tools if isinstance(config.mcp_tools, Mapping) else {}
+
+    if config.allow_workspace_writes is not True:
+        issues.append("isolated_worktree_writes_not_enabled")
+    if config.provider != "codex":
+        issues.append("unsupported_workspace_writer_cli")
+
+    try:
+        discovered = (provider_fabric or ProviderFabric()).discover()
+    except Exception:
+        discovered = {}
+        issues.append("provider_discovery_failed")
+
+    writer = discovered.get(config.provider) if isinstance(config.provider, str) else None
+    if writer is None or not getattr(writer, "command", None):
+        issues.append("provider_cli_missing")
+
+    if "web_search" not in tools:
+        issues.append("web_search_tool_not_configured")
+    if config.security_tool_required and "security" not in tools:
+        issues.append("security_tool_not_configured")
+    if config.browser_qa_required and "browser" not in tools:
+        issues.append("browser_tool_not_configured")
+    if config.preview_deployment_required and not {"deployment", "preview"}.issubset(tools):
+        issues.append("preview_deployment_tools_not_configured")
+
+    if "independent_review" not in tools:
+        reviewer = config.reviewer_provider
+        if not reviewer:
+            issues.append("independent_reviewer_not_configured")
+        elif reviewer == config.provider:
+            issues.append("reviewer_must_differ_from_implementation_provider")
+        elif reviewer not in {"codex", "claude"}:
+            issues.append("unsupported_reviewer_cli")
+        else:
+            reviewer_capability = discovered.get(reviewer)
+            if reviewer_capability is None or not getattr(reviewer_capability, "command", None):
+                issues.append("reviewer_cli_missing")
+
+    for capability, spec in sorted(tools.items()):
+        argv = spec.get("argv") if isinstance(spec, Mapping) else None
+        command = argv[0] if isinstance(argv, (list, tuple)) and argv else None
+        available = isinstance(command, str) and bool(shutil.which(command))
+        tool_status[capability] = "available" if available else "command_missing"
+        if not available:
+            issues.append(f"mcp_command_missing:{capability}")
+        lookup = spec.get("operation_lookup") if isinstance(spec, Mapping) else None
+        if isinstance(lookup, Mapping):
+            lookup_argv = lookup.get("argv")
+            lookup_command = lookup_argv[0] if isinstance(lookup_argv, (list, tuple)) and lookup_argv else None
+            lookup_available = isinstance(lookup_command, str) and bool(shutil.which(lookup_command))
+            tool_status[capability + ".operation_lookup"] = "available" if lookup_available else "command_missing"
+            if not lookup_available:
+                issues.append(f"mcp_lookup_command_missing:{capability}")
+
+    issues = sorted(set(issues))
+    status = "ready" if not issues else ("provider_missing" if "provider_cli_missing" in issues else "blocked")
+    return {
+        "status": status,
+        "provider": config.provider,
+        "reviewer_provider": config.reviewer_provider,
+        "tool_commands": tool_status,
+        "issues": issues,
+        "reason": issues[0] if issues else None,
+    }
 
 
 class LocalVibeCodingHost:
