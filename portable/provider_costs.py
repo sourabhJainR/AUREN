@@ -205,6 +205,14 @@ def estimate_provider_cost(
     """Estimate USD cost only for an exact model and complete, unambiguous usage."""
     if not isinstance(catalog, ProviderPriceCatalog):
         raise TypeError("catalog must be a validated ProviderPriceCatalog")
+    if not isinstance(provider_id, str) or not _PROVIDER_ID.fullmatch(provider_id):
+        raise ProviderPriceCatalogError("provider_id is invalid")
+    if (
+        not isinstance(model_id, str) or not model_id or len(model_id) > 200
+        or any(character.isspace() for character in model_id)
+        or model_id.casefold() in {"latest", "default", "auto"}
+    ):
+        raise ProviderPriceCatalogError("model_id must be an exact pinned model ID")
     if not isinstance(usage, Mapping):
         raise ProviderPriceCatalogError("usage must be a mapping")
     current = now or datetime.now(timezone.utc)
@@ -226,6 +234,8 @@ def estimate_provider_cost(
     entry = catalog.entries.get((provider_id, model_id))
     if entry is None:
         return {**base, "reason": "exact_model_price_not_found"}
+    if entry["retrieved_at"] > current:
+        return {**base, "reason": "price_source_not_yet_retrieved"}
     input_tokens = _token_count(usage, ("input_units", "input_tokens", "prompt_tokens"), "input_tokens")
     output_tokens = _token_count(usage, ("output_units", "output_tokens", "completion_tokens"), "output_tokens")
     if input_tokens is None or output_tokens is None:
