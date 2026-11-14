@@ -231,19 +231,24 @@ class ProviderRoleProfileTests(unittest.TestCase):
             write_provider_role_profile(profile_path, self.document(), apply=True)
             controller = type("ControllerStub", (), {})()
             controller.progress_journal = ProgressJournal(root / "progress.jsonl")
-            with mock.patch(
-                "portable.provider_role_profiles._local_model_invoker",
-                return_value=lambda _prompt, _timeout: "local",
-            ):
-                adapters = runtime.register_supervised_profiled_crew_adapters(
-                    controller,
-                    profile_path,
-                    tools=ApprovedToolRegistry(),
-                    replace=True,
-                )
-        self.assertEqual(len(adapters), 14)
-        self.assertIn("backend_api", adapters)
-        self.assertIn("engineering_manager", adapters)
+            previous_adapters = dict(runtime._CREW_ADAPTERS)
+            try:
+                with mock.patch(
+                    "portable.provider_role_profiles._local_model_invoker",
+                    return_value=lambda _prompt, _timeout: "local",
+                ):
+                    adapters = runtime.register_supervised_profiled_crew_adapters(
+                        controller,
+                        profile_path,
+                        tools=ApprovedToolRegistry(),
+                        replace=True,
+                    )
+                self.assertEqual(len(adapters), 14)
+                self.assertIn("backend_api", adapters)
+                self.assertIn("engineering_manager", adapters)
+            finally:
+                runtime._CREW_ADAPTERS.clear()
+                runtime._CREW_ADAPTERS.update(previous_adapters)
 
     def test_profile_adapter_inputs_cover_complete_role_families(self):
         with tempfile.TemporaryDirectory() as temp:
