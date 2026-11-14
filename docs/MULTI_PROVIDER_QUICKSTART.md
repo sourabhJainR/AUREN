@@ -95,7 +95,7 @@ Remote inference is disabled by default. For an explicitly public workspace only
 
 The service binds to loopback and prints its MCP and dashboard addresses. Use the printed MCP URL and local operator credential with a supported local MCP client. Keep private or restricted project work local; do not change classification just to enable remote inference.
 
-The API provider chain is not yet a complete graph-team configuration. Main graph/crew specialists still need host-registered provider invokers and per-role tool scopes. Do not assume every specialist automatically uses every configured model.
+The API provider chain and graph-team roles are separate configuration surfaces. Use `auren integrations profile init` to create a versioned provider/model profile for all graph-team roles, then review the per-role models and read-only tool scopes. Register it through the supervised host bootstrap helper. API keys alone do not auto-wire roles or grant tools. See [Provider Role Profiles](PROVIDER_ROLE_PROFILES.md).
 
 ## 5. Connect AI coding hosts
 
