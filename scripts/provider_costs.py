@@ -34,6 +34,7 @@ def main() -> int:
     try:
         catalog = load_provider_price_catalog(args.catalog)
         if args.validate:
+            current = datetime.now(timezone.utc)
             report = {
                 "status": "valid",
                 "catalog_version": catalog.version,
@@ -41,8 +42,8 @@ def main() -> int:
                 "currency": catalog.currency,
                 "entry_count": len(catalog.entries),
                 "validity_status": (
-                    "not_yet_effective" if datetime.now(timezone.utc) < catalog.published_at
-                    else "expired" if datetime.now(timezone.utc) >= catalog.valid_until
+                    "not_yet_effective" if current < catalog.published_at
+                    else "expired" if current >= catalog.valid_until
                     else "effective"
                 ),
                 "valid_until": catalog.valid_until.isoformat(),
