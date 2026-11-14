@@ -141,7 +141,7 @@ Important runtime limits:
 - Remote inference is disabled by default and requires explicit public-data classification and opt-in.
 - Private and restricted tasks must remain local.
 - Provider fallback is sequential and bounded; automatic model voting/ensembles are not implemented.
-- The direct API adapters are integrated with the hybrid model router. Graph-team roles can now use versioned provider profiles and a supervised registration helper. The host still supplies the canonical controller and approved read-only tool registry; configuring an API key alone never wires a role or grants a tool.
+- The direct API adapters are integrated with the hybrid model router. Graph-team roles can now use versioned provider profiles and a supervised registration helper that builds the host-registered provider invokers, pinned versions and per-role tool scopes. The host still supplies the canonical controller and approved read-only tool registry; configuring an API key alone never wires a role or grants a tool. Live vendor acceptance remains pending for each host/provider combination.
 - API adapters return model responses; they do not execute arbitrary provider tool calls.
 
 ## Connect an orchestration framework
