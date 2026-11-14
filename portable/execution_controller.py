@@ -2690,7 +2690,7 @@ class ExecutionController:
         with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT state FROM tasks WHERE id=?", (task_id,)).fetchone()
-            if row is None or row[0] in {"completed", "failed", "cancelled", "blocked_reconciliation"}:
+            if row is None or row[0] not in {"pending", "running"}:
                 return False
             reason_digest = hashlib.sha256(reason.strip().encode("utf-8")).hexdigest()
             db.execute(
