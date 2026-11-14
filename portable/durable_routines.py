@@ -193,14 +193,27 @@ class DurableRoutineRegistry:
         with self._lock, closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
             current = db.execute(
-                "SELECT version,spec_digest FROM routines WHERE routine_id=?",
+                "SELECT version,spec_digest,spec_json FROM routines WHERE routine_id=?",
                 (spec.routine_id,),
             ).fetchone()
             if current:
                 if spec.version < current["version"]:
                     raise ValueError("routine version cannot move backwards")
                 if spec.version == current["version"]:
-                    if spec.digest != current["spec_digest"]:
+                    # New optional fields are defaulted when older persisted specs
+                    # are loaded. Compare normalized definitions so an upgrade
+                    # does not make an unchanged legacy routine look mutated.
+                    stored_payload = json.loads(current["spec_json"])
+                    requested_payload = dict(payload)
+                    for field_name, default in (
+                        ("profile_digest", None),
+                        ("policy_digest", None),
+                        ("concurrency_policy", "allow"),
+                    ):
+                        stored_payload.setdefault(field_name, default)
+                    stored_payload.pop("enabled", None)
+                    requested_payload.pop("enabled", None)
+                    if stored_payload != requested_payload:
                         raise ValueError("same routine version has different content")
                     db.execute("COMMIT")
                     return spec.digest
@@ -538,14 +551,15 @@ class DurableRoutineRegistry:
                 return RoutineDispatch("", "", "disabled", reason="routine is disabled")
             if spec.concurrency_policy == "skip":
                 active_rows = db.execute(
-                    "SELECT work_key,task_id FROM routine_occurrences "
-                    "WHERE routine_id=? AND routine_version=? AND status='submitted' "
-                    "ORDER BY created_at DESC LIMIT 64",
-                    (routine_id, expected_version),
+                    "SELECT occurrence_key,work_key,status FROM routine_occurrences "
+                    "WHERE routine_id=? AND occurrence_key<>? "
+                    "AND status IN ('submitted','dispatching','unknown') "
+                    "ORDER BY created_at DESC LIMIT 65",
+                    (routine_id, occurrence_key),
                 ).fetchall()
-                active_work_keys = [row["work_key"] for row in active_rows]
+                active_rows = [dict(row) for row in active_rows]
             else:
-                active_work_keys = []
+                active_rows = []
             receipt = {
                 "state": "dispatching", "routine_digest": spec.digest,
                 "trigger_digest": trigger_digest,
@@ -564,7 +578,16 @@ class DurableRoutineRegistry:
             )
             db.execute("COMMIT")
 
-        if active_work_keys:
+        if active_rows:
+            if len(active_rows) > 64:
+                self._update_receipt(
+                    occurrence_key, status="blocked_overlap",
+                    updates={"state": "blocked_overlap", "overlap_resolution": "candidate_limit_exceeded"},
+                )
+                return RoutineDispatch(
+                    occurrence_key, work_key, "blocked_overlap",
+                    reason="too many prior occurrences require reconciliation; dispatch refused",
+                )
             if reconcile is None:
                 self._update_receipt(
                     occurrence_key, status="blocked_overlap",
@@ -574,7 +597,8 @@ class DurableRoutineRegistry:
                     occurrence_key, work_key, "blocked_overlap",
                     reason="overlap policy requires authoritative task-state lookup; dispatch refused",
                 )
-            for active_work_key in active_work_keys:
+            for active_row in active_rows:
+                active_work_key = active_row["work_key"]
                 try:
                     active_task = reconcile(active_work_key)
                 except Exception as exc:
@@ -590,11 +614,12 @@ class DurableRoutineRegistry:
                 if active_task is None:
                     self._update_receipt(
                         occurrence_key, status="blocked_overlap",
-                        updates={"state": "blocked_overlap", "overlap_resolution": "prior_task_missing"},
+                        updates={"state": "blocked_overlap", "overlap_resolution": "prior_task_missing",
+                                 "overlap_work_key": active_work_key},
                     )
                     return RoutineDispatch(
                         occurrence_key, work_key, "blocked_overlap",
-                        reason="prior submitted occurrence is absent from authoritative task store",
+                        reason="prior occurrence has no authoritative task record; dispatch refused",
                     )
                 task_state = (
                     active_task.get("state") if isinstance(active_task, Mapping)
@@ -613,6 +638,10 @@ class DurableRoutineRegistry:
                         occurrence_key, work_key, "skipped_overlap",
                         reason="an earlier occurrence is not terminal",
                     )
+                self._update_receipt(
+                    active_row["occurrence_key"], status=task_state,
+                    updates={"state": task_state, "terminal_reconciled": True},
+                )
 
         payload = dict(spec.payload)
         if event_payload is not None:
