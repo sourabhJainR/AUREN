@@ -57,6 +57,7 @@ jobs:
             --env AUREN_MCP_BIND_HOST=0.0.0.0 \
             --env AUREN_MCP_PORT=8765 \
             --env AUREN_MCP_ALLOW_PUBLIC_BIND=1 \
+            --env AUREN_MCP_FORWARDED_ALLOW_IPS=* \
             --env AUREN_MCP_RESOURCE_URL=https://mcp.example.test/mcp \
             --env AUREN_MCP_AUTHORIZATION_SERVER=https://identity.example.test/ \
             --env AUREN_MCP_INTROSPECTION_URL=https://identity.example.test/oauth/introspect \
@@ -73,15 +74,20 @@ jobs:
           import urllib.request
 
           base = "http://127.0.0.1:18765"
+          headers = {"Host": "mcp.example.test", "X-Forwarded-Proto": "https"}
+          def get(path):
+              request = urllib.request.Request(base + path, headers=headers)
+              return urllib.request.urlopen(request, timeout=3)
+
           deadline = time.monotonic() + 45
           last_error = None
           while time.monotonic() < deadline:
               try:
                   for path in ("/healthz", "/readyz"):
-                      with urllib.request.urlopen(base + path, timeout=3) as response:
+                      with get(path) as response:
                           if response.status != 200:
                               raise RuntimeError(f"{path} returned {response.status}")
-                  with urllib.request.urlopen(base + "/.well-known/oauth-protected-resource", timeout=3) as response:
+                  with get("/.well-known/oauth-protected-resource") as response:
                       metadata = json.loads(response.read().decode("utf-8"))
                   if metadata.get("resource") != "https://mcp.example.test/mcp":
                       raise RuntimeError("protected-resource metadata has the wrong resource URI")
