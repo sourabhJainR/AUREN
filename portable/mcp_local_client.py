@@ -148,7 +148,7 @@ def probe_local_mcp(
         if next_cursor is None:
             break
         if (
-            not isinstance(next_cursor, str) or not next_cursor
+            not isinstance(next_cursor, str) or not next_cursor or not next_cursor.isprintable()
             or len(next_cursor) > 1024 or next_cursor in seen_cursors
         ):
             raise LocalMCPClientError("local MCP tools/list response contained an invalid pagination cursor")
