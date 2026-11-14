@@ -161,6 +161,28 @@ Custom MCP availability is controlled by the ChatGPT plan and workspace permissi
 
 AUREN cannot change plan eligibility or workspace permissions. Keep the local CLI, MCP and Engineering Console as the primary path when the ChatGPT account does not support the required MCP permissions.
 
+## Run the read-only hosted acceptance probe
+
+Before connecting ChatGPT, run the live acceptance script from a trusted operator machine. It verifies HTTPS health/readiness, protected-resource metadata, OAuth discovery (exact issuer, PKCE S256, supported client registration and refresh), MCP protocol discovery, per-tool OAuth declarations, the unauthenticated OAuth challenge and stable `get_profile` identity. It does not submit tasks or approve work.
+
+Set the values locally; do not paste access tokens into chat or commit them:
+
+~~~bash
+export AUREN_MCP_ENDPOINT=https://mcp.example.com/mcp
+export AUREN_MCP_ALLOWED_HOSTS=mcp.example.com
+export AUREN_MCP_AUTHORIZATION_SERVER=https://identity.example.com/
+export AUREN_MCP_ACCESS_TOKEN="$(secret-manager read auren/mcp/test-access-token)"
+python scripts/remote_mcp_acceptance.py
+~~~
+
+For a token that includes the task-write and approval scopes, also verify that the corresponding write tools and scopes are discoverable:
+
+~~~bash
+python scripts/remote_mcp_acceptance.py --require-write
+~~~
+
+The report confirms metadata and tool readiness only. It deliberately performs zero task mutations. A separate controlled end-to-end task test is still required before enabling write actions for a workspace.
+
 ## Connect the remote service in ChatGPT Web
 
 After HTTPS, OAuth and the remote MCP service are live, and the ChatGPT workspace permits custom MCP apps:
