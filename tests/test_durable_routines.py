@@ -32,6 +32,7 @@ class DurableRoutineRegistryTests(unittest.TestCase):
             "payload": {"repository": "owner/repo"},
             "trigger": "webhook",
             "event_type": "push",
+            "enabled": True,
         }
         values.update(overrides)
         return RoutineSpec(**values)
@@ -127,6 +128,49 @@ class DurableRoutineRegistryTests(unittest.TestCase):
                 payload={"bad": object()}, authenticate=lambda *_: True,
                 submit=self.submit,
             )
+
+    def test_webhook_authenticator_cannot_mutate_authenticated_payload(self):
+        spec = self.spec()
+        self.registry.register(spec)
+
+        def authenticate(_routine_id, _event_id, authenticated_payload):
+            authenticated_payload["ref"] = "refs/heads/attacker"
+            return True
+
+        result = self.registry.dispatch_webhook(
+            spec.routine_id, event_id="evt-snapshot", event_type="push",
+            payload={"ref": "refs/heads/main"},
+            authenticate=authenticate, submit=self.submit,
+        )
+        self.assertEqual("submitted", result.status)
+        self.assertEqual(
+            "refs/heads/main",
+            self.submissions[0][1]["_auren_trigger_event"]["ref"],
+        )
+
+    def test_new_routines_are_disabled_until_explicitly_enabled(self):
+        spec = RoutineSpec(
+            routine_id="manual-health",
+            version=1,
+            handler="repo_health_check",
+            payload={"repository": "owner/repo"},
+            trigger="manual",
+        )
+        self.assertFalse(spec.enabled)
+        self.registry.register(spec)
+
+        blocked = self.registry.dispatch_manual(
+            spec.routine_id, invocation_id="operator-run-disabled", submit=self.submit,
+        )
+        self.assertEqual("disabled", blocked.status)
+        self.assertEqual([], self.submissions)
+
+        self.registry.set_enabled(spec.routine_id, True)
+        dispatched = self.registry.dispatch_manual(
+            spec.routine_id, invocation_id="operator-run-enabled", submit=self.submit,
+        )
+        self.assertEqual("submitted", dispatched.status)
+        self.assertEqual(1, len(self.submissions))
 
     def test_approval_gate_blocks_without_creating_occurrence(self):
         spec = self.spec(approval_required=True)
