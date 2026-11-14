@@ -558,13 +558,15 @@ class AdaptiveRuntime:
         approval: Callable[[RoutineSpec], Any] | None = None,
     ) -> RoutineDispatch:
         """Dispatch a manual occurrence through the canonical task controller."""
-        return self.routine_registry(project_root).dispatch_manual(
+        result = self.routine_registry(project_root).dispatch_manual(
             routine_id,
             invocation_id=invocation_id,
             submit=self.execution_controller.submit,
             approval=approval,
             reconcile=self.execution_controller.task_by_work_key,
         )
+        self.reconcile_routine_occurrences(project_root, routine_id=routine_id, limit=64)
+        return result
 
     def dispatch_webhook_routine(
         self, project_root: Path | str, routine_id: str, *,
@@ -573,7 +575,7 @@ class AdaptiveRuntime:
         approval: Callable[[RoutineSpec], Any] | None = None,
     ) -> RoutineDispatch:
         """Dispatch only after a host-owned webhook verifier accepts the event."""
-        return self.routine_registry(project_root).dispatch_webhook(
+        result = self.routine_registry(project_root).dispatch_webhook(
             routine_id,
             event_id=event_id,
             event_type=event_type,
@@ -583,6 +585,8 @@ class AdaptiveRuntime:
             approval=approval,
             reconcile=self.execution_controller.task_by_work_key,
         )
+        self.reconcile_routine_occurrences(project_root, routine_id=routine_id, limit=64)
+        return result
 
     def dispatch_due_routines(
         self, project_root: Path | str, *, now: datetime | None = None,
@@ -591,13 +595,15 @@ class AdaptiveRuntime:
         """Reconcile prior outcomes, then dispatch a bounded due-routine tick."""
         registry = self.routine_registry(project_root)
         self.reconcile_routine_occurrences(project_root, limit=64)
-        return registry.dispatch_due(
+        results = registry.dispatch_due(
             now=now or datetime.now(timezone.utc),
             submit=self.execution_controller.submit,
             approval=approval,
             reconcile=self.execution_controller.task_by_work_key,
             limit=limit,
         )
+        self.reconcile_routine_occurrences(project_root, limit=64)
+        return results
 
     def reconcile_routine_occurrences(
         self, project_root: Path | str, *, routine_id: str | None = None,
@@ -639,6 +645,32 @@ class AdaptiveRuntime:
             except Exception as exc:
                 try:
                     registry.record_terminal_event_error(occurrence_key, type(exc).__name__)
+                except Exception:
+                    pass
+        for item in registry.pending_attention_summaries(limit=limit):
+            occurrence_key = str(item["occurrence_key"])
+            event_kind = str(item["event_kind"])
+            missed_intervals = int(item["missed_intervals"])
+            event_id = f"routine-attention:{event_kind}:{occurrence_key}:{missed_intervals}"
+            payload = {
+                "routine_id": str(item["routine_id"]),
+                "occurrence_key": occurrence_key,
+                "work_key": str(item["work_key"]),
+                "task_id": item.get("task_id"),
+                "state": str(item["status"]),
+                "summary": str(item["summary"]),
+                "missed_intervals": missed_intervals,
+                "escalation_required": item["escalation_required"] is True,
+            }
+            try:
+                self.emit_trigger(
+                    event_kind, payload, event_id=event_id, max_attempts=5,
+                    priority=0 if item["escalation_required"] else 1,
+                )
+                registry.mark_attention_event_emitted(occurrence_key, event_id)
+            except Exception as exc:
+                try:
+                    registry.record_attention_event_error(occurrence_key, type(exc).__name__)
                 except Exception:
                     pass
         return results
