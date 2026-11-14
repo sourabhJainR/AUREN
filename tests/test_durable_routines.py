@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from contextlib import closing
 
 from datetime import datetime, timedelta, timezone
