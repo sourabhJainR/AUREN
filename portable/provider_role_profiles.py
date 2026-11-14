@@ -374,6 +374,12 @@ def _role_invoker(
     remote_opt_in = env.get("AUREN_LOCAL_REMOTE_INFERENCE", "").strip().lower() == "enabled"
     workspace_classification = env.get("AUREN_LOCAL_DATA_CLASSIFICATION", "").strip().lower()
     remote_policy_ready = remote_opt_in and workspace_classification in {"public", "non_sensitive"}
+    try:
+        provider = OpenAICompatibleProvider.from_environment(binding.provider_id, environ=env)
+    except (TypeError, ValueError):
+        if local is None:
+            raise
+        provider = None
 
     def invoke(prompt: str, timeout_seconds: int) -> str:
         privacy = _prompt_privacy(prompt)
@@ -381,10 +387,10 @@ def _role_invoker(
             if local is not None:
                 return local(prompt, timeout_seconds)
             raise PermissionError("private or restricted task cannot use a remote provider profile")
-        if not remote_opt_in or workspace_classification not in {"public", "non_sensitive"}:
+        if not remote_policy_ready or provider is None:
             if local is not None:
                 return local(prompt, timeout_seconds)
-            raise PermissionError("remote inference is not enabled for this workspace")
+            raise PermissionError("remote inference is not enabled or configured for this workspace")
         response = provider.complete(prompt, timeout_seconds=float(timeout_seconds))
         return response.content
 
@@ -400,6 +406,9 @@ def provider_role_profile_report(
     if not isinstance(profile, ProviderRoleProfile):
         raise TypeError("profile must be a validated ProviderRoleProfile")
     env = os.environ if environ is None else environ
+    remote_opt_in = env.get("AUREN_LOCAL_REMOTE_INFERENCE", "").strip().lower() == "enabled"
+    workspace_classification = env.get("AUREN_LOCAL_DATA_CLASSIFICATION", "").strip().lower()
+    remote_policy_ready = remote_opt_in and workspace_classification in {"public", "non_sensitive"}
     roles = []
     for role_id, binding in sorted(profile.roles.items()):
         if binding.provider_id == "ollama":
@@ -431,7 +440,7 @@ def provider_role_profile_report(
             "allowed_tools": list(binding.allowed_tools),
             "timeout_seconds": binding.timeout_seconds,
             "route": route,
-            "route_ready": configured and (binding.provider_id == "ollama" or remote_policy_ready or binding.local_model_id is not None),
+            "route_policy_ready": configured and (binding.provider_id == "ollama" or remote_policy_ready or binding.local_model_id is not None),
             "authenticated": "not_tested",
             "live_tested": "not_tested",
         })
@@ -445,8 +454,10 @@ def provider_role_profile_report(
         "roles": roles,
         "remote_policy_ready": remote_policy_ready,
         "private_data_routing": "local_only",
-        "activation_ready": all(item["route_ready"] for item in roles),
-        "activation_scope": "configuration_only_not_live_tested",
+        "configuration_ready": all(item["configured"] for item in roles),
+        "route_policy_ready": all(item["route_policy_ready"] for item in roles),
+        "ready_for_live_validation": all(item["configured"] and item["route_policy_ready"] for item in roles),
+        "live_activation": "not_performed",
         "authority_note": "provider/model routing only; tools, Guard, approvals and task authority remain host-owned",
     }
 
@@ -475,7 +486,7 @@ def build_profiled_crew_adapter_inputs(
                 f"role {role_id} requests tools absent from the host-approved registry: "
                 + ", ".join(sorted(missing_tools))
             )
-        invoker = _role_invoker(binding, environ=env, profile_binding=profile.digest)
+        invoker = _role_invoker(binding, environ=env)
         provider_id = binding.provider_id
         provider_version = f"{binding.model_id}+profile-{profile.digest[:12]}"
         if binding.local_model_id:
