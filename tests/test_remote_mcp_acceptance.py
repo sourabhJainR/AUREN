@@ -7,6 +7,7 @@ from scripts.remote_mcp_acceptance import AcceptanceFailure, run_acceptance
 ENDPOINT = "https://mcp.example.test/mcp"
 TOKEN = "test-access-token-with-sufficient-length"
 ISSUER = "https://identity.example.test/"
+ALLOWED_HOSTS = ("mcp.example.test", "identity.example.test")
 
 
 class RemoteMCPAcceptanceTests(unittest.TestCase):
@@ -134,7 +135,7 @@ class RemoteMCPAcceptanceTests(unittest.TestCase):
     def test_acceptance_checks_oauth_chatgpt_metadata_profile_and_read_only_discovery(self):
         transport, calls = self._transport()
         result = run_acceptance(
-            ENDPOINT, TOKEN, allowed_hosts=("mcp.example.test",),
+            ENDPOINT, TOKEN, allowed_hosts=ALLOWED_HOSTS,
             expected_issuer=ISSUER, transport=transport,
         )
         self.assertEqual("accepted", result["status"])
@@ -146,13 +147,10 @@ class RemoteMCPAcceptanceTests(unittest.TestCase):
         self.assertTrue(result["write_tools_verified"])
         self.assertEqual(11, len(calls))
         self.assertEqual(
-            ("identity.example.test",),
+            ALLOWED_HOSTS,
             next(kwargs["allowed_hosts"] for url, kwargs in calls if "oauth-authorization-server" in url),
         )
-        self.assertTrue(all(
-            kwargs["allowed_hosts"] in {("mcp.example.test",), ("identity.example.test",)}
-            for _, kwargs in calls
-        ))
+        self.assertTrue(all(kwargs["allowed_hosts"] == ALLOWED_HOSTS for _, kwargs in calls))
         post_calls = [call for call in calls if call[1]["method"] == "POST"]
         self.assertEqual(
             ["server/discover", "tools/list", "initialize", "tools/list", "tools/call", "tools/call", "tools/call"],
