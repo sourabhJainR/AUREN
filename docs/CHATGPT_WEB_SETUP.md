@@ -73,6 +73,19 @@ ChatGPT Web cannot call 127.0.0.1, localhost, or a developer workstation's local
 
 The repository does not contain a live hosted AUREN endpoint, an OAuth tenant/client registration, or deployment credentials. ChatGPT Web connection is therefore a deployment step, not something auren up can complete on its own.
 
+### Private development with Secure MCP Tunnel
+
+OpenAI Secure MCP Tunnel can carry a private MCP server to supported OpenAI products without opening inbound firewall ports. It is a transport path, not an OAuth provider or a replacement for AUREN's authentication and authorization checks.
+
+Use it for private development and connection testing when the Platform organization and ChatGPT workspace have the required tunnel permissions. The tunnel client must run inside the network that can reach AUREN. Keep the AUREN remote service bound to loopback and follow the current [Secure MCP Tunnel guide](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels).
+
+Important boundaries:
+- Tunnel permissions in the OpenAI Platform organization and custom MCP permissions in the ChatGPT workspace are separate.
+- A tunnel does not make an ineligible ChatGPT plan eligible for custom MCP.
+- OAuth discovery can pass through the tunnel, but the authorization server is not automatically tunneled. It must remain reachable by the browser-facing OAuth flow.
+- Keep AUREN's resource URI, OAuth issuer, token audience, allowed host and tunnel routing consistent. Verify the protected-resource metadata and a real tool call; do not guess the resource URI or audience from the tunnel ID.
+- Secure MCP Tunnel is for private testing and use. It does not replace the stable public HTTPS endpoint required for public plugin submission or distribution.
+
 ### Remote service setup
 
 Install the optional ASGI runner:
@@ -126,9 +139,14 @@ Follow [Remote MCP Operations](REMOTE_MCP_OPERATIONS.md) and [Remote MCP Privacy
 
 ## ChatGPT workspace eligibility
 
-Custom MCP availability and write permissions depend on the ChatGPT plan and workspace policy. Business, Enterprise and Edu workspaces can use full MCP subject to administrator controls. Pro custom MCP access is limited to read/fetch permissions in the current documented product behavior. Free users do not have custom MCP server connections.
+Custom MCP availability is controlled by the ChatGPT plan and workspace permissions:
 
-AUREN cannot change ChatGPT plan eligibility or workspace administrator settings.
+- Business and Enterprise/Edu support full MCP on ChatGPT web, including write tools, subject to workspace administration.
+- Pro can connect custom MCP servers with read/fetch permissions only. It cannot use AUREN's task submission or approval tools through ChatGPT.
+- Free does not currently support custom MCP server connections.
+- The documented custom MCP connection flow is for ChatGPT web. Do not assume the same custom-server support in mobile or desktop clients without a separate live test.
+
+AUREN cannot change plan eligibility or workspace permissions. Keep the local CLI, MCP and Engineering Console as the primary path when the ChatGPT account does not support the required MCP permissions.
 
 ## Connect the remote service in ChatGPT Web
 
