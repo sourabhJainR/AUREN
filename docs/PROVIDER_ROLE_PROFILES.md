@@ -133,7 +133,8 @@ The lower-level `register_profiled_crew_adapters` helper is intended for trusted
 - Provider order is checked against the configured remote provider pool. Invalid or duplicate provider order disables remote routing.
 - Profile tool scopes can narrow the host's approved read-only tools but cannot expand the registry.
 - Model and profile identity are pinned in the provider-backed adapter version.
-- Provider calls use the adapter's bounded wait. Shared team-budget settlement is enforced when the host supplies the canonical registry with its team-budget enforcer.
+- When a canonical trace is active, each role invocation emits a privacy-safe `crew.role.invoke` span with role/profile/model identity, selected local/remote route, byte counts and terminal outcome. Direct remote provider spans become children of the role span. Prompt and completion text are not recorded.
+- Observability is best-effort: a trace/export failure does not change routing or task outcome. Provider calls use the adapter's bounded wait. Shared team-budget settlement is enforced when the host supplies the canonical registry with its team-budget enforcer.
 - Profile validation does not authenticate a vendor account, test model quality or verify privacy terms.
 - This is not a universal executable plugin loader. Third-party code remains outside the profile format and must use a reviewed integration boundary.
 

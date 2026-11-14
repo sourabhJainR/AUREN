@@ -376,13 +376,128 @@ def _local_model_invoker(model_id: str):
     return invoke
 
 
+def _record_profiled_role_route(route: str) -> None:
+    """Attach the selected route to the active role span without affecting execution."""
+    try:
+        from .agency_observability import current_trace_context
+
+        active = current_trace_context()
+        if active is None:
+            return
+        trace, parent_span_id = active
+        if parent_span_id is None:
+            return
+        span = next((item for item in trace.spans if item.span_id == parent_span_id), None)
+        if span is not None and span.name == "crew.role.invoke":
+            span.metadata["route"] = route
+    except Exception:
+        # Telemetry must never change provider routing or task outcome.
+        return
+
+
+def _trace_profiled_role_invoker(
+    invoker,
+    *,
+    role_id: str,
+    provider_id: str,
+    model_id: str,
+    profile_digest: str,
+):
+    """Add a privacy-safe role span and parent provider inference spans to it."""
+    def invoke(prompt: str, timeout_seconds: int) -> str:
+        try:
+            from .agency_observability import bind_trace_context, current_trace_context
+
+            active = current_trace_context()
+        except Exception:
+            active = None
+            bind_trace_context = None
+        if active is None or bind_trace_context is None:
+            return invoker(prompt, timeout_seconds)
+
+        trace, parent_span_id = active
+        prompt_bytes = None
+        if isinstance(prompt, str):
+            try:
+                prompt_bytes = len(prompt.encode("utf-8"))
+            except UnicodeEncodeError:
+                prompt_bytes = None
+        try:
+            span = trace.span(
+                "crew.role.invoke",
+                kind="agent",
+                input={"prompt_bytes": prompt_bytes},
+                metadata={
+                    "role_id": role_id,
+                    "profile_digest": profile_digest,
+                },
+                parent_id=parent_span_id,
+                phase="provider",
+                actor_id=role_id,
+                provider=provider_id,
+                model=model_id,
+            )
+        except Exception:
+            return invoker(prompt, timeout_seconds)
+
+        context = bind_trace_context(trace, span.span_id)
+        try:
+            context.__enter__()
+        except Exception:
+            try:
+                span.finish(
+                    output={"outcome": "telemetry_unavailable"},
+                    status="unavailable",
+                    terminal_reason="trace_context_bind_failed",
+                )
+            except Exception:
+                pass
+            return invoker(prompt, timeout_seconds)
+
+        try:
+            result = invoker(prompt, timeout_seconds)
+        except BaseException as exc:
+            try:
+                span.finish(
+                    output={"outcome": "error", "error_type": type(exc).__name__},
+                    status="error",
+                    terminal_reason=type(exc).__name__,
+                )
+            except Exception:
+                pass
+            raise
+        else:
+            try:
+                response_bytes = len(result.encode("utf-8")) if isinstance(result, str) else None
+                span.finish(
+                    output={"outcome": "completed", "response_bytes": response_bytes},
+                    status="ok",
+                )
+            except Exception:
+                pass
+            return result
+        finally:
+            try:
+                context.__exit__(None, None, None)
+            except Exception:
+                pass
+
+    return invoke
+
+
 def _role_invoker(
     binding: RoleProviderBinding,
     *,
     environ: Mapping[str, str],
 ):
     if binding.provider_id == "ollama":
-        return _local_model_invoker(binding.model_id)
+        local = _local_model_invoker(binding.model_id)
+
+        def invoke_local_only(prompt: str, timeout_seconds: int) -> str:
+            _record_profiled_role_route("local_only")
+            return local(prompt, timeout_seconds)
+
+        return invoke_local_only
 
     env = _environment_for_binding(binding, environ)
     local = _local_model_invoker(binding.local_model_id) if binding.local_model_id else None
@@ -413,12 +528,15 @@ def _role_invoker(
         privacy = _prompt_privacy(prompt)
         if privacy not in {"public", "non_sensitive"}:
             if local is not None:
+                _record_profiled_role_route("local_private")
                 return local(prompt, timeout_seconds)
             raise PermissionError("private or restricted task cannot use a remote provider profile")
         if not remote_policy_ready or provider is None:
             if local is not None:
+                _record_profiled_role_route("local_policy_fallback")
                 return local(prompt, timeout_seconds)
             raise PermissionError("remote inference is not enabled or configured for this workspace")
+        _record_profiled_role_route("remote")
         response = provider.complete(prompt, timeout_seconds=float(timeout_seconds))
         return response.content
 
@@ -525,7 +643,13 @@ def build_profiled_crew_adapter_inputs(
                 f"role {role_id} requests tools absent from the host-approved registry: "
                 + ", ".join(sorted(missing_tools))
             )
-        invoker = _role_invoker(binding, environ=env)
+        invoker = _trace_profiled_role_invoker(
+            _role_invoker(binding, environ=env),
+            role_id=role_id,
+            provider_id=binding.provider_id,
+            model_id=binding.model_id,
+            profile_digest=profile.digest,
+        )
         provider_id = binding.provider_id
         provider_version = f"{binding.model_id}+profile-{profile.digest[:12]}"
         if binding.local_model_id:
