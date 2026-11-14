@@ -63,7 +63,9 @@ routine through that runtime; do not create a second scheduler or controller.
 Routine databases are stored below AUREN's canonical state root under a project-key
 namespace. This keeps routines and event IDs isolated between repositories. The
 maintenance service calls the bounded due-routine dispatcher as part of its existing
-tick; the routine registry does not own process lifetime or scheduling wakeups.
+tick; the routine registry does not own process lifetime or scheduling wakeups. A
+routine-store failure is reported separately and does not suppress the existing
+adaptive-maintenance lane.
 New RoutineSpec values default to disabled. An operator must explicitly enable a
 routine before manual, scheduled or webhook dispatch is accepted.
 
