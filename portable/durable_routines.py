@@ -437,6 +437,33 @@ class DurableRoutineRegistry:
                              "coalesced_after_submission": True},
                 )
             return RoutineDispatch(occurrence_key, work_key, "duplicate", occurrence.get("task_id"))
+        if status == "cancellation_requested":
+            if reconcile is None:
+                return RoutineDispatch(
+                    occurrence_key, work_key, "cancellation_requested", occurrence.get("task_id"),
+                    "cancellation outcome requires authoritative task-state reconciliation",
+                )
+            try:
+                recovered = reconcile(work_key)
+            except Exception as exc:
+                return RoutineDispatch(
+                    occurrence_key, work_key, "unknown", occurrence.get("task_id"),
+                    f"cancellation reconciliation failed ({type(exc).__name__})",
+                )
+            task_state = (
+                recovered.get("state") if isinstance(recovered, Mapping)
+                else getattr(recovered, "state", None)
+            ) if recovered is not None else None
+            if task_state in {"completed", "failed", "cancelled"}:
+                self._update_receipt(
+                    occurrence_key, status=task_state,
+                    updates={"state": task_state, "terminal_reconciled": True},
+                )
+                return RoutineDispatch(occurrence_key, work_key, "duplicate", occurrence.get("task_id"))
+            return RoutineDispatch(
+                occurrence_key, work_key, "cancellation_requested", occurrence.get("task_id"),
+                "task remains nonterminal after cancellation request",
+            )
         if status not in {"dispatching", "unknown"}:
             return RoutineDispatch(occurrence_key, work_key, status)
         if reconcile is None:
