@@ -420,7 +420,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--endpoint", default=os.environ.get("AUREN_MCP_ENDPOINT", ""))
     parser.add_argument("--token-env", default="AUREN_MCP_ACCESS_TOKEN")
-    parser.add_argument("--allowed-hosts", default=os.environ.get("AUREN_MCP_ALLOWED_HOSTS", ""))
+    parser.add_argument("--allowed-hosts", default=os.environ.get("AUREN_MCP_ACCEPTANCE_ALLOWED_HOSTS", os.environ.get("AUREN_MCP_ALLOWED_HOSTS", "")))
     parser.add_argument("--expected-issuer", default=os.environ.get("AUREN_MCP_AUTHORIZATION_SERVER", ""))
     parser.add_argument("--refresh-scope", default=os.environ.get("AUREN_MCP_REFRESH_SCOPE", "offline_access"))
     parser.add_argument("--require-write", action="store_true", default=os.environ.get("AUREN_MCP_REQUIRE_WRITE") == "1")
