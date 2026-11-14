@@ -72,6 +72,20 @@ fn verification_command_from_config(
     (executable, args)
 }
 
+fn validate_local_acceptance_output(success: bool, stdout: &[u8]) -> Result<(), String> {
+    if !success {
+        return Err("AUREN local acceptance failed. Check the CLI output with auren verify-local.".into());
+    }
+    let report: serde_json::Value = serde_json::from_slice(stdout)
+        .map_err(|_| "AUREN local acceptance returned an invalid report".to_string())?;
+    if report.get("status").and_then(serde_json::Value::as_str) != Some("ready")
+        || report.get("read_only").and_then(serde_json::Value::as_bool) != Some(true)
+    {
+        return Err("AUREN local acceptance did not confirm a ready, read-only result".into());
+    }
+    Ok(())
+}
+
 fn verify_local_endpoints(dashboard_url: &str, mcp_url: &str) -> Result<(), String> {
     let (executable, args) = verification_command_from_config(
         env::var_os("AUREN_EXECUTABLE"),
@@ -84,17 +98,7 @@ fn verify_local_endpoints(dashboard_url: &str, mcp_url: &str) -> Result<(), Stri
         .args(args)
         .output()
         .map_err(|_| "could not run AUREN's read-only local acceptance check".to_string())?;
-    if !output.status.success() {
-        return Err("AUREN local acceptance failed. Check the CLI output with auren verify-local.".into());
-    }
-    let report: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .map_err(|_| "AUREN local acceptance returned an invalid report".to_string())?;
-    if report.get("status").and_then(serde_json::Value::as_str) != Some("ready")
-        || report.get("read_only").and_then(serde_json::Value::as_bool) != Some(true)
-    {
-        return Err("AUREN local acceptance did not confirm a ready, read-only result".into());
-    }
-    Ok(())
+    validate_local_acceptance_output(output.status.success(), &output.stdout)
 }
 
 fn endpoint_from_line(line: &str, prefix: &str, expected_path: &str) -> Option<String> {
@@ -295,7 +299,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{endpoint_from_line, verification_command_from_config};
+    use super::{endpoint_from_line, validate_local_acceptance_output, verification_command_from_config};
 
     #[test]
     fn prefers_an_explicit_executable_and_supports_python_cli_paths() {
@@ -349,6 +353,21 @@ mod tests {
         assert_eq!(python, OsString::from("python.exe"));
         assert_eq!(checkout_args[0], OsString::from(r"C:\AUREN\auren_cli.py"));
         assert_eq!(checkout_args[1], OsString::from("verify-local"));
+    }
+
+    #[test]
+    fn accepts_only_a_successful_ready_read_only_report() {
+        let report = br#"{"status":"ready","read_only":true}"#;
+        assert!(validate_local_acceptance_output(true, report).is_ok());
+        assert!(validate_local_acceptance_output(false, report).is_err());
+    }
+
+    #[test]
+    fn rejects_invalid_or_non_ready_local_acceptance_reports() {
+        assert!(validate_local_acceptance_output(true, b"not-json").is_err());
+        assert!(validate_local_acceptance_output(true, br#"{"status":"blocked","read_only":true}"#).is_err());
+        assert!(validate_local_acceptance_output(true, br#"{"status":"ready","read_only":false}"#).is_err());
+        assert!(validate_local_acceptance_output(true, br#"{"status":"ready"}"#).is_err());
     }
 
     #[test]
