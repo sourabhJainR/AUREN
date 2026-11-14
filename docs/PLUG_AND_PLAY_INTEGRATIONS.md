@@ -229,6 +229,7 @@ For a live host, also record its exact product/version, MCP protocol version, OA
 ## Related documentation
 
 - [Provider Role Profiles](PROVIDER_ROLE_PROFILES.md)
+- [Provider Cost Accounting](PROVIDER_COST_ACCOUNTING.md)
 - [Multi-LLM and AI Infrastructure Quickstart](MULTI_PROVIDER_QUICKSTART.md)
 - [MCP Host Compatibility](MCP_HOST_COMPATIBILITY.md)
 - [Platform Compatibility Matrix](PLATFORM_COMPATIBILITY_MATRIX.md)
