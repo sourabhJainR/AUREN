@@ -13,6 +13,7 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 from .adaptive_learning import AdaptiveLearningStore, DeferredLearningJob
 from .adaptive_tuning import AdaptiveTuner, MaintenanceReceipt
 from .automation_scheduler import AutomationScheduler
+from .durable_routines import DurableRoutineRegistry, RoutineDispatch, RoutineSpec
 from .capability_fabric import Capability, CapabilityFabric, ProviderAdapter, ProviderAdapterRegistry
 from .context_graph import ContextGraph
 from .context_engine import ContextEngine
@@ -108,6 +109,8 @@ class AdaptiveRuntime:
         self.output_quality = output_quality or OutputQualityGate()
         self.provider_adapters = provider_adapters or ProviderAdapterRegistry()
         self.trigger_runtime = TriggerRuntime(self.automation_scheduler)
+        self._routine_registries: dict[str, DurableRoutineRegistry] = {}
+        self._routine_registries_lock = threading.RLock()
         self.maintenance_interval_seconds = maintenance_interval_seconds
         self.maintenance_budget = maintenance_budget
         self.last_cognitive_episode: CognitiveEpisodeReceipt | None = None
@@ -524,6 +527,73 @@ class AdaptiveRuntime:
 
     def dispatch_triggers(self, handler: Any, *, limit: int = 20) -> list[Any]:
         return self.trigger_runtime.dispatch_due(handler, limit=limit)
+
+    def routine_registry(self, project_root: Path | str) -> DurableRoutineRegistry:
+        """Return the durable routine registry scoped to one canonical project."""
+        root = Path(project_root).expanduser().resolve()
+        project_key = self.session_store.project_key(root)
+        with self._routine_registries_lock:
+            registry = self._routine_registries.get(project_key)
+            if registry is None:
+                registry = DurableRoutineRegistry(
+                    self.state_paths.root / "routines" / project_key / "routines.sqlite3"
+                )
+                self._routine_registries[project_key] = registry
+            return registry
+
+    def register_routine(self, project_root: Path | str, spec: RoutineSpec) -> str:
+        """Register an immutable routine revision; new routines are disabled by default."""
+        return self.routine_registry(project_root).register(spec)
+
+    def set_routine_enabled(
+        self, project_root: Path | str, routine_id: str, enabled: bool,
+    ) -> None:
+        """Explicitly enable, pause or disable a project-scoped routine."""
+        self.routine_registry(project_root).set_enabled(routine_id, enabled)
+
+    def dispatch_manual_routine(
+        self, project_root: Path | str, routine_id: str, *, invocation_id: str,
+        approval: Callable[[RoutineSpec], bool] | None = None,
+    ) -> RoutineDispatch:
+        """Dispatch a manual occurrence through the canonical task controller."""
+        return self.routine_registry(project_root).dispatch_manual(
+            routine_id,
+            invocation_id=invocation_id,
+            submit=self.execution_controller.submit,
+            approval=approval,
+            reconcile=self.execution_controller.task_by_work_key,
+        )
+
+    def dispatch_webhook_routine(
+        self, project_root: Path | str, routine_id: str, *,
+        event_id: str, event_type: str, payload: Mapping[str, Any],
+        authenticate: Callable[[str, str, Mapping[str, Any]], bool],
+        approval: Callable[[RoutineSpec], bool] | None = None,
+    ) -> RoutineDispatch:
+        """Dispatch only after a host-owned webhook verifier accepts the event."""
+        return self.routine_registry(project_root).dispatch_webhook(
+            routine_id,
+            event_id=event_id,
+            event_type=event_type,
+            payload=payload,
+            authenticate=authenticate,
+            submit=self.execution_controller.submit,
+            approval=approval,
+            reconcile=self.execution_controller.task_by_work_key,
+        )
+
+    def dispatch_due_routines(
+        self, project_root: Path | str, *, now: datetime | None = None,
+        limit: int = 32, approval: Callable[[RoutineSpec], bool] | None = None,
+    ) -> tuple[RoutineDispatch, ...]:
+        """Run a bounded due-routine tick through the existing controller and service."""
+        return self.routine_registry(project_root).dispatch_due(
+            now=now or datetime.now(timezone.utc),
+            submit=self.execution_controller.submit,
+            approval=approval,
+            reconcile=self.execution_controller.task_by_work_key,
+            limit=limit,
+        )
 
     def ensure_learning_maintenance(self, project_root: Path | str, *, interval_seconds: int | None = None) -> object:
         """Create the project learning schedule once and return its durable receipt."""
