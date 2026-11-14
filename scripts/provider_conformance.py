@@ -212,12 +212,16 @@ def live_api_probe(
         )
         evidence = {
             "provider": provider,
-            "model": response.model,
+            "model": adapter.model,
+            "reported_model_digest": (
+                hashlib.sha256(response.model.encode("utf-8")).hexdigest()
+                if isinstance(response.model, str) else None
+            ),
             "sentinel_match": sentinel_match,
             "provider_identity_match": provider_identity_match,
             "model_identity_match": model_identity_match,
             "latency_ms": response.latency_ms,
-            "usage": dict(response.usage),
+            "usage": telemetry_usage_metrics(response.usage),
             "response_digest": response.response_digest,
             "prompt_digest": prompt_digest,
             "request_id_digest": (
