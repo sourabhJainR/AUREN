@@ -1110,6 +1110,9 @@ def main(argv: list[str] | None = None) -> int:
         return _run_local(args[1:])
     if args and args[0] == "mcp-proxy":
         return _run_mcp_proxy(args[1:])
+    if args and args[0] == "accept-chatgpt-desktop-mcp":
+        from scripts.accept_chatgpt_desktop_mcp import main as acceptance_main
+        return acceptance_main(args[1:])
     if args and args[0] == "workflow-profile":
         return _run_workflow_profile(args[1:])
     if args and args[0] == "guard-policy":
