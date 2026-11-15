@@ -47,9 +47,9 @@ For optional ChatGPT Web access from a supported workspace, use OpenAI's officia
 
 For the Windows laptop workflow, use [AUREN local ChatGPT connection](CHATGPT_LOCAL_TUNNEL_WINDOWS.md). It starts one project-bound AUREN local runtime, waits for its authenticated MCP endpoint, writes a tunnel-client config with secret references, and runs the tunnel client in the foreground. The runtime API key is read from the process environment; the AUREN bearer token is read from its protected local token file. Stop the foreground process with Ctrl+C to stop both services.
 
-The tunnel requires a provisioned `tunnel_id`, a runtime API key with tunnel-use permission, and the official tunnel-client binary. It is a transport only: AUREN remains responsible for task admission, execution, approvals, Guard and evidence. The local MCP server is project-bound; stop and restart with another repository to switch projects.
+The tunnel requires a provisioned `tunnel_id`, a runtime API key with tunnel-use permission, and the official tunnel-client binary. MCP request and response content transits OpenAI infrastructure. The tunnel client can read AUREN's local bearer token from a file reference and inject it on the final local MCP hop, but the tunnel is not a strict-local-auth or strict-local-data design. Use it only when that data path is acceptable. AUREN remains responsible for task admission, execution, approvals, Guard and evidence. The local MCP server is project-bound; stop and restart with another repository to switch projects.
 
-Use a tunnel only when ChatGPT Web needs access. The local AUREN endpoint continues to authenticate with its local bearer token; the tunnel client uses a separate OpenAI Platform runtime API key. Do not add an AUREN OAuth authorization server to this local/tunnel path. A hosted multi-user deployment remains a separate architecture and may use OAuth.
+Use a tunnel only when ChatGPT Web needs access and OpenAI transit of MCP request/response content is acceptable. The tunnel client uses a separate OpenAI Platform runtime API key and injects the local AUREN bearer credential on the final hop. No AUREN OAuth authorization server is needed when MCP OAuth is disabled in the ChatGPT tunnel connection. Do not use this path when credentials or MCP content must remain entirely outside OpenAI infrastructure. A hosted multi-user deployment remains a separate architecture and may use OAuth.
 
 ### Hosted endpoint
 
@@ -136,7 +136,7 @@ After the hosted endpoint and OAuth provider pass acceptance:
 1. In ChatGPT Web, open Plugins.
 2. Select the plus button, then choose Add custom MCP server.
 3. Enter a name and the public HTTPS MCP endpoint URL. Use the Tunnel option only for a configured Secure MCP Tunnel.
-4. For a hosted endpoint, configure OAuth and complete the identity-provider sign-in. For a Secure MCP Tunnel, select the tunnel and leave MCP authentication unset when the connection UI allows it; the local tunnel client supplies AUREN's local bearer token on the workstation hop. Do not configure an OAuth provider for this local tunnel path.
+4. For a hosted endpoint, configure OAuth and complete the identity-provider sign-in. For a Secure MCP Tunnel, select the tunnel and configure authentication according to the current connection UI. AUREN's local bearer credential is injected by the local tunnel client on the final MCP hop; the tunnel itself still requires its Platform runtime key. If the connection UI permits MCP authentication to be unset, no AUREN OAuth provider is needed for this local tunnel path. Do not treat this as strict-local data handling.
 5. Review the risk warning and acknowledge it.
 6. Select Create as a plugin, then review the discovered tools and metadata.
 7. Confirm the tools match the scopes granted to the signed-in principal. Start with read-only tools; enable task submission and approval decisions only after the workspace plan, user scopes and approver allowlist are correct.
