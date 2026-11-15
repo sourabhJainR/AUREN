@@ -17,10 +17,11 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from .identity_compat import canonical_auren_home
+
 
 DEFAULT_MCP_URL = "http://127.0.0.1:8765/mcp"
-DEFAULT_TUNNEL_CONFIG = Path.home() / ".auren" / "mcp" / "chatgpt-tunnel.yaml"
-_TUNNEL_ID_PREFIX = "tunnel_"
+DEFAULT_TUNNEL_CONFIG = canonical_auren_home() / "mcp" / "chatgpt-tunnel.yaml"
 
 
 def validate_tunnel_id(value: str) -> str:
