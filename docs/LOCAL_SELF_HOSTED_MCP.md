@@ -73,7 +73,7 @@ Return to the local profile with:
 python auren_cli.py mode --project-root /path/to/project --mode single_user_local --apply
 ```
 
-The profile change creates a backup and clears the managed factory reference when switching back to local. Do not run a factory-backed host from a single-user local profile. The built-in MCP execution path is currently proposal-only; it does not write repository files or perform release actions.
+The profile change creates a backup and clears the managed factory reference when switching back to local. Do not run a factory-backed host from a single-user local profile. The default provider path is proposal-only. For guarded repository changes, configure and pass the Vibe Coding readiness checks, then submit with `execution_mode=coding` (MCP) or `auren task submit --execution-mode coding` (CLI). Explicit coding mode fails closed when the host is not ready. Work stays in an isolated Git worktree and still requires the canonical approval, independent review and evidence gates; it never merges or deploys. See [Vibe Coding Workflow](VIBE_CODING_WORKFLOW.md).
 
 
 ## Optional provider setup
