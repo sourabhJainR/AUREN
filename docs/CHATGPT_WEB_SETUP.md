@@ -18,6 +18,21 @@ Check the current OpenAI [custom MCP connection guide](https://help.openai.com/e
 
 AUREN's write tools must not be treated as available on a read-only plan. The server filters tools by the authenticated principal's scopes. Task submission and approval decisions also require their respective scopes; approval decisions require the configured approver identity allowlist.
 
+## ChatGPT Free + GitHub Free workflow
+
+This is the supported no-upgrade path. It does not create a live ChatGPT-to-AUREN connection: current OpenAI documentation does not list ChatGPT Free as eligible for custom MCP apps, and the ChatGPT GitHub app is read-only where it is available. Availability of the GitHub app in standard chat varies by plan and product surface.
+
+Use ChatGPT Free as a reasoning and review assistant, and keep execution under AUREN on the laptop:
+
+1. Install Git for Windows and GitHub CLI. Run `gh auth login` and complete browser authentication with the GitHub Free account. Do not paste a GitHub token into ChatGPT.
+2. Clone any repository the account can access, or open an existing local checkout.
+3. Run `auren up --project-root "C:\\Work\\YourProject"` (or run the source checkout's `python auren_cli.py up --project-root ...`). Use the local Engineering Console and AUREN CLI/MCP clients for project inspection, task tracking, Guard, approvals and verification.
+4. In ChatGPT Free, provide only the files, logs or focused code excerpts needed for advice. If the GitHub app is offered in your account, connect it for repository reading only; do not expect it to push commits or create PRs.
+5. Treat ChatGPT-generated code as a proposal. Apply and verify changes through AUREN's configured local coding host and approval workflow. If you apply a patch manually, AUREN cannot claim that the edit passed its Guard or approval path.
+6. Use local Git/GitHub CLI for branch, commit, push, issue and pull-request operations. GitHub Free supports ordinary Git operations and public/private repositories, subject to the private-repository feature limits and the permissions of the signed-in account.
+
+This route keeps ChatGPT Free and GitHub Free usable without a tunnel, paid API key, hosted server, or custom MCP connector. It is a human-in-the-loop workflow, not a direct tool integration. ChatGPT Free's usage limits still apply. See [GitHub's plan comparison](https://docs.github.com/en/get-started/learning-about-github/githubs-plans) and [OpenAI's GitHub connection guide](https://help.openai.com/en/articles/11145903-connecting-github-to-chatgpt).
+
 ## Choose a connection path
 
 ### Local development
