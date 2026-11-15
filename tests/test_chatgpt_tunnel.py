@@ -43,6 +43,8 @@ class ChatGPTTunnelConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             token = Path(directory) / "operator.token"
             token.write_text("x" * 48, encoding="utf-8")
+            if os.name != "nt":
+                token.chmod(0o600)
             config = render_tunnel_config("tunnel_" + "a" * 32, token)
             self.assertIn("api_key: env:CONTROL_PLANE_API_KEY", config)
             self.assertIn('Authorization: "file:' + token.resolve().as_posix() + '"', config)
@@ -78,6 +80,8 @@ class ChatGPTTunnelConfigTests(unittest.TestCase):
             config = Path(directory) / "tunnel.yaml"
             token = Path(directory) / "token"
             token.write_text("x" * 48, encoding="utf-8")
+            if os.name != "nt":
+                token.chmod(0o600)
             first = write_tunnel_config("tunnel_" + "a" * 32, token, config_path=config)
             self.assertTrue(first.is_file())
             if os.name != "nt":
