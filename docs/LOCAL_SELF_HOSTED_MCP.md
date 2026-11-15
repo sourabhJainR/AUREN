@@ -90,7 +90,7 @@ export AUREN_LOCAL_DATA_CLASSIFICATION=public
 
 Use the provider-specific environment names in [Model Provider Integration](MODEL_PROVIDER_INTEGRATION.md). Never place API keys in project profiles, task context, MCP arguments or repository files. The accepted task binds the provider name/model, Git HEAD and Guard policy digest. If the provider or policy changes before dispatch/recovery, the task is blocked rather than silently rerouted.
 
-The provider receives only the submitted task text. It has no repository tools and cannot modify files, merge, release or deploy. Local CLI discovery is not execution readiness; Codex, Claude Code and Gemini CLI invocation remains disabled until the scoped subprocess and workspace boundary is integrated.
+The read-only model-provider adapter receives only the submitted task text. It has no repository tools and cannot modify files, merge, release or deploy. This restriction applies to that generic provider adapter, not to the separately configured Vibe Coding host described above. The Vibe Coding host has its own readiness preflight, isolated-worktree writer, independent reviewer and durable approval path; local CLI discovery alone does not make that executor ready. Claude Code and Gemini CLI remain discovery-only until their own scoped subprocess and workspace boundaries are integrated.
 
 ## 3. Local authentication and safety
 
