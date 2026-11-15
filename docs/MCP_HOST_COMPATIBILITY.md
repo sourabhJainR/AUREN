@@ -17,8 +17,8 @@ For the local AUREN endpoint, run `auren integrations probe-local-mcp` to verify
 | Host | Native connection path | Repository readiness | Remaining proof |
 |---|---|---|---|
 | ChatGPT web | Plugins → Add custom MCP server; public HTTPS or supported Secure MCP Tunnel | Remote MCP protocol implemented; no hosted endpoint or OAuth tenant configured | Workspace/plan eligibility, tunnel or hosted endpoint setup, scoped coding executor and live tool acceptance; OAuth only for hosted deployments that require it |
-| ChatGPT desktop app | Shared Codex `~/.codex/config.toml`; local stdio bridge | Local stdio template provided; no OAuth required; live app acceptance pending | Start local AUREN, load the stdio server, restart desktop and verify local tool discovery |
-| Codex CLI, Codex app and IDE extension | Shared `~/.codex/config.toml` or `codex mcp add` | Documented | OAuth login, tool discovery, approval and cancellation |
+| ChatGPT desktop app | Shared Codex `~/.codex/config.toml`; local stdio bridge | Automatic local config plus manual template; no OAuth required; live app acceptance pending | Start local AUREN, confirm generated config, restart desktop and verify local tool discovery and read-only calls |
+| Codex CLI, Codex app and IDE extension | Shared `~/.codex/config.toml` or `codex mcp add` | Local stdio path uses no OAuth; remote HTTP path may use OAuth | Verify local tool discovery, approval and cancellation; separately test remote OAuth if used |
 | Claude chat web | Remote MCP connector / custom connector | Documented | External OAuth provider and live connector acceptance |
 | Claude Desktop | Remote MCP connector | Documented | Live OAuth and tool acceptance |
 | Claude Code CLI | `claude mcp add --transport http` | Documented | Live version and permission-mode acceptance |
