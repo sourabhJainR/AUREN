@@ -219,7 +219,9 @@ def _run(args: list[str]) -> int:
                 raise ValueError("project root must be an existing local directory")
             project_profile = project_root / ".auren" / "project.json"
             if project_profile.exists() or project_profile.is_symlink():
-                load_project_profile(project_root)
+                _profile_path, profile = load_project_profile(project_root)
+                if profile.get("runtime_mode", "single_user_local") != "single_user_local":
+                    raise ValueError("ChatGPT local tunnel currently requires single_user_local runtime mode")
             else:
                 initialize_repository(project_root, apply=True)
         local_args = [
