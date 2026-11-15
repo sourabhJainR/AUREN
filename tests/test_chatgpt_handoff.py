@@ -18,6 +18,16 @@ class HandoffTests(unittest.TestCase):
  def test_export_exact_head_and_selected_files(self):
   out=self.base/"package.json";export_task_package(self.root,out,task="Fix",acceptance_criteria=["tests pass"],files=["src/app.py"])
   data=json.loads(out.read_text());self.assertEqual(self.sha,data["base_commit"]);self.assertEqual(["src/app.py"],[x["path"] for x in data["files"]])
+ def test_export_includes_scoped_repository_instructions(self):
+  (self.root/"src"/"AGENTS.md").write_text("Use existing test conventions.\\n",encoding="utf-8")
+  (self.root/".github").mkdir()
+  (self.root/".github"/"copilot-instructions.md").write_text("Do not weaken safety tests.\\n",encoding="utf-8")
+  out=self.base/"scoped-package.json"
+  export_task_package(self.root,out,task="Fix",acceptance_criteria=["tests pass"],files=["src/app.py"])
+  paths={item["path"] for item in json.loads(out.read_text())["instructions"]}
+  self.assertIn("src/AGENTS.md",paths)
+  self.assertIn(".github/copilot-instructions.md",paths)
+
  def test_export_redacts_secret(self):
   (self.root/"README.md").write_text("token=ghp_"+"a"*30)
   out=self.base/"package.json";export_task_package(self.root,out,task="review",acceptance_criteria=["safe"],files=["src/app.py"])
