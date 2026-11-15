@@ -7,16 +7,15 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import queue
 import subprocess
 import sys
 import threading
-import time
 import tomllib
 from pathlib import Path
 from typing import Any, Mapping
 
+from portable.mcp_local_client import LOCAL_PROTOCOL_VERSION
 from portable.mcp_stdio_proxy import validate_local_url
 
 _MAX_LINE = 2 * 1024 * 1024
@@ -109,6 +108,8 @@ def _load_server(config_path: Path, server_name: str) -> tuple[list[str], Path]:
 
 
 def run_acceptance(config_path: Path, server_name: str = "auren", timeout: float = 15.0) -> dict[str, Any]:
+    if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or not 0.1 <= timeout <= 120:
+        raise AcceptanceError("timeout must be between 0.1 and 120 seconds")
     command, cwd = _load_server(config_path, server_name)
     try:
         process = subprocess.Popen(
@@ -119,14 +120,10 @@ def run_acceptance(config_path: Path, server_name: str = "auren", timeout: float
         raise AcceptanceError(f"could not launch configured MCP process: {type(exc).__name__}") from exc
 
     lines: queue.Queue = queue.Queue()
-    stderr_tail: list[bytes] = []
-
     def drain_stderr():
         try:
-            for line in iter(process.stderr.readline, b""):
-                stderr_tail.append(line[:1024])
-                if len(stderr_tail) > 20:
-                    del stderr_tail[0]
+            for _line in iter(process.stderr.readline, b""):
+                pass
         except Exception:
             pass
 
@@ -138,7 +135,7 @@ def run_acceptance(config_path: Path, server_name: str = "auren", timeout: float
         initialize = _rpc(process, lines, {
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": {
-                "protocolVersion": "2025-11-25",
+                "protocolVersion": LOCAL_PROTOCOL_VERSION,
                 "capabilities": {},
                 "clientInfo": {"name": "AUREN ChatGPT desktop acceptance", "version": "1.0"},
             },
