@@ -171,13 +171,20 @@ def create_independent_project(path:str|Path,*,name:str)->dict[str,Any]:
  if target.exists() and any(target.iterdir()): raise FileExistsError("project destination must be empty")
  target.mkdir(parents=True,exist_ok=True)
  if target.is_symlink(): raise PermissionError("project path must not be a symlink")
- run(["git","init"],target)
+ run(["git","init","--initial-branch=main"],target)
+ (target/"README.md").write_text("# "+name.strip()+"\\n\\nInitialized as an independent AUREN project workspace.\\n",encoding="utf-8")
+ (target/".gitignore").write_text(".auren/\\n__pycache__/\\n*.py[cod]\\n.venv/\\nvenv/\\n",encoding="utf-8")
  from .onboarding import initialize_repository
  setup=initialize_repository(target,apply=True)
  profile=target/".auren"/"project.json"
- value=json.loads(profile.read_text(encoding="utf-8"));value["project_name"]=name
- profile.write_text(json.dumps(value,indent=2,sort_keys=True)+"\n",encoding="utf-8")
- return {"status":"initialized","path":str(target),"project_name":name,"profile":str(profile),"setup":setup}
+ value=json.loads(profile.read_text(encoding="utf-8"));value["project_name"]=name.strip()
+ temporary=profile.with_name(".project.json.handoff.tmp")
+ with temporary.open("x",encoding="utf-8") as stream:
+  stream.write(json.dumps(value,indent=2,sort_keys=True)+"\\n");stream.flush();os.fsync(stream.fileno())
+ os.replace(temporary,profile)
+ run(["git","add","--","README.md",".gitignore"],target)
+ run(["git","-c","user.name=AUREN Workspace Bootstrap","-c","user.email=workspace-bootstrap@auren.local","commit","-m","Initialize independent AUREN project workspace"],target)
+ return {"status":"initialized","path":str(target),"project_name":name.strip(),"profile":str(profile),"base_commit":head(target),"setup":setup}
 
 def main(argv=None)->int:
  parser=argparse.ArgumentParser(prog="auren handoff");sub=parser.add_subparsers(dest="action",required=True)
