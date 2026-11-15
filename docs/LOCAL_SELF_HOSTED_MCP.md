@@ -155,6 +155,19 @@ Replace the example MCP port with the actual port printed by the running host. O
 
 The local host must be running before the stdio client starts. If the client supports a working-directory field, set it to the AUREN checkout. Otherwise, invoking the absolute `auren_cli.py` path is sufficient.
 
+
+### Verify the configured ChatGPT desktop stdio process
+
+After `auren up` has written the shared Codex/ChatGPT desktop configuration and the local AUREN host is running, run this from the AUREN checkout:
+
+```powershell
+python auren_cli.py accept-chatgpt-desktop-mcp
+```
+
+The acceptance runner reads the actual `%USERPROFILE%\\.codex\\config.toml` entry, launches the configured `mcp-proxy` process with `shell=False`, completes MCP initialize and tool discovery, verifies that `auren.service_status` is marked read-only, and invokes that read-only tool. It never submits a task, changes an approval, prints the local token, or invokes a write tool. Use `--config` if the desktop app uses a non-default Codex config path.
+
+A successful report proves that the exact configured stdio command can authenticate and perform a read-only MCP call. It does **not** prove that the ChatGPT desktop UI has loaded the server. For the final host acceptance, restart ChatGPT desktop, open a new chat, confirm `auren` appears in `/mcp`, and ask it to call `auren.service_status`. Record that separate UI observation; do not infer it from the script's result.
+
 ## 6. Host compatibility notes
 
 - **ChatGPT desktop, Codex app/CLI and IDE extension:** use the shared Codex stdio configuration above. Local OAuth is not required.
