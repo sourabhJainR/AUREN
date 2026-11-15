@@ -21,14 +21,22 @@ if ([string]::IsNullOrWhiteSpace($TunnelId)) {
     throw "A tunnel ID is required. Create or select one in https://platform.openai.com/settings/organization/tunnels."
 }
 
-$null = Get-Command auren -ErrorAction Stop
+$cliPath = Join-Path $PSScriptRoot "..\auren_cli.py"
+if (Test-Path -LiteralPath $cliPath -PathType Leaf) {
+    $python = (Get-Command python -ErrorAction Stop).Source
+    $cliCommand = $python
+    $cliPrefix = @((Resolve-Path $cliPath).Path)
+} else {
+    $cliCommand = (Get-Command auren -ErrorAction Stop).Source
+    $cliPrefix = @()
+}
 $null = Get-Command $TunnelClient -ErrorAction Stop
 
 $secureKey = Read-Host "OpenAI Secure MCP Tunnel runtime API key" -AsSecureString
 $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureKey)
 try {
     $env:CONTROL_PLANE_API_KEY = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
-    $arguments = @("chatgpt-tunnel", "run", "--tunnel-id", $TunnelId, "--tunnel-client", $TunnelClient)
+    $arguments = @($cliPrefix + @("chatgpt-tunnel", "run", "--tunnel-id", $TunnelId, "--tunnel-client", $TunnelClient))
     if (-not [string]::IsNullOrWhiteSpace($Repository)) {
         $arguments += @("--repository", $Repository)
         if (-not [string]::IsNullOrWhiteSpace($Branch)) {
@@ -39,7 +47,7 @@ try {
     }
     Write-Host "Starting AUREN and its private ChatGPT tunnel. Keep this window open."
     Write-Host "Use Ctrl+C to stop both services."
-    & auren @arguments
+    & $cliCommand @arguments
     if ($LASTEXITCODE -ne 0) {
         throw "AUREN ChatGPT tunnel exited with code $LASTEXITCODE."
     }
