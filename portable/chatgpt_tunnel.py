@@ -96,6 +96,9 @@ def write_tunnel_config(
 ) -> Path:
     target = Path(config_path).expanduser()
     target.parent.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":
+        from .windows_acl import enforce_private_acl
+        enforce_private_acl(target.parent, directory=True)
     if target.is_symlink() or target.parent.is_symlink():
         raise ValueError("tunnel config path and parent must not be symlinks")
     if target.exists() and not overwrite:
@@ -212,15 +215,14 @@ def _run(args: list[str]) -> int:
                     report["tunnel_connection"] = "unknown"
                     report["tunnel_diagnostic"] = type(exc).__name__
             report["status"] = (
-                "ready"
+                "ready_to_start"
                 if report["tunnel_client"] == "available"
-                and report["local_mcp"] == "ready"
                 and report["config"] == "present"
                 and report["tunnel_connection"] == "healthy"
                 else "blocked"
             )
             print(json.dumps(report, indent=2, sort_keys=True))
-            return 0 if report["status"] == "ready" else 2
+            return 0 if report["status"] == "ready_to_start" else 2
 
         if options.branch and not options.repository:
             parser.error("--branch requires --repository")
@@ -296,6 +298,7 @@ def _run(args: list[str]) -> int:
             restart_count = 0
             backoff_seconds = 1
             last_doctor_check = 0.0
+            consecutive_health_failures = 0
             tunnel_process = subprocess.Popen([str(client), "run", "--config", str(config_path)])
             while True:
                 now = time.monotonic()
@@ -316,6 +319,7 @@ def _run(args: list[str]) -> int:
                     backoff_seconds = min(backoff_seconds * 2, 8)
                     tunnel_process = subprocess.Popen([str(client), "run", "--config", str(config_path)])
                     last_doctor_check = 0.0
+                    consecutive_health_failures = 0
                     continue
                 if now - last_doctor_check >= 10.0:
                     last_doctor_check = now
@@ -325,9 +329,26 @@ def _run(args: list[str]) -> int:
                             capture_output=True, text=True, timeout=8, check=False,
                         )
                         if doctor.returncode != 0:
-                            print("Tunnel health check is unhealthy; monitoring for process exit before recovery.", file=sys.stderr, flush=True)
+                            consecutive_health_failures += 1
+                            print(
+                                f"Tunnel health check failed ({consecutive_health_failures}/2).",
+                                file=sys.stderr, flush=True,
+                            )
+                            if consecutive_health_failures >= 2 and tunnel_process.poll() is None:
+                                print("Tunnel health remains failed; restarting the tunnel client.", file=sys.stderr, flush=True)
+                                tunnel_process.terminate()
+                                try:
+                                    tunnel_process.wait(timeout=5)
+                                except subprocess.TimeoutExpired:
+                                    tunnel_process.kill()
+                                    tunnel_process.wait(timeout=5)
+                        else:
+                            consecutive_health_failures = 0
                     except (OSError, subprocess.TimeoutExpired):
+                        consecutive_health_failures += 1
                         print("Tunnel health check is unavailable; process supervision remains active.", file=sys.stderr, flush=True)
+                        if consecutive_health_failures >= 2 and tunnel_process.poll() is None:
+                            tunnel_process.terminate()
                 time.sleep(1.0)
         except KeyboardInterrupt:
             return 130
