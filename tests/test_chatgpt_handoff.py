@@ -26,6 +26,11 @@ class HandoffTests(unittest.TestCase):
   for path in ("../x","/etc/passwd",".auren/token",".env","src\\evil.py"):
    with self.assertRaises(ValueError): load_proposal(self.proposal({"path":path,"content":"ok"}))
   with self.assertRaises(ValueError): load_proposal(self.proposal({"path":"src/app.py","content":"API_KEY=sk-"+"a"*30}))
+ def test_direct_validator_cannot_bypass_secret_or_duplicate_checks(self):
+  secret={"schema_version":1,"kind":"auren.chatgpt_proposal","base_commit":self.sha,"changes":[{"path":"src/app.py","content":"token=ghp_"+"a"*30}]}
+  with self.assertRaises(ValueError): validate_proposal(self.root,secret)
+  duplicate={"schema_version":1,"kind":"auren.chatgpt_proposal","base_commit":self.sha,"changes":[{"path":"src/app.py","content":"x=2"},{"path":"src/app.py","content":"x=3"}]}
+  with self.assertRaises(ValueError): validate_proposal(self.root,duplicate)
  def test_stale_base_rejected(self):
   with self.assertRaisesRegex(ValueError,"stale proposal"): validate_proposal(self.root,load_proposal(self.proposal(base="0"*40)))
  def test_guard_and_approval_required_and_worktree_isolated(self):
