@@ -136,7 +136,7 @@ After the hosted endpoint and OAuth provider pass acceptance:
 1. In ChatGPT Web, open Plugins.
 2. Select the plus button, then choose Add custom MCP server.
 3. Enter a name and the public HTTPS MCP endpoint URL. Use the Tunnel option only for a configured Secure MCP Tunnel.
-4. Configure OAuth and complete the identity-provider sign-in.
+4. For a hosted endpoint, configure OAuth and complete the identity-provider sign-in. For a Secure MCP Tunnel, select the tunnel and leave MCP authentication unset when the connection UI allows it; the local tunnel client supplies AUREN's local bearer token on the workstation hop. Do not configure an OAuth provider for this local tunnel path.
 5. Review the risk warning and acknowledge it.
 6. Select Create as a plugin, then review the discovered tools and metadata.
 7. Confirm the tools match the scopes granted to the signed-in principal. Start with read-only tools; enable task submission and approval decisions only after the workspace plan, user scopes and approver allowlist are correct.
