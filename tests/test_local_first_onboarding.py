@@ -274,3 +274,17 @@ def test_windsurf_auto_configuration_preserves_existing_mcp_servers(tmp_path: Pa
     assert result["clients"][0]["status"] == "configured"
     assert saved["mcpServers"]["existing"] == original["mcpServers"]["existing"]
     assert saved["mcpServers"]["auren"]["args"][-1] == str(token)
+
+
+def test_shared_chatgpt_desktop_config_is_discovered_without_codex_cli(tmp_path: Path, monkeypatch):
+    from portable import onboarding
+
+    monkeypatch.setattr(onboarding.shutil, "which", lambda _name: None)
+    clients = discover_clients(tmp_path)
+    codex_client = next(
+        item for item in clients
+        if item["name"] == "ChatGPT desktop / Codex app / CLI"
+    )
+
+    assert codex_client["path"] == str(tmp_path / ".codex" / "config.toml")
+    assert codex_client["format"] == "toml"
