@@ -42,16 +42,27 @@ class ChatGPTTunnelConfigTests(unittest.TestCase):
     def test_config_uses_secret_references_and_loopback_target(self):
         with tempfile.TemporaryDirectory() as directory:
             token = Path(directory) / "operator.token"
+            token.write_text("x" * 48, encoding="utf-8")
             config = render_tunnel_config("tunnel_" + "a" * 32, token)
             self.assertIn("api_key: env:CONTROL_PLANE_API_KEY", config)
             self.assertIn('Authorization: "file:' + token.resolve().as_posix() + '"', config)
             self.assertIn('url: "http://127.0.0.1:8765/mcp"', config)
             self.assertNotIn("sk-", config)
 
+    def test_config_rejects_missing_or_malformed_token_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            token = Path(directory) / "missing.token"
+            with self.assertRaises(ValueError):
+                render_tunnel_config("tunnel_" + "a" * 32, token)
+            token.write_text("short", encoding="utf-8")
+            with self.assertRaises(RuntimeError):
+                render_tunnel_config("tunnel_" + "a" * 32, token)
+
     def test_write_is_no_overwrite_by_default_and_can_backup(self):
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / "tunnel.yaml"
             token = Path(directory) / "token"
+            token.write_text("x" * 48, encoding="utf-8")
             first = write_tunnel_config("tunnel_" + "a" * 32, token, config_path=config)
             self.assertTrue(first.is_file())
             if os.name != "nt":
