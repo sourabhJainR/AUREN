@@ -732,7 +732,7 @@ class LocalRuntimeComposition:
         local_principal = self.operator.verify_principal(principal)
         remote_principal = self._remote_principal_authorized(principal)
         requested_mode = context.get("execution_mode", "auto") if isinstance(context, Mapping) else "auto"
-        if requested_mode not in {"auto", "proposal", "coding"}:
+        if not isinstance(requested_mode, str) or requested_mode not in {"auto", "proposal", "coding"}:
             raise ValueError("execution_mode must be auto, proposal or coding")
         if not (local_principal or remote_principal):
             raise PermissionError(
@@ -1109,7 +1109,7 @@ class LocalRuntimeComposition:
         bound_remote_policy_digest = remote_policy_digest if provider_kind == "remote" else ""
         vibe_config_digest = request.context.get("_auren_local_vibe_config_digest", "")
         execution_mode = request.context.get("_auren_local_execution_mode", "auto")
-        if execution_mode not in {"auto", "proposal", "coding"}:
+        if not isinstance(execution_mode, str) or execution_mode not in {"auto", "proposal", "coding"}:
             raise PermissionError("persisted MCP event has an invalid execution-mode binding")
         policy_material = guard_policy_fingerprint(current_policy) + "|" + bound_remote_policy_digest
         if provider_kind == "vibe":
