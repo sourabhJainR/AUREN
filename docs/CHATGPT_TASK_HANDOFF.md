@@ -10,7 +10,7 @@ Run from an AUREN checkout:
 python auren_cli.py handoff export --project-root C:\Work\MyProject --output .\task-package.json --task "Implement the requested change" --accept "Required tests pass" --accept "No unrelated files change" --file src\feature.py --file tests\test_feature.py
 ```
 
-The package contains the exact Git HEAD, repository origin, root instruction files, explicitly selected files and acceptance criteria. Common credential paths are excluded; common secret-like strings are redacted. Review the package before sharing it. Filtering is defense in depth, not a guarantee that all private data has been removed.
+The package contains the exact Git HEAD, repository origin, root and selected-path AGENTS instructions, Claude/Gemini/README/Contributing guidance, GitHub Copilot instructions, explicitly selected files and acceptance criteria. Common credential paths are excluded; common secret-like strings are redacted. Review the package before sharing it. Filtering is defense in depth, not a guarantee that all private data has been removed.
 
 ## Return and validate a proposal
 
@@ -33,7 +33,7 @@ python auren_cli.py handoff validate --project-root C:\Work\MyProject --proposal
 
 ## Approval, Guard and isolated application
 
-The Python API apply_approved_proposal requires two injected callbacks bound by the trusted AUREN host: a durable approval verifier and the live Guard verifier. Both must approve the exact proposal digest and return evidence references. Guard must also return the active policy digest. Boolean flags, caller-supplied JSON and ChatGPT statements are not approval receipts.
+The Python API `apply_approved_proposal` requires two injected callbacks bound by the trusted AUREN host: a durable approval verifier and the live Guard verifier. Both must approve the exact proposal digest and return evidence references. Guard must also return the active policy digest. File writes use AUREN's root-confined filesystem adapter. Boolean flags, caller-supplied JSON and ChatGPT statements are not approval receipts.
 
 The code creates a task-specific Git worktree at the exact base SHA, asks Guard to evaluate that worktree and proposal, then writes only approved files there. The source checkout remains unchanged. Failed worktrees remain available for explicit review and recovery.
 
@@ -57,7 +57,7 @@ Authenticate locally with gh auth login and verify with gh auth status. Credenti
 python auren_cli.py handoff new-project --path C:\Work\NewProject --name NewProject
 ```
 
-This creates a separate Git repository and AUREN project profile. Do not copy .auren credentials, task databases or approvals between projects. Existing GitHub checkouts continue to use AUREN's managed GitHub workspace provisioner. Start each project as an explicit project-bound session; active tasks cannot silently migrate.
+This creates a separate Git repository on `main`, a bootstrap commit, a project README, a secret-aware `.gitignore`, and a private AUREN project profile. The profile and runtime state are excluded from Git. Do not copy `.auren` credentials, task databases or approvals between projects. Existing GitHub checkouts continue to use AUREN's managed GitHub workspace provisioner. Start each project as an explicit project-bound session; active tasks cannot silently migrate.
 
 ## Acceptance boundary
 
