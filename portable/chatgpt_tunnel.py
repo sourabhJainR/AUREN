@@ -103,6 +103,9 @@ def write_tunnel_config(
         raise ValueError("tunnel config path and parent must not be symlinks")
     if target.exists() and not overwrite:
         raise FileExistsError(f"tunnel config already exists; inspect it or pass --overwrite: {target}")
+    if os.name == "nt" and target.exists():
+        from .windows_acl import enforce_private_acl
+        enforce_private_acl(target, directory=False)
     content = render_tunnel_config(tunnel_id, token_file, mcp_url)
     temporary = target.with_name(target.name + ".tmp")
     if temporary.exists() or temporary.is_symlink():
@@ -210,7 +213,7 @@ def _run(args: list[str]) -> int:
                         capture_output=True, text=True, timeout=10, check=False,
                     )
                     report["tunnel_connection"] = "healthy" if doctor.returncode == 0 else "unhealthy"
-                    report["tunnel_diagnostic"] = (doctor.stdout + doctor.stderr)[-2000:]
+                    report["doctor_exit_code"] = doctor.returncode
                 except (OSError, subprocess.TimeoutExpired) as exc:
                     report["tunnel_connection"] = "unknown"
                     report["tunnel_diagnostic"] = type(exc).__name__
