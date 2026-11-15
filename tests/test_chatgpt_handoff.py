@@ -47,5 +47,17 @@ class HandoffTests(unittest.TestCase):
  def test_independent_project(self):
   target=self.base/"new";result=create_independent_project(target,name="new")
   self.assertTrue((target/".git").is_dir());self.assertTrue((target/".auren"/"project.json").is_file());self.assertEqual("initialized",result["status"])
+  self.assertRegex(result["base_commit"],r"^[0-9a-f]{40}$")
+  profile=json.loads((target/".auren"/"project.json").read_text())
+  self.assertEqual("new",profile["project_name"])
+  ignored=subprocess.run(["git","check-ignore",".auren/project.json"],cwd=target,text=True,capture_output=True)
+  self.assertEqual(0,ignored.returncode)
+  self.assertEqual("main",subprocess.run(["git","branch","--show-current"],cwd=target,text=True,capture_output=True,check=True).stdout.strip())
+
+ def test_worktree_store_symlink_is_rejected(self):
+  proposal=load_proposal(self.proposal())
+  link=self.base/"linked-worktrees";link.symlink_to(self.base/"real-worktrees",target_is_directory=True)
+  with self.assertRaises(PermissionError):
+   apply_approved_proposal(self.root,proposal,approval_verifier=lambda p,d:{"status":"approved","proposal_sha256":d,"evidence_ref":"approval://1"},guard_verifier=lambda w,p:{"status":"approved","proposal_sha256":d,"evidence_ref":"guard://1","policy_digest":"a"*64},worktree_root=link)
 
 if __name__=="__main__": unittest.main()
