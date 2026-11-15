@@ -26,7 +26,7 @@ def _current_user_sid() -> str:
 
 
 def enforce_private_acl(path: str | Path, *, directory: bool) -> None:
-    """Remove inherited ACLs and grant access only to this user and SYSTEM."""
+    """Replace the DACL with current-user and SYSTEM full-control entries only."""
     target = Path(path).expanduser()
     if target.is_symlink() or not target.exists():
         raise PermissionError("private path must exist and must not be a symlink")
@@ -34,21 +34,44 @@ def enforce_private_acl(path: str | Path, *, directory: bool) -> None:
         raise PermissionError("private path has an unexpected filesystem type")
     if os.name != "nt":
         return
+
     sid = _current_user_sid()
-    # Use SIDs rather than localized account names. SYSTEM retains recovery access.
+    script = r"""
+$ErrorActionPreference = 'Stop'
+$path = $env:AUREN_ACL_TARGET
+$acl = Get-Acl -LiteralPath $path
+$acl.SetAccessRuleProtection($true, $false)
+foreach ($existing in @($acl.Access)) { [void]$acl.RemoveAccessRuleAll($existing) }
+$userSid = New-Object System.Security.Principal.SecurityIdentifier($env:AUREN_ACL_USER_SID)
+$systemSid = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-18')
+$inheritance = [System.Security.AccessControl.InheritanceFlags]::None
+if ($env:AUREN_ACL_DIRECTORY -eq '1') {
+  $inheritance = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
+}
+$propagation = [System.Security.AccessControl.PropagationFlags]::None
+$allow = [System.Security.AccessControl.AccessControlType]::Allow
+$full = [System.Security.AccessControl.FileSystemRights]::FullControl
+$userRule = New-Object System.Security.AccessControl.FileSystemAccessRule($userSid, $full, $inheritance, $propagation, $allow)
+$systemRule = New-Object System.Security.AccessControl.FileSystemAccessRule($systemSid, $full, $inheritance, $propagation, $allow)
+$acl.AddAccessRule($userRule)
+$acl.AddAccessRule($systemRule)
+Set-Acl -LiteralPath $path -AclObject $acl
+$verified = Get-Acl -LiteralPath $path
+$rules = @($verified.Access)
+$identities = @($rules | ForEach-Object { $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value })
+if ($rules.Count -ne 2 -or $identities -notcontains $env:AUREN_ACL_USER_SID -or $identities -notcontains 'S-1-5-18') { exit 4 }
+if (@($rules | Where-Object { $_.AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow -or $_.FileSystemRights -ne [System.Security.AccessControl.FileSystemRights]::FullControl }).Count -ne 0) { exit 5 }
+"""
+    environment = os.environ.copy()
+    environment.update({
+        "AUREN_ACL_TARGET": str(target.resolve()),
+        "AUREN_ACL_USER_SID": sid,
+        "AUREN_ACL_DIRECTORY": "1" if directory else "0",
+    })
     result = subprocess.run(
-        ["icacls", str(target), "/inheritance:r", "/grant:r", f"*{sid}:(F)", "*S-1-5-18:(F)"],
-        capture_output=True, text=True, timeout=10, check=False,
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True, text=True, timeout=15, check=False, env=environment,
     )
     if result.returncode != 0:
-        raise PermissionError("could not enforce owner-only Windows ACL: " + (result.stderr or result.stdout)[-1000:])
-    verify = subprocess.run(
-        ["icacls", str(target)],
-        capture_output=True, text=True, timeout=10, check=False,
-    )
-    output = (verify.stdout or "") + (verify.stderr or "")
-    if verify.returncode != 0 or sid not in output or "S-1-5-18" not in output:
-        raise PermissionError("Windows ACL verification failed for private path")
-    forbidden = ("S-1-1-0", "S-1-5-11", "S-1-5-32-545")
-    if any(entry in output for entry in forbidden):
-        raise PermissionError("Windows ACL still grants access to a broad user group")
+        detail = (result.stderr or result.stdout)[-1000:]
+        raise PermissionError("could not enforce and verify private Windows ACL: " + detail)
