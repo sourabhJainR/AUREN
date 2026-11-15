@@ -1035,6 +1035,12 @@ def _run_chatgpt_tunnel(args: list[str]) -> int:
     return int(tunnel_main(args))
 
 
+def _run_handoff(args: list[str]) -> int:
+    """Export task packages and validate untrusted ChatGPT proposals."""
+    from portable.chatgpt_handoff import main as handoff_main
+    return int(handoff_main(args))
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if args and args[0] in {"-h", "--help", "help"}:
@@ -1044,7 +1050,7 @@ def main(argv: list[str] | None = None) -> int:
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog=(
                 "Quick start: auren up\n"
-                "Useful commands: auren task submit --task \"...\" | auren verify-local | auren chatgpt-tunnel | auren providers | auren integrations | auren progress --json | "
+                "Useful commands: auren task submit --task \"...\" | auren verify-local | auren chatgpt-tunnel | auren handoff | auren providers | auren integrations | auren progress --json | "
                 "auren continuous status | auren doctor\n"
                 "Full usage: docs/USAGE_AND_PLATFORM_INTEGRATION.md"
             ),
@@ -1080,6 +1086,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_onboarding(args[0], args[1:])
     if args and args[0] == "chatgpt-tunnel":
         return _run_chatgpt_tunnel(args[1:])
+    if args and args[0] == "handoff":
+        return _run_handoff(args[1:])
     if args and args[0] == "deliver":
         return _run_delivery(args[1:])
     if args and args[0] == "dashboard":
