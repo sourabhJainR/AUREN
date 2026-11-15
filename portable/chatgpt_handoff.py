@@ -122,23 +122,22 @@ def apply_approved_proposal(project_root:str|Path,proposal:Mapping[str,Any],*,ap
  root=Path(project_root).expanduser().resolve(strict=True); check=validate_proposal(root,proposal); digest=check["proposal_sha256"]
  approval=approval_verifier(proposal,digest)
  if not isinstance(approval,Mapping) or approval.get("status")!="approved" or approval.get("proposal_sha256")!=digest or not approval.get("evidence_ref"): raise PermissionError("durable AUREN approval did not authorize this exact proposal")
- base=check["base_commit"]; store=Path(worktree_root).expanduser().resolve(); store.mkdir(parents=True,exist_ok=True)
- if store.is_symlink() or store==root or root in store.parents: raise PermissionError("worktree store must be outside source checkout and not a symlink")
+ base=check["base_commit"]; raw_store=Path(worktree_root).expanduser()
+ if raw_store.is_symlink(): raise PermissionError("worktree store must not be a symlink")
+ store=raw_store.resolve()
+ if store==root or root in store.parents: raise PermissionError("worktree store must be outside source checkout")
+ store.mkdir(parents=True,exist_ok=True)
+ if not store.is_dir() or store.is_symlink(): raise PermissionError("worktree store must be a real directory")
  key=digest[:16]; work=store/key
  if work.exists() or work.is_symlink(): raise FileExistsError("proposal worktree exists; inspect or recover explicitly")
  branch="auren/proposal-"+key
  run(["git","worktree","add","-b",branch,str(work),base],root)
  guard=guard_verifier(work,proposal)
  if not isinstance(guard,Mapping) or guard.get("status")!="approved" or guard.get("proposal_sha256")!=digest or not guard.get("policy_digest") or not guard.get("evidence_ref"): raise PermissionError("AUREN Guard did not authorize this exact proposal and worktree")
+ from .guarded_filesystem import write_workspace_text
  for item in proposal["changes"]:
-  name=safe_path(item["path"]); target=work/name; target.parent.mkdir(parents=True,exist_ok=True)
-  cursor=work
-  for part in PurePosixPath(name).parts:
-   cursor=cursor/part
-   if cursor.is_symlink(): raise PermissionError("symlink detected during guarded apply")
-  flags=os.O_WRONLY|os.O_CREAT|(os.O_TRUNC if target.exists() else os.O_EXCL)
-  fd=os.open(target,flags,0o600)
-  with os.fdopen(fd,"w",encoding="utf-8",newline="\n") as stream: stream.write(item["content"]);stream.flush();os.fsync(stream.fileno())
+  name=safe_path(item["path"])
+  write_workspace_text(work,name,item["content"])
  return {"status":"applied_in_isolated_worktree","worktree":str(work),"branch":branch,"base_commit":base,"proposal_sha256":digest,"approval_evidence":approval["evidence_ref"],"guard_evidence":guard["evidence_ref"],"policy_digest":guard["policy_digest"],"changed_files":[x["path"] for x in proposal["changes"]]}
 
 def deliver_with_gh(worktree:str|Path,*,title:str,body:str,expected_paths:Sequence[str],base_branch:str="main")->dict[str,Any]:
