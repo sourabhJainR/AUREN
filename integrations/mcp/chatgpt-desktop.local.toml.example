@@ -1,14 +1,15 @@
-# Merge this section into %USERPROFILE%\\.codex\\config.toml (Windows)
-# or ~/.codex/config.toml (macOS/Linux). Do not overwrite existing MCP entries.
-# ChatGPT desktop, Codex app, CLI and IDE extension share this configuration.
-# Local stdio mode requires no OAuth and does not store the local bearer token here.
+# Optional manual fallback. Prefer `auren up --project-root <path>`, which
+# discovers the shared Codex/ChatGPT desktop config, writes the real paths and
+# local MCP port, and makes a backup before changing an existing config.
+# Merge this section only if you are configuring the client manually.
+# Replace the three C:/Path/... values. No OAuth or bearer token is stored here.
 
 [mcp_servers.auren]
-command = "C:\\Python\\python.exe"
+command = "C:/Path/To/Python/python.exe"
 args = [
-  "C:\\Work\\AUREN\\auren_cli.py",
+  "C:/Path/To/AUREN/auren_cli.py",
   "mcp-proxy",
   "--url", "http://127.0.0.1:8765/mcp",
-  "--token-file", "C:\\Users\\<user>\\.auren\\mcp\\local-operator.token",
+  "--token-file", "C:/Users/YourUser/.auren/mcp/local-operator.token",
 ]
-cwd = "C:\\Work\\AUREN"
+cwd = "C:/Path/To/AUREN"
