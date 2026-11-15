@@ -35,11 +35,13 @@ class ChatGPTTunnelConfigTests(unittest.TestCase):
                 validate_local_mcp_url(value)
 
     def test_config_uses_secret_references_and_loopback_target(self):
-        config = render_tunnel_config("tunnel_" + "a" * 32, Path("C:/Users/test/.auren/mcp/token"))
-        self.assertIn("api_key: env:CONTROL_PLANE_API_KEY", config)
-        self.assertIn('Authorization: "file:C:/Users/test/.auren/mcp/token"', config)
-        self.assertIn('url: "http://127.0.0.1:8765/mcp"', config)
-        self.assertNotIn("sk-", config)
+        with tempfile.TemporaryDirectory() as directory:
+            token = Path(directory) / "operator.token"
+            config = render_tunnel_config("tunnel_" + "a" * 32, token)
+            self.assertIn("api_key: env:CONTROL_PLANE_API_KEY", config)
+            self.assertIn('Authorization: "file:' + token.resolve().as_posix() + '"', config)
+            self.assertIn('url: "http://127.0.0.1:8765/mcp"', config)
+            self.assertNotIn("sk-", config)
 
     def test_write_is_no_overwrite_by_default_and_can_backup(self):
         with tempfile.TemporaryDirectory() as directory:
