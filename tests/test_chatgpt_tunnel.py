@@ -72,6 +72,8 @@ class ChatGPTTunnelConfigTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 render_tunnel_config("tunnel_" + "a" * 32, token)
             token.write_text("short", encoding="utf-8")
+            if os.name != "nt":
+                token.chmod(0o600)
             with self.assertRaises(RuntimeError):
                 render_tunnel_config("tunnel_" + "a" * 32, token)
 
