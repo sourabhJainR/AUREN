@@ -30,7 +30,7 @@ for line in sys.stdin:
         }]}
     elif method == "tools/call":
         assert request["params"]["name"] == "auren.service_status"
-        result = {"content": [{"type": "text", "text": "{\\\\"status\\\\":\\\\"ready\\\\"}"}]}
+        result = {"content": [{"type": "text", "text": "ready"}]}
     else:
         result = {}
     print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result}), flush=True)
