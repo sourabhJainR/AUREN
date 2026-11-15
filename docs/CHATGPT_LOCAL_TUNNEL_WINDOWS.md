@@ -16,12 +16,14 @@ The tunnel is transport only. It does not create a second controller, agent runt
 ## Requirements
 
 1. Windows 10/11 with PowerShell 7 or Windows PowerShell 5.1.
-2. AUREN installed with the latest release. From an elevated or normal PowerShell window as appropriate:
+2. AUREN source checkout with the local runtime code. Clone it once:
 
    ```powershell
-   irm https://raw.githubusercontent.com/sourabhJainR/AUREN/main/install.ps1 | iex
+   git clone https://github.com/sourabhJainR/AUREN.git
+   Set-Location .\AUREN
    ```
 
+   The helper runs the checked-out `auren_cli.py` directly. After a packaged release containing this command is published, the installed `auren` launcher can be used instead.
 3. Git installed and authenticated for private repositories. AUREN uses the local Git credential helper; it does not ask ChatGPT for your GitHub password or token.
 4. The official OpenAI `tunnel-client` Windows binary. Download it from [OpenAI Platform Tunnels](https://platform.openai.com/settings/organization/tunnels), then add its directory to PATH. Do not download a binary from an unofficial mirror.
 5. A tunnel ID and a runtime API key from the Platform tunnel setup. The runtime key needs Tunnels Read + Use permission; do not use an admin key.
@@ -47,6 +49,12 @@ For a repository already cloned on the laptop:
 
 ```powershell
 .\scripts\start-auren-chatgpt.ps1 -ProjectRoot "C:\Work\MyProject"
+```
+
+Install the local HTTP dependency if it is not already available in the checkout's Python environment:
+
+```powershell
+python -m pip install "uvicorn[standard]>=0.35,<1"
 ```
 
 The script prompts for the tunnel ID and runtime key. The key is entered as a secure PowerShell prompt and passed to the tunnel process through its environment. It is not an argument, checked-in setting or profile value. The tunnel ID and key are created in the OpenAI Platform organization, not in ChatGPT settings.
