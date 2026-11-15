@@ -17,6 +17,7 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from .guarded_network import NetworkPolicyDenied, guarded_loopback_http_get
 from .identity_compat import canonical_auren_home
 
 
@@ -126,10 +127,11 @@ def write_tunnel_config(
 
 
 def _ready(url: str, timeout: float = 0.75) -> bool:
+    """Probe only an explicit IPv4 loopback endpoint with bounded response bytes."""
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as response:
-            return response.status == 200
-    except (OSError, urllib.error.URLError, TimeoutError, ValueError):
+        status, _body = guarded_loopback_http_get(url, timeout=timeout, max_bytes=1024)
+        return status == 200
+    except (NetworkPolicyDenied, OSError, TimeoutError, ValueError):
         return False
 
 
