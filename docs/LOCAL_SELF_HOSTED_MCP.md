@@ -1,6 +1,6 @@
 # Local AUREN observation console and MCP host
 
-AUREN can run its observation console and authenticated MCP operator endpoint together on one workstation. Both bind to IPv4 loopback only. The dashboard and MCP ports default to **0**, so the operating system assigns free ports instead of assuming that port 8765 is available.
+AUREN can run its observation console and authenticated MCP operator endpoint together on one workstation. Both bind to IPv4 loopback only. The dashboard port defaults to **0**; the MCP port defaults to **8765** for the local CLI so client configuration is stable. You can request a free MCP port with `--mcp-port 0` when starting `auren local` directly.
 
 This is the primary single-user operator path and is not a public deployment recipe. Keep the HTTP endpoint on IPv4 loopback. The ChatGPT desktop app can launch the local stdio bridge through the shared Codex MCP configuration. This local connection uses AUREN's machine-local operator token and requires **no OAuth, OpenAI tunnel, public endpoint or remote AUREN service**. Remote ChatGPT Web access is a separate optional path; see [ChatGPT Web Setup](CHATGPT_WEB_SETUP.md).
 
@@ -115,7 +115,7 @@ If the MCP client supports Streamable HTTP and custom request headers, configure
 
 Use the token from the local credential file. Prefer a client secret store or environment-variable substitution if the client supports it. Avoid storing the token in a checked-in JSON/TOML file.
 
-The local endpoint uses HTTP only because it is bound to loopback. It is not directly reachable by a hosted LLM service. ChatGPT Web can reach it through the optional OpenAI Secure MCP Tunnel without publishing the AUREN endpoint. The local AUREN credential remains a machine-local bearer token; this is not an OAuth flow.
+The local endpoint uses HTTP only because it is bound to loopback. It is not directly reachable by a hosted LLM service. ChatGPT Web can reach it through the optional OpenAI Secure MCP Tunnel without publishing the AUREN endpoint. The tunnel requires a Platform tunnel ID and runtime API key, and MCP requests and responses transit OpenAI infrastructure. The local AUREN bearer token can be injected by the tunnel client on the final local hop, but this is not a strict-local-data path. It does not require an AUREN OAuth server when the ChatGPT tunnel connection is configured without MCP OAuth.
 
 ## 5. Connect ChatGPT desktop without OAuth
 
@@ -152,7 +152,7 @@ The local host must be running before the stdio client starts. If the client sup
 - **ChatGPT desktop, Codex app/CLI and IDE extension:** use the shared Codex stdio configuration above. Local OAuth is not required.
 - **Local MCP clients with HTTP header support:** connect directly to the printed Streamable HTTP URL and use the local bearer token through the client's protected secret store.
 - **Local MCP clients with stdio only:** use `python /path/to/AUREN/auren_cli.py mcp-proxy ...` as shown above.
-- **ChatGPT Web:** it cannot reach workstation loopback directly. For a supported workspace, use OpenAI Secure MCP Tunnel to forward to the local service; AUREN remains local and the local MCP hop continues to use its bearer token, not OAuth. AUREN does not need a public endpoint. Alternatively deploy a separate hosted service if you need persistent multi-user access.
+- **ChatGPT Web:** it cannot reach workstation loopback directly. For a supported workspace, use OpenAI Secure MCP Tunnel only if sending MCP request/response content through OpenAI infrastructure is acceptable. The tunnel requires a Platform tunnel ID and runtime API key. AUREN remains local; the tunnel client injects the local bearer credential on the final hop. No AUREN OAuth server is needed when MCP OAuth is left disabled. Do not use this route for strict-local-auth or strict-local-data requirements. Alternatively deploy a separately secured hosted service for persistent multi-user access.
 - **Other hosted/cloud-only LLMs:** use their supported private connectivity path or a separately secured remote deployment. Do not expose this local host.
 - **Tools without MCP support:** use the AUREN dashboard for observation, or choose an MCP-capable local host / supported stdio adapter.
 
