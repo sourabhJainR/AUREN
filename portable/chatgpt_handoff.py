@@ -180,11 +180,13 @@ def main(argv=None)->int:
  ex=sub.add_parser("export");ex.add_argument("--project-root",default=".");ex.add_argument("--output",required=True);ex.add_argument("--task",required=True);ex.add_argument("--accept",action="append",required=True);ex.add_argument("--file",action="append",required=True)
  va=sub.add_parser("validate");va.add_argument("--project-root",default=".");va.add_argument("--proposal",required=True)
  nw=sub.add_parser("new-project");nw.add_argument("--path",required=True);nw.add_argument("--name",required=True)
+ dl=sub.add_parser("deliver");dl.add_argument("--worktree",required=True);dl.add_argument("--title",required=True);dl.add_argument("--body",required=True);dl.add_argument("--base",default="main");dl.add_argument("--file",action="append",required=True)
  a=parser.parse_args(argv)
  try:
   if a.action=="export": result=export_task_package(a.project_root,a.output,task=a.task,acceptance_criteria=a.accept,files=a.file)
   elif a.action=="validate": result=validate_proposal(a.project_root,load_proposal(a.proposal))
-  else: result=create_independent_project(a.path,name=a.name)
+  elif a.action=="new-project": result=create_independent_project(a.path,name=a.name)
+  else: result=deliver_with_gh(a.worktree,title=a.title,body=a.body,expected_paths=a.file,base_branch=a.base)
   print(json.dumps(result,indent=2,sort_keys=True));return 0
  except (OSError,ValueError,RuntimeError,PermissionError,FileExistsError) as exc:
   print(f"auren handoff blocked: {exc}",file=sys.stderr);return 2
