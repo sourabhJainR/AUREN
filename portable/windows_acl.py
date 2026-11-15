@@ -36,9 +36,8 @@ def enforce_private_acl(path: str | Path, *, directory: bool) -> None:
         return
     sid = _current_user_sid()
     # Use SIDs rather than localized account names. SYSTEM retains recovery access.
-    grant = f"*{sid}:(F) *S-1-5-18:(F)"
     result = subprocess.run(
-        ["icacls", str(target), "/inheritance:r", "/grant:r", grant],
+        ["icacls", str(target), "/inheritance:r", "/grant:r", f"*{sid}:(F)", "*S-1-5-18:(F)"],
         capture_output=True, text=True, timeout=10, check=False,
     )
     if result.returncode != 0:
