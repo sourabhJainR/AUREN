@@ -282,7 +282,7 @@ def discover_clients(home: Path | None = None) -> list[dict[str, str]]:
     # CLI executable is not installed. Always offer this local config target;
     # callers can opt out of automatic client configuration with --no-connect.
     codex_config = base / ".codex" / "config.toml"
-    found.append({"name": "ChatGPT desktop / Codex app / CLI", "path": str(codex_config),
+    found.append({"name": "Codex CLI / app", "path": str(codex_config),
                   "key": "mcp_servers", "format": "toml"})
     return found
 
