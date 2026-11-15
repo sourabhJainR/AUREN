@@ -57,7 +57,12 @@ def _yaml_quote(value: str) -> str:
 def render_tunnel_config(tunnel_id: str, token_file: str | Path, mcp_url: str = DEFAULT_MCP_URL) -> str:
     tunnel_id = validate_tunnel_id(tunnel_id)
     mcp_url = validate_local_mcp_url(mcp_url)
-    token_path = Path(token_file).expanduser().resolve()
+    token_source = Path(token_file).expanduser()
+    if token_source.is_symlink() or token_source.parent.is_symlink():
+        raise ValueError("local MCP token path and parent must not be symlinks")
+    if token_source.exists() and not token_source.is_file():
+        raise ValueError("local MCP token path must be a regular file")
+    token_path = token_source.resolve()
     token_reference = "file:" + token_path.as_posix()
     return (
         "config_version: 1\n"
