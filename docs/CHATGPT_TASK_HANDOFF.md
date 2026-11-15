@@ -7,7 +7,7 @@ AUREN treats ChatGPT as an untrusted proposal author. Repository scope, approval
 Run from an AUREN checkout:
 
 ```powershell
-python -m portable.chatgpt_handoff export --project-root C:\Work\MyProject --output .\task-package.json --task "Implement the requested change" --accept "Required tests pass" --accept "No unrelated files change" --file src\feature.py --file tests\test_feature.py
+python auren_cli.py handoff export --project-root C:\Work\MyProject --output .\task-package.json --task "Implement the requested change" --accept "Required tests pass" --accept "No unrelated files change" --file src\feature.py --file tests\test_feature.py
 ```
 
 The package contains the exact Git HEAD, repository origin, root instruction files, explicitly selected files and acceptance criteria. Common credential paths are excluded; common secret-like strings are redacted. Review the package before sharing it. Filtering is defense in depth, not a guarantee that all private data has been removed.
@@ -28,7 +28,7 @@ Use UTF-8 JSON with this shape:
 AUREN rejects stale bases, duplicate paths, absolute paths, traversal, reserved state directories, symlinks, NUL/binary content, oversized files and common secret-like values. Proposal content is data. It is never evaluated, executed or treated as trusted instructions.
 
 ```powershell
-python -m portable.chatgpt_handoff validate --project-root C:\Work\MyProject --proposal .\proposal.json
+python auren_cli.py handoff validate --project-root C:\Work\MyProject --proposal .\proposal.json
 ```
 
 ## Approval, Guard and isolated application
@@ -48,7 +48,7 @@ Authenticate locally with gh auth login and verify with gh auth status. Credenti
 ## Independent projects
 
 ```powershell
-python -m portable.chatgpt_handoff new-project --path C:\Work\NewProject --name NewProject
+python auren_cli.py handoff new-project --path C:\Work\NewProject --name NewProject
 ```
 
 This creates a separate Git repository and AUREN project profile. Do not copy .auren credentials, task databases or approvals between projects. Existing GitHub checkouts continue to use AUREN's managed GitHub workspace provisioner. Start each project as an explicit project-bound session; active tasks cannot silently migrate.
