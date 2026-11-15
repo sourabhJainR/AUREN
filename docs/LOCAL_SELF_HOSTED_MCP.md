@@ -119,9 +119,17 @@ The local endpoint uses HTTP only because it is bound to loopback. It is not dir
 
 ## 5. Connect ChatGPT desktop without OAuth
 
-ChatGPT desktop, Codex CLI and the Codex IDE extension share the Codex MCP configuration. Configure AUREN as a local stdio server. The bridge reads the existing local operator token file itself, adds the bearer header only on the loopback hop, enforces request/response size limits, and writes JSON-RPC responses to stdout. The token is not placed in the Codex config or sent to an OAuth provider.
+ChatGPT desktop, Codex CLI and the Codex IDE extension share the Codex MCP configuration. The recommended setup is automatic:
 
-Copy [the ChatGPT desktop local config template](../integrations/mcp/chatgpt-desktop.local.toml.example) into `~/.codex/config.toml` (Windows: `%USERPROFILE%\\.codex\\config.toml`) and replace the paths and port with your local values. Merge the `[mcp_servers.auren]` section into an existing file; do not overwrite other MCP entries. Use the exact Python executable, AUREN checkout and token file paths. The local host must be running before the client starts.
+```powershell
+python auren_cli.py up --project-root "C:\\Work\\YourProject" --no-chatgpt --no-browser
+```
+
+AUREN starts the local runtime, waits for MCP readiness, then configures the shared ChatGPT desktop/Codex MCP file with the actual Python executable, AUREN checkout, loopback port and protected token-file path. It creates a backup, preserves unrelated MCP entries and leaves a conflicting existing AUREN entry unchanged. Use `--no-connect` if you do not want AUREN to modify local client configuration.
+
+The bridge reads the local operator token itself, adds the bearer header only on the loopback hop, enforces request/response size limits, and writes JSON-RPC responses to stdout. The token is not placed in the Codex config or sent to an OAuth provider. No OAuth login, OpenAI API key, tunnel ID or remote AUREN endpoint is involved.
+
+If you need to configure the host manually, use the [ChatGPT desktop local config template](../integrations/mcp/chatgpt-desktop.local.toml.example). Replace its placeholder paths and merge the `[mcp_servers.auren]` section into `%USERPROFILE%\\.codex\\config.toml` on Windows or `~/.codex/config.toml` on macOS/Linux. Do not overwrite other MCP entries. The local host must be running before the client starts. Restart ChatGPT desktop and use `/mcp` in the composer to confirm that AUREN is connected.
 
 Generic MCP client configuration:
 
