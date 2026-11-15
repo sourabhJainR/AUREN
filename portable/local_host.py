@@ -104,10 +104,10 @@ def load_or_create_local_token(path: Path | None = None) -> tuple[str, Path]:
         from .windows_acl import enforce_private_acl
         enforce_private_acl(parent, directory=True)
     if target.exists() or target.is_symlink():
-        token = _read_token_file(target)
         if os.name == "nt":
             from .windows_acl import enforce_private_acl
             enforce_private_acl(target, directory=False)
+        token = _read_token_file(target)
         return token, target
     token = secrets.token_urlsafe(48)
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
