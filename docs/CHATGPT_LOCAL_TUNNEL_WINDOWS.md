@@ -95,6 +95,10 @@ auren chatgpt-tunnel status
 
 The MCP port is 8765 unless overridden. The dashboard port is selected by the operating system and is printed in the AUREN startup output. The tunnel client exposes its own local health UI; use `tunnel-client doctor --config "$HOME/.auren/mcp/chatgpt-tunnel.yaml" --explain` if connection readiness is unclear.
 
+The AUREN launcher also checks this doctor command while running. Two consecutive failed health checks trigger a tunnel-client restart. Unexpected client exits trigger bounded restarts with exponential backoff (default 3, maximum 10; configure with `--max-restarts`). When the limit is exhausted, the launcher exits with a clear blocked error and still shuts down the local AUREN host. Use `auren chatgpt-tunnel status` to check whether the client, config and tunnel connection are ready to start. Exit code 0 means `ready_to_start`; it does not mean ChatGPT has discovered the server.
+
+On Windows, the launcher applies and verifies ACLs for the AUREN operator token, tunnel config directory and config file. It refuses to write the tunnel config if the token file is missing, malformed, a symlink, or cannot be protected. Existing config backups are protected before replacement.
+
 ## Security boundaries and limits
 
 - Never expose port 8765 through a router, reverse proxy or public firewall.
