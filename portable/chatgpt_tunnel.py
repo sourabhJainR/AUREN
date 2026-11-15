@@ -304,6 +304,10 @@ def _run(args: list[str]) -> int:
             consecutive_health_failures = 0
             tunnel_process = subprocess.Popen([str(client), "run", "--config", str(config_path)])
             while True:
+                if local_process.poll() is not None:
+                    raise RuntimeError(
+                        f"AUREN local host exited while tunnel was active with code {local_process.returncode}"
+                    )
                 now = time.monotonic()
                 exit_code = tunnel_process.poll()
                 if exit_code is not None:
