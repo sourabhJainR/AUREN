@@ -33,7 +33,7 @@ def head(root:Path)->str:
 def safe_path(value:str)->str:
  if not isinstance(value,str) or not value or "\x00" in value or "\\" in value: raise ValueError("path must be a normalized POSIX relative path")
  p=PurePosixPath(value)
- if p.is_absolute() or any(x in {"",".",".."} for x in p.parts) or any(x.lower() in {v.lower() for v in IGNORED} for x in p.parts): raise ValueError("absolute, traversal and reserved paths are rejected")
+ if p.is_absolute() or (p.parts and ":" in p.parts[0]) or any(x in {"",".",".."} for x in p.parts) or any(x.lower() in {v.lower() for v in IGNORED} for x in p.parts): raise ValueError("absolute, traversal and reserved paths are rejected")
  if any(x.lower() in SECRET_NAMES or x.lower().startswith(".env.") for x in p.parts): raise ValueError("secret-bearing paths are rejected")
  if p.as_posix()!=value: raise ValueError("path is not normalized")
  return value
