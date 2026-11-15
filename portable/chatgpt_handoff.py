@@ -92,16 +92,29 @@ def load_proposal(path:str|Path)->dict[str,Any]:
  return value
 
 def validate_proposal(project_root:str|Path,proposal:Mapping[str,Any])->dict[str,Any]:
+ if not isinstance(proposal,Mapping) or proposal.get("schema_version")!=1 or proposal.get("kind")!="auren.chatgpt_proposal":
+  raise ValueError("unsupported proposal schema or kind")
+ if not isinstance(proposal.get("base_commit"),str) or not SHA.fullmatch(proposal["base_commit"]):
+  raise ValueError("proposal must bind to a full base commit SHA")
+ changes=proposal.get("changes")
+ if not isinstance(changes,list) or not changes: raise ValueError("proposal requires changes")
  root=Path(project_root).expanduser().resolve(strict=True); current=head(root)
  if proposal.get("base_commit")!=current: raise ValueError(f"stale proposal: expected {proposal.get('base_commit')}, current HEAD is {current}")
- checked=[]
- for item in proposal.get("changes",[]):
-  name=safe_path(item["path"]); target=root/name; cursor=root
+ checked=[]; seen=set()
+ for item in changes:
+  if not isinstance(item,Mapping) or set(item)!={"path","content"}: raise ValueError("change must contain only path and complete content")
+  name=safe_path(item["path"])
+  if name in seen: raise ValueError("duplicate proposal path")
+  seen.add(name)
+  content=item["content"]
+  if not isinstance(content,str) or len(content.encode())>MAX_FILE_BYTES or "\\x00" in content or any(p.search(content) for p in SECRET_PATTERNS):
+   raise ValueError("proposal content is unsafe, binary or oversized")
+  target=root/name; cursor=root
   for part in PurePosixPath(name).parts:
    cursor=cursor/part
    if cursor.is_symlink(): raise ValueError(f"proposal path traverses symlink: {name}")
   if target.exists() and not target.is_file(): raise ValueError(f"target is not a regular file: {name}")
-  checked.append({"path":name,"operation":"replace" if target.exists() else "create","content_sha256":hashlib.sha256(item["content"].encode()).hexdigest()})
+  checked.append({"path":name,"operation":"replace" if target.exists() else "create","content_sha256":hashlib.sha256(content.encode()).hexdigest()})
  digest=hashlib.sha256(json.dumps(dict(proposal),sort_keys=True,separators=(",",":")).encode()).hexdigest()
  return {"status":"valid","base_commit":current,"proposal_sha256":digest,"changes":checked}
 
