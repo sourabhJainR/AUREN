@@ -107,7 +107,7 @@ def validate_proposal(project_root:str|Path,proposal:Mapping[str,Any])->dict[str
   if name in seen: raise ValueError("duplicate proposal path")
   seen.add(name)
   content=item["content"]
-  if not isinstance(content,str) or len(content.encode())>MAX_FILE_BYTES or "\\x00" in content or any(p.search(content) for p in SECRET_PATTERNS):
+  if not isinstance(content,str) or len(content.encode())>MAX_FILE_BYTES or "\x00" in content or any(p.search(content) for p in SECRET_PATTERNS):
    raise ValueError("proposal content is unsafe, binary or oversized")
   target=root/name; cursor=root
   for part in PurePosixPath(name).parts:
