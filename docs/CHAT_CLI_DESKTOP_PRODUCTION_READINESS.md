@@ -1,5 +1,7 @@
 # AUREN Chat, CLI and Desktop Integration: Production Readiness Review
 
+> **Status refresh — 2026-11-15:** The local ChatGPT Desktop path is the Codex-mode shared MCP configuration using the local STDIO bridge. This is distinct from ordinary ChatGPT chat and ChatGPT Web. The local path does not require OAuth or a Platform API key. Secure MCP Tunnel is an optional Web transport, not a Free-plan workaround. The tunnel implementation validates an existing operator token, applies Windows private ACLs, runs the documented tunnel-client doctor check, and supervises/restarts an exited tunnel process with a bounded retry count. These code changes are not live-client acceptance evidence. The installed Windows ChatGPT Desktop Codex-mode UI, live tunnel connectivity, and full lifecycle/recovery E2E still require a workstation acceptance receipt. Do not publish a stable release or mark either client surface live-verified until those gates pass.
+
 **Review baseline:** `main` at `2134566b997b91dd01d7100df6b50ad4abc67786`  
 **Review scope:** ChatGPT web/desktop, Codex CLI/app, AUREN CLI, and the AUREN local desktop console.  
 **Verdict:** The local integration foundation is implemented, but the end-to-end product integration is **not yet production-ready**.
