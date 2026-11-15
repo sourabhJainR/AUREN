@@ -94,13 +94,15 @@ def _load_server(config_path: Path, server_name: str) -> tuple[list[str], Path]:
         validate_local_url(url)
     except (ValueError, IndexError) as exc:
         raise AcceptanceError("AUREN stdio config must use loopback /mcp and a token file") from exc
-    token_path = Path(token_file).expanduser()
-    if not token_path.is_file():
-        raise AcceptanceError("configured AUREN local operator token file does not exist")
     cwd_value = server.get("cwd")
     cwd = Path(cwd_value).expanduser() if isinstance(cwd_value, str) and cwd_value else Path.cwd()
     if not cwd.is_dir():
         raise AcceptanceError("configured MCP working directory does not exist")
+    token_path = Path(token_file).expanduser()
+    if not token_path.is_absolute():
+        token_path = cwd / token_path
+    if not token_path.is_file():
+        raise AcceptanceError("configured AUREN local operator token file does not exist")
     executable = Path(command).expanduser()
     if executable.parent != Path(".") and not executable.is_file():
         raise AcceptanceError("configured MCP executable does not exist")
