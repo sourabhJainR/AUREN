@@ -185,11 +185,18 @@ def _run(args: list[str]) -> int:
             client = shutil.which(options.tunnel_client) if os.path.sep not in options.tunnel_client else options.tunnel_client
             report = {
                 "tunnel_client": "available" if client and Path(client).is_file() else "missing",
-                "runtime_key": "available" if os.environ.get("CONTROL_PLANE_API_KEY") else "not_set_in_this_process",
+                "runtime_key": "not_inspected_for_security",
                 "local_mcp": "ready" if _ready(options.mcp_url.rsplit("/mcp", 1)[0] + "/readyz") else "not_ready",
                 "config": "present" if Path(options.config).expanduser().is_file() else "missing",
+                "tunnel_connection": "not_checked",
             }
-            report["status"] = "ready" if all(value in {"available", "ready", "present"} for key, value in report.items() if key != "status") else "blocked"
+            report["status"] = (
+                "ready_to_start"
+                if report["tunnel_client"] == "available"
+                and report["local_mcp"] == "ready"
+                and report["config"] == "present"
+                else "blocked"
+            )
             print(json.dumps(report, indent=2, sort_keys=True))
             return 0 if report["status"] == "ready" else 2
 
