@@ -283,7 +283,7 @@ def test_shared_chatgpt_desktop_config_is_discovered_without_codex_cli(tmp_path:
     clients = discover_clients(tmp_path)
     codex_client = next(
         item for item in clients
-        if item["name"] == "ChatGPT desktop / Codex app / CLI"
+        if item["name"] == "Codex CLI / app"
     )
 
     assert codex_client["path"] == str(tmp_path / ".codex" / "config.toml")
