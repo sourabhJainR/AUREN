@@ -28,7 +28,7 @@ cd /path/to/your/repository
 auren up
 ```
 
-AUREN initializes or validates the project profile, starts the canonical local runtime and loopback MCP endpoint, and can configure supported local clients with backups. The local model task handler is proposal-only; it cannot modify repository files or run builds. See [Local Self-Hosted MCP](../../docs/LOCAL_SELF_HOSTED_MCP.md) and [Local-first Runtime and Onboarding](../../docs/LOCAL_FIRST_RUNTIME_AND_ONBOARDING.md).
+AUREN initializes or validates the project profile, starts the canonical local runtime and loopback MCP endpoint, and can configure supported local clients with backups. Task submission supports `execution_mode=proposal` for read-only model output, `execution_mode=coding` for the configured, Guard-gated Vibe Coding executor, and `auto` for the existing automatic selection. Coding mode requires a ready local host configuration, Codex workspace writer, independent reviewer, configured research/security tools, isolated worktree writes and durable approval. If those prerequisites are missing, explicit coding mode is blocked; it never falls back to unrestricted writes. Without a ready coding host, the default proposal path remains read-only. See [Vibe Coding Workflow](../../docs/VIBE_CODING_WORKFLOW.md), [Local Self-Hosted MCP](../../docs/LOCAL_SELF_HOSTED_MCP.md) and [Local-first Runtime and Onboarding](../../docs/LOCAL_FIRST_RUNTIME_AND_ONBOARDING.md).
 
 ## Orchestration frameworks
 
