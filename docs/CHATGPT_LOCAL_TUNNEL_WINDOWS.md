@@ -24,14 +24,16 @@ The tunnel is transport only. It does not create a second controller, agent runt
 
 3. Git installed and authenticated for private repositories. AUREN uses the local Git credential helper; it does not ask ChatGPT for your GitHub password or token.
 4. The official OpenAI `tunnel-client` Windows binary. Download it from [OpenAI Platform Tunnels](https://platform.openai.com/settings/organization/tunnels), then add its directory to PATH. Do not download a binary from an unofficial mirror.
-5. A tunnel ID and a runtime API key from the Platform tunnel setup. The runtime key needs tunnel use permission; do not use an admin key.
+5. A tunnel ID and a runtime API key from the Platform tunnel setup. The runtime key needs Tunnels Read + Use permission; do not use an admin key.
 6. A ChatGPT workspace that permits custom MCP apps. Current OpenAI documentation lists full MCP (including write actions) for Business and Enterprise/Edu. Pro supports read/fetch only. Free is not currently listed as eligible. See [OpenAI's connection requirements](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt).
 
 ## Start AUREN for a GitHub repository
 
-From the AUREN checkout, run the helper script:
+Clone the AUREN repository and open PowerShell in its root. The helper can run the source checkout directly; a separate AUREN global install is not required for this path:
 
 ```powershell
+git clone https://github.com/sourabhJainR/AUREN.git
+Set-Location .\AUREN
 .\scripts\start-auren-chatgpt.ps1 -Repository "https://github.com/OWNER/REPOSITORY"
 ```
 
@@ -47,7 +49,7 @@ For a repository already cloned on the laptop:
 .\scripts\start-auren-chatgpt.ps1 -ProjectRoot "C:\Work\MyProject"
 ```
 
-The script prompts for the tunnel ID and runtime key. The key is entered as a secure PowerShell prompt and passed to the tunnel process through its environment. It is not an argument, checked-in setting or profile value.
+The script prompts for the tunnel ID and runtime key. The key is entered as a secure PowerShell prompt and passed to the tunnel process through its environment. It is not an argument, checked-in setting or profile value. The tunnel ID and key are created in the OpenAI Platform organization, not in ChatGPT settings.
 
 Keep the PowerShell window open. AUREN uses port 8765 for the local MCP endpoint by default. If that port is already occupied, stop the other process or use a different port by invoking `auren chatgpt-tunnel run --mcp-port <port>` directly.
 
@@ -59,8 +61,8 @@ With AUREN and `tunnel-client` running:
 2. Select the plus button, then **Add custom MCP server**.
 3. Under Connection, choose **Tunnel**.
 4. Select the available tunnel or paste the exact tunnel ID.
-5. Complete the authentication and risk acknowledgement steps.
-6. Create the app and inspect the discovered tool list.
+5. Leave the MCP server authentication unset if the ChatGPT connection flow offers that choice. The tunnel client injects AUREN's local bearer token on the laptop-to-MCP hop; do not configure a second OAuth provider for this local tunnel path.
+6. Review and acknowledge the risk warning, create the app and inspect the discovered tool list.
 7. Start with read-only tools. Enable task submission and approval decisions only for an account/workspace that supports write actions and after reviewing the AUREN scopes and approval policy.
 
 Keep the local PowerShell process running during discovery and every ChatGPT tool call. The tunnel is unavailable after the process exits.
