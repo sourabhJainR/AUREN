@@ -840,7 +840,7 @@ class LocalRuntimeComposition:
             "_auren_local_admitted_at": admitted_at,
             "_auren_local_separation_of_duties": bool(remote_principal),
             "_auren_local_vibe_config_digest": vibe_config_digest,
-            "_auren_local_execution_mode": "coding" if vibe_execution else "proposal",
+            "_auren_local_execution_mode": "coding" if vibe_enabled else "proposal",
         }
 
     def _source_revision(self) -> str:
