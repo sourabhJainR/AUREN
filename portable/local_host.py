@@ -100,8 +100,15 @@ def load_or_create_local_token(path: Path | None = None) -> tuple[str, Path]:
     parent.mkdir(parents=True, exist_ok=True)
     if os.name != "nt":
         parent.chmod(0o700)
+    else:
+        from .windows_acl import enforce_private_acl
+        enforce_private_acl(parent, directory=True)
     if target.exists() or target.is_symlink():
-        return _read_token_file(target), target
+        token = _read_token_file(target)
+        if os.name == "nt":
+            from .windows_acl import enforce_private_acl
+            enforce_private_acl(target, directory=False)
+        return token, target
     token = secrets.token_urlsafe(48)
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     if hasattr(os, "O_NOFOLLOW"):
@@ -121,6 +128,9 @@ def load_or_create_local_token(path: Path | None = None) -> tuple[str, Path]:
         except OSError:
             pass
         raise
+    if os.name == "nt":
+        from .windows_acl import enforce_private_acl
+        enforce_private_acl(target, directory=False)
     return token, target
 
 
