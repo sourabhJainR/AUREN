@@ -14,6 +14,7 @@ from unittest.mock import patch
 from portable.adaptive_trigger import AdaptiveTriggerRequest
 from portable.local_composition import (
     LocalProviderOperationLedger,
+    LocalProviderNotConfigured,
     LocalProviderOutcomeUnknown,
     create_local_composition,
     run_local_provider_task,
@@ -580,6 +581,86 @@ os._exit(87)
                 self.assertIsNone(composition.vibe_host_config)
                 self.assertEqual("", composition.vibe_host_config_digest)
             finally:
+                composition.close()
+
+
+    def test_explicit_coding_mode_selects_the_guarded_executor_when_ready(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            project = root / "workspace"
+            _git_workspace(project)
+            composition = create_local_composition(project, state_root=root / "state")
+            token_path = root / "operator.token"
+            service = _service(composition, project, token_path, 43155)
+            try:
+                config_path = root / "host.json"
+                config_path.write_text("{}", encoding="utf-8")
+                composition.vibe_host_config = SimpleNamespace(
+                    provider="codex", allow_workspace_writes=True,
+                )
+                composition.vibe_host_config_path = config_path
+                composition.vibe_host_config_digest = hashlib.sha256(config_path.read_bytes()).hexdigest()
+                composition.vibe_host_status = {"status": "ready"}
+                principal = service.token_verifier.verify(token_path.read_text(encoding="utf-8").strip())
+
+                admitted = composition.admit_task(
+                    principal, "Implement a bounded feature",
+                    {"execution_mode": "coding"}, "coding-mode-admission-0001",
+                )
+
+                self.assertEqual(admitted["_auren_local_provider"]["kind"], "vibe")
+                self.assertEqual(admitted["_auren_local_execution_mode"], "coding")
+            finally:
+                service.close()
+                composition.close()
+
+    def test_proposal_mode_never_selects_the_coding_executor_even_when_ready(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            project = root / "workspace"
+            _git_workspace(project)
+            composition = create_local_composition(project, state_root=root / "state")
+            token_path = root / "operator.token"
+            service = _service(composition, project, token_path, 43156)
+            try:
+                config_path = root / "host.json"
+                config_path.write_text("{}", encoding="utf-8")
+                composition.vibe_host_config = SimpleNamespace(
+                    provider="codex", allow_workspace_writes=True,
+                )
+                composition.vibe_host_config_path = config_path
+                composition.vibe_host_config_digest = hashlib.sha256(config_path.read_bytes()).hexdigest()
+                composition.vibe_host_status = {"status": "ready"}
+                principal = service.token_verifier.verify(token_path.read_text(encoding="utf-8").strip())
+                with patch.object(composition, "_local_model_candidates", return_value=["local-test-model"]):
+                    admitted = composition.admit_task(
+                        principal, "Explain the current implementation",
+                        {"execution_mode": "proposal"}, "proposal-mode-admission-0001",
+                    )
+
+                self.assertEqual(admitted["_auren_local_provider"]["kind"], "local")
+                self.assertEqual(admitted["_auren_local_execution_mode"], "proposal")
+            finally:
+                service.close()
+                composition.close()
+
+    def test_coding_mode_fails_closed_when_the_executor_is_not_ready(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            project = root / "workspace"
+            _git_workspace(project)
+            composition = create_local_composition(project, state_root=root / "state")
+            token_path = root / "operator.token"
+            service = _service(composition, project, token_path, 43157)
+            try:
+                principal = service.token_verifier.verify(token_path.read_text(encoding="utf-8").strip())
+                with self.assertRaises(LocalProviderNotConfigured):
+                    composition.admit_task(
+                        principal, "Implement a bounded feature",
+                        {"execution_mode": "coding"}, "coding-mode-blocked-0001",
+                    )
+            finally:
+                service.close()
                 composition.close()
 
 
