@@ -43,6 +43,12 @@ The callbacks must be wired to AUREN's live operator identity, durable approval 
 
 deliver_with_gh uses the laptop's local gh authentication, commits and pushes the isolated branch, opens a pull request and verifies that the PR head SHA equals the local commit SHA. It reports checks for that PR; it does not merge. Required checks must pass on the exact head before merge.
 
+
+
+```powershell
+python auren_cli.py handoff deliver --worktree C:\Work\MyProject\.auren-worktrees\<proposal-id> --title "Implement approved change" --body "Summary and test evidence" --file src\feature.py --file tests\test_feature.py
+```
+
 Authenticate locally with gh auth login and verify with gh auth status. Credentials are never copied into the task package.
 
 ## Independent projects
