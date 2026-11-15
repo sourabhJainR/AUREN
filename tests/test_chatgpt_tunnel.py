@@ -49,7 +49,8 @@ class ChatGPTTunnelConfigTests(unittest.TestCase):
             token = Path(directory) / "token"
             first = write_tunnel_config("tunnel_" + "a" * 32, token, config_path=config)
             self.assertTrue(first.is_file())
-            self.assertEqual(config.stat().st_mode & 0o777, 0o600 if os.name != "nt" else config.stat().st_mode & 0o777)
+            if os.name != "nt":
+                self.assertEqual(config.stat().st_mode & 0o777, 0o600)
             with self.assertRaises(FileExistsError):
                 write_tunnel_config("tunnel_" + "b" * 32, token, config_path=config)
             write_tunnel_config("tunnel_" + "b" * 32, token, config_path=config, overwrite=True)
