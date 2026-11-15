@@ -13,7 +13,7 @@ SECRET_PATTERNS=(
  re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----",re.I),
  re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{8,}",re.I),
  re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,})\b"),
- re.compile(r"\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|client[_-]?secret)\s*[:=]\s*['\"]?[^,\s'\"]{4,}",re.I),
+ re.compile(r"\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|password|client[_-]?secret)\s*[:=]\s*['\"]?[^,\s'\"]{4,}",re.I),
  re.compile(r"https?://[^/\s:@]+:[^/\s@]+@"),
 )
 SECRET_NAMES={".env",".env.local",".env.production","id_rsa","id_ed25519","credentials","secrets"}
@@ -43,7 +43,7 @@ def redact(value:str)->str:
   (r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----","[REDACTED PRIVATE KEY]",re.I|re.S),
   (r"\bBearer\s+[A-Za-z0-9._~+/=-]{8,}","Bearer [REDACTED]",re.I),
   (r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,})\b","[REDACTED TOKEN]",0),
-  (r"(\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|client[_-]?secret)\s*[:=]\s*['\"]?)[^,\s'\"]{4,}",r"\1[REDACTED]",re.I),
+  (r"(\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|password|client[_-]?secret)\s*[:=]\s*['\"]?)[^,\s'\"]{4,}",r"\1[REDACTED]",re.I),
   (r"https?://[^/\s:@]+:[^/\s@]+@","[REDACTED URL CREDENTIALS]@",0)]
  for pattern,repl,flags in patterns: value=re.sub(pattern,repl,value,flags=flags)
  return value
@@ -160,7 +160,10 @@ def deliver_with_gh(worktree:str|Path,*,title:str,body:str,expected_paths:Sequen
  return {"status":"pr_created_checks_reported","pull_request":pr,"branch":branch,"head_commit":sha,"checks":checks}
 
 def create_independent_project(path:str|Path,*,name:str)->dict[str,Any]:
- target=Path(path).expanduser().resolve()
+ raw=Path(path).expanduser()
+ if raw.is_symlink(): raise PermissionError("project path must not be a symlink")
+ if not isinstance(name,str) or not name.strip() or len(name)>120: raise ValueError("project name must be non-empty and bounded")
+ target=raw.resolve()
  if target.exists() and any(target.iterdir()): raise FileExistsError("project destination must be empty")
  target.mkdir(parents=True,exist_ok=True)
  if target.is_symlink(): raise PermissionError("project path must not be a symlink")
