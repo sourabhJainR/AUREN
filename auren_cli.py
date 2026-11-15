@@ -1044,7 +1044,7 @@ def main(argv: list[str] | None = None) -> int:
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog=(
                 "Quick start: auren up\n"
-                "Useful commands: auren task submit --task \"...\" | auren verify-local | auren providers | auren integrations | auren progress --json | "
+                "Useful commands: auren task submit --task \"...\" | auren verify-local | auren chatgpt-tunnel | auren providers | auren integrations | auren progress --json | "
                 "auren continuous status | auren doctor\n"
                 "Full usage: docs/USAGE_AND_PLATFORM_INTEGRATION.md"
             ),
