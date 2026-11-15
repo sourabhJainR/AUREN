@@ -15,7 +15,7 @@ Safe configuration templates for the CLI and IDE hosts are under [`integrations/
 | Host | Native connection path | Repository readiness | Remaining proof |
 |---|---|---|---|
 | ChatGPT web | Plugins → Add custom MCP server; public HTTPS or supported secure tunnel; OAuth | Remote MCP protocol implemented; no hosted endpoint or OAuth tenant configured | Workspace/plan eligibility, deployment factory, OAuth registration, scoped coding executor and live tool acceptance |
-| ChatGPT desktop app | Settings → MCP servers; Streamable HTTP or stdio; OAuth | Documented through the shared Codex host configuration | Connect to the deployed AUREN endpoint, authenticate, restart the app and verify `/mcp` tool discovery |
+| ChatGPT desktop app | Shared Codex `~/.codex/config.toml`; local stdio bridge | Local stdio template provided; no OAuth required; live app acceptance pending | Start local AUREN, load the stdio server, restart desktop and verify local tool discovery |
 | Codex CLI, Codex app and IDE extension | Shared `~/.codex/config.toml` or `codex mcp add` | Documented | OAuth login, tool discovery, approval and cancellation |
 | Claude chat web | Remote MCP connector / custom connector | Documented | External OAuth provider and live connector acceptance |
 | Claude Desktop | Remote MCP connector | Documented | Live OAuth and tool acceptance |
@@ -54,9 +54,25 @@ These frameworks supply the agent loop and model selection. AUREN supplies gover
 
 ## OpenAI: ChatGPT, Codex and desktop
 
-### Codex CLI, app and IDE extension
+### ChatGPT desktop, Codex CLI, app and IDE extension
 
-Codex clients share MCP configuration. For the CLI:
+Codex clients share MCP configuration. ChatGPT desktop's local MCP configuration is the same file. For local AUREN, use the stdio bridge rather than a remote URL. It reads the protected local operator token file and adds the bearer header on the loopback request; no OAuth flow is involved:
+
+```toml
+[mcp_servers.auren]
+command = "C:\\\Python\\\\python.exe"
+args = [
+  "C:\\Work\\AUREN\\auren_cli.py",
+  "mcp-proxy",
+  "--url", "http://127.0.0.1:8765/mcp",
+  "--token-file", "C:\\Users\\<user>\\.auren\\mcp\\local-operator.token",
+]
+cwd = "C:\\Work\\AUREN"
+```
+
+Use the exact paths on the workstation. Keep the local AUREN host running. The template is also available at [chatgpt-desktop.local.toml.example](../integrations/mcp/chatgpt-desktop.local.toml.example).
+
+For remote Codex CLI or a separately hosted server:
 
 ```bash
 codex mcp add auren --url https://mcp.example.com/mcp
@@ -71,11 +87,11 @@ Equivalent `~/.codex/config.toml`:
 url = "https://mcp.example.com/mcp"
 ```
 
-The Codex app, CLI and IDE extension share the Codex host configuration. Authenticate from the host UI or `codex mcp login` when prompted. ChatGPT desktop's Settings → MCP servers uses this same Codex host configuration.
+The Codex app, CLI and IDE extension share the Codex host configuration. Local stdio mode does not call `codex mcp login`. Use the remote URL and OAuth login only for a separately deployed remote service.
 
 ### ChatGPT web
 
-ChatGPT web does not read local Codex configuration or a workstation's loopback MCP endpoint. Connect AUREN from **Plugins → + → Add custom MCP server** using the deployed HTTPS `/mcp` endpoint (or a supported Secure MCP Tunnel), configure OAuth, review the discovered tools, create the app/plugin, install it, then select it in a conversation with `@`. See [ChatGPT Web Setup](CHATGPT_WEB_SETUP.md) for the deployment prerequisites, plan limits, least-privilege tool set and remaining execution gates.
+ChatGPT Web does not read local Codex configuration or a workstation's loopback MCP endpoint. For a supported workspace, connect AUREN from **Plugins → + → Add custom MCP server** using either a deployed HTTPS `/mcp` endpoint or a supported Secure MCP Tunnel. For the tunnel path, select Tunnel and leave MCP authentication unset if the UI offers that option; the local tunnel client forwards the local bearer credential to AUREN. Do not configure OAuth for the local AUREN hop. A hosted multi-user endpoint may use OAuth. Review the discovered tools, create the app/plugin, install it, then select it in a conversation with `@`. See [ChatGPT Web Setup](CHATGPT_WEB_SETUP.md) for the deployment prerequisites, plan limits, least-privilege tool set and remaining execution gates.
 
 Current ChatGPT availability: Free does not support custom MCP connections; Pro is limited to read/fetch; Business, Enterprise and Edu support full MCP subject to workspace permissions and admin controls. Business admins/owners create and publish apps. Enterprise/Edu admins/owners publish and may grant authorized developers creation access.
 
