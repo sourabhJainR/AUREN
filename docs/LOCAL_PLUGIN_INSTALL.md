@@ -57,7 +57,15 @@ auren task status <task-id>
 auren task evidence <task-id>
 ```
 
-The built-in local model task handler remains proposal-only. To enable repository-changing work, configure the separate Vibe Coding executor in `~/.auren/vibe-coding/host.json`, install the Codex CLI, and set `allow_workspace_writes` to `true`. The executor works only in an isolated Git worktree. Single-user local installs use a durable host-owner approval record by default, without an interactive prompt; set `approval_mode` to `manual` if you want a separate approval step. It does not merge, publish, release or deploy to production.
+The default provider path is read-only. To enable repository-changing work, configure the existing Vibe Coding executor in `~/.auren/vibe-coding/host.json`, install the Codex CLI, and set `allow_workspace_writes` to `true`. The local MCP composition selects this executor only when its full readiness preflight passes and the submitted mode is `coding` (or `auto`). The executor works only in an isolated Git worktree. Single-user local installs use a durable host-owner approval record by default, without an interactive prompt; set `approval_mode` to `manual` if you want a separate approval step. It does not merge, publish, release or deploy to production.
+
+Submit a repository-changing task explicitly:
+
+```powershell
+auren task submit --execution-mode coding --task "Implement the requested change, run tests, and report evidence"
+```
+
+Use `--execution-mode proposal` for read-only analysis. `auto` preserves automatic selection when the coding host is ready. Explicit coding mode fails closed when the host is missing or not ready.
 
 After configuration, restart the local AUREN host and submit a coding task:
 
