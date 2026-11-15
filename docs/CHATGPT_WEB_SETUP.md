@@ -4,7 +4,7 @@ AUREN remains local-first. The primary single-user workflow is the AUREN CLI, lo
 
 ChatGPT Web cannot call a workstation loopback URL directly. Use a hosted HTTPS MCP endpoint for a persistent connection, or the OpenAI Secure MCP Tunnel for controlled development. The tunnel does not turn a local endpoint into a public production service and does not change ChatGPT plan eligibility.
 
-This guide covers ChatGPT Web. The native AUREN Desktop shell is a separate application; a live ChatGPT Desktop MCP acceptance test has not been completed.
+This guide covers ChatGPT Web. For ChatGPT desktop, use the shared Codex local stdio configuration in [Local Self-Hosted MCP](LOCAL_SELF_HOSTED_MCP.md#5-connect-chatgpt-desktop-without-oauth). That local connection does not require OAuth or a tunnel. A live ChatGPT desktop acceptance test is still pending.
 
 ## Plan and workspace requirements
 
@@ -35,21 +35,21 @@ This route keeps ChatGPT Free and GitHub Free usable without a tunnel, paid API 
 
 ## Choose a connection path
 
-### Local development
+### Primary path: local AUREN + ChatGPT desktop
 
-Keep the local MCP endpoint bound to loopback and use a local MCP client such as Codex CLI or another supported host. Use the browser Engineering Console for the local dashboard and task monitoring.
+Keep AUREN on the workstation. Start it with `auren up --project-root <path>` and connect ChatGPT desktop through its shared Codex stdio configuration. The stdio bridge reads the local operator token from AUREN's protected token file and forwards requests to `127.0.0.1`; the ChatGPT host config contains only local executable and path settings. **No OAuth, OpenAI API key, tunnel ID, public endpoint or hosted AUREN service is needed for this local path.** See [Local Self-Hosted MCP](LOCAL_SELF_HOSTED_MCP.md).
 
-Do not expose the local MCP port directly to the internet. ChatGPT Web cannot reach a workstation loopback endpoint without a tunnel or hosted service.
+Do not expose the local MCP port directly to the internet. ChatGPT Web is a separate hosted product surface and cannot read local Codex configuration or reach workstation loopback directly.
 
 ### Private development tunnel
 
-For a temporary or single-user laptop connection, use OpenAI's official [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels). The OpenAI `tunnel-client` runs beside AUREN and makes an outbound HTTPS connection. ChatGPT reaches the tunnel ID; it never connects directly to the laptop's loopback port. Do not expose the local MCP port to the internet.
+For optional ChatGPT Web access from a supported workspace, use OpenAI's official [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels). The OpenAI `tunnel-client` runs beside AUREN and makes an outbound HTTPS connection. ChatGPT reaches the tunnel ID; it never connects directly to the laptop's loopback port. Do not expose the local MCP port to the internet. This tunnel is a transport relay, not a remote AUREN runtime.
 
 For the Windows laptop workflow, use [AUREN local ChatGPT connection](CHATGPT_LOCAL_TUNNEL_WINDOWS.md). It starts one project-bound AUREN local runtime, waits for its authenticated MCP endpoint, writes a tunnel-client config with secret references, and runs the tunnel client in the foreground. The runtime API key is read from the process environment; the AUREN bearer token is read from its protected local token file. Stop the foreground process with Ctrl+C to stop both services.
 
-The tunnel requires a provisioned `tunnel_id`, a runtime API key with tunnel-use permission, and the official tunnel-client binary. It is a transport only: AUREN remains responsible for task admission, execution, approvals, Guard and evidence. The local MCP server is project-bound; stop and restart with another repository to switch projects.
+The tunnel requires a provisioned `tunnel_id`, a runtime API key with tunnel-use permission, and the official tunnel-client binary. MCP request and response content transits OpenAI infrastructure. The tunnel client can read AUREN's local bearer token from a file reference and inject it on the final local MCP hop, but the tunnel is not a strict-local-auth or strict-local-data design. Use it only when that data path is acceptable. AUREN remains responsible for task admission, execution, approvals, Guard and evidence. The local MCP server is project-bound; stop and restart with another repository to switch projects.
 
-Use a tunnel for private development. It does not create a public plugin or replace the hosted OAuth deployment path for public distribution.
+Use a tunnel only when ChatGPT Web needs access and OpenAI transit of MCP request/response content is acceptable. The tunnel client uses a separate OpenAI Platform runtime API key and injects the local AUREN bearer credential on the final hop. No AUREN OAuth authorization server is needed when MCP OAuth is disabled in the ChatGPT tunnel connection. Do not use this path when credentials or MCP content must remain entirely outside OpenAI infrastructure. A hosted multi-user deployment remains a separate architecture and may use OAuth.
 
 ### Hosted endpoint
 
@@ -136,7 +136,7 @@ After the hosted endpoint and OAuth provider pass acceptance:
 1. In ChatGPT Web, open Plugins.
 2. Select the plus button, then choose Add custom MCP server.
 3. Enter a name and the public HTTPS MCP endpoint URL. Use the Tunnel option only for a configured Secure MCP Tunnel.
-4. Configure OAuth and complete the identity-provider sign-in.
+4. For a hosted endpoint, configure OAuth and complete the identity-provider sign-in. For a Secure MCP Tunnel, select the tunnel and configure authentication according to the current connection UI. AUREN's local bearer credential is injected by the local tunnel client on the final MCP hop; the tunnel itself still requires its Platform runtime key. If the connection UI permits MCP authentication to be unset, no AUREN OAuth provider is needed for this local tunnel path. Do not treat this as strict-local data handling.
 5. Review the risk warning and acknowledge it.
 6. Select Create as a plugin, then review the discovered tools and metadata.
 7. Confirm the tools match the scopes granted to the signed-in principal. Start with read-only tools; enable task submission and approval decisions only after the workspace plan, user scopes and approver allowlist are correct.

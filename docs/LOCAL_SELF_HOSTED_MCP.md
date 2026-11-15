@@ -1,8 +1,8 @@
 # Local AUREN observation console and MCP host
 
-AUREN can run its observation console and authenticated MCP operator endpoint together on one workstation. Both bind to IPv4 loopback only. The dashboard and MCP ports default to **0**, so the operating system assigns free ports instead of assuming that port 8765 is available.
+AUREN can run its observation console and authenticated MCP operator endpoint together on one workstation. Both bind to IPv4 loopback only. The dashboard port defaults to **0**; the MCP port defaults to **8765** for the local CLI so client configuration is stable. You can request a free MCP port with `--mcp-port 0` when starting `auren local` directly.
 
-This is a local development/operator host, not a public deployment recipe. Do not expose its HTTP endpoint through a router, tunnel, reverse proxy, or public bind. Remote deployments must use the separate HTTPS and OAuth configuration in [Remote MCP Operations](REMOTE_MCP_OPERATIONS.md).
+This is the primary single-user operator path and is not a public deployment recipe. Keep the HTTP endpoint on IPv4 loopback. The ChatGPT desktop app can launch the local stdio bridge through the shared Codex MCP configuration. This local connection uses AUREN's machine-local operator token and requires **no OAuth, OpenAI tunnel, public endpoint or remote AUREN service**. Remote ChatGPT Web access is a separate optional path; see [ChatGPT Web Setup](CHATGPT_WEB_SETUP.md).
 
 ## 1. Install and start
 
@@ -73,7 +73,7 @@ Return to the local profile with:
 python auren_cli.py mode --project-root /path/to/project --mode single_user_local --apply
 ```
 
-The profile change creates a backup and clears the managed factory reference when switching back to local. Do not run a factory-backed host from a single-user local profile. The built-in MCP execution path is currently proposal-only; it does not write repository files or perform release actions.
+The profile change creates a backup and clears the managed factory reference when switching back to local. Do not run a factory-backed host from a single-user local profile. The default provider path is proposal-only. For guarded repository changes, configure and pass the Vibe Coding readiness checks, then submit with `execution_mode=coding` (MCP) or `auren task submit --execution-mode coding` (CLI). Explicit coding mode fails closed when the host is not ready. Work stays in an isolated Git worktree and still requires the canonical approval, independent review and evidence gates; it never merges or deploys. See [Vibe Coding Workflow](VIBE_CODING_WORKFLOW.md).
 
 
 ## Optional provider setup
@@ -90,7 +90,7 @@ export AUREN_LOCAL_DATA_CLASSIFICATION=public
 
 Use the provider-specific environment names in [Model Provider Integration](MODEL_PROVIDER_INTEGRATION.md). Never place API keys in project profiles, task context, MCP arguments or repository files. The accepted task binds the provider name/model, Git HEAD and Guard policy digest. If the provider or policy changes before dispatch/recovery, the task is blocked rather than silently rerouted.
 
-The provider receives only the submitted task text. It has no repository tools and cannot modify files, merge, release or deploy. Local CLI discovery is not execution readiness; Codex, Claude Code and Gemini CLI invocation remains disabled until the scoped subprocess and workspace boundary is integrated.
+The read-only model-provider adapter receives only the submitted task text. It has no repository tools and cannot modify files, merge, release or deploy. This restriction applies to that generic provider adapter, not to the separately configured Vibe Coding host described above. The Vibe Coding host has its own readiness preflight, isolated-worktree writer, independent reviewer and durable approval path; local CLI discovery alone does not make that executor ready. Claude Code and Gemini CLI remain discovery-only until their own scoped subprocess and workspace boundaries are integrated.
 
 ## 3. Local authentication and safety
 
@@ -115,11 +115,21 @@ If the MCP client supports Streamable HTTP and custom request headers, configure
 
 Use the token from the local credential file. Prefer a client secret store or environment-variable substitution if the client supports it. Avoid storing the token in a checked-in JSON/TOML file.
 
-The local endpoint uses HTTP only because it is bound to loopback. It is not suitable for a hosted LLM service running outside the workstation. A hosted service cannot reach your machine's `127.0.0.1`; use the separately secured HTTPS/OAuth remote deployment for that case.
+The local endpoint uses HTTP only because it is bound to loopback. It is not directly reachable by a hosted LLM service. ChatGPT Web can reach it through the optional OpenAI Secure MCP Tunnel without publishing the AUREN endpoint. The tunnel requires a Platform tunnel ID and runtime API key, and MCP requests and responses transit OpenAI infrastructure. The local AUREN bearer token can be injected by the tunnel client on the final local hop, but this is not a strict-local-data path. It does not require an AUREN OAuth server when the ChatGPT tunnel connection is configured without MCP OAuth.
 
-## 5. Use the stdio bridge when HTTP headers are unsupported
+## 5. Connect ChatGPT desktop without OAuth
 
-Some MCP hosts support stdio servers but do not let you configure an Authorization header for an HTTP MCP server. In that case, configure the host to launch AUREN's stdio bridge. The bridge reads the local token file itself, adds the bearer header to each local HTTP request, enforces request/response size limits, and writes JSON-RPC responses to stdout. Diagnostics go to stderr.
+ChatGPT desktop, Codex CLI and the Codex IDE extension share the Codex MCP configuration. The recommended setup is automatic:
+
+```powershell
+python auren_cli.py up --project-root "C:\\Work\\YourProject" --no-chatgpt --no-browser
+```
+
+AUREN starts the local runtime, waits for MCP readiness, then configures the shared ChatGPT desktop/Codex MCP file with the actual Python executable, AUREN checkout, loopback port and protected token-file path. It creates a backup, preserves unrelated MCP entries and leaves a conflicting existing AUREN entry unchanged. Use `--no-connect` if you do not want AUREN to modify local client configuration.
+
+The bridge reads the local operator token itself, adds the bearer header only on the loopback hop, enforces request/response size limits, and writes JSON-RPC responses to stdout. The token is not placed in the Codex config or sent to an OAuth provider. No OAuth login, OpenAI API key, tunnel ID or remote AUREN endpoint is involved.
+
+If you need to configure the host manually, use the [ChatGPT desktop local config template](../integrations/mcp/chatgpt-desktop.local.toml.example). Replace its placeholder paths and merge the `[mcp_servers.auren]` section into `%USERPROFILE%\\.codex\\config.toml` on Windows or `~/.codex/config.toml` on macOS/Linux. Do not overwrite other MCP entries. The local host must be running before the client starts. Restart ChatGPT desktop and use `/mcp` in the composer to confirm that AUREN is connected.
 
 Generic MCP client configuration:
 
@@ -145,11 +155,26 @@ Replace the example MCP port with the actual port printed by the running host. O
 
 The local host must be running before the stdio client starts. If the client supports a working-directory field, set it to the AUREN checkout. Otherwise, invoking the absolute `auren_cli.py` path is sufficient.
 
+
+### Verify the configured ChatGPT desktop stdio process
+
+After `auren up` has written the shared Codex/ChatGPT desktop configuration and the local AUREN host is running, run this from the AUREN checkout:
+
+```powershell
+python auren_cli.py accept-chatgpt-desktop-mcp
+```
+
+The acceptance runner reads the actual `%USERPROFILE%\\.codex\\config.toml` entry, launches the configured `mcp-proxy` process with `shell=False`, completes MCP initialize and tool discovery, verifies that `auren.service_status` is marked read-only, and invokes that read-only tool. It never submits a task, changes an approval, prints the local token, or invokes a write tool. Use `--config` if the desktop app uses a non-default Codex config path.
+
+A successful report proves that the exact configured stdio command can authenticate and perform a read-only MCP call. It does **not** prove that the ChatGPT desktop UI has loaded the server. For the final host acceptance, restart ChatGPT desktop, open a new chat, confirm `auren` appears in `/mcp`, and ask it to call `auren.service_status`. Record that separate UI observation; do not infer it from the script's result.
+
 ## 6. Host compatibility notes
 
-- **Local MCP clients with HTTP header support:** connect directly to the printed Streamable HTTP URL.
+- **ChatGPT desktop, Codex app/CLI and IDE extension:** use the shared Codex stdio configuration above. Local OAuth is not required.
+- **Local MCP clients with HTTP header support:** connect directly to the printed Streamable HTTP URL and use the local bearer token through the client's protected secret store.
 - **Local MCP clients with stdio only:** use `python /path/to/AUREN/auren_cli.py mcp-proxy ...` as shown above.
-- **Hosted ChatGPT, hosted Claude, or another cloud-only LLM:** local loopback is not reachable from the provider's cloud. Deploy the remote MCP service behind HTTPS with OAuth; do not expose this local host.
+- **ChatGPT Web:** it cannot reach workstation loopback directly. For a supported workspace, use OpenAI Secure MCP Tunnel only if sending MCP request/response content through OpenAI infrastructure is acceptable. The tunnel requires a Platform tunnel ID and runtime API key. AUREN remains local; the tunnel client injects the local bearer credential on the final hop. No AUREN OAuth server is needed when MCP OAuth is left disabled. Do not use this route for strict-local-auth or strict-local-data requirements. Alternatively deploy a separately secured hosted service for persistent multi-user access.
+- **Other hosted/cloud-only LLMs:** use their supported private connectivity path or a separately secured remote deployment. Do not expose this local host.
 - **Tools without MCP support:** use the AUREN dashboard for observation, or choose an MCP-capable local host / supported stdio adapter.
 
 Keep consequential tool approvals enabled in the client. Client-side approval prompts do not replace AUREN's server-side authorization, policy, admission and approval checks.

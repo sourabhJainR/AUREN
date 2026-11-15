@@ -435,6 +435,10 @@ def _run_task(args: list[str]) -> int:
 
     submit = commands.add_parser("submit", help="Submit a durable task.")
     submit.add_argument("--task", required=True)
+    submit.add_argument(
+        "--execution-mode", choices=("auto", "proposal", "coding"), default="auto",
+        help="auto uses the ready coding host when configured; proposal is read-only; coding requires the guarded Vibe executor.",
+    )
     submit.add_argument("--priority", choices=("high", "normal", "low"), default="normal")
     submit.add_argument("--max-attempts", type=int, choices=range(1, 9), default=3)
     submit.add_argument("--context", default="{}", help="JSON object; credentials and host controls are rejected.")
@@ -478,9 +482,9 @@ def _run_task(args: list[str]) -> int:
         idempotency_key = options.idempotency_key or uuid.uuid4().hex
         tool_name = "auren.submit_task"
         arguments = {
-            "task": options.task, "priority": options.priority,
-            "max_attempts": options.max_attempts, "context": context,
-            "idempotency_key": idempotency_key,
+            "task": options.task, "execution_mode": options.execution_mode,
+            "priority": options.priority, "max_attempts": options.max_attempts,
+            "context": context, "idempotency_key": idempotency_key,
         }
     elif options.action == "list":
         tool_name, arguments, idempotency_key = "auren.list_tasks", {"limit": options.limit}, None
@@ -1106,6 +1110,9 @@ def main(argv: list[str] | None = None) -> int:
         return _run_local(args[1:])
     if args and args[0] == "mcp-proxy":
         return _run_mcp_proxy(args[1:])
+    if args and args[0] == "accept-chatgpt-desktop-mcp":
+        from scripts.accept_chatgpt_desktop_mcp import main as acceptance_main
+        return acceptance_main(args[1:])
     if args and args[0] == "workflow-profile":
         return _run_workflow_profile(args[1:])
     if args and args[0] == "guard-policy":

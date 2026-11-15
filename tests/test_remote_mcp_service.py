@@ -32,6 +32,53 @@ def _mcp_private_test_handler(_payload):
 
 
 class RemoteMCPServiceTests(unittest.TestCase):
+
+    def test_submit_task_exposes_explicit_execution_mode(self):
+        tool = next(
+            item for item in self.service.list_tools(self.principal)
+            if item["name"] == "auren.submit_task"
+        )
+        mode = tool["inputSchema"]["properties"]["execution_mode"]
+        self.assertEqual(mode["enum"], ["auto", "proposal", "coding"])
+
+
+    def test_submit_passes_top_level_execution_mode_into_host_admission(self):
+        captured = {}
+
+        class FakeTrigger:
+            def trigger_adaptive_runtime(self, task, project_root, context, **kwargs):
+                captured["trigger_context"] = dict(context)
+                return type("Receipt", (), {
+                    "trigger_id": "execution-mode-test",
+                    "status": "pending",
+                    "accepted_at": time.time(),
+                })()
+
+            def close(self, **kwargs):
+                return None
+
+        def admit(_principal, task, context, event_id):
+            captured["admission_task"] = task
+            captured["admission_context"] = dict(context)
+            captured["event_id"] = event_id
+            return {}
+
+        self.service.task_admission = admit
+        self.service.trigger = FakeTrigger()
+        result = self.service.call_tool(
+            "auren.submit_task",
+            {
+                "task": "Implement a guarded feature",
+                "execution_mode": "coding",
+                "idempotency_key": "execution-mode-test-key-0001",
+            },
+            self.principal,
+        )
+
+        self.assertEqual(result["status"], "accepted")
+        self.assertEqual(captured["admission_context"]["execution_mode"], "coding")
+        self.assertEqual(captured["trigger_context"]["execution_mode"], "coding")
+
     def test_environment_factory_uses_the_supplied_canonical_composition(self):
         composition = type("Composition", (), {
             "approval_store": object(),
