@@ -14,7 +14,7 @@ Safe configuration templates for the CLI and IDE hosts are under [`integrations/
 
 | Host | Native connection path | Repository readiness | Remaining proof |
 |---|---|---|---|
-| ChatGPT web | Plugins → Add custom MCP server; public HTTPS or supported secure tunnel; OAuth | Remote MCP protocol implemented; no hosted endpoint or OAuth tenant configured | Workspace/plan eligibility, deployment factory, OAuth registration, scoped coding executor and live tool acceptance |
+| ChatGPT web | Plugins → Add custom MCP server; public HTTPS or supported Secure MCP Tunnel | Remote MCP protocol implemented; no hosted endpoint or OAuth tenant configured | Workspace/plan eligibility, tunnel or hosted endpoint setup, scoped coding executor and live tool acceptance; OAuth only for hosted deployments that require it |
 | ChatGPT desktop app | Shared Codex `~/.codex/config.toml`; local stdio bridge | Local stdio template provided; no OAuth required; live app acceptance pending | Start local AUREN, load the stdio server, restart desktop and verify local tool discovery |
 | Codex CLI, Codex app and IDE extension | Shared `~/.codex/config.toml` or `codex mcp add` | Documented | OAuth login, tool discovery, approval and cancellation |
 | Claude chat web | Remote MCP connector / custom connector | Documented | External OAuth provider and live connector acceptance |
