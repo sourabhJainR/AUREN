@@ -34,11 +34,16 @@ class HandoffTests(unittest.TestCase):
  def test_stale_base_rejected(self):
   with self.assertRaisesRegex(ValueError,"stale proposal"): validate_proposal(self.root,load_proposal(self.proposal(base="0"*40)))
  def test_guard_and_approval_required_and_worktree_isolated(self):
-  proposal=load_proposal(self.proposal());digest=hashlib.sha256(json.dumps(proposal,sort_keys=True,separators=(",",":")).encode()).hexdigest()
+  rejected=load_proposal(self.proposal())
   with self.assertRaises(PermissionError):
-   apply_approved_proposal(self.root,proposal,approval_verifier=lambda p,d:{"status":"approved","proposal_sha256":d,"evidence_ref":"approval://1"},guard_verifier=lambda w,p:{"status":"denied"},worktree_root=self.base/"worktrees")
-  result=apply_approved_proposal(self.root,proposal,approval_verifier=lambda p,d:{"status":"approved","proposal_sha256":d,"evidence_ref":"approval://1"},guard_verifier=lambda w,p:{"status":"approved","proposal_sha256":digest,"evidence_ref":"guard://1","policy_digest":"a"*64},worktree_root=self.base/"worktrees")
-  self.assertEqual("applied_in_isolated_worktree",result["status"]);self.assertEqual("x=1\n",(self.root/"src/app.py").read_text());self.assertEqual("x=2\n",(Path(result["worktree"])/"src/app.py").read_text())
+   apply_approved_proposal(self.root,rejected,approval_verifier=lambda p,d:{"status":"approved","proposal_sha256":d,"evidence_ref":"approval://1"},guard_verifier=lambda w,p:{"status":"denied"},worktree_root=self.base/"worktrees")
+  # A denied Guard worktree is retained for review. A changed proposal gets a new digest/worktree.
+  proposal=load_proposal(self.proposal({"path":"src/app.py","content":"x=3\\n"}))
+  digest=hashlib.sha256(json.dumps(proposal,sort_keys=True,separators=(",",":")).encode()).hexdigest()
+  result=apply_approved_proposal(self.root,proposal,approval_verifier=lambda p,d:{"status":"approved","proposal_sha256":d,"evidence_ref":"approval://2"},guard_verifier=lambda w,p:{"status":"approved","proposal_sha256":digest,"evidence_ref":"guard://2","policy_digest":"a"*64},worktree_root=self.base/"worktrees")
+  self.assertEqual("applied_in_isolated_worktree",result["status"]);self.assertEqual("x=1\\n",(self.root/"src/app.py").read_text());self.assertEqual("x=3\\n",(Path(result["worktree"])/"src/app.py").read_text())
+  rejected_digest=hashlib.sha256(json.dumps(rejected,sort_keys=True,separators=(",",":")).encode()).hexdigest()
+  self.assertTrue((self.base/"worktrees"/rejected_digest[:16]).exists())
  def test_independent_project(self):
   target=self.base/"new";result=create_independent_project(target,name="new")
   self.assertTrue((target/".git").is_dir());self.assertTrue((target/".auren"/"project.json").is_file());self.assertEqual("initialized",result["status"])
