@@ -14,6 +14,9 @@ if ([string]::IsNullOrWhiteSpace($Repository) -and [string]::IsNullOrWhiteSpace(
 if (-not [string]::IsNullOrWhiteSpace($Repository) -and -not [string]::IsNullOrWhiteSpace($ProjectRoot)) {
     throw "Choose either -Repository or -ProjectRoot, not both."
 }
+if (-not [string]::IsNullOrWhiteSpace($Branch) -and [string]::IsNullOrWhiteSpace($Repository)) {
+    throw "-Branch can only be used with -Repository."
+}
 if ([string]::IsNullOrWhiteSpace($TunnelId)) {
     $TunnelId = Read-Host "OpenAI Platform tunnel ID"
 }
