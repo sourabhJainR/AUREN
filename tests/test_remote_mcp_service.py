@@ -32,6 +32,15 @@ def _mcp_private_test_handler(_payload):
 
 
 class RemoteMCPServiceTests(unittest.TestCase):
+
+    def test_submit_task_exposes_explicit_execution_mode(self):
+        tool = next(
+            item for item in self.service.list_tools(self.principal)
+            if item["name"] == "auren.submit_task"
+        )
+        mode = tool["inputSchema"]["properties"]["execution_mode"]
+        self.assertEqual(mode["enum"], ["auto", "proposal", "coding"])
+
     def test_environment_factory_uses_the_supplied_canonical_composition(self):
         composition = type("Composition", (), {
             "approval_store": object(),
