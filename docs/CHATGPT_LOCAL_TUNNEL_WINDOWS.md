@@ -2,6 +2,8 @@
 
 This is the supported local-first path for using AUREN from ChatGPT Web without publishing your laptop's MCP port.
 
+This tunnel path is **not available to ChatGPT Free accounts** under the current OpenAI custom-MCP eligibility rules. It is an optional route for supported Business and Enterprise/Edu workspaces. ChatGPT Pro supports read/fetch only. For a no-upgrade setup, use the [ChatGPT Free + GitHub Free workflow](CHATGPT_WEB_SETUP.md#chatgpt-free--github-free-workflow); it uses AUREN locally and ChatGPT as a manual reasoning/review assistant, not as a live MCP client.
+
 ## What this provides
 
 - AUREN clones or opens one selected GitHub project on the laptop.
