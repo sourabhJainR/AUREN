@@ -8,7 +8,9 @@ AUREN's remote operator service exposes one MCP endpoint. An MCP-capable host co
 
 The examples use `https://mcp.example.com/mcp`. Replace it with the deployed AUREN endpoint. The remote service and its external OAuth authorization server must be deployed first. Do not paste long-lived bearer tokens into shared configuration files.
 
-Safe configuration templates for the CLI and IDE hosts are under [`integrations/mcp/`](../integrations/mcp/README.md). They contain placeholders only and no credentials.\n\nFor the local AUREN endpoint, run `auren integrations probe-local-mcp` to verify the authenticated MCP handshake and complete `tools/list` response. The probe invokes no tools and sends no model requests. It validates AUREN's local endpoint, not the installed IDE's own acceptance; each vendor client still needs a separate smoke test.
+Safe configuration templates for the CLI and IDE hosts are under [`integrations/mcp/`](../integrations/mcp/README.md). They contain placeholders only and no credentials.
+
+For the local AUREN endpoint, run `auren integrations probe-local-mcp` to verify the authenticated MCP handshake and complete `tools/list` response. The probe invokes no tools and sends no model requests. It validates AUREN's local endpoint, not the installed IDE's own acceptance; each vendor client still needs a separate smoke test.
 
 ## Compatibility status
 
@@ -60,14 +62,14 @@ Codex clients share MCP configuration. ChatGPT desktop's local MCP configuration
 
 ```toml
 [mcp_servers.auren]
-command = "C:\\\Python\\\\python.exe"
+command = "C:/Path/To/Python/python.exe"
 args = [
-  "C:\\Work\\AUREN\\auren_cli.py",
+  "C:/Path/To/AUREN/auren_cli.py",
   "mcp-proxy",
   "--url", "http://127.0.0.1:8765/mcp",
-  "--token-file", "C:\\Users\\<user>\\.auren\\mcp\\local-operator.token",
+  "--token-file", "C:/Users/YourUser/.auren/mcp/local-operator.token",
 ]
-cwd = "C:\\Work\\AUREN"
+cwd = "C:/Path/To/AUREN"
 ```
 
 Use the exact paths on the workstation. Keep the local AUREN host running. The template is also available at [chatgpt-desktop.local.toml.example](../integrations/mcp/chatgpt-desktop.local.toml.example).
