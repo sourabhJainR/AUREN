@@ -960,7 +960,7 @@ class AurenMCPService:
             if not isinstance(context, Mapping):
                 raise TypeError("context must be an object")
             execution_mode = arguments.get("execution_mode", "auto")
-            if execution_mode not in {"auto", "proposal", "coding"}:
+            if not isinstance(execution_mode, str) or execution_mode not in {"auto", "proposal", "coding"}:
                 raise ValueError("execution_mode must be auto, proposal or coding")
             # The top-level mode is authoritative; caller context cannot override it.
             context = {**dict(context), "execution_mode": execution_mode}
