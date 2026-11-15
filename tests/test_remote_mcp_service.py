@@ -54,6 +54,9 @@ class RemoteMCPServiceTests(unittest.TestCase):
                     "accepted_at": time.time(),
                 })()
 
+            def close(self, **kwargs):
+                return None
+
         def admit(_principal, task, context, event_id):
             captured["admission_task"] = task
             captured["admission_context"] = dict(context)
