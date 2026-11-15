@@ -19,9 +19,9 @@ class HandoffTests(unittest.TestCase):
   out=self.base/"package.json";export_task_package(self.root,out,task="Fix",acceptance_criteria=["tests pass"],files=["src/app.py"])
   data=json.loads(out.read_text());self.assertEqual(self.sha,data["base_commit"]);self.assertEqual(["src/app.py"],[x["path"] for x in data["files"]])
  def test_export_includes_scoped_repository_instructions(self):
-  (self.root/"src"/"AGENTS.md").write_text("Use existing test conventions.\\n",encoding="utf-8")
+  (self.root/"src"/"AGENTS.md").write_text("Use existing test conventions.\n",encoding="utf-8")
   (self.root/".github").mkdir()
-  (self.root/".github"/"copilot-instructions.md").write_text("Do not weaken safety tests.\\n",encoding="utf-8")
+  (self.root/".github"/"copilot-instructions.md").write_text("Do not weaken safety tests.\n",encoding="utf-8")
   out=self.base/"scoped-package.json"
   export_task_package(self.root,out,task="Fix",acceptance_criteria=["tests pass"],files=["src/app.py"])
   paths={item["path"] for item in json.loads(out.read_text())["instructions"]}
@@ -48,10 +48,10 @@ class HandoffTests(unittest.TestCase):
   with self.assertRaises(PermissionError):
    apply_approved_proposal(self.root,rejected,approval_verifier=lambda p,d:{"status":"approved","proposal_sha256":d,"evidence_ref":"approval://1"},guard_verifier=lambda w,p:{"status":"denied"},worktree_root=self.base/"worktrees")
   # A denied Guard worktree is retained for review. A changed proposal gets a new digest/worktree.
-  proposal=load_proposal(self.proposal({"path":"src/app.py","content":"x=3\\n"}))
+  proposal=load_proposal(self.proposal({"path":"src/app.py","content":"x=3\n"}))
   digest=hashlib.sha256(json.dumps(proposal,sort_keys=True,separators=(",",":")).encode()).hexdigest()
   result=apply_approved_proposal(self.root,proposal,approval_verifier=lambda p,d:{"status":"approved","proposal_sha256":d,"evidence_ref":"approval://2"},guard_verifier=lambda w,p:{"status":"approved","proposal_sha256":digest,"evidence_ref":"guard://2","policy_digest":"a"*64},worktree_root=self.base/"worktrees")
-  self.assertEqual("applied_in_isolated_worktree",result["status"]);self.assertEqual("x=1\\n",(self.root/"src/app.py").read_text());self.assertEqual("x=3\\n",(Path(result["worktree"])/"src/app.py").read_text())
+  self.assertEqual("applied_in_isolated_worktree",result["status"]);self.assertEqual("x=1\n",(self.root/"src/app.py").read_text());self.assertEqual("x=3\n",(Path(result["worktree"])/"src/app.py").read_text())
   rejected_digest=hashlib.sha256(json.dumps(rejected,sort_keys=True,separators=(",",":")).encode()).hexdigest()
   self.assertTrue((self.base/"worktrees"/rejected_digest[:16]).exists())
  def test_independent_project(self):
