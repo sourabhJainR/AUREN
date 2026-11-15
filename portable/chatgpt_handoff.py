@@ -128,15 +128,22 @@ def apply_approved_proposal(project_root:str|Path,proposal:Mapping[str,Any],*,ap
   with os.fdopen(fd,"w",encoding="utf-8",newline="\n") as stream: stream.write(item["content"]);stream.flush();os.fsync(stream.fileno())
  return {"status":"applied_in_isolated_worktree","worktree":str(work),"branch":branch,"base_commit":base,"proposal_sha256":digest,"approval_evidence":approval["evidence_ref"],"guard_evidence":guard["evidence_ref"],"policy_digest":guard["policy_digest"],"changed_files":[x["path"] for x in proposal["changes"]]}
 
-def deliver_with_gh(worktree:str|Path,*,title:str,body:str,base_branch:str="main")->dict[str,Any]:
+def deliver_with_gh(worktree:str|Path,*,title:str,body:str,expected_paths:Sequence[str],base_branch:str="main")->dict[str,Any]:
  root=Path(worktree).expanduser().resolve(strict=True); branch=run(["git","branch","--show-current"],root)
- if not branch or branch==base_branch or not run(["git","status","--porcelain"],root): raise ValueError("delivery requires a non-base branch with changes")
- run(["gh","auth","status"],root);run(["git","add","--all"],root);run(["git","commit","-m",title],root); sha=head(root)
+ expected=sorted(set(safe_path(x) for x in expected_paths))
+ if not expected or not branch or branch==base_branch: raise ValueError("delivery requires a non-base branch and explicit changed-file scope")
+ changed=set(filter(None,run(["git","diff","--name-only","HEAD"],root).splitlines()))
+ untracked=set(filter(None,run(["git","ls-files","--others","--exclude-standard"],root).splitlines()))
+ if changed|untracked != set(expected): raise PermissionError("worktree changes do not exactly match the approved proposal file set")
+ run(["gh","auth","status"],root);run(["gh","auth","setup-git"],root)
+ run(["git","add","--",*expected],root);run(["git","commit","-m",title],root); sha=head(root)
  run(["git","push","--set-upstream","origin",branch],root,180)
  pr=run(["gh","pr","create","--base",base_branch,"--head",branch,"--title",title,"--body",body],root,120)
  remote=run(["gh","pr","view",pr,"--json","headRefOid","--jq",".headRefOid"],root)
  if remote!=sha: raise RuntimeError(f"PR head mismatch: local {sha}, remote {remote}")
  checks=run(["gh","pr","checks",pr],root,300)
+ after=run(["gh","pr","view",pr,"--json","headRefOid","--jq",".headRefOid"],root)
+ if after!=sha: raise RuntimeError(f"PR head changed while checking CI: expected {sha}, observed {after}")
  return {"status":"pr_created_checks_reported","pull_request":pr,"branch":branch,"head_commit":sha,"checks":checks}
 
 def create_independent_project(path:str|Path,*,name:str)->dict[str,Any]:
