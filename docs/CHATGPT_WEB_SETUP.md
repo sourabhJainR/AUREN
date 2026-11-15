@@ -18,6 +18,21 @@ Check the current OpenAI [custom MCP connection guide](https://help.openai.com/e
 
 AUREN's write tools must not be treated as available on a read-only plan. The server filters tools by the authenticated principal's scopes. Task submission and approval decisions also require their respective scopes; approval decisions require the configured approver identity allowlist.
 
+## ChatGPT Free + GitHub Free workflow
+
+This is the supported no-upgrade path. It does not create a live ChatGPT-to-AUREN connection: current OpenAI documentation does not list ChatGPT Free as eligible for custom MCP apps, and the ChatGPT GitHub app is read-only where it is available. Availability of the GitHub app in standard chat varies by plan and product surface.
+
+Use ChatGPT Free as a reasoning and review assistant, and keep execution under AUREN on the laptop:
+
+1. Install Git for Windows and GitHub CLI. Run `gh auth login` and complete browser authentication with the GitHub Free account. Do not paste a GitHub token into ChatGPT.
+2. Clone any repository the account can access, or open an existing local checkout.
+3. Run `auren up --project-root "C:\\Work\\YourProject"` (or run the source checkout's `python auren_cli.py up --project-root ...`). Use the local Engineering Console and AUREN CLI/MCP clients for project inspection, task tracking, Guard, approvals and verification.
+4. In ChatGPT Free, provide only the files, logs or focused code excerpts needed for advice. If the GitHub app is offered in your account, connect it for repository reading only; do not expect it to push commits or create PRs.
+5. Treat ChatGPT-generated code as a proposal. Apply and verify changes through AUREN's configured local coding host and approval workflow. If you apply a patch manually, AUREN cannot claim that the edit passed its Guard or approval path.
+6. Use local Git/GitHub CLI for branch, commit, push, issue and pull-request operations. GitHub Free supports ordinary Git operations and public/private repositories, subject to the private-repository feature limits and the permissions of the signed-in account.
+
+This route keeps ChatGPT Free and GitHub Free usable without a tunnel, paid API key, hosted server, or custom MCP connector. It is a human-in-the-loop workflow, not a direct tool integration. ChatGPT Free's usage limits still apply. See [GitHub's plan comparison](https://docs.github.com/en/get-started/learning-about-github/githubs-plans) and [OpenAI's GitHub connection guide](https://help.openai.com/en/articles/11145903-connecting-github-to-chatgpt).
+
 ## Choose a connection path
 
 ### Local development
@@ -28,9 +43,13 @@ Do not expose the local MCP port directly to the internet. ChatGPT Web cannot re
 
 ### Private development tunnel
 
-For a temporary development connection, follow the official [Secure MCP Tunnel guide](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels). It provides a private path from ChatGPT to a local MCP service without opening the MCP port on the public network.
+For a temporary or single-user laptop connection, use OpenAI's official [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels). The OpenAI `tunnel-client` runs beside AUREN and makes an outbound HTTPS connection. ChatGPT reaches the tunnel ID; it never connects directly to the laptop's loopback port. Do not expose the local MCP port to the internet.
 
-Use a dedicated development environment and short-lived credentials. Do not treat a tunnel session as a production deployment or as a substitute for OAuth, workspace permissions, backups or monitoring.
+For the Windows laptop workflow, use [AUREN local ChatGPT connection](CHATGPT_LOCAL_TUNNEL_WINDOWS.md). It starts one project-bound AUREN local runtime, waits for its authenticated MCP endpoint, writes a tunnel-client config with secret references, and runs the tunnel client in the foreground. The runtime API key is read from the process environment; the AUREN bearer token is read from its protected local token file. Stop the foreground process with Ctrl+C to stop both services.
+
+The tunnel requires a provisioned `tunnel_id`, a runtime API key with tunnel-use permission, and the official tunnel-client binary. It is a transport only: AUREN remains responsible for task admission, execution, approvals, Guard and evidence. The local MCP server is project-bound; stop and restart with another repository to switch projects.
+
+Use a tunnel for private development. It does not create a public plugin or replace the hosted OAuth deployment path for public distribution.
 
 ### Hosted endpoint
 

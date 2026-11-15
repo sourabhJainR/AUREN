@@ -1029,6 +1029,12 @@ def _run_onboarding(command: str, args: list[str]) -> int:
         print(f"auren connect blocked: {exc}", file=sys.stderr)
         return 2
 
+def _run_chatgpt_tunnel(args: list[str]) -> int:
+    """Connect the local AUREN MCP host to ChatGPT through OpenAI Secure MCP Tunnel."""
+    from portable.chatgpt_tunnel import main as tunnel_main
+    return int(tunnel_main(args))
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if args and args[0] in {"-h", "--help", "help"}:
@@ -1038,7 +1044,7 @@ def main(argv: list[str] | None = None) -> int:
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog=(
                 "Quick start: auren up\n"
-                "Useful commands: auren task submit --task \"...\" | auren verify-local | auren providers | auren integrations | auren progress --json | "
+                "Useful commands: auren task submit --task \"...\" | auren verify-local | auren chatgpt-tunnel | auren providers | auren integrations | auren progress --json | "
                 "auren continuous status | auren doctor\n"
                 "Full usage: docs/USAGE_AND_PLATFORM_INTEGRATION.md"
             ),
@@ -1072,6 +1078,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args and args[0] in {"init", "doctor", "connect", "mode"}:
         return _run_onboarding(args[0], args[1:])
+    if args and args[0] == "chatgpt-tunnel":
+        return _run_chatgpt_tunnel(args[1:])
     if args and args[0] == "deliver":
         return _run_delivery(args[1:])
     if args and args[0] == "dashboard":

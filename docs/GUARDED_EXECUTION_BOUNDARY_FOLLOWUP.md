@@ -337,3 +337,27 @@ sensitive paths.
 Rollback: do not remove the checks until the execution host propagates an
 authenticated assignment envelope into a verified OS sandbox and independently
 tests filesystem, network, credential, cancellation, and process-tree containment.
+
+
+## ChatGPT Secure MCP tunnel subprocess and readiness boundaries (2026-11-15)
+
+The optional local ChatGPT tunnel adapter has two direct foreground child-process
+launches in `portable/chatgpt_tunnel.py::_run`: the AUREN local host and the
+operator-installed OpenAI tunnel client. The callsite inventory records the
+exact count of two. Both use fixed argument arrays with no shell. The AUREN
+child receives a copied environment with `CONTROL_PLANE_API_KEY` removed; the
+tunnel client inherits the operator environment because the tunnel control
+plane key is required by that client. The readiness gate runs before either
+tunnel client launch. Cleanup sends terminate, waits for a bounded interval,
+then kills and waits if the child does not exit.
+
+The readiness probe uses `guarded_loopback_http_get`, not a general URL
+opener. It accepts only explicit IPv4 loopback HTTP, does not resolve hostnames,
+does not follow redirects, and caps response bytes. Invalid or remote targets
+fail closed. Regression tests assert that non-loopback readiness targets are
+rejected.
+
+This inventory is a reviewed callsite disposition, not proof of OS-level
+process isolation or a substitute for independent egress and credential
+controls. Keep the inventory tripwire enabled and review any change to argv,
+environment inheritance, launch order, or cleanup behavior.

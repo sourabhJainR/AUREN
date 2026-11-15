@@ -105,9 +105,12 @@ Open the host's tools panel and verify AUREN tool discovery. Keep host-side auto
 
 ### ChatGPT web and Claude web
 
-Hosted chat clients cannot reach a workstation's loopback URL. Deploy the AUREN remote Streamable HTTP MCP service behind HTTPS and configure an external OAuth authorization server first. Then add the remote MCP endpoint through the host's custom connector/app flow.
+For ChatGPT Web, there are two supported network paths:
 
-The remote MCP implementation and setup documentation exist in the repository. A hosted endpoint, OAuth tenant, and live vendor acceptance are separate deployment tasks; do not treat local MCP success as proof that hosted chat integration is ready.
+- **Laptop / private development:** use OpenAI Secure MCP Tunnel with AUREN's local MCP endpoint. See [AUREN local ChatGPT connection](CHATGPT_LOCAL_TUNNEL_WINDOWS.md). This keeps the MCP port on loopback and forwards requests through the official OpenAI tunnel client. The local project is selected when the AUREN runtime starts; restart it to switch repositories.
+- **Persistent hosted service / public distribution:** deploy AUREN's remote Streamable HTTP MCP service behind HTTPS and configure an external OAuth authorization server. See [ChatGPT Web Setup](CHATGPT_WEB_SETUP.md) and [Remote MCP Operations](REMOTE_MCP_OPERATIONS.md).
+
+Do not expose a workstation MCP port to the internet. A tunnel is private connectivity, not a public plugin or a substitute for the hosted OAuth deployment. ChatGPT plan and workspace permissions still control whether custom MCP apps and write actions are available.
 
 ### Other MCP clients
 
@@ -224,7 +227,7 @@ python -m unittest tests.test_extension_contract tests.test_agent_capabilities -
 python -m unittest tests.test_harness_experiments tests.test_harness_isolation_verifier -v
 ```
 
-For a live host, also record its exact product/version, MCP protocol version, OAuth issuer, scoped tool-list digest, test identity, acceptance result and sanitized evidence reference. Until that receipt exists, mark the integration as documented or configured—not live verified.
+For a live host, also record its exact product/version, MCP protocol version, OAuth issuer, scoped tool-list digest, test identity, acceptance result and sanitized evidence reference. A successful local tunnel handshake is not live vendor acceptance. Until that receipt exists, mark the integration as documented or configured—not live verified.
 
 ## Related documentation
 
