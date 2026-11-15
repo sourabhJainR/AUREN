@@ -215,7 +215,9 @@ def _run(args: list[str]) -> int:
             local_args.extend(["--repository", options.repository])
             if options.branch:
                 local_args.extend(["--branch", options.branch])
-        local_process = subprocess.Popen(local_args)
+        local_env = os.environ.copy()
+        local_env.pop("CONTROL_PLANE_API_KEY", None)
+        local_process = subprocess.Popen(local_args, env=local_env)
         tunnel_process = None
         ready_url = f"http://127.0.0.1:{options.mcp_port}/readyz"
         try:
@@ -230,11 +232,21 @@ def _run(args: list[str]) -> int:
                 raise TimeoutError("AUREN local MCP did not become ready within 30 seconds")
             if not token_file.is_file():
                 raise RuntimeError("AUREN local MCP became ready but its operator token file is missing")
-            config_path = write_tunnel_config(
-                options.tunnel_id, token_file, config_path=options.config,
+            config_target = Path(options.config).expanduser()
+            expected_config = render_tunnel_config(
+                options.tunnel_id, token_file,
                 mcp_url=f"http://127.0.0.1:{options.mcp_port}/mcp",
-                overwrite=options.overwrite_config,
             )
+            if config_target.is_symlink():
+                raise ValueError("tunnel config path must not be a symlink")
+            if config_target.is_file() and config_target.read_text(encoding="utf-8") == expected_config:
+                config_path = config_target.resolve()
+            else:
+                config_path = write_tunnel_config(
+                    options.tunnel_id, token_file, config_path=config_target,
+                    mcp_url=f"http://127.0.0.1:{options.mcp_port}/mcp",
+                    overwrite=options.overwrite_config,
+                )
             print(f"AUREN local MCP ready: http://127.0.0.1:{options.mcp_port}/mcp", flush=True)
             print(f"Tunnel config: {config_path}", flush=True)
             print("Starting OpenAI Secure MCP Tunnel. Keep this process running while using ChatGPT.", flush=True)
