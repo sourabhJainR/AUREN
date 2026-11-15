@@ -28,9 +28,13 @@ Do not expose the local MCP port directly to the internet. ChatGPT Web cannot re
 
 ### Private development tunnel
 
-For a temporary development connection, follow the official [Secure MCP Tunnel guide](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels). It provides a private path from ChatGPT to a local MCP service without opening the MCP port on the public network.
+For a temporary or single-user laptop connection, use OpenAI's official [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels). The OpenAI `tunnel-client` runs beside AUREN and makes an outbound HTTPS connection. ChatGPT reaches the tunnel ID; it never connects directly to the laptop's loopback port. Do not expose the local MCP port to the internet.
 
-Use a dedicated development environment and short-lived credentials. Do not treat a tunnel session as a production deployment or as a substitute for OAuth, workspace permissions, backups or monitoring.
+For the Windows laptop workflow, use [AUREN local ChatGPT connection](CHATGPT_LOCAL_TUNNEL_WINDOWS.md). It starts one project-bound AUREN local runtime, waits for its authenticated MCP endpoint, writes a tunnel-client config with secret references, and runs the tunnel client in the foreground. The runtime API key is read from the process environment; the AUREN bearer token is read from its protected local token file. Stop the foreground process with Ctrl+C to stop both services.
+
+The tunnel requires a provisioned `tunnel_id`, a runtime API key with tunnel-use permission, and the official tunnel-client binary. It is a transport only: AUREN remains responsible for task admission, execution, approvals, Guard and evidence. The local MCP server is project-bound; stop and restart with another repository to switch projects.
+
+Use a tunnel for private development. It does not create a public plugin or replace the hosted OAuth deployment path for public distribution.
 
 ### Hosted endpoint
 
