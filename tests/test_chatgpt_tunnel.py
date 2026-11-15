@@ -5,6 +5,7 @@ from pathlib import Path
 
 from portable.chatgpt_tunnel import (
     DEFAULT_MCP_URL,
+    _ready,
     render_tunnel_config,
     validate_local_mcp_url,
     validate_tunnel_id,
@@ -33,6 +34,10 @@ class ChatGPTTunnelConfigTests(unittest.TestCase):
         ):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 validate_local_mcp_url(value)
+
+    def test_readiness_probe_rejects_non_loopback_targets(self):
+        self.assertFalse(_ready("http://192.0.2.1:8765/readyz"))
+        self.assertFalse(_ready("http://example.com:8765/readyz"))
 
     def test_config_uses_secret_references_and_loopback_target(self):
         with tempfile.TemporaryDirectory() as directory:
