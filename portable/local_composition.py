@@ -731,6 +731,9 @@ class LocalRuntimeComposition:
     ) -> Mapping[str, Any]:
         local_principal = self.operator.verify_principal(principal)
         remote_principal = self._remote_principal_authorized(principal)
+        requested_mode = context.get("execution_mode", "auto") if isinstance(context, Mapping) else "auto"
+        if requested_mode not in {"auto", "proposal", "coding"}:
+            raise ValueError("execution_mode must be auto, proposal or coding")
         if not (local_principal or remote_principal):
             raise PermissionError(
                 "task admission requires the local operator or an explicitly authorized remote project principal"
@@ -759,6 +762,7 @@ class LocalRuntimeComposition:
             if (
                 not isinstance(existing_context, Mapping)
                 or existing_context.get("_auren_local_subject_digest") != principal_digest
+                or existing_context.get("execution_mode", "auto") != requested_mode
                 or not isinstance(existing_context.get("_auren_local_source_revision"), str)
                 or not isinstance(existing_context.get("_auren_local_provider"), Mapping)
                 or not isinstance(existing_context.get("_auren_local_policy_digest"), str)
@@ -775,14 +779,20 @@ class LocalRuntimeComposition:
                 "_auren_local_admitted_at": existing_context["_auren_local_admitted_at"],
                 "_auren_local_separation_of_duties": existing_context.get("_auren_local_separation_of_duties", False),
                 "_auren_local_vibe_config_digest": existing_context.get("_auren_local_vibe_config_digest", ""),
+                "_auren_local_execution_mode": existing_context.get("_auren_local_execution_mode", "auto"),
             }
 
         remote_policy_digest = _remote_policy_digest()
-        vibe_enabled = self.vibe_host_config is not None and self.vibe_host_status.get("status") == "ready"
-        if remote_principal and not vibe_enabled:
+        vibe_ready = self.vibe_host_config is not None and self.vibe_host_status.get("status") == "ready"
+        if requested_mode == "coding" and not vibe_ready:
             raise LocalProviderNotConfigured(
-                "remote task execution requires a configured Vibe Coding host and available coding-agent CLI"
+                "coding execution was requested but the Vibe Coding host is not ready; configure the local host and run auren doctor"
             )
+        if remote_principal and (not vibe_ready or requested_mode == "proposal"):
+            raise LocalProviderNotConfigured(
+                "remote repository execution requires a ready Vibe Coding host and execution_mode='coding' or 'auto'"
+            )
+        vibe_enabled = vibe_ready and requested_mode != "proposal"
         if vibe_enabled:
             provider_binding = {
                 "kind": "vibe", "name": self.vibe_host_config.provider, "model": "cli",
@@ -830,6 +840,7 @@ class LocalRuntimeComposition:
             "_auren_local_admitted_at": admitted_at,
             "_auren_local_separation_of_duties": bool(remote_principal),
             "_auren_local_vibe_config_digest": vibe_config_digest,
+            "_auren_local_execution_mode": "coding" if vibe_execution else "proposal",
         }
 
     def _source_revision(self) -> str:
@@ -937,6 +948,7 @@ class LocalRuntimeComposition:
                     "_auren_local_provider": dict(provider_binding),
                     "_auren_local_policy_digest": policy_digest,
                     "_auren_local_remote_policy_digest": remote_policy_digest,
+                    "_auren_local_execution_mode": "coding" if vibe_execution else "proposal",
                 }
             return {
                 "task": task.title,
@@ -1096,6 +1108,9 @@ class LocalRuntimeComposition:
         provider_kind = provider_binding.get("kind", "remote") if isinstance(provider_binding, Mapping) else None
         bound_remote_policy_digest = remote_policy_digest if provider_kind == "remote" else ""
         vibe_config_digest = request.context.get("_auren_local_vibe_config_digest", "")
+        execution_mode = request.context.get("_auren_local_execution_mode", "auto")
+        if execution_mode not in {"auto", "proposal", "coding"}:
+            raise PermissionError("persisted MCP event has an invalid execution-mode binding")
         policy_material = guard_policy_fingerprint(current_policy) + "|" + bound_remote_policy_digest
         if provider_kind == "vibe":
             if (
@@ -1110,6 +1125,8 @@ class LocalRuntimeComposition:
             or self._source_revision() != source_revision
             or not isinstance(provider_binding, Mapping)
             or provider_kind not in {"local", "remote", "vibe"}
+            or (execution_mode == "coding" and provider_kind != "vibe")
+            or (execution_mode == "proposal" and provider_kind == "vibe")
             or not isinstance(policy_digest, str)
             or request.context.get("_auren_local_remote_policy_digest") != bound_remote_policy_digest
             or (provider_kind == "remote" and not remote_policy_digest)
