@@ -89,7 +89,25 @@ def test_task_submit_uses_the_shared_mcp_tool_and_returns_retry_key(monkeypatch,
     assert captured["tool"] == "auren.submit_task"
     assert len(report["idempotency_key"]) == 32
     assert captured["arguments"]["idempotency_key"] == report["idempotency_key"]
+    assert captured["arguments"]["execution_mode"] == "auto"
     assert report["result"]["content"][0]["text"] == "accepted"
+
+
+def test_task_submit_can_explicitly_request_guarded_coding(monkeypatch, capsys):
+    from portable import mcp_local_client
+
+    captured = {}
+    def fake_call(tool_name, arguments, **kwargs):
+        captured.update({"tool": tool_name, "arguments": arguments})
+        return {"content": [{"type": "text", "text": "accepted"}]}
+    monkeypatch.setattr(mcp_local_client, "call_local_tool", fake_call)
+    assert _run_task([
+        "submit", "--task", "Implement a bounded feature",
+        "--execution-mode", "coding",
+    ]) == 0
+    capsys.readouterr()
+    assert captured["tool"] == "auren.submit_task"
+    assert captured["arguments"]["execution_mode"] == "coding"
 
 
 def test_task_status_maps_to_the_canonical_mcp_get_task_tool(monkeypatch, capsys):
