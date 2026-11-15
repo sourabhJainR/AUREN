@@ -227,7 +227,7 @@ python -m unittest tests.test_extension_contract tests.test_agent_capabilities -
 python -m unittest tests.test_harness_experiments tests.test_harness_isolation_verifier -v
 ```
 
-For a live host, also record its exact product/version, MCP protocol version, OAuth issuer, scoped tool-list digest, test identity, acceptance result and sanitized evidence reference. Until that receipt exists, mark the integration as documented or configured—not live verified.
+For a live host, also record its exact product/version, MCP protocol version, OAuth issuer, scoped tool-list digest, test identity, acceptance result and sanitized evidence reference. A successful local tunnel handshake is not live vendor acceptance. Until that receipt exists, mark the integration as documented or configured—not live verified.
 
 ## Related documentation
 
