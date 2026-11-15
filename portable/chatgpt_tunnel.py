@@ -212,13 +212,23 @@ def _run(args: list[str]) -> int:
             raise FileNotFoundError("tunnel-client was not found; install the supported Windows binary from OpenAI Platform Tunnels and add it to PATH")
         from .local_host import local_token_path
         token_file = local_token_path()
+        if options.project_root:
+            from .onboarding import initialize_repository, load_project_profile
+            project_root = Path(options.project_root).expanduser().resolve()
+            if not project_root.is_dir():
+                raise ValueError("project root must be an existing local directory")
+            project_profile = project_root / ".auren" / "project.json"
+            if project_profile.exists() or project_profile.is_symlink():
+                load_project_profile(project_root)
+            else:
+                initialize_repository(project_root, apply=True)
         local_args = [
             sys.executable, str(Path(__file__).resolve().parents[1] / "auren_cli.py"),
             "local", "--mcp-port", str(options.mcp_port),
             "--dashboard-port", str(options.dashboard_port),
         ]
         if options.project_root:
-            local_args.extend(["--project-root", str(Path(options.project_root).expanduser().resolve())])
+            local_args.extend(["--project-root", str(project_root)])
         else:
             local_args.extend(["--repository", options.repository])
             if options.branch:
