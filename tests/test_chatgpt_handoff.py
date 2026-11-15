@@ -56,7 +56,9 @@ class HandoffTests(unittest.TestCase):
 
  def test_worktree_store_symlink_is_rejected(self):
   proposal=load_proposal(self.proposal())
-  link=self.base/"linked-worktrees";link.symlink_to(self.base/"real-worktrees",target_is_directory=True)
+  link=self.base/"linked-worktrees"
+  try: link.symlink_to(self.base/"real-worktrees",target_is_directory=True)
+  except OSError: self.skipTest("directory symlink creation is unavailable on this runner")
   with self.assertRaises(PermissionError):
    apply_approved_proposal(self.root,proposal,approval_verifier=lambda p,d:{"status":"approved","proposal_sha256":d,"evidence_ref":"approval://1"},guard_verifier=lambda w,p:{"status":"approved","proposal_sha256":d,"evidence_ref":"guard://1","policy_digest":"a"*64},worktree_root=link)
 
