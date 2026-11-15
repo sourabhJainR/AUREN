@@ -2,7 +2,7 @@
 
 AUREN can run its observation console and authenticated MCP operator endpoint together on one workstation. Both bind to IPv4 loopback only. The dashboard and MCP ports default to **0**, so the operating system assigns free ports instead of assuming that port 8765 is available.
 
-This is a local development/operator host, not a public deployment recipe. Do not expose its HTTP endpoint through a router, tunnel, reverse proxy, or public bind. Remote deployments must use the separate HTTPS and OAuth configuration in [Remote MCP Operations](REMOTE_MCP_OPERATIONS.md).
+This is the primary single-user operator path and is not a public deployment recipe. Keep the HTTP endpoint on IPv4 loopback. The ChatGPT desktop app can launch the local stdio bridge through the shared Codex MCP configuration. This local connection uses AUREN's machine-local operator token and requires **no OAuth, OpenAI tunnel, public endpoint or remote AUREN service**. Remote ChatGPT Web access is a separate optional path; see [ChatGPT Web Setup](CHATGPT_WEB_SETUP.md).
 
 ## 1. Install and start
 
@@ -115,11 +115,13 @@ If the MCP client supports Streamable HTTP and custom request headers, configure
 
 Use the token from the local credential file. Prefer a client secret store or environment-variable substitution if the client supports it. Avoid storing the token in a checked-in JSON/TOML file.
 
-The local endpoint uses HTTP only because it is bound to loopback. It is not suitable for a hosted LLM service running outside the workstation. A hosted service cannot reach your machine's `127.0.0.1`; use the separately secured HTTPS/OAuth remote deployment for that case.
+The local endpoint uses HTTP only because it is bound to loopback. It is not directly reachable by a hosted LLM service. ChatGPT Web can reach it through the optional OpenAI Secure MCP Tunnel without publishing the AUREN endpoint. The local AUREN credential remains a machine-local bearer token; this is not an OAuth flow.
 
-## 5. Use the stdio bridge when HTTP headers are unsupported
+## 5. Connect ChatGPT desktop without OAuth
 
-Some MCP hosts support stdio servers but do not let you configure an Authorization header for an HTTP MCP server. In that case, configure the host to launch AUREN's stdio bridge. The bridge reads the local token file itself, adds the bearer header to each local HTTP request, enforces request/response size limits, and writes JSON-RPC responses to stdout. Diagnostics go to stderr.
+ChatGPT desktop, Codex CLI and the Codex IDE extension share the Codex MCP configuration. Configure AUREN as a local stdio server. The bridge reads the existing local operator token file itself, adds the bearer header only on the loopback hop, enforces request/response size limits, and writes JSON-RPC responses to stdout. The token is not placed in the Codex config or sent to an OAuth provider.
+
+Copy [the ChatGPT desktop local config template](../integrations/mcp/chatgpt-desktop.local.toml.example) into `~/.codex/config.toml` (Windows: `%USERPROFILE%\\.codex\\config.toml`) and replace the paths and port with your local values. Merge the `[mcp_servers.auren]` section into an existing file; do not overwrite other MCP entries. Use the exact Python executable, AUREN checkout and token file paths. The local host must be running before the client starts.
 
 Generic MCP client configuration:
 
@@ -147,9 +149,11 @@ The local host must be running before the stdio client starts. If the client sup
 
 ## 6. Host compatibility notes
 
-- **Local MCP clients with HTTP header support:** connect directly to the printed Streamable HTTP URL.
+- **ChatGPT desktop, Codex app/CLI and IDE extension:** use the shared Codex stdio configuration above. Local OAuth is not required.
+- **Local MCP clients with HTTP header support:** connect directly to the printed Streamable HTTP URL and use the local bearer token through the client's protected secret store.
 - **Local MCP clients with stdio only:** use `python /path/to/AUREN/auren_cli.py mcp-proxy ...` as shown above.
-- **Hosted ChatGPT, hosted Claude, or another cloud-only LLM:** local loopback is not reachable from the provider's cloud. Deploy the remote MCP service behind HTTPS with OAuth; do not expose this local host.
+- **ChatGPT Web:** it cannot reach workstation loopback directly. For a supported workspace, use OpenAI Secure MCP Tunnel to forward to the local service; AUREN remains local and the local MCP hop continues to use its bearer token, not OAuth. AUREN does not need a public endpoint. Alternatively deploy a separate hosted service if you need persistent multi-user access.
+- **Other hosted/cloud-only LLMs:** use their supported private connectivity path or a separately secured remote deployment. Do not expose this local host.
 - **Tools without MCP support:** use the AUREN dashboard for observation, or choose an MCP-capable local host / supported stdio adapter.
 
 Keep consequential tool approvals enabled in the client. Client-side approval prompts do not replace AUREN's server-side authorization, policy, admission and approval checks.
