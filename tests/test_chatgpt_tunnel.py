@@ -49,6 +49,21 @@ class ChatGPTTunnelConfigTests(unittest.TestCase):
             self.assertIn('url: "http://127.0.0.1:8765/mcp"', config)
             self.assertNotIn("sk-", config)
 
+    def test_status_returns_success_for_ready_to_start(self):
+        with tempfile.TemporaryDirectory() as directory:
+            client = Path(directory) / "tunnel-client"
+            client.write_text("stub", encoding="utf-8")
+            config = Path(directory) / "tunnel.yaml"
+            config.write_text("config", encoding="utf-8")
+            output = StringIO()
+            with patch("portable.chatgpt_tunnel.shutil.which", return_value=str(client)), \
+                 patch("portable.chatgpt_tunnel._ready", return_value=False), \
+                 patch("portable.chatgpt_tunnel.subprocess.run", return_value=Mock(returncode=0, stdout="healthy", stderr="")):
+                with redirect_stdout(output):
+                    result = main(["status", "--config", str(config), "--tunnel-client", str(client)])
+            self.assertEqual(result, 0)
+            self.assertIn('"status": "ready_to_start"', output.getvalue())
+
     def test_config_rejects_missing_or_malformed_token_file(self):
         with tempfile.TemporaryDirectory() as directory:
             token = Path(directory) / "missing.token"
