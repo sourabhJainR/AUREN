@@ -665,9 +665,10 @@ class AurenMCPService:
         definitions = [
             ("auren.service_status", "Read AUREN service health, queue capacity and admission state.", _SCOPE_READ,
              {"type": "object", "properties": {}, "additionalProperties": False}),
-            ("auren.submit_task", "Durably submit an engineering task to the configured AUREN workspace. A caller-scoped idempotency key is required. When the Vibe Coding host is configured, repository edits run in an isolated worktree only after AUREN's durable approval. Returns an acceptance receipt, not a completion claim.", _SCOPE_WRITE,
+            ("auren.submit_task", "Durably submit an engineering task to the configured AUREN workspace. Set execution_mode='coding' to request guarded repository changes through the configured Vibe Coding executor; this requires a ready local host, isolated worktree writes, independent review and durable approval. 'proposal' requests read-only model output. 'auto' preserves the configured default. Returns an acceptance receipt, not a completion claim.", _SCOPE_WRITE,
              {"type": "object", "required": ["task", "idempotency_key"], "properties": {
                  "task": {"type": "string", "minLength": 1, "maxLength": DEFAULT_MAX_TASK_CHARS},
+                 "execution_mode": {"type": "string", "enum": ["auto", "proposal", "coding"]},
                  "context": {"type": "object", "additionalProperties": True},
                  "priority": {"type": "string", "enum": ["high", "normal", "low"]},
                  "idempotency_key": {"type": "string", "minLength": 16, "maxLength": 200},
@@ -958,6 +959,11 @@ class AurenMCPService:
             context = _bounded_json(arguments.get("context", {}), limit=DEFAULT_MAX_CONTEXT_BYTES)
             if not isinstance(context, Mapping):
                 raise TypeError("context must be an object")
+            execution_mode = arguments.get("execution_mode", "auto")
+            if execution_mode not in {"auto", "proposal", "coding"}:
+                raise ValueError("execution_mode must be auto, proposal or coding")
+            # The top-level mode is authoritative; caller context cannot override it.
+            context = {**dict(context), "execution_mode": execution_mode}
             if self._contains_host_controlled_context(context):
                 raise ValueError("context contains a host-controlled or credential field")
             if _SECRETISH.search(_canonical_json(context)):
