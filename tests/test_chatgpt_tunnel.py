@@ -1,9 +1,13 @@
 import os
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 from portable.chatgpt_tunnel import (
+    main,
     DEFAULT_MCP_URL,
     _ready,
     render_tunnel_config,
