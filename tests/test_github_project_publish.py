@@ -22,7 +22,7 @@ class GitHubProjectPublishTests(unittest.TestCase):
     @patch("portable.github_project_publish._run")
     def test_publish_verifies_remote_and_exact_head(self, run, _which):
         run.side_effect = [
-            "true", "main", "", "", "", "git@github.com:owner/project.git",
+            "true", "main", "", "", "", "", "git@github.com:owner/project.git",
             json.dumps({
                 "nameWithOwner": "owner/project",
                 "url": "https://github.com/owner/project",
@@ -54,6 +54,27 @@ class GitHubProjectPublishTests(unittest.TestCase):
         with self.assertRaises(FileExistsError):
             publish_project(self.root, "owner/project")
         self.assertEqual(4, run.call_count)
+
+    @patch("portable.github_project_publish.shutil.which", return_value="/usr/bin/gh")
+    @patch("portable.github_project_publish._run")
+    def test_origin_must_match_exact_owner_and_repository(self, run, _which):
+        run.side_effect = [
+            "true", "main", "", "", "", "", "git@github.com:someone-else/project.git",
+            json.dumps({
+                "nameWithOwner": "owner/project",
+                "url": "https://github.com/owner/project",
+                "visibility": "PRIVATE",
+            }),
+        ]
+        with self.assertRaisesRegex(RuntimeError, "origin owner/name"):
+            publish_project(self.root, "owner/project")
+
+    @patch("portable.github_project_publish.shutil.which", return_value="/usr/bin/gh")
+    @patch("portable.github_project_publish._run")
+    def test_invalid_github_metadata_fails_with_clear_error(self, run, _which):
+        run.side_effect = ["true", "main", "", "", "", "", "git@github.com:owner/project.git", "not-json"]
+        with self.assertRaisesRegex(RuntimeError, "invalid repository metadata"):
+            publish_project(self.root, "owner/project")
 
     def test_invalid_repository_name_rejected_before_commands(self):
         with patch("portable.github_project_publish._run") as run:
