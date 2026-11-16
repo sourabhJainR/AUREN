@@ -1022,6 +1022,31 @@ class ContinuousExecutionSupervisor:
                                 "status": outcome_status, "reason": str(reason)[:500],
                             })
                         elif outcome_status in progress_statuses:
+                            if outcome_status == "complete":
+                                run_id_value = outcome.get("run_id")
+                                completed_task_ids = outcome.get("completed_task_ids")
+                                acceptance_evidence = outcome.get("acceptance_evidence")
+                                if (
+                                    not isinstance(run_id_value, str) or not run_id_value.strip()
+                                    or isinstance(completed_task_ids, (str, bytes))
+                                    or not isinstance(completed_task_ids, (list, tuple))
+                                    or not completed_task_ids
+                                    or any(not isinstance(item, str) or not item.strip() for item in completed_task_ids)
+                                    or len(set(completed_task_ids)) != len(completed_task_ids)
+                                    or not isinstance(acceptance_evidence, Mapping)
+                                    or not acceptance_evidence
+                                    or set(acceptance_evidence) != set(completed_task_ids)
+                                ):
+                                    raise ValueError("complete goal outcome requires matching run, task, and acceptance evidence")
+                                for task_id, refs in acceptance_evidence.items():
+                                    if (
+                                        not isinstance(task_id, str) or not task_id.strip()
+                                        or isinstance(refs, (str, bytes))
+                                        or not isinstance(refs, (list, tuple))
+                                        or not refs
+                                        or any(not isinstance(ref, str) or not ref.strip() or len(ref) > 500 for ref in refs)
+                                    ):
+                                        raise ValueError("complete goal outcome contains missing or invalid task acceptance evidence")
                             self._clear_goal_hold(goal_name)
                             self._clear_goal_error(goal_name)
                             self._event(run_id, "goal_reconciled", {
