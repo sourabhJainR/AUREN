@@ -60,8 +60,12 @@ def render_tunnel_config(tunnel_id: str, token_file: str | Path, mcp_url: str = 
     token_source = Path(token_file).expanduser()
     if token_source.is_symlink() or token_source.parent.is_symlink():
         raise ValueError("local MCP token path and parent must not be symlinks")
-    if token_source.exists() and not token_source.is_file():
-        raise ValueError("local MCP token path must be a regular file")
+    if token_source.is_symlink() or not token_source.exists() or not token_source.is_file():
+        raise ValueError("local MCP token file must exist and be a regular, non-symlink file before tunnel configuration")
+    from .windows_acl import enforce_private_acl
+    enforce_private_acl(token_source, directory=False)
+    from .local_host import _read_token_file
+    _read_token_file(token_source)
     token_path = token_source.resolve()
     token_reference = "file:" + token_path.as_posix()
     return (
@@ -92,10 +96,16 @@ def write_tunnel_config(
 ) -> Path:
     target = Path(config_path).expanduser()
     target.parent.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":
+        from .windows_acl import enforce_private_acl
+        enforce_private_acl(target.parent, directory=True)
     if target.is_symlink() or target.parent.is_symlink():
         raise ValueError("tunnel config path and parent must not be symlinks")
     if target.exists() and not overwrite:
         raise FileExistsError(f"tunnel config already exists; inspect it or pass --overwrite: {target}")
+    if os.name == "nt" and target.exists():
+        from .windows_acl import enforce_private_acl
+        enforce_private_acl(target, directory=False)
     content = render_tunnel_config(tunnel_id, token_file, mcp_url)
     temporary = target.with_name(target.name + ".tmp")
     if temporary.exists() or temporary.is_symlink():
@@ -121,6 +131,10 @@ def write_tunnel_config(
         raise
     if os.name != "nt":
         target.chmod(0o600)
+    else:
+        from .windows_acl import enforce_private_acl
+        enforce_private_acl(target.parent, directory=True)
+        enforce_private_acl(target, directory=False)
     return target.resolve()
 
 
@@ -158,6 +172,7 @@ def _run(args: list[str]) -> int:
     run.add_argument("--tunnel-client", default="tunnel-client")
     run.add_argument("--config", default=str(DEFAULT_TUNNEL_CONFIG))
     run.add_argument("--overwrite-config", action="store_true")
+    run.add_argument("--max-restarts", type=int, default=3, help="Maximum tunnel-client restarts after an unexpected exit (0-10).")
 
     status = commands.add_parser("status", help="Check local MCP, tunnel client and config readiness.")
     status.add_argument("--config", default=str(DEFAULT_TUNNEL_CONFIG))
@@ -184,22 +199,33 @@ def _run(args: list[str]) -> int:
 
         if options.action == "status":
             client = shutil.which(options.tunnel_client) if os.path.sep not in options.tunnel_client else options.tunnel_client
+            config_path = Path(options.config).expanduser()
             report = {
                 "tunnel_client": "available" if client and Path(client).is_file() else "missing",
-                "runtime_key": "not_inspected_for_security",
                 "local_mcp": "ready" if _ready(options.mcp_url.rsplit("/mcp", 1)[0] + "/readyz") else "not_ready",
-                "config": "present" if Path(options.config).expanduser().is_file() else "missing",
+                "config": "present" if config_path.is_file() and not config_path.is_symlink() else "missing",
                 "tunnel_connection": "not_checked",
             }
+            if report["tunnel_client"] == "available" and report["config"] == "present":
+                try:
+                    doctor = subprocess.run(
+                        [str(client), "doctor", "--config", str(config_path), "--explain"],
+                        capture_output=True, text=True, timeout=10, check=False,
+                    )
+                    report["tunnel_connection"] = "healthy" if doctor.returncode == 0 else "unhealthy"
+                    report["doctor_exit_code"] = doctor.returncode
+                except (OSError, subprocess.TimeoutExpired) as exc:
+                    report["tunnel_connection"] = "unknown"
+                    report["tunnel_diagnostic"] = type(exc).__name__
             report["status"] = (
                 "ready_to_start"
                 if report["tunnel_client"] == "available"
-                and report["local_mcp"] == "ready"
                 and report["config"] == "present"
+                and report["tunnel_connection"] == "healthy"
                 else "blocked"
             )
             print(json.dumps(report, indent=2, sort_keys=True))
-            return 0 if report["status"] == "ready" else 2
+            return 0 if report["status"] == "ready_to_start" else 2
 
         if options.branch and not options.repository:
             parser.error("--branch requires --repository")
@@ -207,6 +233,8 @@ def _run(args: list[str]) -> int:
             raise ValueError("CONTROL_PLANE_API_KEY is not set; supply it through a protected environment variable")
         if not 1 <= options.mcp_port <= 65535:
             raise ValueError("--mcp-port must be between 1 and 65535")
+        if not 0 <= options.max_restarts <= 10:
+            raise ValueError("--max-restarts must be between 0 and 10")
         client = shutil.which(options.tunnel_client) if os.path.sep not in options.tunnel_client else options.tunnel_client
         if not client or not Path(client).is_file():
             raise FileNotFoundError("tunnel-client was not found; install the supported Windows binary from OpenAI Platform Tunnels and add it to PATH")
@@ -270,8 +298,65 @@ def _run(args: list[str]) -> int:
             print(f"AUREN local MCP ready: http://127.0.0.1:{options.mcp_port}/mcp", flush=True)
             print(f"Tunnel config: {config_path}", flush=True)
             print("Starting OpenAI Secure MCP Tunnel. Keep this process running while using ChatGPT.", flush=True)
+            restart_count = 0
+            backoff_seconds = 1
+            last_doctor_check = 0.0
+            consecutive_health_failures = 0
             tunnel_process = subprocess.Popen([str(client), "run", "--config", str(config_path)])
-            return int(tunnel_process.wait())
+            while True:
+                if local_process.poll() is not None:
+                    raise RuntimeError(
+                        f"AUREN local host exited while tunnel was active with code {local_process.returncode}"
+                    )
+                now = time.monotonic()
+                exit_code = tunnel_process.poll()
+                if exit_code is not None:
+                    if restart_count >= options.max_restarts:
+                        raise RuntimeError(
+                            f"tunnel client exited with code {exit_code}; restart limit "
+                            f"{options.max_restarts} exhausted"
+                        )
+                    restart_count += 1
+                    print(
+                        f"Tunnel client exited ({exit_code}); restart "
+                        f"{restart_count}/{options.max_restarts} in {backoff_seconds}s.",
+                        file=sys.stderr, flush=True,
+                    )
+                    time.sleep(backoff_seconds)
+                    backoff_seconds = min(backoff_seconds * 2, 8)
+                    tunnel_process = subprocess.Popen([str(client), "run", "--config", str(config_path)])
+                    last_doctor_check = 0.0
+                    consecutive_health_failures = 0
+                    continue
+                if now - last_doctor_check >= 10.0:
+                    last_doctor_check = now
+                    try:
+                        doctor = subprocess.run(
+                            [str(client), "doctor", "--config", str(config_path), "--explain"],
+                            capture_output=True, text=True, timeout=8, check=False,
+                        )
+                        if doctor.returncode != 0:
+                            consecutive_health_failures += 1
+                            print(
+                                f"Tunnel health check failed ({consecutive_health_failures}/2).",
+                                file=sys.stderr, flush=True,
+                            )
+                            if consecutive_health_failures >= 2 and tunnel_process.poll() is None:
+                                print("Tunnel health remains failed; restarting the tunnel client.", file=sys.stderr, flush=True)
+                                tunnel_process.terminate()
+                                try:
+                                    tunnel_process.wait(timeout=5)
+                                except subprocess.TimeoutExpired:
+                                    tunnel_process.kill()
+                                    tunnel_process.wait(timeout=5)
+                        else:
+                            consecutive_health_failures = 0
+                    except (OSError, subprocess.TimeoutExpired):
+                        consecutive_health_failures += 1
+                        print("Tunnel health check is unavailable; process supervision remains active.", file=sys.stderr, flush=True)
+                        if consecutive_health_failures >= 2 and tunnel_process.poll() is None:
+                            tunnel_process.terminate()
+                time.sleep(1.0)
         except KeyboardInterrupt:
             return 130
         finally:
