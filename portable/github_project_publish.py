@@ -20,7 +20,7 @@ _REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$")
 def _normalize_github_remote(remote: str) -> str:
     """Return an exact owner/name pair for a GitHub HTTPS or SSH remote."""
     value = remote.strip()
-    match = re.fullmatch(r"(?:[^@/:]+@)?github\.com:([^/]+)/([^/]+?)(?:\.git)?", value, re.IGNORECASE)
+    match = re.fullmatch(r"(?:git@)?github\.com:([^/]+)/([^/]+?)(?:\.git)?", value, re.IGNORECASE)
     if match:
         owner, name = match.groups()
     else:
@@ -28,6 +28,14 @@ def _normalize_github_remote(remote: str) -> str:
         parsed = urlsplit(value)
         if parsed.scheme not in {"https", "ssh", "git"} or (parsed.hostname or "").lower() != "github.com":
             raise RuntimeError("origin must point to the requested repository on github.com")
+        if parsed.password is not None or parsed.query or parsed.fragment:
+            raise RuntimeError("origin must not contain credentials, query parameters or fragments")
+        if parsed.scheme == "https" and parsed.username is not None:
+            raise RuntimeError("HTTPS origin must not embed credentials")
+        if parsed.scheme == "ssh" and parsed.username not in {None, "git"}:
+            raise RuntimeError("SSH origin must use the GitHub git account")
+        if parsed.port not in {None, 22 if parsed.scheme == "ssh" else 443}:
+            raise RuntimeError("origin uses an unsupported GitHub port")
         parts = parsed.path.strip("/").split("/")
         if len(parts) != 2:
             raise RuntimeError("origin must contain exactly one GitHub owner/repository path")
