@@ -257,6 +257,8 @@ def discover_clients(home: Path | None = None) -> list[dict[str, str]]:
         ("Claude Desktop", base / ".config/Claude/claude_desktop_config.json", "mcpServers"),
         ("Claude Code", base / ".claude.json", "mcpServers"),
         ("Gemini CLI", base / ".gemini/settings.json", "mcpServers"),
+        ("Grok Build CLI", Path(os.environ.get("GROK_HOME", str(base / ".grok"))).expanduser() / "config.toml",
+         "mcp_servers"),
         ("Cursor", base / ".cursor/mcp.json", "mcpServers"),
         ("Windsurf", base / ".codeium/windsurf/mcp_config.json", "mcpServers"),
         ("VS Code", base / ".config/Code/User/settings.json", "mcp.servers"),
@@ -269,7 +271,7 @@ def discover_clients(home: Path | None = None) -> list[dict[str, str]]:
     found: list[dict[str, str]] = []
     seen: set[str] = set()
     executable_by_name = {
-        "Claude Code": "claude", "Gemini CLI": "gemini",
+        "Claude Code": "claude", "Gemini CLI": "gemini", "Grok Build CLI": "grok",
         "Cursor": "cursor", "Windsurf": "windsurf",
         "VS Code": "code", "VS Code Insiders": "code-insiders",
     }
@@ -365,7 +367,7 @@ def _configure_toml_client(client: dict[str, str], *, command: str, args: list[s
         original, parsed = b"", {}
     servers = parsed.get("mcp_servers", {})
     if not isinstance(servers, dict):
-        raise OnboardingError("Codex mcp_servers configuration must be a TOML table")
+        raise OnboardingError(f"{client['name']} mcp_servers configuration must be a TOML table")
     desired = {"command": command, "args": args}
     previous = servers.get("auren")
     if previous == desired:
@@ -375,7 +377,9 @@ def _configure_toml_client(client: dict[str, str], *, command: str, args: list[s
                 "reason": "an existing Codex AUREN entry was left unchanged"}
     block = ("\n[mcp_servers.auren]\n"
              + "command = " + json.dumps(command, ensure_ascii=False) + "\n"
-             + "args = " + json.dumps(args, ensure_ascii=False) + "\n")
+             + "args = " + json.dumps(args, ensure_ascii=False) + "\n"
+             + ("enabled = true\nstartup_timeout_sec = 30\ntool_timeout_sec = 6000\n"
+                if client["name"] == "Grok Build CLI" else ""))
     if not apply:
         return {"client": client["name"], "path": str(path), "status": "preview",
                 "proposed_entry": desired}
