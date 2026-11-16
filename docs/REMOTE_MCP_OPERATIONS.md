@@ -262,6 +262,9 @@ Complete OAuth if the deployed service requires it. Do not commit long-lived bea
 
 ### Antigravity CLI and IDE
 
+For a local AUREN runtime, run `auren up` with `agy` installed. AUREN writes a local stdio entry to `~/.gemini/config/mcp_config.json`, using the protected token-file bridge. The token value is not written into the JSON file. Verify in the Antigravity CLI with `/mcp`.
+
+
 Antigravity supports remote Streamable HTTP MCP. Its remote configuration uses serverUrl, not the legacy httpUrl field:
 
 ~~~json
