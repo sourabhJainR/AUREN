@@ -154,6 +154,7 @@ class ProviderConformanceTests(unittest.TestCase):
 
         for term in (
             "gemini mcp list", "/skills list", "serverUrl",
+            "agy --version", "mcp_config.json",
             "grok mcp list", "grok mcp doctor", "GROK_HOME",
             "XAI_API_KEY", "GROQ_API_KEY", "GEMINI_API_KEY",
             "AUREN_LOCAL_REMOTE_INFERENCE", "live verified",
@@ -163,6 +164,9 @@ class ProviderConformanceTests(unittest.TestCase):
 
         self.assertIn("GEMINI_GROK_INTEGRATION.md", usage)
         self.assertIn("Grok Build CLI", host_doc)
+        self.assertIn("Antigravity CLI / IDE", host_doc)
+        self.assertIn("docs/GEMINI_GROK_INTEGRATION.md", integrations["antigravity_cli"]["repository_artifacts"])
+        self.assertIn("portable/onboarding.py", integrations["antigravity_ide"]["repository_artifacts"])
         self.assertEqual("partial", integrations["grok_build_cli"]["support"])
         self.assertFalse(integrations["grok_build_cli"]["live_verified"])
         self.assertIn("portable/onboarding.py", integrations["grok_build_cli"]["repository_artifacts"])
