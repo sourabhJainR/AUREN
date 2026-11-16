@@ -237,6 +237,29 @@ For Gemini Code Assist Agent mode in VS Code, add the server to the Gemini setti
 
 Gemini Code Assist Agent mode uses the Gemini CLI tool integration for MCP. It is a separate acceptance target from the standalone Gemini CLI. As of June 18, 2026, Gemini CLI and Gemini Code Assist IDE extensions stopped serving Gemini Code Assist for Individuals, Google AI Pro and Google AI Ultra tiers. Gemini Code Assist Standard/Enterprise and paid Gemini API-key access remain available; affected consumer users should use Antigravity CLI/IDE instead.
 
+### Grok Build CLI
+
+Grok Build CLI uses `~/.grok/config.toml` (or the directory selected by `GROK_HOME`). For a local AUREN service, prefer the stdio bridge configured by `auren up`; it reads the local operator credential from a protected token file and does not place the bearer value in TOML.
+
+Verify the client entry and connection:
+
+~~~bash
+grok mcp list
+grok mcp doctor
+~~~
+
+For a deployed remote AUREN service, use the remote URL form:
+
+~~~toml
+[mcp_servers.auren]
+url = "https://mcp.example.com/mcp"
+enabled = true
+startup_timeout_sec = 30
+tool_timeout_sec = 6000
+~~~
+
+Complete OAuth if the deployed service requires it. Do not commit long-lived bearer tokens in `headers`. Grok web chat is not an MCP host and must not be marked connected based on xAI API availability.
+
 ### Antigravity CLI and IDE
 
 Antigravity supports remote Streamable HTTP MCP. Its remote configuration uses serverUrl, not the legacy httpUrl field:
