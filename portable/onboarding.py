@@ -258,7 +258,7 @@ def discover_clients(home: Path | None = None) -> list[dict[str, str]]:
         ("Claude Code", base / ".claude.json", "mcpServers"),
         ("Gemini CLI", base / ".gemini/settings.json", "mcpServers"),
         ("Antigravity CLI / IDE", base / ".gemini/config/mcp_config.json", "mcpServers"),
-        ("Grok Build CLI", Path(os.environ.get("GROK_HOME", str(base / ".grok"))).expanduser() / "config.toml",
+        ("Grok Build CLI", Path(os.environ.get("GROK_HOME") or str(base / ".grok")).expanduser() / "config.toml",
          "mcp_servers"),
         ("Cursor", base / ".cursor/mcp.json", "mcpServers"),
         ("Windsurf", base / ".codeium/windsurf/mcp_config.json", "mcpServers"),
@@ -370,12 +370,14 @@ def _configure_toml_client(client: dict[str, str], *, command: str, args: list[s
     if not isinstance(servers, dict):
         raise OnboardingError(f"{client['name']} mcp_servers configuration must be a TOML table")
     desired = {"command": command, "args": args}
+    if client["name"] == "Grok Build CLI":
+        desired.update({"enabled": True, "startup_timeout_sec": 30, "tool_timeout_sec": 6000})
     previous = servers.get("auren")
     if previous == desired:
         return {"client": client["name"], "path": str(path), "status": "already_configured"}
     if previous is not None:
         return {"client": client["name"], "path": str(path), "status": "conflict",
-                "reason": "an existing Codex AUREN entry was left unchanged"}
+                "reason": f"an existing {client['name']} AUREN entry was left unchanged"}
     block = ("\n[mcp_servers.auren]\n"
              + "command = " + json.dumps(command, ensure_ascii=False) + "\n"
              + "args = " + json.dumps(args, ensure_ascii=False) + "\n"
