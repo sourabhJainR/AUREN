@@ -221,7 +221,7 @@ Use the dedicated [Gemini, Antigravity and Grok Build Integration](GEMINI_GROK_I
 Quick reference:
 
 - **Gemini CLI:** AUREN Agent Skill plus local stdio MCP. `auren up` configures `~/.gemini/settings.json` when Gemini CLI is detected. Verify with `gemini mcp list`, `/mcp` and `/skills list`.
-- **Antigravity CLI/IDE:** separate product and config format. Remote MCP uses `serverUrl` in `~/.gemini/config/mcp_config.json` or `.agents/mcp_config.json`. Do not reuse Gemini CLI's `httpUrl` field.
+- **Antigravity CLI/IDE:** separate product and config format. `agy` detection enables local stdio MCP configuration in `~/.gemini/config/mcp_config.json`; remote MCP uses `serverUrl` in that file or `.agents/mcp_config.json`. Do not reuse Gemini CLI's `httpUrl` field.
 - **Grok Build CLI:** local stdio MCP is configured in `~/.grok/config.toml` (or `$GROK_HOME/config.toml`) when the `grok` executable is detected. Verify with `grok mcp list` and `grok mcp doctor`.
 - **Grok web chat:** chat-only handoff; it is not a local MCP client.
 - **Gemini, Groq and xAI APIs:** inference providers for AUREN's HybridModelRouter, not MCP host applications. See [Model Provider Integration](MODEL_PROVIDER_INTEGRATION.md).
