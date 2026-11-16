@@ -23,7 +23,9 @@ For the local AUREN endpoint, run `auren integrations probe-local-mcp` to verify
 | Claude Desktop | Remote MCP connector | Documented | Live OAuth and tool acceptance |
 | Claude Code CLI | `claude mcp add --transport http` | Documented | Live version and permission-mode acceptance |
 | Claude Code VS Code extension | Same Claude Code MCP configuration | Documented | Extension smoke test |
-| Gemini CLI | `gemini mcp add --transport http` or `settings.json` | Documented | OAuth and tool discovery |
+| Gemini CLI | Local stdio via `auren up`; remote `gemini mcp add --transport http` | Repository configured | Live local/remote tool, OAuth and task-lifecycle acceptance |
+| Antigravity CLI / IDE | Remote MCP `serverUrl` in Antigravity config | Documented | Product/version-specific auth and tool acceptance |
+| Grok Build CLI | Local stdio in `~/.grok/config.toml`; remote URL in TOML | Repository configured | Live MCP discovery, OAuth and task-lifecycle acceptance |
 | Gemini Code Assist | Gemini CLI MCP integration in Agent mode | Partial | Test the installed extension/plan separately |
 | Cursor | `mcpServers` in `mcp.json` | Documented | OAuth and local/cloud/SSH acceptance |
 | VS Code GitHub Copilot | `.vscode/mcp.json` | Documented | Agent-mode tool discovery and approval |
@@ -146,6 +148,14 @@ Keep `trust: false` unless the operator has reviewed the full AUREN tool surface
 ### Gemini Code Assist and Antigravity
 
 Treat these as separate host acceptance targets from Gemini CLI. Their MCP configuration and account/plan support can differ. Verify the installed product version, sign-in path and tool approvals before marking either live verified.
+
+### Grok Build CLI versus Grok chat
+
+Grok Build CLI is an MCP-capable local coding host. It is not the same product surface as Grok web chat and is not the same thing as AUREN's xAI inference adapter. AUREN auto-configures the local stdio bridge in `~/.grok/config.toml` (or `$GROK_HOME/config.toml`) when the `grok` executable is detected. Verify with `grok mcp list` and `grok mcp doctor`. Remote deployments use the host's `url` field and its OAuth flow when required.
+
+Grok web chat remains a chat-only/manual-handoff surface. xAI API inference is configured separately through `XAI_API_KEY` and `XAI_MODEL`.
+
+See [Gemini, Antigravity and Grok Build Integration](GEMINI_GROK_INTEGRATION.md) for the local/remote examples and acceptance procedure.
 
 ## Cursor
 
