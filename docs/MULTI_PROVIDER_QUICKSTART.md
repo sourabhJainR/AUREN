@@ -68,10 +68,8 @@ For a direct API smoke test, select one provider explicitly:
 
     $env:AUREN_LOCAL_REMOTE_INFERENCE = "enabled"
     python scripts/provider_conformance.py --live-api --api-provider groq --json
-    python scripts/provider_conformance.py --live-api --api-provider gemini --json
-    python scripts/provider_conformance.py --live-api --api-provider xai --json
 
-The command sends one fixed synthetic prompt, not workspace or task content, and may incur a small provider charge. The provider must be in `AUREN_REMOTE_PROVIDER_ORDER`. Repeat `--api-provider` to test more providers. The result records latency, token usage and digests; it never prints credentials or stores the raw prompt or response. See [Model Provider Integration](MODEL_PROVIDER_INTEGRATION.md#run-a-live-direct-api-conformance-probe) for Linux/macOS commands and the limits of this check.
+The command sends one fixed synthetic prompt, not workspace or task content, and may incur a small provider charge. For Gemini and xAI probes, see [Gemini, Antigravity and Grok Build Integration](GEMINI_GROK_INTEGRATION.md) for provider-specific setup. The provider must be in `AUREN_REMOTE_PROVIDER_ORDER`. Repeat `--api-provider` to test more providers. The result records latency, token usage and digests; it never prints credentials or stores the raw prompt or response. See [Model Provider Integration](MODEL_PROVIDER_INTEGRATION.md#run-a-live-direct-api-conformance-probe) for Linux/macOS commands and the limits of this check.
 
 ## 3. Use a local model
 
