@@ -280,7 +280,10 @@ def discover_clients(home: Path | None = None) -> list[dict[str, str]]:
         executable = executable_by_name.get(name)
         if (path.exists() or (executable and shutil.which(executable))) and str(path) not in seen:
             seen.add(str(path))
-            found.append({"name": name, "path": str(path), "key": key})
+            client = {"name": name, "path": str(path), "key": key}
+            if name == "Grok Build CLI":
+                client["format"] = "toml"
+            found.append(client)
     # ChatGPT desktop shares the Codex MCP configuration even when the Codex
     # CLI executable is not installed. Always offer this local config target;
     # callers can opt out of automatic client configuration with --no-connect.
