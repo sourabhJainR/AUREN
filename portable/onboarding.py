@@ -358,7 +358,7 @@ def _configure_toml_client(client: dict[str, str], *, command: str, args: list[s
         raise OnboardingError(f"refusing to write through client configuration symlink: {path}")
     if path.exists():
         if not path.is_file() or path.stat().st_size > _MAX_CONFIG_BYTES:
-            raise OnboardingError(f"Codex configuration is not a bounded regular file: {path}")
+            raise OnboardingError(f"{client['name']} configuration is not a bounded regular file: {path}")
         try:
             original = path.read_bytes()
             parsed = tomllib.loads(original.decode("utf-8"))
