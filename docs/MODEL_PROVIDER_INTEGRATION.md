@@ -62,6 +62,24 @@ The router creates a remote provider pool only when `AUREN_REMOTE_PROVIDER_ORDER
 
 The pool attempts providers in the exact configured order. One provider is attempted per supervisor-charged remote attempt. The existing shared execution guard remains authoritative: the provider pool cannot increase the task's attempt count or deadline. The route currently has a maximum of three attempts, and any local attempt consumes that same budget.
 
+## Gemini, Groq and xAI provider-specific probes
+
+The same conformance command accepts the direct provider IDs `gemini`, `groq` and `xai`. Configure the corresponding key and explicit model ID, then select one provider per probe:
+
+~~~powershell
+$env:AUREN_REMOTE_PROVIDER_ORDER = "groq"
+$env:AUREN_LOCAL_REMOTE_INFERENCE = "enabled"
+python scripts/provider_conformance.py --live-api --api-provider groq --json
+
+$env:AUREN_REMOTE_PROVIDER_ORDER = "gemini"
+python scripts/provider_conformance.py --live-api --api-provider gemini --json
+
+$env:AUREN_REMOTE_PROVIDER_ORDER = "xai"
+python scripts/provider_conformance.py --live-api --api-provider xai --json
+~~~
+
+Each command sends one fixed synthetic request and may incur a charge. The command validates the provider adapter and account/model access, not the corresponding MCP host. Gemini CLI or Grok Build CLI connection acceptance must be run separately. See [Gemini, Antigravity and Grok Build Integration](GEMINI_GROK_INTEGRATION.md).
+
 ## Run a live direct API conformance probe
 
 A live probe is available for a selected direct API adapter. It sends one fixed, synthetic public prompt and checks for an exact response sentinel. It does not read a workspace, repository, task or user prompt.
