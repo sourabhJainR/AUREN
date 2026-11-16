@@ -48,9 +48,11 @@ def _wait_until(predicate, timeout: float, description: str):
 
 def _ready(port: int) -> bool:
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/readyz", timeout=1) as response:
-            return response.status == 200
-    except (OSError, urllib.error.URLError):
+        status, _body = guarded_loopback_http_get(
+            f"http://127.0.0.1:{port}/readyz", timeout=1, max_bytes=1024
+        )
+        return status == 200
+    except (NetworkPolicyDenied, OSError, TimeoutError, ValueError):
         return False
 
 
