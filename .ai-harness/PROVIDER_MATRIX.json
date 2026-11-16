@@ -341,20 +341,24 @@
         "GEMINI.md",
         "AGENTS.md",
         "Agent Skills",
+        "Local stdio MCP via auren up",
         "Remote Streamable HTTP MCP",
-        "headless mode"
+        "Headless mode"
       ],
       "repository_artifacts": [
         "GEMINI.md",
         "AGENTS.md",
         ".agents/skills/ai-coding-orchestrator/SKILL.md",
+        "portable/onboarding.py",
+        "docs/GEMINI_GROK_INTEGRATION.md",
         "docs/REMOTE_MCP_OPERATIONS.md"
       ],
-      "current_gap": "Gemini CLI supports Streamable HTTP MCP and registration is documented. Google has moved some consumer Gemini CLI/Code Assist tiers to Antigravity; plan-specific availability must be checked. No live AUREN OAuth or Gemini CLI acceptance is recorded.",
+      "current_gap": "AUREN configures Gemini CLI local stdio MCP and documents remote HTTP MCP and Agent Skill installation. No live AUREN Gemini CLI tool, OAuth or guarded task-lifecycle acceptance is recorded. Gemini Code Assist and Antigravity remain separate product acceptance targets.",
       "next_steps": [
-        "Use gemini mcp add --transport http auren https://<host>/mcp where Gemini CLI remains available.",
-        "For consumer tiers migrated to Antigravity, use the Antigravity CLI entry and serverUrl configuration.",
-        "Complete OAuth and run task/status/evidence/cancellation acceptance."
+        "Install the AUREN Agent Skill and run auren up with Gemini CLI installed.",
+        "Verify gemini mcp list, /mcp and /skills list.",
+        "Run read-only, scope denial, task lifecycle, approval, restart and reconnect acceptance.",
+        "Test Gemini Code Assist and Antigravity separately; do not infer their support from Gemini CLI."
       ],
       "live_verified": false
     },
@@ -416,7 +420,10 @@
       "repository_artifacts": [
         "portable/remote_model_providers.py",
         "portable/hybrid_model_router.py",
-        "tests/test_remote_model_providers.py"
+        "tests/test_remote_model_providers.py",
+        "scripts/provider_conformance.py",
+        "tests/test_provider_conformance.py",
+        "docs/GEMINI_GROK_INTEGRATION.md"
       ],
       "current_gap": "A bounded native adapter is present. Live credential acceptance, current model-ID validation, vendor-specific feature conformance, pricing, latency and outage tests remain outstanding; no provider is marked live verified.",
       "next_steps": [
@@ -452,7 +459,10 @@
       "repository_artifacts": [
         "portable/remote_model_providers.py",
         "portable/hybrid_model_router.py",
-        "tests/test_remote_model_providers.py"
+        "tests/test_remote_model_providers.py",
+        "scripts/provider_conformance.py",
+        "tests/test_provider_conformance.py",
+        "docs/GEMINI_GROK_INTEGRATION.md"
       ],
       "current_gap": "A bounded native adapter is present. Live credential acceptance, current model-ID validation, vendor-specific feature conformance, pricing, latency and outage tests remain outstanding; no provider is marked live verified.",
       "next_steps": [
@@ -465,15 +475,25 @@
     },
     "grok_build_cli": {
       "kind": "coding_host",
-      "support": "not_native",
+      "support": "partial",
       "mechanisms": [
-        "xAI/Grok model APIs are separate from MCP client hosts"
+        "Grok Build CLI",
+        "Local stdio MCP in ~/.grok/config.toml or $GROK_HOME/config.toml",
+        "Remote Streamable HTTP MCP",
+        "OAuth where required"
       ],
-      "repository_artifacts": [],
-      "current_gap": "No verified general-purpose Grok Build CLI client integration is established in this audit. xAI API model routing is also not wired in AUREN.",
+      "repository_artifacts": [
+        "portable/onboarding.py",
+        "tests/test_local_first_onboarding.py",
+        "docs/GEMINI_GROK_INTEGRATION.md",
+        "docs/REMOTE_MCP_OPERATIONS.md"
+      ],
+      "current_gap": "AUREN now discovers Grok Build CLI and configures its local stdio bridge while preserving existing TOML settings. Remote MCP is documented. No live Grok Build CLI installation, tool discovery, OAuth or guarded task-lifecycle acceptance is recorded.",
       "next_steps": [
-        "Confirm the exact xAI/Grok product and supported MCP client protocol before adding an adapter.",
-        "Keep xAI inference-provider work separate from remote MCP client integration."
+        "Install Grok Build CLI and run auren up; verify the local config and token-file bridge.",
+        "Run grok mcp list and grok mcp doctor; record the exact CLI version and AUREN build.",
+        "Complete read-only, scope denial, task lifecycle, approval, restart and reconnect acceptance.",
+        "Keep Grok web chat classified as chat-only and xAI API inference as a separate provider."
       ],
       "live_verified": false
     },
@@ -638,7 +658,10 @@
       "repository_artifacts": [
         "portable/remote_model_providers.py",
         "portable/hybrid_model_router.py",
-        "tests/test_remote_model_providers.py"
+        "tests/test_remote_model_providers.py",
+        "scripts/provider_conformance.py",
+        "tests/test_provider_conformance.py",
+        "docs/GEMINI_GROK_INTEGRATION.md"
       ],
       "current_gap": "A bounded native adapter is present. Live credential acceptance, current model-ID validation, vendor-specific feature conformance, pricing, latency and outage tests remain outstanding; no provider is marked live verified.",
       "next_steps": [
