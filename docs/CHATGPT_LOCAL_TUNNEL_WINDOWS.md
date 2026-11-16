@@ -95,6 +95,18 @@ auren chatgpt-tunnel status
 
 The MCP port is 8765 unless overridden. The dashboard port is selected by the operating system and is printed in the AUREN startup output. The tunnel client exposes its own local health UI; use `tunnel-client doctor --config "$HOME/.auren/mcp/chatgpt-tunnel.yaml" --explain` if connection readiness is unclear.
 
+The AUREN launcher also checks this doctor command while running. Two consecutive failed health checks trigger a tunnel-client restart. Unexpected client exits trigger bounded restarts with exponential backoff (default 3, maximum 10; configure with `--max-restarts`). When the limit is exhausted, the launcher exits with a clear blocked error and still shuts down the local AUREN host. Use `auren chatgpt-tunnel status` to check whether the client, config and tunnel connection are ready to start. Exit code 0 means `ready_to_start`; it does not mean ChatGPT has discovered the server.
+
+On Windows, the launcher applies and verifies ACLs for the AUREN operator token, tunnel config directory and config file. It refuses to write the tunnel config if the token file is missing, malformed, a symlink, or cannot be protected. Existing config backups are protected before replacement.
+
+For a live Windows lifecycle test, set `CONTROL_PLANE_API_KEY` in the current process environment using your approved secret-management method, then run:
+
+```powershell
+python scripts/accept_chatgpt_tunnel_windows.py --project-root <existing-project-path> --tunnel-id <platform-tunnel-id>
+```
+
+The test starts AUREN and the real tunnel client, verifies readiness, forcibly interrupts the tunnel client, verifies that AUREN starts a replacement within the bounded retry policy, checks the client doctor result, then sends a console-break shutdown and verifies both child services stop. It does not verify ChatGPT UI discovery; run `python auren_cli.py accept-chatgpt-desktop-mcp` and complete the manual ChatGPT Desktop Codex-mode check separately.
+
 ## Security boundaries and limits
 
 - Never expose port 8765 through a router, reverse proxy or public firewall.
