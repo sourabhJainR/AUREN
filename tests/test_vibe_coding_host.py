@@ -1986,8 +1986,8 @@ class VibeHostReadinessTests(unittest.TestCase):
                 "deployment": {"argv": ["deployment-mcp"]},
                 "preview": {"argv": ["preview-mcp"]},
             },
-            preview_deployment_required=True,
         )
+        config.preview_deployment_required = True
         with patch("portable.vibe_coding_host.shutil.which", side_effect=lambda command: f"/fake/bin/{command}"):
             result = inspect_vibe_host_readiness(
                 config, provider_fabric=_ReadinessProviderFabric({"codex", "claude"}),
