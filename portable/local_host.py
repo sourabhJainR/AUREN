@@ -103,7 +103,9 @@ def load_or_create_local_token(path: Path | None = None) -> tuple[str, Path]:
     else:
         from .windows_acl import enforce_private_acl
         enforce_private_acl(parent, directory=True)
-    if target.exists() or target.is_symlink():
+    if target.is_symlink():
+        raise RuntimeError("local MCP token path must be a regular, non-symlink file")
+    if target.exists():
         if os.name == "nt":
             from .windows_acl import enforce_private_acl
             enforce_private_acl(target, directory=False)
