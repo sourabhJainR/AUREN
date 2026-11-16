@@ -41,13 +41,13 @@ The main gap is not the engineering workflow. It is the last-mile product integr
 | Claude Desktop | Partial | Remote MCP Connectors and Claude Code Code tab | Connector/OAuth acceptance not recorded; remote tools execute on AUREN host |
 | Claude Code for VS Code | Repository configured | `CLAUDE.md`, skill, plugin and remote MCP | VS Code extension smoke test not in CI |
 | Microsoft Visual Studio IDE | Repository configured | Visual Studio 2022 17.14+/2026 `.mcp.json`, GitHub Copilot MCP host, remote Streamable HTTP | Live AUREN OAuth, tool approval and task lifecycle acceptance remain open |
-| Gemini CLI | Repository configured | `GEMINI.md`, `AGENTS.md`, skill, remote HTTP MCP, headless mode | OAuth and host smoke test not recorded; some consumer plans have moved to Antigravity |
+| Gemini CLI | Repository configured | `GEMINI.md`, `AGENTS.md`, Agent Skill, local stdio MCP auto-configuration, remote HTTP MCP | Local/remote host acceptance, OAuth and task-lifecycle evidence not recorded; verify current plan availability |
 | Gemini Code Assist in VS Code | Partial | Agent mode can use MCP through Gemini CLI settings | AUREN connection not tested; product/plan-specific migration applies |
 | Cursor | Partial | `AGENTS.md`, skills, `.cursor/rules/auren.mdc`, remote MCP | OAuth and local/cloud/SSH acceptance still open |
 | Groq API | Partial | Native AUREN Groq Chat Completions adapter with supervised failover | Live credentials, current model IDs and cost/latency conformance remain unverified |
 | Grok chat web | Chat only | Supplied context only | No AUREN repository execution surface |
 | xAI API / Grok API | Partial | Native AUREN xAI Responses API adapter with supervised failover | Live credentials, current model IDs and xAI-specific feature conformance remain unverified |
-| Grok Build CLI | Partial | Remote MCP is available upstream | No AUREN-specific local CLI/skill package |
+| Grok Build CLI | Partial | Local stdio MCP auto-configuration in `~/.grok/config.toml` or `$GROK_HOME/config.toml`; remote MCP | No live Grok Build CLI tool-discovery or guarded task-lifecycle acceptance |
 | GitHub Copilot | Repository configured | `AGENTS.md`, `.github/copilot-instructions.md`, skills, MCP | Copilot Agent-mode acceptance not in CI |
 | OpenAI API | Partial | Native Responses API adapter; supervised failover | Live credentials and model-ID acceptance remain unverified |
 | Anthropic API | Partial | Native Messages API adapter; supervised failover | Live credentials and model-ID acceptance remain unverified |
@@ -135,15 +135,28 @@ Ordinary Claude chat (web or desktop chat) is not the same product surface as Cl
 - Test the plugin's MCP process startup, skill discovery, hook execution, tool schema and permission behavior against current Claude Code versions.
 - Treat the VS Code extension as a Claude Code host. Do not claim a native integration with Microsoft Visual Studio itself.
 
-### Gemini CLI versus Gemini Code Assist
+### Gemini CLI, Gemini Code Assist and Antigravity
 
-Gemini CLI has native support for Agent Skills, MCP and headless JSON/JSONL output. AUREN has a Gemini instruction file, shared skill and a provider command. Gemini CLI's IDE companion is distinct from Gemini Code Assist; configuration for one must not be assumed to work in the other.
+Gemini CLI supports Agent Skills, stdio MCP, Streamable HTTP MCP and headless JSON/JSONL. AUREN provides a Gemini skill and local MCP auto-configuration through `auren up`; remote MCP registration is documented. Gemini Code Assist and Antigravity are separate product surfaces and must be tested independently.
 
-**Required AUREN work:**
-- Use `portable/chat_capability.py` only with `AUREN_MCP_RUNTIME_FACTORY=trusted_module:create_runtime` and `AUREN_PROJECT_ROOT=/absolute/workspace`; the bridge rejects missing factories and empty graphs.
-- Verify `/skills list`, `/mcp list`, and a headless JSONL request.
-- Add a Gemini-specific parser for structured output and failure/turn-limit exit codes.
-- Test Gemini Code Assist separately before listing it as fully supported.
+**Required acceptance:**
+- Install the AUREN Agent Skill and verify `/skills list`.
+- Run `auren up`; verify `gemini mcp list` and `/mcp`.
+- Exercise read-only status, denied writes without scope, idempotent task submission, approval, cancellation, restart and evidence retrieval.
+- For remote MCP, verify OAuth issuer, audience, scopes, refresh and revocation.
+- Do not infer Gemini Code Assist or Antigravity acceptance from Gemini CLI. Antigravity uses its own `serverUrl` configuration format.
+
+### Grok Build CLI versus Grok web chat
+
+Grok Build CLI is a distinct MCP-capable local coding host. AUREN now discovers the `grok` executable and configures a local stdio bridge in `~/.grok/config.toml` or `$GROK_HOME/config.toml`, preserving unrelated TOML entries. Remote Streamable HTTP setup is documented. Grok web chat remains chat-only and is not an MCP execution host.
+
+**Required acceptance:**
+- Run `auren up` with Grok Build CLI installed; verify the generated TOML entry contains only the bridge command and token-file path.
+- Run `grok mcp list` and `grok mcp doctor`.
+- Test read-only access, scope denial, task lifecycle, approval, cancellation, restart and reconnect.
+- Keep xAI API inference separate; it uses `XAI_API_KEY` and `XAI_MODEL` through AUREN's direct provider adapter.
+
+See [Gemini, Antigravity and Grok Build Integration](GEMINI_GROK_INTEGRATION.md) for the setup and verification steps.
 
 ### Cursor
 

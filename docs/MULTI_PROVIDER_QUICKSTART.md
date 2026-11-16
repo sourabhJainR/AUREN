@@ -67,9 +67,9 @@ Look for remote_model_providers.status = configured_not_live_validated. This con
 For a direct API smoke test, select one provider explicitly:
 
     $env:AUREN_LOCAL_REMOTE_INFERENCE = "enabled"
-    python scripts/provider_conformance.py --live-api --api-provider openai --json
+    python scripts/provider_conformance.py --live-api --api-provider groq --json
 
-The command sends one fixed synthetic prompt, not workspace or task content, and may incur a small provider charge. The provider must be in `AUREN_REMOTE_PROVIDER_ORDER`. Repeat `--api-provider` to test more providers. The result records latency, token usage and digests; it never prints credentials or stores the raw prompt or response. See [Model Provider Integration](MODEL_PROVIDER_INTEGRATION.md#run-a-live-direct-api-conformance-probe) for Linux/macOS commands and the limits of this check.
+The command sends one fixed synthetic prompt, not workspace or task content, and may incur a small provider charge. For Gemini and xAI probes, see [Gemini, Antigravity and Grok Build Integration](GEMINI_GROK_INTEGRATION.md) for provider-specific setup. The provider must be in `AUREN_REMOTE_PROVIDER_ORDER`. Repeat `--api-provider` to test more providers. The result records latency, token usage and digests; it never prints credentials or stores the raw prompt or response. See [Model Provider Integration](MODEL_PROVIDER_INTEGRATION.md#run-a-live-direct-api-conformance-probe) for Linux/macOS commands and the limits of this check.
 
 ## 3. Use a local model
 
@@ -112,7 +112,10 @@ Install AUREN's Agent Skill and/or connect its MCP server. Keep AUREN Guard, app
 |---|---|
 | Claude Code | AUREN Agent Skill plus local stdio/HTTP MCP; remote MCP for a hosted endpoint |
 | Codex CLI / app | AGENTS.md, AUREN Agent Skill and MCP |
-| Gemini CLI | Gemini Agent Skills plus MCP |
+| Gemini CLI | AUREN Agent Skill plus local stdio MCP (`auren up`) or remote HTTP MCP |
+| Antigravity CLI / IDE | Local stdio MCP via `agy` detection or remote MCP config using `serverUrl` |
+| Grok Build CLI | Local stdio MCP in `~/.grok/config.toml` (`auren up`) or remote URL |
+| Grok web chat | Chat-only handoff; no local MCP connection |
 | Cursor | AGENTS.md, project rules and MCP |
 | VS Code / GitHub Copilot | AGENTS.md, Copilot instructions, skills and MCP |
 | Visual Studio | MCP configuration template and repository instructions |
