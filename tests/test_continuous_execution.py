@@ -703,3 +703,28 @@ def test_supervisor_keeps_main_head_mismatch_as_a_waiting_poll_state(tmp_path):
     assert report["audit_chain_valid"] is True
     assert health[0]["poller"] == "post-merge"
     assert health[0]["last_status"] == "waiting_for_main_head"
+
+def test_goal_reconciler_missing_or_unknown_status_fails_closed(tmp_path):
+    import pytest
+
+    for index, outcome in enumerate(({}, {"status": "unknown"}, {"status": "pending"})):
+        root = tmp_path / str(index)
+        supervisor = ContinuousExecutionSupervisor(
+            ExecutionController(root),
+            goal_reconcilers={"AUREN:test:invalid-outcome": lambda value=outcome: value},
+        )
+        supervisor.run(poll_seconds=0.1, batch_size=1, max_cycles=1)
+        health = supervisor.status()["goal_health"]
+        assert health[0]["status"] == "backoff"
+        assert health[0]["consecutive_errors"] == 1
+        events = supervisor.status(event_limit=100)["recent_events"]
+        assert any(
+            event["event_type"] == "goal_reconciliation_blocked"
+            and event["payload"]["error_type"] == "ValueError"
+            for event in events
+        )
+        assert not any(
+            event["event_type"] == "goal_reconciled"
+            for event in events
+        )
+
