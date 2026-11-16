@@ -145,6 +145,32 @@ class ProviderConformanceTests(unittest.TestCase):
         self.assertIn("GROQ_API_KEY", matrix_doc)
         self.assertIn("XAI_API_KEY", matrix_doc)
 
+    def test_gemini_grok_integration_guide_and_machine_matrix_are_consistent(self):
+        guide = (ROOT / "docs" / "GEMINI_GROK_INTEGRATION.md").read_text(encoding="utf-8")
+        usage = (ROOT / "docs" / "USAGE_AND_PLATFORM_INTEGRATION.md").read_text(encoding="utf-8")
+        host_doc = (ROOT / "docs" / "MCP_HOST_COMPATIBILITY.md").read_text(encoding="utf-8")
+        matrix = json.loads(MATRIX.read_text(encoding="utf-8"))
+        integrations = matrix["platform_integrations"]
+
+        for term in (
+            "gemini mcp list", "/skills list", "serverUrl",
+            "grok mcp list", "grok mcp doctor", "GROK_HOME",
+            "XAI_API_KEY", "GROQ_API_KEY", "GEMINI_API_KEY",
+            "AUREN_LOCAL_REMOTE_INFERENCE", "live verified",
+        ):
+            with self.subTest(term=term):
+                self.assertIn(term, guide)
+
+        self.assertIn("GEMINI_GROK_INTEGRATION.md", usage)
+        self.assertIn("Grok Build CLI", host_doc)
+        self.assertEqual("partial", integrations["grok_build_cli"]["support"])
+        self.assertFalse(integrations["grok_build_cli"]["live_verified"])
+        self.assertIn("portable/onboarding.py", integrations["grok_build_cli"]["repository_artifacts"])
+        self.assertIn("docs/GEMINI_GROK_INTEGRATION.md", integrations["gemini_cli"]["repository_artifacts"])
+        for provider in ("gemini_api", "groq_api", "xai_api"):
+            self.assertFalse(integrations[provider]["live_verified"])
+            self.assertIn("scripts/provider_conformance.py", integrations[provider]["repository_artifacts"])
+
     def test_direct_api_probe_requires_explicit_public_remote_policy(self):
         environment = {
             "AUREN_REMOTE_PROVIDER_ORDER": "openai",
