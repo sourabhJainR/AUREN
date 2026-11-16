@@ -94,10 +94,11 @@ class GitHubProjectPublishTests(unittest.TestCase):
         )
 
     def test_invalid_repository_name_rejected_before_commands(self):
-        with patch("portable.github_project_publish._run") as run:
-            with self.assertRaises(ValueError):
-                publish_project(self.root, "../project")
-            run.assert_not_called()
+        for repository in ("../project", "./project", "owner/..", "owner/."):
+            with self.subTest(repository=repository), patch("portable.github_project_publish._run") as run:
+                with self.assertRaises(ValueError):
+                    publish_project(self.root, repository)
+                run.assert_not_called()
 
     def test_public_visibility_must_be_explicitly_selected(self):
         with patch("portable.github_project_publish._run") as run:
