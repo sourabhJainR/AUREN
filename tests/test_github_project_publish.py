@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from portable.github_project_publish import publish_project
+from portable.github_project_publish import _normalize_github_remote, publish_project
 
 
 class GitHubProjectPublishTests(unittest.TestCase):
@@ -75,6 +75,23 @@ class GitHubProjectPublishTests(unittest.TestCase):
         run.side_effect = ["true", "main", "", "", "", "", "git@github.com:owner/project.git", "not-json"]
         with self.assertRaisesRegex(RuntimeError, "invalid repository metadata"):
             publish_project(self.root, "owner/project")
+
+    def test_remote_parser_rejects_embedded_credentials_and_query_data(self):
+        for remote in (
+            "https://user:secret@github.com/owner/project.git",
+            "https://github.com/owner/project.git?token=secret",
+            "ssh://attacker@github.com/owner/project.git",
+        ):
+            with self.subTest(remote=remote), self.assertRaises(RuntimeError):
+                _normalize_github_remote(remote)
+        self.assertEqual(
+            "owner/project",
+            _normalize_github_remote("git@github.com:owner/project.git"),
+        )
+        self.assertEqual(
+            "owner/project",
+            _normalize_github_remote("https://github.com/owner/project.git"),
+        )
 
     def test_invalid_repository_name_rejected_before_commands(self):
         with patch("portable.github_project_publish._run") as run:
