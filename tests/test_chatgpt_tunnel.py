@@ -1,9 +1,13 @@
 import os
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 from portable.chatgpt_tunnel import (
+    main,
     DEFAULT_MCP_URL,
     _ready,
     render_tunnel_config,
@@ -42,16 +46,48 @@ class ChatGPTTunnelConfigTests(unittest.TestCase):
     def test_config_uses_secret_references_and_loopback_target(self):
         with tempfile.TemporaryDirectory() as directory:
             token = Path(directory) / "operator.token"
+            token.write_text("x" * 48, encoding="utf-8")
+            if os.name != "nt":
+                token.chmod(0o600)
             config = render_tunnel_config("tunnel_" + "a" * 32, token)
             self.assertIn("api_key: env:CONTROL_PLANE_API_KEY", config)
             self.assertIn('Authorization: "file:' + token.resolve().as_posix() + '"', config)
             self.assertIn('url: "http://127.0.0.1:8765/mcp"', config)
             self.assertNotIn("sk-", config)
 
+    def test_status_returns_success_for_ready_to_start(self):
+        with tempfile.TemporaryDirectory() as directory:
+            client = Path(directory) / "tunnel-client"
+            client.write_text("stub", encoding="utf-8")
+            config = Path(directory) / "tunnel.yaml"
+            config.write_text("config", encoding="utf-8")
+            output = StringIO()
+            with patch("portable.chatgpt_tunnel.shutil.which", return_value=str(client)), \
+                 patch("portable.chatgpt_tunnel._ready", return_value=False), \
+                 patch("portable.chatgpt_tunnel.subprocess.run", return_value=Mock(returncode=0, stdout="healthy", stderr="")):
+                with redirect_stdout(output):
+                    result = main(["status", "--config", str(config), "--tunnel-client", str(client)])
+            self.assertEqual(result, 0)
+            self.assertIn('"status": "ready_to_start"', output.getvalue())
+
+    def test_config_rejects_missing_or_malformed_token_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            token = Path(directory) / "missing.token"
+            with self.assertRaises(ValueError):
+                render_tunnel_config("tunnel_" + "a" * 32, token)
+            token.write_text("short", encoding="utf-8")
+            if os.name != "nt":
+                token.chmod(0o600)
+            with self.assertRaises(RuntimeError):
+                render_tunnel_config("tunnel_" + "a" * 32, token)
+
     def test_write_is_no_overwrite_by_default_and_can_backup(self):
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / "tunnel.yaml"
             token = Path(directory) / "token"
+            token.write_text("x" * 48, encoding="utf-8")
+            if os.name != "nt":
+                token.chmod(0o600)
             first = write_tunnel_config("tunnel_" + "a" * 32, token, config_path=config)
             self.assertTrue(first.is_file())
             if os.name != "nt":
