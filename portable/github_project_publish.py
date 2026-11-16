@@ -17,6 +17,13 @@ from typing import Sequence
 _REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$")
 
 
+def _valid_repository(value: str) -> bool:
+    if not _REPOSITORY.fullmatch(value):
+        return False
+    owner, name = value.split("/", 1)
+    return owner not in {".", ".."} and name not in {".", ".."}
+
+
 def _normalize_github_remote(remote: str) -> str:
     """Return an exact owner/name pair for a GitHub HTTPS or SSH remote."""
     value = remote.strip()
@@ -65,8 +72,8 @@ def publish_project(
     description: str = "",
 ) -> dict:
     """Create a remote repository and push an existing clean local project."""
-    if not isinstance(repository, str) or not _REPOSITORY.fullmatch(repository):
-        raise ValueError("repository must use owner/name format")
+    if not isinstance(repository, str) or not _valid_repository(repository):
+        raise ValueError("repository must use owner/name format with valid owner and repository components")
     if visibility not in {"private", "public", "internal"}:
         raise ValueError("visibility must be private, public or internal")
     if not isinstance(description, str) or len(description) > 350:
