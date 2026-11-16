@@ -999,13 +999,18 @@ class ContinuousExecutionSupervisor:
                         outcome = reconcile()
                         if not isinstance(outcome, Mapping):
                             raise TypeError("goal reconciler must return a mapping")
-                        outcome_status = str(outcome.get("status", "")).strip().lower()
-                        if outcome_status in {"failed", "failure", "error", "retryable_failure"}:
-                            raise RuntimeError("goal reconciler returned a failure status")
-                        if outcome_status in {
+                        raw_status = outcome.get("status")
+                        if not isinstance(raw_status, str) or not raw_status.strip():
+                            raise ValueError("goal reconciler must return a recognized non-empty status")
+                        outcome_status = raw_status.strip().lower()
+                        held_statuses = {
                             "blocked", "waiting_for_approval", "waiting_external_dependency",
                             "paused", "cancelled", "cancel_requested", "user_cancelled",
-                        }:
+                        }
+                        progress_statuses = {"in_progress", "complete"}
+                        if outcome_status in {"failed", "failure", "error", "retryable_failure"}:
+                            raise RuntimeError("goal reconciler returned a failure status")
+                        if outcome_status in held_statuses:
                             reason = outcome.get("blocker", outcome.get("reason", outcome_status))
                             self._set_goal_hold(
                                 goal_name, status=outcome_status,
@@ -1016,13 +1021,15 @@ class ContinuousExecutionSupervisor:
                                 "cycle": cycles, "goal": goal_name,
                                 "status": outcome_status, "reason": str(reason)[:500],
                             })
-                        else:
+                        elif outcome_status in progress_statuses:
                             self._clear_goal_hold(goal_name)
                             self._clear_goal_error(goal_name)
                             self._event(run_id, "goal_reconciled", {
                                 "cycle": cycles, "goal": goal_name,
                                 "outcome": _safe_value(dict(outcome)),
                             })
+                        else:
+                            raise ValueError("goal reconciler returned an unsupported status")
                     except Exception as reconcile_error:
                         delay, exhausted = self._record_goal_error(
                             goal_name, poll_seconds=poll_seconds,
