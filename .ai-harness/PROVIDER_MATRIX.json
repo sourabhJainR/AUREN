@@ -545,18 +545,23 @@
         "Remote Streamable HTTP MCP",
         "OAuth",
         "AGENTS.md",
-        "Agent Skills"
+        "Agent Skills",
+        "Local stdio MCP via auren up"
       ],
       "repository_artifacts": [
         "AGENTS.md",
         ".agents/skills/ai-coding-orchestrator/SKILL.md",
-        "docs/REMOTE_MCP_OPERATIONS.md"
+        "docs/REMOTE_MCP_OPERATIONS.md",
+        "portable/onboarding.py",
+        "tests/test_local_first_onboarding.py",
+        "docs/GEMINI_GROK_INTEGRATION.md"
       ],
-      "current_gap": "Antigravity CLI remote MCP configuration is documented using serverUrl. AUREN is not yet connected to a live Antigravity CLI instance.",
+      "current_gap": "AUREN discovers Antigravity CLI/IDE configuration and writes the local stdio bridge to ~/.gemini/config/mcp_config.json. Remote serverUrl setup is documented. No live Antigravity MCP or guarded task-lifecycle acceptance is recorded.",
       "next_steps": [
-        "Add serverUrl to ~/.gemini/config/mcp_config.json or workspace .agents/mcp_config.json.",
-        "Open /mcp and verify the remote server, OAuth and tool catalog.",
-        "Run a disposable workspace task and verify AUREN status/evidence/cancellation."
+        "Run auren up with agy installed; inspect the backed-up mcp_config.json entry.",
+        "Verify /mcp and confirm the local bridge connects to the running AUREN endpoint.",
+        "Run read-only, scope denial, task lifecycle, approval, restart and reconnect acceptance.",
+        "Test the IDE and CLI surfaces separately; do not infer acceptance between them."
       ],
       "live_verified": false
     },
@@ -567,18 +572,23 @@
         "Antigravity IDE",
         "MCP Store / custom mcp_config.json",
         "Remote Streamable HTTP MCP",
-        "OAuth"
+        "OAuth",
+        "Local stdio MCP via auren up"
       ],
       "repository_artifacts": [
         "AGENTS.md",
         ".agents/skills/ai-coding-orchestrator/SKILL.md",
-        "docs/REMOTE_MCP_OPERATIONS.md"
+        "docs/REMOTE_MCP_OPERATIONS.md",
+        "portable/onboarding.py",
+        "tests/test_local_first_onboarding.py",
+        "docs/GEMINI_GROK_INTEGRATION.md"
       ],
-      "current_gap": "Antigravity IDE supports custom remote MCP configuration. No AUREN installation or IDE live acceptance is recorded.",
+      "current_gap": "AUREN discovers Antigravity CLI/IDE configuration and writes the local stdio bridge to ~/.gemini/config/mcp_config.json. Remote serverUrl setup is documented. No live Antigravity MCP or guarded task-lifecycle acceptance is recorded.",
       "next_steps": [
-        "Install the AUREN remote server through Antigravity MCP settings or custom mcp_config.json.",
-        "Complete OAuth and inspect the enabled tool list.",
-        "Run a guarded end-to-end task and verify AUREN remains the execution authority."
+        "Run auren up with agy installed; inspect the backed-up mcp_config.json entry.",
+        "Verify /mcp and confirm the local bridge connects to the running AUREN endpoint.",
+        "Run read-only, scope denial, task lifecycle, approval, restart and reconnect acceptance.",
+        "Test the IDE and CLI surfaces separately; do not infer acceptance between them."
       ],
       "live_verified": false
     },
