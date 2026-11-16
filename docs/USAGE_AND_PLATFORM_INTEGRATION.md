@@ -1,6 +1,6 @@
 # AUREN Usage and Platform Integration
 
-AUREN is a provider-neutral engineering runtime. Start a local project with `auren up`; use the [Unified Interaction Contract](UNIFIED_INTERACTION_CONTRACT.md) to understand the same task lifecycle across MCP, CLI, dashboard and hosted clients. For copy-and-run setup across multiple model APIs, local Ollama, MCP clients and orchestration frameworks, see the [Multi-LLM and AI Infrastructure Quickstart](MULTI_PROVIDER_QUICKSTART.md). The canonical runtime, state and package names are AUREN; no host integration is a hard dependency. See the [Cross-Platform Compatibility Matrix](PLATFORM_COMPATIBILITY_MATRIX.md) for verified repository artifacts, product-surface limitations and prioritized integration gaps.
+AUREN is a provider-neutral engineering runtime. Start a local project with `auren up`; use the [Unified Interaction Contract](UNIFIED_INTERACTION_CONTRACT.md) to understand the same task lifecycle across MCP, CLI, dashboard and hosted clients. For copy-and-run setup across multiple model APIs, local Ollama, MCP clients and orchestration frameworks, see the [Multi-LLM and AI Infrastructure Quickstart](MULTI_PROVIDER_QUICKSTART.md). For the detailed Gemini, Antigravity and Grok Build host setup, see [Gemini, Antigravity and Grok Build Integration](GEMINI_GROK_INTEGRATION.md). The canonical runtime, state and package names are AUREN; no host integration is a hard dependency. See the [Cross-Platform Compatibility Matrix](PLATFORM_COMPATIBILITY_MATRIX.md) for verified repository artifacts, product-surface limitations and prioritized integration gaps.
 
 ## 1. Install AUREN
 
@@ -214,39 +214,23 @@ Where MCP is supported, connect AUREN's MCP server. Otherwise, invoke AUREN's CL
 
 Do not make Copilot a hard dependency of AUREN.
 
-## 8. Gemini CLI
+## 8. Gemini CLI, Antigravity and Grok Build
 
-Gemini CLI supports the Agent Skills format. Install the AUREN skill from the repository:
+Use the dedicated [Gemini, Antigravity and Grok Build Integration](GEMINI_GROK_INTEGRATION.md) guide for complete local and remote MCP setup, skill installation, verification commands and acceptance boundaries.
 
-~~~bash
-gemini skills install https://github.com/sourabhJainR/AUREN.git --path skills/ai-coding-orchestrator
-~~~
+Quick reference:
 
-Or link a local checkout:
+- **Gemini CLI:** AUREN Agent Skill plus local stdio MCP. `auren up` configures `~/.gemini/settings.json` when Gemini CLI is detected. Verify with `gemini mcp list`, `/mcp` and `/skills list`.
+- **Antigravity CLI/IDE:** separate product and config format. Remote MCP uses `serverUrl` in `~/.gemini/config/mcp_config.json` or `.agents/mcp_config.json`. Do not reuse Gemini CLI's `httpUrl` field.
+- **Grok Build CLI:** local stdio MCP is configured in `~/.grok/config.toml` (or `$GROK_HOME/config.toml`) when the `grok` executable is detected. Verify with `grok mcp list` and `grok mcp doctor`.
+- **Grok web chat:** chat-only handoff; it is not a local MCP client.
+- **Gemini, Groq and xAI APIs:** inference providers for AUREN's HybridModelRouter, not MCP host applications. See [Model Provider Integration](MODEL_PROVIDER_INTEGRATION.md).
 
-~~~bash
-gemini skills link ./skills/ai-coding-orchestrator
-~~~
+`auren up` uses a protected local stdio bridge and stores only the token-file path in client configuration. It does not grant the host extra AUREN permissions. Keep server-side Guard, workspace checks, budgets and approvals enabled.
 
-Verify discovery:
+## 9. Other released LLM hosts
 
-~~~text
-/skills list
-~~~
-
-If you use the workspace scope, use the scope option supported by your installed Gemini CLI version.
-
-Gemini can also connect to an AUREN MCP server where MCP is enabled:
-
-~~~bash
-gemini mcp add --transport http auren https://mcp.example.com/mcp
-~~~
-
-## 9. Grok, Kimi and other released LLM hosts
-
-Do not assume a provider-specific feature exists.
-
-Use the strongest supported AUREN surface in this order:
+Do not assume a provider-specific feature exists. Use the strongest supported AUREN surface in this order:
 
 1. Agent Skills, when the host supports the standard.
 2. MCP, when the host supports local or remote MCP.
