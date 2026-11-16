@@ -505,3 +505,39 @@ These are comparison inputs only. Reuse TaskPlan, StateGraph, ExecutionControlle
 - **Evaluator independence:** no separately controlled evaluator identity, sealed holdout custody or signed external campaign receipt.
 - **Scientific discovery:** no independent domain replication or expert-scored AUREN campaign.
 - **AGI/SI:** no claim is supported by internal CI, product announcements or these research benchmarks.
+
+
+## Current-main production readiness review — 2026-11-16
+
+### Verified repository changes
+
+- Current main at review start: \`4780e0de47c6fa243cbdafaa765f16f829ce4a4f\`.
+- PR [#1402](https://github.com/sourabhJainR/AUREN/pull/1402) merged at \`609824cb622f45eb5c52d7117aa6989a7e1cb11a\`. It adds guarded GitHub project publishing, validates owner/repository inputs before running Git commands, verifies the exact origin owner/repository, rejects credential-bearing remotes, and handles malformed GitHub CLI metadata.
+- PR [#1403](https://github.com/sourabhJainR/AUREN/pull/1403) merged at \`4780e0de47c6fa243cbdafaa765f16f829ce4a4f\`. It hardens the local ChatGPT tunnel lifecycle, status/exit handling, bounded recovery, token/config validation, Windows credential/config ACLs, guarded loopback health checks, and Windows lifecycle acceptance.
+- PR #1403 exact-head checks passed: Runtime Resilience Matrix (Linux and Windows, Python 3.11/3.12), AI Harness Check, Production AI Harness Hardening, Architecture Integrity, AUREN Portable Bundle, Repository Construct Traceability, cleanup contract, and PR Integration Conflict Guard.
+- PRs #1399 and #1401 were closed as superseded; neither was merged. Their reviewed changes were carried by #1402 and #1403 respectively.
+- No live ChatGPT Desktop session or production host was available in this review. CI success is not a substitute for client acceptance or deployment evidence.
+
+### Release decision
+
+**AUREN is not yet production-ready as a fully autonomous engineering system. Do not declare a production-ready v1.0.6 release from repository CI alone.**
+
+### Remaining production acceptance gates
+
+| Gate | Repository implementation | Still required before production acceptance |
+|---|---|---|
+| Cross-host attestation replay protection — [#909](https://github.com/sourabhJainR/AUREN/issues/909) | Shared PostgreSQL claims, idempotent operation IDs, ambiguity reconciliation, fail-closed freshness checks and service-backed integration tests are merged. | Signed deployment evidence for the real shared PostgreSQL primary, TLS, independent verifier hosts, failover, schema, key rotation, retention and rollback. Independent review must be recorded. |
+| Deployment-wide admission — [#1193](https://github.com/sourabhJainR/AUREN/issues/1193) | PostgreSQL coordinator and controller integration are merged. Three-process and three-container simulations against shared PostgreSQL pass. | Operator-controlled staging across at least two physical hosts, independent credentials/configuration, real network partitions and database failover, plus rollback evidence. Container simulation on one runner does not prove separate physical failure domains. |
+| Independent evaluator and sealed holdout — [#404](https://github.com/sourabhJainR/AUREN/issues/404) | Evaluator gateway fails closed without a trusted custody verifier and production-ready isolation adapter. Docker termination/re-probe and bounded cleanup paths are implemented. | Independently operated evaluator, separately controlled sealed corpus, out-of-band signer root, OS-level isolation audit, repeated adversarial campaign and independently retained signed receipts. |
+| State migration and rollback — [#534](https://github.com/sourabhJainR/AUREN/issues/534) | Non-destructive dry-run/apply, manifest verification, full SQLite integrity checks and operator runbook are implemented. | Named operator must run staging migration, fresh-process resume, rollback and post-cutover write reconciliation. Attach manifests, revisions, timestamps and signed/retained evidence. Preserve both roots until accepted. |
+| Provider-side-effect ambiguity | Durable side-effect ledger, bounded retries and reconciliation contracts exist. | Verify idempotency and unknown-outcome handling against each production provider, including lost acknowledgements, timeouts, cancellation, restart and duplicate-request behavior. Internal fakes do not prove vendor-side semantics. |
+| Local ChatGPT/MCP tunnel | PR #1403 adds Windows ACL enforcement, token/config validation, guarded health checks, bounded recovery and cross-platform tests. | Run the acceptance script on the target Windows workstation with the real tunnel client and approved credentials. Verify live ChatGPT Desktop connection, interruption, recovery, shutdown and credential permissions. |
+| Required repository checks | Exact-head PR CI passed for #1402 and #1403. | Repository owner/admin must verify that the main branch ruleset requires the intended status checks and review policy. Do not infer branch protection from green CI alone. |
+
+### Separate roadmap work — not a substitute for the release gates above
+
+- [#1216](https://github.com/sourabhJainR/AUREN/issues/1216): durable recurring routines and authenticated event-triggered workflows.
+- [#1225](https://github.com/sourabhJainR/AUREN/issues/1225): requirements-to-release engineering workflow with conflict-aware decisions and independent verification.
+- [#696](https://github.com/sourabhJainR/AUREN/issues/696): unified runtime, learning, delivery and dashboard roadmap.
+
+Keep these issues open until their own acceptance criteria pass. Do not mark external gates complete from documentation, mock tests or repository CI alone.
