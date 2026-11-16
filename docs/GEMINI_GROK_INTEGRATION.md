@@ -143,7 +143,7 @@ For a deployed AUREN endpoint, use the remote configuration below instead:
 
 Open Antigravity's MCP manager with `/mcp` and verify that AUREN is connected. Complete the configured authentication flow if prompted. Do not copy Gemini CLI's `httpUrl` configuration into Antigravity.
 
-Antigravity local-process support and its OAuth behavior must be validated against the installed release before claiming local acceptance. Use the deployed HTTPS path above unless that local acceptance has been completed.
+The local configuration path is covered by AUREN's configuration tests, but a live Antigravity CLI or IDE connection has not been accepted yet. Verify the installed release and its MCP manager before treating the host as production-ready.
 
 ## 4. Grok Build CLI
 
