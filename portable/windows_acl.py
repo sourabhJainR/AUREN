@@ -38,10 +38,16 @@ def enforce_private_acl(path: str | Path, *, directory: bool) -> None:
     sid = _current_user_sid()
     script = r"""
 $ErrorActionPreference = 'Stop'
-# Resolve the ACL cmdlets through PowerShell module auto-loading. Explicitly
-# importing this module can fail when its type data is already registered.
-Get-Command -Name Get-Acl -ErrorAction Stop | Out-Null
-Get-Command -Name Set-Acl -ErrorAction Stop | Out-Null
+# Load the ACL cmdlets. Some Windows PowerShell hosts already register
+# the module's type data, so duplicate type-data warnings must not prevent
+# command availability checks or the explicit ACL verification below.
+Import-Module Microsoft.PowerShell.Security -ErrorAction SilentlyContinue
+if (-not (Get-Command -Name Get-Acl -ErrorAction SilentlyContinue)) {
+    throw "Microsoft.PowerShell.Security did not provide Get-Acl"
+}
+if (-not (Get-Command -Name Set-Acl -ErrorAction SilentlyContinue)) {
+    throw "Microsoft.PowerShell.Security did not provide Set-Acl"
+}
 $path = $env:AUREN_ACL_TARGET
 $acl = Get-Acl -LiteralPath $path
 $acl.SetAccessRuleProtection($true, $false)
