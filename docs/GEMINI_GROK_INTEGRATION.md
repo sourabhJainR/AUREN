@@ -24,7 +24,7 @@ python auren_cli.py up
 
 AUREN starts the local runtime, dashboard and authenticated MCP endpoint. The endpoint binds to IPv4 loopback. Keep it local; do not expose the local MCP port to a LAN or public network.
 
-When the supported client is detected, `auren up` previews/applies its local MCP entry with a backup and preserves unrelated settings. Current automatic configuration includes Gemini CLI's `~/.gemini/settings.json` and Grok Build CLI's `~/.grok/config.toml` (or `$GROK_HOME/config.toml`). The local stdio bridge reads the operator token from the protected token file; the bearer token is not written into client configuration.
+When the supported client is detected, `auren up` previews/applies its local MCP entry with a backup and preserves unrelated settings. Current automatic configuration includes Gemini CLI's `~/.gemini/settings.json`, Antigravity CLI/IDE's `~/.gemini/config/mcp_config.json`, and Grok Build CLI's `~/.grok/config.toml` (or `$GROK_HOME/config.toml`). The local stdio bridge reads the operator token from the protected token file; the bearer token is not written into client configuration.
 
 If you use `--no-connect`, client configuration is intentionally skipped. You can review and apply client configuration separately with:
 
@@ -106,7 +106,29 @@ Do not use a loopback URL for a cloud-hosted client. Gemini CLI, Gemini Code Ass
 
 Antigravity has a separate MCP configuration format. Its remote endpoint field is `serverUrl`, not Gemini CLI's `httpUrl`.
 
-For a deployed AUREN endpoint, add this to `~/.gemini/config/mcp_config.json` (global) or `.agents/mcp_config.json` (workspace):
+The simplest local path is to run `auren up` with `agy` installed. AUREN configures `~/.gemini/config/mcp_config.json` using the local stdio bridge. Verify with `agy --version`, then open the MCP manager with `/mcp`.
+
+If you need to configure it manually, use the following local stdio entry in `~/.gemini/config/mcp_config.json` (global) or `.agents/mcp_config.json` (workspace). Replace the paths with your actual Python, AUREN checkout and token file paths:
+
+```json
+{
+  "mcpServers": {
+    "auren": {
+      "command": "/absolute/path/to/python",
+      "args": [
+        "/absolute/path/to/AUREN/auren_cli.py",
+        "mcp-proxy",
+        "--url",
+        "http://127.0.0.1:8765/mcp",
+        "--token-file",
+        "/absolute/path/to/.auren/mcp/local-operator.token"
+      ]
+    }
+  }
+}
+```
+
+For a deployed AUREN endpoint, use the remote configuration below instead:
 
 ```json
 {
