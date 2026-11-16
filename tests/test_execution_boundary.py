@@ -465,7 +465,7 @@ class SubprocessBoundaryInventoryTests(unittest.TestCase):
         "portable/chatgpt_tunnel.py::_run": "two fixed-argv foreground children; local AUREN child receives an environment with CONTROL_PLANE_API_KEY removed; tunnel client alone inherits the protected operator environment; no shell; readiness gate precedes launch; both children receive bounded terminate-then-kill cleanup",
     }
     REVIEWED_POPEN_CALL_COUNTS = {key: 1 for key in REVIEWED_POPEN_DISPOSITIONS}
-    REVIEWED_POPEN_CALL_COUNTS["portable/chatgpt_tunnel.py::_run"] = 2
+    REVIEWED_POPEN_CALL_COUNTS["portable/chatgpt_tunnel.py::_run"] = 3
 
     def test_every_direct_popen_callsite_has_an_exact_reviewed_disposition(self):
         root = Path(__file__).resolve().parents[1]
