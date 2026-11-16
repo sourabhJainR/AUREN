@@ -253,6 +253,16 @@ class EngineeringPlanGoalReconcilerTests(unittest.TestCase):
             f"plan progress={run.tasks!r}; supervisor={status!r}",
         )
         self.assertEqual(2, status["task_counts"]["completed"])
+        completed_event = next(
+            event for event in status["recent_events"]
+            if event["event_type"] == "goal_reconciled"
+            and event["payload"]["goal"] == reconciler.goal_key
+            and event["payload"]["outcome"]["status"] == "complete"
+        )
+        acceptance_evidence = completed_event["payload"]["outcome"]["acceptance_evidence"]
+        self.assertEqual({"implement", "review"}, set(acceptance_evidence))
+        self.assertTrue(all(refs for refs in acceptance_evidence.values()))
+
         self.assertTrue(any(
             event["event_type"] == "goal_reconciled"
             and event["payload"]["goal"] == reconciler.goal_key

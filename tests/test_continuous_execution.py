@@ -314,6 +314,38 @@ def test_goal_reconciler_dispatches_followup_work_without_another_prompt(tmp_pat
     )
 
 
+
+def test_goal_cannot_complete_without_task_bound_acceptance_evidence(tmp_path):
+    controller = ExecutionController(tmp_path)
+    supervisor = ContinuousExecutionSupervisor(
+        controller,
+        goal_reconcilers={"AUREN:test:unproven-completion": lambda: {
+            "status": "complete",
+            "run_id": "run-without-evidence",
+            "completed_task_ids": ["implementation"],
+        }},
+        max_goal_retries=2,
+    )
+
+    supervisor.run(poll_seconds=30, batch_size=1, max_cycles=1)
+
+    health = supervisor.status()["goal_health"]
+    assert health[0]["status"] == "backoff"
+    assert health[0]["consecutive_errors"] == 1
+    events = supervisor.status(event_limit=100)["recent_events"]
+    assert any(
+        event["event_type"] == "goal_reconciliation_blocked"
+        and event["payload"]["error_type"] == "ValueError"
+        for event in events
+    )
+    assert not any(
+        event["event_type"] == "goal_reconciled"
+        and event["payload"]["outcome"].get("status") == "complete"
+        for event in events
+    )
+    assert supervisor.verify_audit_chain()
+
+
 def test_stop_command_is_durable_and_worker_exits_without_losing_pending_work(tmp_path):
     controller = ExecutionController(tmp_path)
     supervisor = ContinuousExecutionSupervisor(controller)

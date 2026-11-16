@@ -164,10 +164,22 @@ class EngineeringPlanGoalReconciler:
             plan, run = self.recovery_bridge.load_verified(self.run_id)
             progress_by_id = {item.task_id: item for item in run.tasks}
             if all(item.status == "passed" for item in run.tasks):
+                acceptance_evidence = {
+                    item.task_id: list(item.evidence_refs)
+                    for item in run.tasks
+                }
+                if not acceptance_evidence or any(not refs for refs in acceptance_evidence.values()):
+                    return {
+                        "status": "waiting_external_dependency",
+                        "run_id": self.run_id,
+                        "blocker": "one or more passed plan tasks have no acceptance evidence",
+                        "next_action": "attach_verified_acceptance_evidence",
+                    }
                 return {
                     "status": "complete",
                     "run_id": self.run_id,
                     "completed_task_ids": sorted(progress_by_id),
+                    "acceptance_evidence": acceptance_evidence,
                     "next_action": "parent_goal_acceptance_verified",
                 }
 
