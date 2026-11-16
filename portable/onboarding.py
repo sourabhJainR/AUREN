@@ -362,7 +362,7 @@ def _configure_toml_client(client: dict[str, str], *, command: str, args: list[s
             original = path.read_bytes()
             parsed = tomllib.loads(original.decode("utf-8"))
         except (OSError, UnicodeError, tomllib.TOMLDecodeError) as exc:
-            raise OnboardingError(f"cannot safely parse Codex TOML configuration {path}: {exc}") from exc
+            raise OnboardingError(f"cannot safely parse {client['name']} TOML configuration {path}: {exc}") from exc
     else:
         original, parsed = b"", {}
     servers = parsed.get("mcp_servers", {})
