@@ -24,7 +24,7 @@ For the local AUREN endpoint, run `auren integrations probe-local-mcp` to verify
 | Claude Code CLI | `claude mcp add --transport http` | Documented | Live version and permission-mode acceptance |
 | Claude Code VS Code extension | Same Claude Code MCP configuration | Documented | Extension smoke test |
 | Gemini CLI | Local stdio via `auren up`; remote `gemini mcp add --transport http` | Repository configured | Live local/remote tool, OAuth and task-lifecycle acceptance |
-| Antigravity CLI / IDE | Remote MCP `serverUrl` in Antigravity config | Documented | Product/version-specific auth and tool acceptance |
+| Antigravity CLI / IDE | Local stdio auto-configuration via `agy`; remote MCP `serverUrl` | Repository configured | Separate CLI/IDE live tool, auth and task-lifecycle acceptance |
 | Grok Build CLI | Local stdio in `~/.grok/config.toml`; remote URL in TOML | Repository configured | Live MCP discovery, OAuth and task-lifecycle acceptance |
 | Gemini Code Assist | Gemini CLI MCP integration in Agent mode | Partial | Test the installed extension/plan separately |
 | Cursor | `mcpServers` in `mcp.json` | Documented | OAuth and local/cloud/SSH acceptance |
@@ -147,7 +147,7 @@ Keep `trust: false` unless the operator has reviewed the full AUREN tool surface
 
 ### Gemini Code Assist and Antigravity
 
-Treat these as separate host acceptance targets from Gemini CLI. Their MCP configuration and account/plan support can differ. Verify the installed product version, sign-in path and tool approvals before marking either live verified.
+Treat these as separate host acceptance targets from Gemini CLI. AUREN detects `agy` and configures local stdio MCP in `~/.gemini/config/mcp_config.json`; remote Streamable HTTP uses `serverUrl`. Their MCP configuration and account/plan support can differ. Verify the installed product version, sign-in path and tool approvals before marking either live verified.
 
 ### Grok Build CLI versus Grok chat
 
