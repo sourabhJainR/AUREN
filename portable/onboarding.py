@@ -257,6 +257,7 @@ def discover_clients(home: Path | None = None) -> list[dict[str, str]]:
         ("Claude Desktop", base / ".config/Claude/claude_desktop_config.json", "mcpServers"),
         ("Claude Code", base / ".claude.json", "mcpServers"),
         ("Gemini CLI", base / ".gemini/settings.json", "mcpServers"),
+        ("Antigravity CLI / IDE", base / ".gemini/config/mcp_config.json", "mcpServers"),
         ("Grok Build CLI", Path(os.environ.get("GROK_HOME", str(base / ".grok"))).expanduser() / "config.toml",
          "mcp_servers"),
         ("Cursor", base / ".cursor/mcp.json", "mcpServers"),
@@ -271,7 +272,7 @@ def discover_clients(home: Path | None = None) -> list[dict[str, str]]:
     found: list[dict[str, str]] = []
     seen: set[str] = set()
     executable_by_name = {
-        "Claude Code": "claude", "Gemini CLI": "gemini", "Grok Build CLI": "grok",
+        "Claude Code": "claude", "Gemini CLI": "gemini", "Antigravity CLI / IDE": "agy", "Grok Build CLI": "grok",
         "Cursor": "cursor", "Windsurf": "windsurf",
         "VS Code": "code", "VS Code Insiders": "code-insiders",
     }
