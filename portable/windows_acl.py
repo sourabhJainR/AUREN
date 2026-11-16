@@ -38,6 +38,7 @@ def enforce_private_acl(path: str | Path, *, directory: bool) -> None:
     sid = _current_user_sid()
     script = r"""
 $ErrorActionPreference = 'Stop'
+Import-Module Microsoft.PowerShell.Security -ErrorAction Stop
 $path = $env:AUREN_ACL_TARGET
 $acl = Get-Acl -LiteralPath $path
 $acl.SetAccessRuleProtection($true, $false)
