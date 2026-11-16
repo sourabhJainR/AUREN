@@ -183,6 +183,43 @@ def test_codex_is_discovered_from_standard_user_config_path(tmp_path: Path):
     assert codex["format"] == "toml"
 
 
+def test_antigravity_is_discovered_and_configured_with_local_stdio_bridge(tmp_path: Path):
+    config = tmp_path / ".gemini" / "config" / "mcp_config.json"
+    config.parent.mkdir(parents=True)
+    original = {"mcpServers": {"existing": {"command": "keep", "args": ["safe"]}}}
+    config.write_text(json.dumps(original), encoding="utf-8")
+    token = tmp_path / "local-operator.token"
+    token.write_text("x" * 64, encoding="utf-8")
+    token.chmod(0o600)
+
+    client = next(item for item in discover_clients(tmp_path)
+                  if item["name"] == "Antigravity CLI / IDE")
+    assert client["path"] == str(config)
+    assert client["key"] == "mcpServers"
+
+    preview = configure_clients(
+        mcp_url="http://127.0.0.1:8765/mcp", token_file=token,
+        clients=[client], apply=False,
+    )
+    assert preview["clients"][0]["status"] == "preview"
+    assert json.loads(config.read_text(encoding="utf-8")) == original
+
+    applied = configure_clients(
+        mcp_url="http://127.0.0.1:8765/mcp", token_file=token,
+        clients=[client], apply=True,
+    )
+    saved = json.loads(config.read_text(encoding="utf-8"))
+    assert applied["clients"][0]["status"] == "configured"
+    assert Path(applied["clients"][0]["backup"]).is_file()
+    assert saved["mcpServers"]["existing"] == original["mcpServers"]["existing"]
+    assert saved["mcpServers"]["auren"]["args"][-2:] == ["--token-file", str(token)]
+    repeated = configure_clients(
+        mcp_url="http://127.0.0.1:8765/mcp", token_file=token,
+        clients=[client], apply=True,
+    )
+    assert repeated["clients"][0]["status"] == "already_configured"
+
+
 def test_grok_build_is_discovered_and_configured_with_local_stdio_bridge(tmp_path: Path, monkeypatch):
     grok_home = tmp_path / "grok-home"
     monkeypatch.setenv("GROK_HOME", str(grok_home))
