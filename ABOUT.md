@@ -4,6 +4,8 @@
 
 AUREN's goal is not to make an agent run indefinitely or to treat model output as authority. It is to make engineering work more inspectable, recoverable, and testable while limiting side effects to the authority and scope granted.
 
+For a practical comparison of AI coding with and without AUREN, including its benefits, limitations, and best-fit scenarios, read [Why use AUREN with AI coding?](docs/WHY_AUREN.md).
+
 ## How AUREN is organized
 
 - **Core** — world/self models, reasoning, and goal definition.
