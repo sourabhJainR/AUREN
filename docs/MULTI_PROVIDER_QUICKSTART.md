@@ -115,7 +115,7 @@ Install AUREN's Agent Skill and/or connect its MCP server. Keep AUREN Guard, app
 | Claude Code | AUREN Agent Skill plus local stdio/HTTP MCP; remote MCP for a hosted endpoint |
 | Codex CLI / app | AGENTS.md, AUREN Agent Skill and MCP |
 | Gemini CLI | AUREN Agent Skill plus local stdio MCP (`auren up`) or remote HTTP MCP |
-| Antigravity CLI / IDE | Separate remote MCP config using `serverUrl` |
+| Antigravity CLI / IDE | Local stdio MCP via `agy` detection or remote MCP config using `serverUrl` |
 | Grok Build CLI | Local stdio MCP in `~/.grok/config.toml` (`auren up`) or remote URL |
 | Grok web chat | Chat-only handoff; no local MCP connection |
 | Cursor | AGENTS.md, project rules and MCP |
