@@ -1978,6 +1978,40 @@ class VibeHostReadinessTests(unittest.TestCase):
         self.assertEqual("ready", result["status"])
         self.assertNotIn("provider_lookup_not_configured:development", result["issues"])
 
+    def test_readiness_blocks_preview_deployment_without_provider_recovery_contract(self):
+        config = self._config(
+            tools={
+                "web_search": {"argv": ["search-mcp"]},
+                "security": {"argv": ["security-mcp"]},
+                "deployment": {"argv": ["deployment-mcp"]},
+                "preview": {"argv": ["preview-mcp"]},
+            },
+        )
+        config.preview_deployment_required = True
+        with patch("portable.vibe_coding_host.shutil.which", side_effect=lambda command: f"/fake/bin/{command}"):
+            result = inspect_vibe_host_readiness(
+                config, provider_fabric=_ReadinessProviderFabric({"codex", "claude"}),
+            )
+        self.assertEqual("blocked", result["status"])
+        self.assertIn("provider_lookup_not_configured:preview_deployment", result["issues"])
+        self.assertIn("provider_idempotency_not_declared:preview_deployment", result["issues"])
+        self.assertIn("provider_lookup_not_authoritative:preview_deployment", result["issues"])
+
+    def test_readiness_blocks_production_release_without_provider_recovery_contract(self):
+        config = self._config(tools={
+            "web_search": {"argv": ["search-mcp"]},
+            "security": {"argv": ["security-mcp"]},
+            "release": {"argv": ["release-mcp"]},
+        })
+        with patch("portable.vibe_coding_host.shutil.which", side_effect=lambda command: f"/fake/bin/{command}"):
+            result = inspect_vibe_host_readiness(
+                config, provider_fabric=_ReadinessProviderFabric({"codex", "claude"}),
+            )
+        self.assertEqual("blocked", result["status"])
+        self.assertIn("provider_lookup_not_configured:production_deploy", result["issues"])
+        self.assertIn("provider_idempotency_not_declared:production_deploy", result["issues"])
+        self.assertIn("provider_lookup_not_authoritative:production_deploy", result["issues"])
+
     def test_gemini_cli_is_not_invoked_with_claude_command_line_flags(self):
         with self.assertRaisesRegex(AdapterUnavailable, "unsupported Vibe Coding CLI adapter"):
             ProviderCliAgent(provider="gemini", allow_workspace_writes=False)
