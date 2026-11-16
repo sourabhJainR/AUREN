@@ -256,6 +256,9 @@ def test_grok_build_is_discovered_and_configured_with_local_stdio_bridge(tmp_pat
     assert parsed["mcp_servers"]["auren"]["enabled"] is True
     assert parsed["mcp_servers"]["auren"]["startup_timeout_sec"] == 30
     assert parsed["mcp_servers"]["auren"]["tool_timeout_sec"] == 6000
+    saved_text = config.read_text(encoding="utf-8")
+    assert "x" * 64 not in saved_text
+    assert str(token) in saved_text
 
     repeated = configure_clients(
         mcp_url="http://127.0.0.1:8765/mcp", token_file=token,
