@@ -239,6 +239,7 @@ SHARDS = {
         U("tests.test_state_paths"),
     ],
     "mcp-runtime": [
+        U("tests.test_chatgpt_tunnel", "tests.test_windows_acl"),
         U("tests.test_remote_mcp_service.RemoteMCPServiceTests"),
         U("tests.test_local_mcp_host"),
         U("tests.test_adaptive_trigger", "tests.test_adaptive_runtime_recovery_integration"),
