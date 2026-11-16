@@ -38,10 +38,10 @@ def enforce_private_acl(path: str | Path, *, directory: bool) -> None:
     sid = _current_user_sid()
     script = r"""
 $ErrorActionPreference = 'Stop'
-# Load the ACL cmdlets. Some Windows PowerShell hosts already register
-# the module's type data, so duplicate type-data warnings must not prevent
-# command availability checks or the explicit ACL verification below.
-Import-Module Microsoft.PowerShell.Security -ErrorAction SilentlyContinue
+# Clear duplicate formatting metadata before loading the security cmdlets.
+# This does not change filesystem ACLs; the DACL is set and verified below.
+Remove-TypeData -TypeName System.Security.AccessControl.ObjectSecurity -ErrorAction SilentlyContinue
+Import-Module Microsoft.PowerShell.Security -Force -ErrorAction Stop
 if (-not (Get-Command -Name Get-Acl -ErrorAction SilentlyContinue)) {
     throw "Microsoft.PowerShell.Security did not provide Get-Acl"
 }
