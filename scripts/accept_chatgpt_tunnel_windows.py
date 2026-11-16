@@ -14,9 +14,9 @@ import subprocess
 import sys
 import tempfile
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
+
+from portable.guarded_network import NetworkPolicyDenied, guarded_loopback_http_get
 
 
 def _children(parent_pid: int) -> list[int]:
