@@ -1,6 +1,6 @@
 # AUREN Cross-Platform Compatibility and Integration Gaps
 
-**Review date:** 2026-11-09  
+**Review date:** 2026-11-15  
 **Scope:** ChatGPT web and desktop, Codex app and CLI, Claude chat and Claude Code surfaces, Gemini, Groq, xAI/Grok, Cursor, Visual Studio / VS Code, and GitHub Copilot.
 
 ## How to read this review
@@ -31,8 +31,8 @@ The main gap is not the engineering workflow. It is the last-mile product integr
 
 | Product surface | Status | Available AUREN path | Main gap |
 |---|---|---|---|
-| ChatGPT web | Partial | Remote Streamable HTTP MCP, OAuth tool metadata, profile identity | External OAuth 2.1 authorization server, ChatGPT app setup and live acceptance |
-| ChatGPT desktop app | Repository configured | Settings → MCP servers; remote Streamable HTTP or stdio; OAuth; shared Codex host configuration | Live AUREN OAuth, tool discovery and long-running task acceptance remain unverified |
+| ChatGPT web | Partial (not Free) | Remote Streamable HTTP MCP or Secure MCP Tunnel on eligible plans | Free requires manual handoff; tunnel does not bypass plan eligibility; external OAuth/endpoint deployment and live acceptance remain open |
+| ChatGPT desktop app (Codex mode) | Local repository path implemented; UI acceptance pending | Shared Codex `~/.codex/config.toml` and local STDIO MCP bridge; no OAuth or Platform API key for local single-user setup | Verify actual desktop Codex-mode discovery, read-only call, guarded proposal/approval, restart and recovery on Windows; ordinary ChatGPT chat is not assumed to expose Codex MCP tools |
 | Codex app / IDE extension | Partial | Shared Codex MCP configuration, `AGENTS.md`, Agent Skills, remote MCP | Live OAuth and tool acceptance not recorded |
 | Codex CLI | Partial | `AGENTS.md`, skills, remote MCP, local `~/.codex/config.toml` auto-configuration through `auren up`, `codex exec` | Live OAuth, tool and local stdio-proxy acceptance not recorded |
 | Codex app | Repository configured | Shared Codex MCP configuration and skills | App-specific live acceptance not recorded |
