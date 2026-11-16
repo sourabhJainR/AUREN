@@ -2612,6 +2612,32 @@ def inspect_vibe_host_readiness(config: VibeHostConfig, *, provider_fabric: Any 
             if not lookup_available:
                 issues.append(f"mcp_lookup_command_missing:{capability}")
 
+    # Surface consequential-provider recovery gaps before admitting a workflow.
+    # These declarations are configuration claims, not proof of live provider
+    # conformance; adapter-specific acceptance remains a separate release gate.
+    provider_capabilities = getattr(config, "provider_capabilities", {})
+    if not isinstance(provider_capabilities, Mapping):
+        provider_capabilities = {}
+    consequential_stages = []
+    if "repository" in tools:
+        consequential_stages.append(("development", "repository"))
+    if config.preview_deployment_required:
+        consequential_stages.append(("preview_deployment", "deployment"))
+    if "release" in tools:
+        consequential_stages.append(("production_deploy", "release"))
+    for stage, capability in consequential_stages:
+        spec = tools.get(capability, {})
+        lookup = spec.get("operation_lookup") if isinstance(spec, Mapping) else None
+        declarations = provider_capabilities.get(stage, {})
+        if not isinstance(declarations, Mapping):
+            declarations = {}
+        if not isinstance(lookup, Mapping):
+            issues.append(f"provider_lookup_not_configured:{stage}")
+        if declarations.get("supports_provider_idempotency") is not True:
+            issues.append(f"provider_idempotency_not_declared:{stage}")
+        if declarations.get("lookup_not_found_is_authoritative") is not True:
+            issues.append(f"provider_lookup_not_authoritative:{stage}")
+
     issues = sorted(set(issues))
     status = "ready" if not issues else ("provider_missing" if "provider_cli_missing" in issues else "blocked")
     return {
