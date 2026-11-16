@@ -78,6 +78,20 @@ $env:AUREN_REMOTE_PROVIDER_ORDER = "xai"
 python scripts/provider_conformance.py --live-api --api-provider xai --json
 ~~~
 
+Linux/macOS:
+
+~~~bash
+export AUREN_LOCAL_REMOTE_INFERENCE=enabled
+export AUREN_REMOTE_PROVIDER_ORDER=groq
+python scripts/provider_conformance.py --live-api --api-provider groq --json
+
+export AUREN_REMOTE_PROVIDER_ORDER=gemini
+python scripts/provider_conformance.py --live-api --api-provider gemini --json
+
+export AUREN_REMOTE_PROVIDER_ORDER=xai
+python scripts/provider_conformance.py --live-api --api-provider xai --json
+~~~
+
 Each command sends one fixed synthetic request and may incur a charge. The command validates the provider adapter and account/model access, not the corresponding MCP host. Gemini CLI or Grok Build CLI connection acceptance must be run separately. See [Gemini, Antigravity and Grok Build Integration](GEMINI_GROK_INTEGRATION.md).
 
 ## Run a live direct API conformance probe
