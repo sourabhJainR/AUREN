@@ -17,6 +17,28 @@ from typing import Sequence
 _REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$")
 
 
+def _normalize_github_remote(remote: str) -> str:
+    """Return an exact owner/name pair for a GitHub HTTPS or SSH remote."""
+    value = remote.strip()
+    match = re.fullmatch(r"(?:[^@/:]+@)?github\.com:([^/]+)/([^/]+?)(?:\.git)?", value, re.IGNORECASE)
+    if match:
+        owner, name = match.groups()
+    else:
+        from urllib.parse import urlsplit
+        parsed = urlsplit(value)
+        if parsed.scheme not in {"https", "ssh", "git"} or (parsed.hostname or "").lower() != "github.com":
+            raise RuntimeError("origin must point to the requested repository on github.com")
+        parts = parsed.path.strip("/").split("/")
+        if len(parts) != 2:
+            raise RuntimeError("origin must contain exactly one GitHub owner/repository path")
+        owner, name = parts
+        if name.lower().endswith(".git"):
+            name = name[:-4]
+    if not owner or not name:
+        raise RuntimeError("origin does not identify a GitHub owner/repository")
+    return f"{owner}/{name}".lower()
+
+
 def _run(args: Sequence[str], cwd: Path, timeout: int = 120) -> str:
     try:
         result = subprocess.run(
@@ -35,18 +57,18 @@ def publish_project(
     description: str = "",
 ) -> dict:
     """Create a remote repository and push an existing clean local project."""
-    raw = Path(project_path).expanduser()
-    if raw.is_symlink():
-        raise PermissionError("project path must not be a symlink")
-    root = raw.resolve(strict=True)
-    if not root.is_dir() or not (root / ".git").exists():
-        raise ValueError("project path must be an initialized Git repository")
     if not isinstance(repository, str) or not _REPOSITORY.fullmatch(repository):
         raise ValueError("repository must use owner/name format")
     if visibility not in {"private", "public", "internal"}:
         raise ValueError("visibility must be private, public or internal")
     if not isinstance(description, str) or len(description) > 350:
         raise ValueError("description must be text of at most 350 characters")
+    raw = Path(project_path).expanduser()
+    if raw.is_symlink():
+        raise PermissionError("project path must not be a symlink")
+    root = raw.resolve(strict=True)
+    if not root.is_dir() or not (root / ".git").exists():
+        raise ValueError("project path must be an initialized Git repository")
     if not shutil.which("gh"):
         raise FileNotFoundError("GitHub CLI (gh) is required; install it and run gh auth login")
     if _run(["git", "rev-parse", "--is-inside-work-tree"], root) != "true":
@@ -69,13 +91,16 @@ def publish_project(
         args.extend(["--description", description])
     _run(args, root, timeout=180)
     remote = _run(["git", "remote", "get-url", "origin"], root)
-    view = json.loads(_run([
-        "gh", "repo", "view", repository, "--json", "nameWithOwner,url,visibility,defaultBranchRef"
-    ], root))
-    if view.get("nameWithOwner", "").lower() != repository.lower():
+    try:
+        view = json.loads(_run([
+            "gh", "repo", "view", repository, "--json", "nameWithOwner,url,visibility,defaultBranchRef"
+        ], root))
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise RuntimeError("GitHub CLI returned invalid repository metadata after creation") from exc
+    if not isinstance(view, dict) or view.get("nameWithOwner", "").lower() != repository.lower():
         raise RuntimeError("GitHub returned a repository identity that does not match the requested owner/name")
-    if not remote or repository.split("/", 1)[1].lower() not in remote.lower():
-        raise RuntimeError("GitHub repository was created but origin verification failed")
+    if _normalize_github_remote(remote) != repository.lower():
+        raise RuntimeError("GitHub repository was created but origin owner/name verification failed")
     pushed = _run(["git", "rev-parse", "HEAD"], root)
     remote_head = _run(["git", "ls-remote", "origin", f"refs/heads/{branch}"], root).split()
     if not remote_head or remote_head[0] != pushed:
