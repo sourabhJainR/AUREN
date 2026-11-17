@@ -496,5 +496,20 @@ class ImpactPolicyTests(unittest.TestCase):
         )["hardening"])
 
 
+    def test_rubric_operator_benchmark_and_export_paths_have_focused_coverage(self):
+        expected = {
+            "portable/evaluation_rubric.py": "tests.test_evaluation_rubric",
+            "dashboard/assets/control-center-live.js": "tests.test_control_center_api",
+            "portable/project_export.py": "tests.test_project_export",
+            "benchmarks/paired_engineering_benchmark.py": "tests.test_paired_engineering_benchmark",
+            "scripts/report_paired_engineering_benchmark.py": "tests.test_paired_benchmark_report_cli",
+        }
+        for path, suite in expected.items():
+            with self.subTest(path=path):
+                impact = classify_path(path)
+                self.assertIsNotNone(impact)
+                self.assertTrue(impact.hardening_required)
+                self.assertIn(suite, impact.required_suites)
+
 if __name__ == "__main__":
     unittest.main()
