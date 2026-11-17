@@ -145,22 +145,67 @@ def should_use_script(task: str, repeat_count: int = 0) -> bool:
     return repeat_count >= 2 or any(word in task.lower() for word in mechanical)
 
 
-def optimize(query: str, sections: Iterable[str], budget_chars: int, *, risk: str = "normal", uncertainty: str = "known", verification_failures: int = 0, repeat_count: int = 0, required_sections: Iterable[str] = (), estimated_output_tokens: int = 0, input_cost_per_million: float | None = None, output_cost_per_million: float | None = None, cache_identity: dict[str, str] | None = None) -> OptimizationReport:
+def optimize(
+    query: str,
+    sections: Iterable[str],
+    budget_chars: int,
+    *,
+    risk: str = "normal",
+    uncertainty: str = "known",
+    verification_failures: int = 0,
+    repeat_count: int = 0,
+    required_sections: Iterable[str] = (),
+    estimated_output_tokens: int = 0,
+    input_cost_per_million: float | None = None,
+    output_cost_per_million: float | None = None,
+    cache_identity: dict[str, str] | None = None,
+    model_options: Iterable[ModelOption] | None = None,
+    required_capabilities: Iterable[str] = (),
+    privacy_classification: str = "private",
+) -> OptimizationReport:
     original = [str(s) for s in sections if str(s).strip()]
     selected = select_relevant_context(query, original, budget_chars, required_sections=required_sections)
     selected_chars = sum(len(x.text) for x in selected)
-    route = choose_model_tier(task=query, risk=risk, uncertainty=uncertainty, verification_failures=verification_failures)
-    route = RouteDecision(route.tier, route.reason, estimate_tokens("\n".join(x.text for x in selected)), 0.0)
+    base_route = choose_model_tier(
+        task=query, risk=risk, uncertainty=uncertainty,
+        verification_failures=verification_failures,
+    )
+    input_tokens = estimate_tokens("\n".join(x.text for x in selected))
+    output_tokens = max(0, int(estimated_output_tokens))
+    if model_options is not None:
+        route = choose_capable_route(
+            model_options,
+            required_capabilities=required_capabilities,
+            privacy_classification=privacy_classification,
+            minimum_tier=base_route.tier,
+            estimated_input_tokens=input_tokens,
+            estimated_output_tokens=output_tokens,
+        )
+    else:
+        estimated_cost = None
+        if input_cost_per_million is not None and output_cost_per_million is not None:
+            if input_cost_per_million < 0 or output_cost_per_million < 0:
+                raise ValueError("token prices cannot be negative")
+            estimated_cost = round(
+                (input_tokens * input_cost_per_million + output_tokens * output_cost_per_million) / 1_000_000,
+                8,
+            )
+        route = RouteDecision(
+            base_route.tier, base_route.reason, input_tokens, estimated_cost,
+            estimated_output_tokens=output_tokens,
+        )
+    cache_key = optimization_cache_key(**cache_identity) if cache_identity is not None else None
     return OptimizationReport(
         original_chars=sum(len(x) for x in original),
         selected_chars=selected_chars,
-        estimated_input_tokens=route.estimated_input_tokens,
+        estimated_input_tokens=input_tokens,
         compression_ratio=round(selected_chars / max(1, sum(len(x) for x in original)), 4),
         selected_sections=len(selected),
         route=route,
         script_candidate=should_use_script(query, repeat_count),
         estimated_output_tokens=output_tokens,
-        estimated_cost_units=estimated_cost,
+        estimated_cost_units=route.estimated_cost_units,
+        selected_model=route.model or None,
         cache_key=cache_key,
     )
 
