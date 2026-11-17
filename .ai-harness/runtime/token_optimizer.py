@@ -38,8 +38,8 @@ class ModelOption:
     provider: str
     model: str
     tier: str
-    input_cost_per_million: float
-    output_cost_per_million: float
+    input_cost_per_million: float | None
+    output_cost_per_million: float | None
     max_context_tokens: int
     capabilities: tuple[str, ...]
     privacy_levels: tuple[str, ...]
@@ -51,7 +51,7 @@ class ModelOption:
             raise ValueError("provider and model are required")
         if self.tier not in {"low", "standard", "high"}:
             raise ValueError("unsupported model tier")
-        if self.input_cost_per_million < 0 or self.output_cost_per_million < 0:
+        if any(value is not None and value < 0 for value in (self.input_cost_per_million, self.output_cost_per_million)):
             raise ValueError("model prices cannot be negative")
         if self.max_context_tokens < 1 or self.estimated_latency_ms < 0:
             raise ValueError("invalid model capacity or latency")
@@ -253,16 +253,24 @@ def choose_capable_route(
             continue
         if estimated_input_tokens + estimated_output_tokens > option.max_context_tokens:
             continue
-        cost = (estimated_input_tokens * option.input_cost_per_million
-                + estimated_output_tokens * option.output_cost_per_million) / 1_000_000
-        candidates.append((cost, option.estimated_latency_ms, option.provider, option.model, option))
+        known_price = option.input_cost_per_million is not None and option.output_cost_per_million is not None
+        cost = (
+            (estimated_input_tokens * option.input_cost_per_million
+             + estimated_output_tokens * option.output_cost_per_million) / 1_000_000
+            if known_price else None
+        )
+        # Prefer a price-backed option. If every eligible option has unknown
+        # pricing, choose by latency but keep monetary cost explicitly unknown.
+        candidates.append((0 if known_price else 1, cost if cost is not None else float("inf"),
+                           option.estimated_latency_ms, option.provider, option.model, option, cost))
     if not candidates:
         raise ValueError("no verified model option satisfies capability, privacy, tier and context constraints")
-    cost, latency, _, _, chosen = min(candidates, key=lambda item: item[:4])
+    _, _, latency, _, _, chosen, cost = min(candidates, key=lambda item: item[:5])
     return RouteDecision(
-        chosen.tier, "lowest-cost-verified-capable-option",
-        estimated_input_tokens, round(cost, 8), chosen.provider, chosen.model,
-        estimated_output_tokens, latency,
+        chosen.tier,
+        "lowest-priced-verified-capable-option" if cost is not None else "verified-capable-option-price-unknown",
+        estimated_input_tokens, round(cost, 8) if cost is not None else None,
+        chosen.provider, chosen.model, estimated_output_tokens, latency,
     )
 
 
