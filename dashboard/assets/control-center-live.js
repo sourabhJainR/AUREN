@@ -120,9 +120,16 @@
     }
   }
 
-  function operatorReason(action) {
+  function operatorReason(action, maxLength = 500) {
     const reason = window.prompt("Enter a reason for " + action + ".");
-    return typeof reason === "string" ? reason.trim() : "";
+    if (typeof reason !== "string") return "";
+    const trimmed = reason.trim();
+    if (trimmed.length > maxLength) {
+      el("auren-ops-errors").textContent =
+        "Reason must be no more than " + maxLength + " characters.";
+      return "";
+    }
+    return trimmed;
   }
 
   function statusCounts(counts) {
@@ -242,7 +249,7 @@
           button.className = "ops-button" + (decision === "reject" ? " danger" : "");
           button.textContent = decision === "approve" ? "Approve" : "Reject";
           button.addEventListener("click", async () => {
-            const reason = operatorReason(decision === "approve" ? "approval" : "rejection");
+            const reason = operatorReason(decision === "approve" ? "approval" : "rejection", 240);
             if (!reason) return;
             if (!window.confirm("Confirm " + decision + " for " + row.approval_id + "?")) return;
             button.disabled = true;
