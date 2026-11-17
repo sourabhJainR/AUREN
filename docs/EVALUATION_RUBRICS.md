@@ -59,3 +59,5 @@ does not prove that evidence URLs resolve, that a test ran, that an evaluator is
 independent in deployment, or that an operator controls a sealed holdout. Those
 claims require trusted evidence verification and external custody. Rubric
 scores cannot authorize dispatch, merge, deployment, promotion or bypass Guard.
+
+A passing local receipt is a quality signal only. Canonical delivery gates and repository protection rules remain independently required.
