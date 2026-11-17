@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, asdict
 import hashlib
+import math
 import re
 from typing import Iterable
 
@@ -51,8 +52,11 @@ class ModelOption:
             raise ValueError("provider and model are required")
         if self.tier not in {"low", "standard", "high"}:
             raise ValueError("unsupported model tier")
-        if any(value is not None and value < 0 for value in (self.input_cost_per_million, self.output_cost_per_million)):
-            raise ValueError("model prices cannot be negative")
+        for value in (self.input_cost_per_million, self.output_cost_per_million):
+            if value is not None and (
+                type(value) not in (int, float) or not math.isfinite(float(value)) or value < 0
+            ):
+                raise ValueError("model prices must be finite non-negative numbers or unknown")
         if self.max_context_tokens < 1 or self.estimated_latency_ms < 0:
             raise ValueError("invalid model capacity or latency")
         if type(self.availability_verified) is not bool:
@@ -241,7 +245,15 @@ def choose_capable_route(
     """
     if minimum_tier not in _TIER_RANK:
         raise ValueError("minimum_tier must be low, standard or high")
+    if not isinstance(privacy_classification, str) or not privacy_classification.strip():
+        raise ValueError("privacy_classification is required")
+    if type(estimated_input_tokens) is not int or estimated_input_tokens < 0:
+        raise ValueError("estimated_input_tokens must be a non-negative integer")
+    if type(estimated_output_tokens) is not int or estimated_output_tokens < 0:
+        raise ValueError("estimated_output_tokens must be a non-negative integer")
     required = set(required_capabilities)
+    if any(not isinstance(item, str) or not item.strip() for item in required):
+        raise ValueError("required capabilities must be non-empty strings")
     candidates = []
     for option in options:
         if not option.availability_verified:
@@ -296,13 +308,20 @@ def optimization_cache_key(
 
 def compare_paired_runs(baseline: dict[str, object], candidate: dict[str, object]) -> dict[str, object]:
     """Compare matched runs; reject mismatched tasks, model tiers or rubric versions."""
-    for key in ("task_digest", "model_tier", "rubric_digest"):
-        if baseline.get(key) != candidate.get(key) or not baseline.get(key):
+    for key in (
+        "task_digest", "model_tier", "model_id", "provider_version",
+        "context_budget_tokens", "acceptance_digest", "rubric_digest", "policy_digest",
+    ):
+        if baseline.get(key) != candidate.get(key) or baseline.get(key) in (None, ""):
             raise ValueError(f"paired runs must share {key}")
     required = ("input_tokens", "output_tokens", "latency_ms", "quality_score", "policy_violations")
     for run in (baseline, candidate):
-        if any(type(run.get(key)) not in (int, float) for key in required):
+        if any(type(run.get(key)) not in (int, float) or not math.isfinite(float(run[key])) for key in required):
             raise ValueError("paired run metrics are incomplete or invalid")
+        if int(run["input_tokens"]) < 0 or int(run["output_tokens"]) < 0 or int(run["latency_ms"]) < 0 or int(run["policy_violations"]) < 0:
+            raise ValueError("paired run resource and policy metrics cannot be negative")
+        if not 0 <= float(run["quality_score"]) <= 100:
+            raise ValueError("paired run quality score must be between 0 and 100")
     return {
         "matched": True,
         "input_token_savings": int(baseline["input_tokens"]) - int(candidate["input_tokens"]),
