@@ -375,6 +375,16 @@ class LocalMCPHostProcessTests(unittest.TestCase):
                 with urllib.request.urlopen(dashboard_url.rsplit("/", 1)[0] + "/api/health", timeout=3) as response:
                     dashboard_health = json.loads(response.read().decode("utf-8"))
                 self.assertEqual("ready", dashboard_health["readiness"])
+                # The operator console must use the MCP endpoint selected by
+                # this host, including an automatically allocated port.
+                with urllib.request.urlopen(
+                    dashboard_url.rsplit("/", 1)[0] + "/api/tasks?limit=10",
+                    timeout=5,
+                ) as response:
+                    task_inventory = json.loads(response.read().decode("utf-8"))
+                    self.assertEqual(200, response.status)
+                    self.assertIn("trigger_tasks", task_inventory)
+                    self.assertIn("controller_tasks", task_inventory)
                 with urllib.request.urlopen(dashboard_url.rsplit("/", 1)[0] + "/", timeout=3) as response:
                     dashboard_html = response.read().decode("utf-8")
                     self.assertEqual(200, response.status)
