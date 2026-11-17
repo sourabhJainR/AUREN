@@ -104,6 +104,33 @@ class TokenOptimizerTests(unittest.TestCase):
         self.assertIsNone(route.estimated_cost_units)
         self.assertIn("price-unknown", route.reason)
 
+
+    def test_task_prompt_is_included_in_capacity_and_input_token_estimate(self):
+        query = "Implement a secure authentication and authorization workflow with audit logging"
+        report = optimizer.optimize(query, ["small relevant code section"], 100)
+        self.assertGreaterEqual(
+            report.estimated_input_tokens,
+            optimizer.estimate_tokens(query),
+        )
+        option = optimizer.ModelOption(
+            "provider", "too-small", "high", 1.0, 2.0, 5,
+            ("coding",), ("private",), True, 50,
+        )
+        with self.assertRaises(ValueError):
+            optimizer.optimize(
+                query, ["small relevant code section"], 100,
+                estimated_output_tokens=10, model_options=[option],
+                required_capabilities=("coding",),
+            )
+
+    def test_output_price_is_not_reported_as_total_when_output_tokens_unknown(self):
+        report = optimizer.optimize(
+            "fix authentication", ["authentication code"], 100,
+            input_cost_per_million=1.0, output_cost_per_million=2.0,
+        )
+        self.assertIsNone(report.estimated_cost_units)
+        self.assertIsNone(report.estimated_output_tokens)
+
     def test_optimizer_cost_is_unknown_without_pricing_not_reported_as_zero(self):
         report = optimizer.optimize("fix authentication", ["authentication code"], 100)
         self.assertIsNone(report.estimated_cost_units)
