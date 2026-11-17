@@ -1039,6 +1039,22 @@ def _run_chatgpt_tunnel(args: list[str]) -> int:
     return int(tunnel_main(args))
 
 
+def _run_export(args: list[str]) -> int:
+    """Create a portable project snapshot without exporting runtime secrets."""
+    parser = argparse.ArgumentParser(prog="auren export", description="Export source, project metadata and safe task/evidence references.")
+    parser.add_argument("--project-root", default=".")
+    parser.add_argument("--output", required=True)
+    options = parser.parse_args(args)
+    try:
+        from portable.project_export import export_project_package
+        result = export_project_package(options.project_root, options.output)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    except (OSError, ValueError, RuntimeError) as exc:
+        print(f"auren export blocked: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 2
+
+
 def _run_handoff(args: list[str]) -> int:
     """Export task packages and validate untrusted ChatGPT proposals."""
     from portable.chatgpt_handoff import main as handoff_main
@@ -1055,7 +1071,7 @@ def main(argv: list[str] | None = None) -> int:
             epilog=(
                 "Quick start: auren up\n"
                 "Useful commands: auren task submit --task \"...\" | auren verify-local | auren chatgpt-tunnel | auren handoff | auren providers | auren integrations | auren progress --json | "
-                "auren continuous status | auren doctor\n"
+                "auren continuous status | auren doctor | auren export --output ./auren-project-export.zip\n"
                 "Full usage: docs/USAGE_AND_PLATFORM_INTEGRATION.md"
             ),
         )
@@ -1092,6 +1108,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_chatgpt_tunnel(args[1:])
     if args and args[0] == "handoff":
         return _run_handoff(args[1:])
+    if args and args[0] == "export":
+        return _run_export(args[1:])
     if args and args[0] == "deliver":
         return _run_delivery(args[1:])
     if args and args[0] == "dashboard":
