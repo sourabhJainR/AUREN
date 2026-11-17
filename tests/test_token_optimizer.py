@@ -34,6 +34,11 @@ class TokenOptimizerTests(unittest.TestCase):
         decision = optimizer.choose_model_tier(task="small change", risk="critical")
         self.assertEqual(decision.tier, "high")
 
+
+    def test_high_uncertainty_escalates_model_tier(self):
+        decision = optimizer.choose_model_tier(task="normal feature", uncertainty="high")
+        self.assertEqual(decision.tier, "high")
+
     def test_script_candidate_for_repeatable_work(self):
         self.assertTrue(optimizer.should_use_script("validate configuration", repeat_count=0))
         self.assertTrue(optimizer.should_use_script("inspect repository", repeat_count=2))
