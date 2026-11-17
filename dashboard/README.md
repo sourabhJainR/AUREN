@@ -17,14 +17,37 @@ The endpoint uses an allowlist projection. It does not return session intent, ra
 
 The Sessions panel includes an optional read-only workspace inventory. A host may inject `workspace_reader` into `MuxinSessionAdapter`; that reader must project records from the canonical `GraphWorkspaceCoordinator`/workspace registry and must not create a second workspace or task store. The projection allowlists workspace, worker, task and sandbox identifiers, status, base revision, branch, repository-relative owned/changed paths and evidence references. Host filesystem paths, raw worker output, credentials and coordinator internals are never returned. The inventory is bounded to 25 records and 20 values per list, with truncation reported explicitly.
 
-If the host reader is absent, the UI says **Not configured**; if it fails or returns unsafe data, the UI says **Unavailable**. Neither state is rendered as an empty healthy inventory. This panel is observational only. It does not start, pause, cancel, resume, approve, merge or delete workspaces. Set `AUREN_WORKSPACE_REGISTRY` to the absolute path of the host's canonical, project-scoped `graph_workspace_registry` SQLite file before starting the dashboard to enable the built-in read-only SQLite adapter. Do not point dashboards for unrelated repositories at one shared registry. If the variable is unset, the panel reports **Not configured**; if the file/schema is missing or unreadable, it reports **Unavailable**. Those controls require a separately authenticated and authorized canonical-controller API with CSRF protection and auditable command receipts.
+If the host reader is absent, the UI says **Not configured**; if it fails or returns unsafe data, the UI says **Unavailable**. Neither state is rendered as an empty healthy inventory. Workspace lifecycle and diff-adoption controls remain unavailable because the dashboard does not own the workspace coordinator.
 
+
+### Operator actions
+
+The live workbench can submit a task, request task cancellation, and approve/reject
+a pending approval. These are not local dashboard-side mutations: the server
+proxies each command through the authenticated local MCP client to the canonical
+AUREN service (`auren.submit_task`, `auren.cancel_task`,
+`auren.decide_approval`). The browser never receives the operator token.
+State-changing requests require a same-origin browser `Origin`, same-origin
+Fetch Metadata, a bounded JSON body and an explicit reason. Approval decisions
+also require a confirmation prompt. Task submissions use a stable idempotency
+key retained across uncertain retries in the current page session.
+
+The dashboard remains loopback-only. These checks protect the browser request
+boundary; they are not a defense against a malicious process running as the same
+OS user. Canonical MCP scopes, approval ownership/separation-of-duties, Guard,
+task idempotency and controller state remain authoritative. If the local MCP
+service or token is unavailable, the action is shown as unavailable/blocked;
+the dashboard does not fall back to direct controller writes. Pause/resume of
+individual workstreams and remote workspace lifecycle controls are not exposed
+until canonical MCP tools and host-enforced workspace adapters provide them.
 
 ## Live operations tracking
 
 The control center loads a read-only operational tracking panel from `/assets/control-center-live.js`. It polls the bounded session inventory, observability summary and health endpoint every 15 seconds while the page is visible. Requests have a four-second timeout; browser offline/online and visibility changes are handled without clearing the last confirmed sample.
 
 The panel reports source-backed active, blocked/stale/unverified, task and trace counts; bounded task, session and plan-run summaries; delivery worker/queue/unknown-outcome/acknowledgement metrics; trace corruption/sequence-gap/drift indicators; and the delivery integrity policy flags exposed by the supervisor. Missing values remain unavailable rather than being rendered as zero. Refresh failures retain the last sample and show a degraded/unavailable state. Dynamic task/session/plan text is inserted with DOM text nodes, not interpreted as HTML.
+
+A **Decision-required work** inbox highlights canonical task projections whose progress journal marks `decision_required=true`. It shows the task ID, lifecycle, stage and next action. It is intentionally read-only: the panel does not decide, approve, reject, resume or dispatch work. The operator must inspect the authoritative approval/decision record through the authenticated task workflow (for example, `auren task approvals` and `auren task decide-approval` when an approval request exists). A missing decision record is not an approval.
 
 The static asset handler resolves files beneath the dedicated dashboard assets directory and rejects resolved paths outside that directory. The server validates the Host header against the loopback address and bound port, rejects cross-site Fetch Metadata and untrusted browser origins, and emits restrictive browser security headers (CSP, frame denial, no-referrer, nosniff and same-origin resource policy). The health endpoint separates HTTP liveness from local runtime readiness and reports durable journal, delivery-supervisor and observability checks. Provider health, PostgreSQL health and physical-host identity are explicitly reported as not checked/not attested; this endpoint is not production deployment evidence. The dashboard remains loopback-only. Do not expose it through a reverse proxy or public network until a separately reviewed authentication, authorization, CSRF, TLS, audit and deployment boundary exists.
 

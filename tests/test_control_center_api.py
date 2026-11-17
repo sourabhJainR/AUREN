@@ -112,6 +112,144 @@ class ControlCenterApiTests(unittest.TestCase):
         self.assertEqual(403, caught.exception.code)
         self.assertEqual("close", caught.exception.headers.get("Connection"))
 
+    def test_operator_task_inventory_includes_durable_trigger_queue(self):
+        captured = {}
+        def fake_call(handler, name, arguments):
+            captured.update({"name": name, "arguments": arguments})
+            return {"trigger_tasks": [{"task_id": "trigger-1", "state": "pending"}],
+                    "controller_tasks": [], "controller_tasks_status": "available"}
+        self.server.RequestHandlerClass._call_local_operator_tool = fake_call
+        base = "http://127.0.0.1:%d" % self.server.server_port
+        with urlopen(base + "/api/tasks?limit=25", timeout=2) as response:
+            payload = json.load(response)
+        self.assertEqual("auren.list_tasks", captured["name"])
+        self.assertEqual({"limit": 25}, captured["arguments"])
+        self.assertEqual("trigger-1", payload["trigger_tasks"][0]["task_id"])
+
+    def test_operator_task_inventory_rejects_unbounded_limits(self):
+        base = "http://127.0.0.1:%d" % self.server.server_port
+        with self.assertRaises(HTTPError) as caught:
+            urlopen(base + "/api/tasks?limit=1000", timeout=2)
+        self.assertEqual(400, caught.exception.code)
+
+    def test_operator_approval_inventory_proxies_authenticated_local_mcp(self):
+        captured = {}
+        def fake_call(handler, name, arguments):
+            captured.update({"name": name, "arguments": arguments})
+            return {"approvals": [{"approval_id": "approval-1", "status": "pending"}]}
+        self.server.RequestHandlerClass._call_local_operator_tool = fake_call
+        base = "http://127.0.0.1:%d" % self.server.server_port
+        with urlopen(base + "/api/approvals?status=pending", timeout=2) as response:
+            payload = json.load(response)
+        self.assertEqual("auren.list_approvals", captured["name"])
+        self.assertEqual({"limit": 100, "status": "pending"}, captured["arguments"])
+        self.assertEqual("approval-1", payload["approvals"][0]["approval_id"])
+
+    def test_operator_decision_requires_same_origin_and_calls_canonical_approval_store(self):
+        captured = {}
+        def fake_call(handler, name, arguments):
+            captured.update({"name": name, "arguments": arguments})
+            return {"approval_id": arguments["approval_id"], "status": "approved"}
+        self.server.RequestHandlerClass._call_local_operator_tool = fake_call
+        base = "http://127.0.0.1:%d" % self.server.server_port
+        unsafe = Request(
+            base + "/api/approvals/approval-1/decision",
+            data=json.dumps({"decision": "approve", "reason": "Reviewed evidence"}).encode(),
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        with self.assertRaises(HTTPError) as caught:
+            urlopen(unsafe, timeout=2)
+        self.assertEqual(403, caught.exception.code)
+        self.assertFalse(captured)
+
+        request = Request(
+            base + "/api/approvals/approval-1/decision",
+            data=json.dumps({"decision": "approve", "reason": "Reviewed evidence"}).encode(),
+            headers={
+                "Content-Type": "application/json",
+                "Origin": base,
+                "Sec-Fetch-Site": "same-origin",
+            }, method="POST",
+        )
+        with urlopen(request, timeout=2) as response:
+            payload = json.load(response)
+        self.assertEqual("auren.decide_approval", captured["name"])
+        self.assertEqual({
+            "approval_id": "approval-1", "decision": "approve",
+            "reason": "Reviewed evidence",
+        }, captured["arguments"])
+        self.assertEqual("approved", payload["status"])
+
+    def test_operator_task_submission_requires_idempotency_and_uses_canonical_mcp(self):
+        captured = {}
+        def fake_call(handler, name, arguments):
+            captured.update({"name": name, "arguments": arguments})
+            return {"task_id": "task-1", "status": "accepted"}
+        self.server.RequestHandlerClass._call_local_operator_tool = fake_call
+        base = "http://127.0.0.1:%d" % self.server.server_port
+        headers = {
+            "Content-Type": "application/json", "Origin": base,
+            "Sec-Fetch-Site": "same-origin",
+        }
+        missing_key = Request(
+            base + "/api/tasks",
+            data=json.dumps({"task": "Build a feature"}).encode(),
+            headers=headers, method="POST",
+        )
+        with self.assertRaises(HTTPError) as caught:
+            urlopen(missing_key, timeout=2)
+        self.assertEqual(400, caught.exception.code)
+        self.assertFalse(captured)
+
+        request = Request(
+            base + "/api/tasks",
+            data=json.dumps({
+                "task": "Build a feature", "execution_mode": "proposal",
+                "priority": "normal", "max_attempts": 2, "context": {},
+                "idempotency_key": "dashboard-submit-0001",
+            }).encode(),
+            headers=headers, method="POST",
+        )
+        with urlopen(request, timeout=2) as response:
+            payload = json.load(response)
+        self.assertEqual("auren.submit_task", captured["name"])
+        self.assertEqual("dashboard-submit-0001", captured["arguments"]["idempotency_key"])
+        self.assertEqual("task-1", payload["task_id"])
+
+    def test_operator_task_cancellation_is_sent_to_canonical_controller(self):
+        captured = {}
+        def fake_call(handler, name, arguments):
+            captured.update({"name": name, "arguments": arguments})
+            return {"task_id": arguments["task_id"], "cancellation_requested": True}
+        self.server.RequestHandlerClass._call_local_operator_tool = fake_call
+        base = "http://127.0.0.1:%d" % self.server.server_port
+        request = Request(
+            base + "/api/tasks/task-1/cancel",
+            data=json.dumps({"reason": "No longer needed"}).encode(),
+            headers={
+                "Content-Type": "application/json", "Origin": base,
+                "Sec-Fetch-Site": "same-origin",
+            }, method="POST",
+        )
+        with urlopen(request, timeout=2) as response:
+            payload = json.load(response)
+        self.assertEqual("auren.cancel_task", captured["name"])
+        self.assertEqual({"task_id": "task-1", "reason": "No longer needed"}, captured["arguments"])
+        self.assertTrue(payload["cancellation_requested"])
+
+    def test_approval_decision_reason_limit_matches_canonical_mcp_contract(self):
+        script = (Path(__file__).resolve().parents[1] / "dashboard" / "assets" / "control-center-live.js").read_text(encoding="utf-8")
+        self.assertIn('operatorReason(decision === "approve" ? "approval" : "rejection", 240)', script)
+        self.assertIn('Reason must be no more than " + maxLength + " characters.', script)
+
+    def test_live_operator_console_persists_pending_submission_and_reads_canonical_task_queue(self):
+        script = (Path(__file__).resolve().parents[1] / "dashboard" / "assets" / "control-center-live.js").read_text(encoding="utf-8")
+        self.assertIn("auren.operator.pendingSubmission.v1", script)
+        self.assertIn("sessionStorage.setItem", script)
+        self.assertIn("sessionStorage.getItem", script)
+        self.assertIn('get("/api/tasks?limit=50")', script)
+        self.assertIn("trigger_tasks", script)
+
     def test_learning_retrieval_failure_is_not_reported_as_empty(self):
         def unavailable():
             raise OSError("memory store unavailable")
@@ -194,6 +332,11 @@ class ControlCenterApiTests(unittest.TestCase):
         self.assertIn("/api/observability", script)
         self.assertIn("/api/health", script)
         self.assertIn("REQUEST_TIMEOUT_MS", script)
+        self.assertIn('id="auren-ops-decisions"', script)
+        self.assertIn("row.decision_required === true", script)
+        self.assertIn("Pending approvals", script)
+        self.assertIn("canonical approval store", script)
+        self.assertIn("auren-task-form", script)
         self.assertIn("document.visibilityState", script)
         self.assertIn("last sample retained", script)
         self.assertIn("does not certify CI, review, merge or production readiness", script)

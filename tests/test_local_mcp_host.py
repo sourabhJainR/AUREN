@@ -239,17 +239,31 @@ class LocalMCPHostTests(unittest.TestCase):
         finally:
             service.close()
 
-    def test_dashboard_server_selects_an_available_loopback_port(self):
-        server = create_server(self.project, "127.0.0.1", 0)
+    def test_dashboard_server_selects_an_available_loopback_port_and_operator_mcp_endpoint(self):
+        server = create_server(
+            self.project, "127.0.0.1", 0,
+            operator_mcp_url="http://127.0.0.1:43129/mcp",
+            operator_token_file=self.token_path,
+        )
         try:
             self.assertEqual("127.0.0.1", server.server_address[0])
             self.assertGreater(server.server_address[1], 0)
+            self.assertEqual("http://127.0.0.1:43129/mcp", server.RequestHandlerClass.operator_mcp_url)
+            self.assertEqual(str(self.token_path), server.RequestHandlerClass.operator_token_file)
         finally:
             registry_path = self.project / ".auren" / "response_delivery_registry.sqlite3"
             server.server_close()
             # Windows cannot remove a SQLite file while an initialization
             # connection is still open; this guards deterministic close.
             registry_path.unlink()
+
+    def test_dashboard_server_rejects_non_loopback_operator_mcp_endpoints(self):
+        with self.assertRaisesRegex(ValueError, "loopback HTTP /mcp"):
+            create_server(
+                self.project, "127.0.0.1", 0,
+                operator_mcp_url="http://mcp.example.test:43129/mcp",
+                operator_token_file=self.token_path,
+            )
 
 
 class LocalMCPHostArgumentTests(unittest.TestCase):
@@ -361,6 +375,16 @@ class LocalMCPHostProcessTests(unittest.TestCase):
                 with urllib.request.urlopen(dashboard_url.rsplit("/", 1)[0] + "/api/health", timeout=3) as response:
                     dashboard_health = json.loads(response.read().decode("utf-8"))
                 self.assertEqual("ready", dashboard_health["readiness"])
+                # The operator console must use the MCP endpoint selected by
+                # this host, including an automatically allocated port.
+                with urllib.request.urlopen(
+                    dashboard_url.rsplit("/", 1)[0] + "/api/tasks?limit=10",
+                    timeout=5,
+                ) as response:
+                    task_inventory = json.loads(response.read().decode("utf-8"))
+                    self.assertEqual(200, response.status)
+                    self.assertIn("trigger_tasks", task_inventory)
+                    self.assertIn("controller_tasks", task_inventory)
                 with urllib.request.urlopen(dashboard_url.rsplit("/", 1)[0] + "/", timeout=3) as response:
                     dashboard_html = response.read().decode("utf-8")
                     self.assertEqual(200, response.status)

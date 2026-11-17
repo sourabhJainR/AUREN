@@ -1,6 +1,6 @@
 # AUREN Engineering Console
 
-The Engineering Console is a read-only observability surface over AUREN's existing runtime state. It does not become a second orchestrator, policy engine, memory store, or execution authority.
+The Engineering Console observes AUREN's existing runtime state and exposes a narrow operator command surface through the authenticated local MCP service. It does not become a second orchestrator, task store, policy engine, memory store, or execution authority.
 
 ## Live session control center
 
@@ -10,7 +10,7 @@ The Sessions tab polls the read-only `GET /api/sessions` endpoint every four sec
 
 The session snapshot can include a read-only `workspaces` projection when the host injects `workspace_reader` into `MuxinSessionAdapter`. The reader must adapt the canonical `GraphWorkspaceCoordinator` registry; the dashboard does not create a parallel workspace store or open worker filesystem paths. The projection exposes only workspace/worker/task/sandbox IDs, status, base revision, branch, bounded repository-relative owned/changed paths and evidence references. Host paths, raw worker output, credentials and coordinator internals are excluded. The response is capped at 25 workspaces and 20 values per list, with truncation marked.
 
-An absent reader is `not_configured`; a failed or invalid reader is `unavailable`. Neither is represented as zero workspaces. This is a read-only visibility slice, not a control plane. The dashboard CLI uses the built-in read-only SQLite adapter when `AUREN_WORKSPACE_REGISTRY` is set to the absolute path of the host's canonical, project-scoped `graph_workspace_registry` database. Do not share one registry across unrelated repositories. If the variable is unset, the panel reports `not_configured`; an unreadable or incompatible registry reports `unavailable`. Start/pause/interrupt/cancel/resume/approval and merge controls remain unavailable until a separately authenticated, CSRF-protected adapter can authorize every command through the canonical controller and persist auditable receipts.
+An absent reader is `not_configured`; a failed or invalid reader is `unavailable`. Neither is represented as zero workspaces. This is a read-only visibility slice, not a control plane. The dashboard CLI uses the built-in read-only SQLite adapter when `AUREN_WORKSPACE_REGISTRY` is set to the absolute path of the host's canonical, project-scoped `graph_workspace_registry` database. Do not share one registry across unrelated repositories. If the variable is unset, the panel reports `not_configured`; an unreadable or incompatible registry reports `unavailable`. The live operator panel can submit tasks, request cancellation and decide pending approvals by proxying through the authenticated local MCP client. State-changing browser requests require a same-origin Origin and Fetch Metadata check, bounded JSON input and explicit reasons; approval decisions also require user confirmation. The browser never receives the local operator token. Canonical MCP scopes, durable approvals, separation-of-duties and Guard remain authoritative. Individual workstream pause/resume and workspace lifecycle controls remain unavailable until canonical tools and host-enforced workspace adapters expose them.
 
 
 ## Run from an installed AUREN
