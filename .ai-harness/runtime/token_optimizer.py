@@ -218,7 +218,9 @@ def optimize(
         original_chars=len(query) + sum(len(x) for x in original),
         selected_chars=selected_chars,
         estimated_input_tokens=input_tokens,
-        compression_ratio=round(selected_chars / max(1, sum(len(x) for x in original)), 4),
+        compression_ratio=round(
+            selected_chars / max(1, len(query) + sum(len(x) for x in original)), 4,
+        ),
         selected_sections=len(selected),
         route=route,
         script_candidate=should_use_script(query, repeat_count),
