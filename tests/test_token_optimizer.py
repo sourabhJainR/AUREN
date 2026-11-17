@@ -77,6 +77,20 @@ class TokenOptimizerTests(unittest.TestCase):
         self.assertGreater(route.estimated_cost_units, 0)
 
 
+
+    def test_paired_optimizer_rejects_mismatched_model_or_policy(self):
+        baseline = dict(
+            task_digest="task", model_tier="high", model_id="model-v1",
+            provider_version="provider-v1", context_budget_tokens=32000,
+            acceptance_digest="acceptance-v1", rubric_digest="rubric-v1",
+            policy_digest="policy-v1", input_tokens=1000, output_tokens=200,
+            latency_ms=900, quality_score=95, policy_violations=0,
+        )
+        with self.assertRaises(ValueError):
+            optimizer.compare_paired_runs(baseline, dict(baseline, model_id="different"))
+        with self.assertRaises(ValueError):
+            optimizer.compare_paired_runs(baseline, dict(baseline, policy_digest="different"))
+
     def test_model_route_keeps_unknown_prices_unknown(self):
         option = optimizer.ModelOption(
             "provider", "model", "standard", None, None, 10000,
@@ -114,15 +128,17 @@ class TokenOptimizerTests(unittest.TestCase):
         )
 
     def test_paired_optimizer_evaluation_rejects_quality_or_policy_regression(self):
-        baseline = dict(task_digest="task", model_tier="high", rubric_digest="rubric",
-                        input_tokens=1000, output_tokens=200, latency_ms=900,
+        baseline = dict(task_digest="task", model_tier="high", model_id="model-v1",
+                        provider_version="provider-v1", context_budget_tokens=32000,
+                        acceptance_digest="acceptance-v1", rubric_digest="rubric",
+                        policy_digest="policy-v1", input_tokens=1000, output_tokens=200, latency_ms=900,
                         quality_score=95, policy_violations=0)
         candidate = dict(baseline, input_tokens=700, latency_ms=800, quality_score=94)
         result = optimizer.compare_paired_runs(baseline, candidate)
         self.assertEqual(result["input_token_savings"], 300)
         self.assertFalse(result["promotion_eligible"])
         with self.assertRaises(ValueError):
-            optimizer.compare_paired_runs(baseline, dict(candidate, rubric_digest="different"))
+            optimizer.compare_paired_runs(baseline, dict(candidate, context_budget_tokens=16000))
 
     def test_report_records_token_reduction(self):
         report = optimizer.optimize(
