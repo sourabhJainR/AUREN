@@ -73,8 +73,8 @@ class ArenaRunReceiptTests(unittest.TestCase):
         receipt = evaluate_rubric(
             rubric, subject_id="candidate", run_id="other-run",
             source_digest="a" * 64, plan_digest="b" * 64,
-            artifact_digests=("c" * 64,), evaluator_id="qa",
-            evaluator_version="qa-v1", scores={"correctness": 100},
+            artifact_digests=("c" * 64,), executor_id="candidate-executor",
+            evaluator_id="qa", evaluator_version="qa-v1", scores={"correctness": 100},
             evidence={"correctness": ["tests://1"]},
             rationales={"correctness": "Passed"}, hard_gates={},
         )
