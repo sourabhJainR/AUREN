@@ -389,10 +389,6 @@ def test_doctor_includes_truthful_actionable_first_run_readiness(tmp_path: Path,
 
 
 def test_first_run_readiness_does_not_call_detected_provider_live_validated(tmp_path: Path, monkeypatch):
-    from portable import onboarding
-
-    monkeypatch.setattr(onboarding.ProviderFabric if hasattr(onboarding, "ProviderFabric") else onboarding,
-                        "unused", None, raising=False)
     report = doctor(tmp_path)
     provider_check = next(item for item in report["readiness"]["checks"]
                           if item["name"] == "model_or_host_capability")
