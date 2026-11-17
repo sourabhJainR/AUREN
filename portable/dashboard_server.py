@@ -216,6 +216,51 @@ class _Handler(BaseHTTPRequestHandler):
             "X-AUREN-Chunk-Ack": "receiver-confirmed",
         })
 
+    def _require_same_origin_operator_post(self) -> bool:
+        """Require a browser same-origin request before proxying operator actions."""
+        origin = self.headers.get("Origin", "")
+        host = self.headers.get("Host", "")
+        fetch_site = self.headers.get("Sec-Fetch-Site", "").lower()
+        try:
+            parsed = urlparse(origin)
+            valid = (
+                parsed.scheme == "http"
+                and parsed.netloc.lower() == host.lower()
+                and parsed.hostname in {"127.0.0.1", "localhost"}
+                and parsed.username is None and parsed.password is None
+                and parsed.path in {"", "/"} and not parsed.query and not parsed.fragment
+                and fetch_site in {"same-origin", "none"}
+            )
+        except ValueError:
+            valid = False
+        if not valid:
+            self._reject_untrusted_request(b'{"error":"operator actions require a same-origin browser request"}')
+            return False
+        return True
+
+    def _call_local_operator_tool(self, name: str, arguments: dict):
+        """Proxy operator actions through the authenticated canonical local MCP service."""
+        from .mcp_local_client import call_local_tool
+        from .identity_compat import canonical_auren_home
+
+        url = os.environ.get("AUREN_LOCAL_MCP_URL", "http://127.0.0.1:8765/mcp")
+        token_file = os.environ.get(
+            "AUREN_LOCAL_MCP_TOKEN_FILE",
+            str(canonical_auren_home() / "mcp" / "local-operator.token"),
+        )
+        result = call_local_tool(name, arguments, url=url, token_file=token_file)
+        content = result.get("content") if isinstance(result, dict) else None
+        if isinstance(content, list):
+            for item in content:
+                if isinstance(item, dict) and isinstance(item.get("text"), str):
+                    try:
+                        decoded = json.loads(item["text"])
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(decoded, dict):
+                        return decoded
+        return result
+
     def _read_json_request(self, *, max_bytes):
         length = int(self.headers.get("Content-Length", "0"))
         if length < 1 or length > max_bytes:
@@ -599,6 +644,67 @@ class _Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/delivery/"):
             self._handle_delivery_post(path)
             return
+        if path.startswith("/api/approvals/") or path.startswith("/api/tasks/") or path == "/api/tasks":
+            if not self._require_same_origin_operator_post():
+                return
+            try:
+                payload = self._read_json_request(max_bytes=65536)
+                if path == "/api/tasks":
+                    task = payload.get("task")
+                    mode = payload.get("execution_mode", "auto")
+                    priority = payload.get("priority", "normal")
+                    attempts = payload.get("max_attempts", 3)
+                    idempotency_key = payload.get("idempotency_key")
+                    context = payload.get("context", {})
+                    if not isinstance(task, str) or not task.strip() or len(task) > 12000:
+                        raise ValueError("task must be non-empty and at most 12000 characters")
+                    if mode not in {"auto", "proposal", "coding"}:
+                        raise ValueError("unsupported execution mode")
+                    if priority not in {"high", "normal", "low"}:
+                        raise ValueError("unsupported task priority")
+                    if type(attempts) is not int or not 1 <= attempts <= 8:
+                        raise ValueError("max_attempts must be between 1 and 8")
+                    if not isinstance(idempotency_key, str) or not re.fullmatch(r"[A-Za-z0-9._:-]{16,128}", idempotency_key):
+                        raise ValueError("a stable 16-128 character idempotency key is required")
+                    if not isinstance(context, dict):
+                        raise ValueError("context must be an object")
+                    result = self._call_local_operator_tool("auren.submit_task", {
+                        "task": task.strip(), "execution_mode": mode,
+                        "priority": priority, "max_attempts": attempts,
+                        "context": context, "idempotency_key": idempotency_key,
+                    })
+                    self._send_api_json(200, result)
+                    return
+                decision_match = re.fullmatch(r"/api/approvals/([A-Za-z0-9._:-]{1,200})/decision", path)
+                cancel_match = re.fullmatch(r"/api/tasks/([A-Za-z0-9._:-]{1,200})/cancel", path)
+                if decision_match:
+                    decision = payload.get("decision")
+                    reason = payload.get("reason")
+                    if decision not in {"approve", "reject"} or not isinstance(reason, str) or not reason.strip() or len(reason) > 1000:
+                        raise ValueError("decision and a reason of at most 1000 characters are required")
+                    result = self._call_local_operator_tool("auren.decide_approval", {
+                        "approval_id": decision_match.group(1), "decision": decision,
+                        "reason": reason.strip(),
+                    })
+                    self._send_api_json(200, result)
+                    return
+                if cancel_match:
+                    reason = payload.get("reason")
+                    if not isinstance(reason, str) or not reason.strip() or len(reason) > 500:
+                        raise ValueError("cancellation reason is required and must be at most 500 characters")
+                    result = self._call_local_operator_tool("auren.cancel_task", {
+                        "task_id": cancel_match.group(1), "reason": reason.strip(),
+                    })
+                    self._send_api_json(200, result)
+                    return
+                self._send_api_json(404, {"error": "operator action route not found"})
+            except ValueError as exc:
+                self._send_api_json(400, {"error": str(exc)})
+            except PermissionError:
+                self._send_api_json(403, {"error": "canonical operator action denied"})
+            except Exception as exc:
+                self._send_api_json(503, {"error": "authenticated local operator service unavailable", "reason": type(exc).__name__})
+            return
         if path != "/api/route":
             self._send(404, b'{"error":"not found"}', "application/json")
             return
@@ -715,6 +821,39 @@ class _Handler(BaseHTTPRequestHandler):
                 })
             except Exception:
                 self._send(503, b'{"error":"configured provider catalog unavailable"}', "application/json; charset=utf-8")
+            return
+        if path == "/api/tasks":
+            try:
+                query = parse_qs(urlparse(self.path).query, keep_blank_values=False)
+                limit = int(query.get("limit", ["50"])[0])
+                if not 1 <= limit <= 100:
+                    raise ValueError("task inventory limit must be between 1 and 100")
+                result = self._call_local_operator_tool("auren.list_tasks", {"limit": limit})
+                self._send_api_json(200, result)
+            except ValueError as exc:
+                self._send_api_json(400, {"error": str(exc)})
+            except PermissionError:
+                self._send_api_json(403, {"error": "task inventory is not authorized"})
+            except Exception as exc:
+                self._send_api_json(503, {"error": "authenticated local task service unavailable", "reason": type(exc).__name__})
+            return
+        if path == "/api/approvals":
+            try:
+                query = parse_qs(urlparse(self.path).query, keep_blank_values=False)
+                status = query.get("status", ["pending"])[0]
+                if status not in {"pending", "approved", "rejected", "expired", "all"}:
+                    raise ValueError("unsupported approval status")
+                arguments = {"limit": 100}
+                if status != "all":
+                    arguments["status"] = status
+                result = self._call_local_operator_tool("auren.list_approvals", arguments)
+                self._send_api_json(200, result)
+            except ValueError as exc:
+                self._send_api_json(400, {"error": str(exc)})
+            except PermissionError:
+                self._send_api_json(403, {"error": "approval inventory is not authorized"})
+            except Exception as exc:
+                self._send_api_json(503, {"error": "authenticated local approval service unavailable", "reason": type(exc).__name__})
             return
         if path == "/api/sessions":
             try:
