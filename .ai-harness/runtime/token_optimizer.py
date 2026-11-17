@@ -30,7 +30,7 @@ class RouteDecision:
     estimated_cost_units: float | None
     provider: str = ""
     model: str = ""
-    estimated_output_tokens: int = 0
+    estimated_output_tokens: int | None = None
     estimated_latency_ms: int = 0
 
 
@@ -146,7 +146,7 @@ def choose_model_tier(*, task: str, risk: str = "normal", uncertainty: str = "kn
         tier, reason = "low", "minimum-viable-model-for-simple-task"
     else:
         tier, reason = "standard", "default-model-for-normal-implementation"
-    return RouteDecision(tier, reason, 0, 0.0)
+    return RouteDecision(tier, reason, 0, None)
 
 
 def should_use_script(task: str, repeat_count: int = 0) -> bool:
@@ -165,7 +165,7 @@ def optimize(
     verification_failures: int = 0,
     repeat_count: int = 0,
     required_sections: Iterable[str] = (),
-    estimated_output_tokens: int = 0,
+    estimated_output_tokens: int | None = None,
     input_cost_per_million: float | None = None,
     output_cost_per_million: float | None = None,
     cache_identity: dict[str, str] | None = None,
@@ -175,13 +175,17 @@ def optimize(
 ) -> OptimizationReport:
     original = [str(s) for s in sections if str(s).strip()]
     selected = select_relevant_context(query, original, budget_chars, required_sections=required_sections)
-    selected_chars = sum(len(x.text) for x in selected)
+    selected_chars = len(query) + sum(len(x.text) for x in selected)
     base_route = choose_model_tier(
         task=query, risk=risk, uncertainty=uncertainty,
         verification_failures=verification_failures,
     )
-    input_tokens = estimate_tokens("\n".join(x.text for x in selected))
-    output_tokens = max(0, int(estimated_output_tokens))
+    input_tokens = estimate_tokens(query + "\n" + "\n".join(x.text for x in selected))
+    if estimated_output_tokens is not None and (
+        type(estimated_output_tokens) is not int or estimated_output_tokens < 0
+    ):
+        raise ValueError("estimated_output_tokens must be a non-negative integer or unknown")
+    output_tokens = estimated_output_tokens
     if model_options is not None:
         route = choose_capable_route(
             model_options,
@@ -193,9 +197,14 @@ def optimize(
         )
     else:
         estimated_cost = None
-        if input_cost_per_million is not None and output_cost_per_million is not None:
-            if input_cost_per_million < 0 or output_cost_per_million < 0:
-                raise ValueError("token prices cannot be negative")
+        if (
+            output_tokens is not None
+            and input_cost_per_million is not None
+            and output_cost_per_million is not None
+        ):
+            prices = (input_cost_per_million, output_cost_per_million)
+            if any(type(value) not in (int, float) or not math.isfinite(float(value)) or value < 0 for value in prices):
+                raise ValueError("token prices must be finite non-negative numbers")
             estimated_cost = round(
                 (input_tokens * input_cost_per_million + output_tokens * output_cost_per_million) / 1_000_000,
                 8,
@@ -206,7 +215,7 @@ def optimize(
         )
     cache_key = optimization_cache_key(**cache_identity) if cache_identity is not None else None
     return OptimizationReport(
-        original_chars=sum(len(x) for x in original),
+        original_chars=len(query) + sum(len(x) for x in original),
         selected_chars=selected_chars,
         estimated_input_tokens=input_tokens,
         compression_ratio=round(selected_chars / max(1, sum(len(x) for x in original)), 4),
@@ -235,7 +244,7 @@ def choose_capable_route(
     privacy_classification: str,
     minimum_tier: str,
     estimated_input_tokens: int,
-    estimated_output_tokens: int = 0,
+    estimated_output_tokens: int | None = None,
 ) -> RouteDecision:
     """Recommend the least-cost verified option that satisfies hard constraints.
 
@@ -249,8 +258,10 @@ def choose_capable_route(
         raise ValueError("privacy_classification is required")
     if type(estimated_input_tokens) is not int or estimated_input_tokens < 0:
         raise ValueError("estimated_input_tokens must be a non-negative integer")
-    if type(estimated_output_tokens) is not int or estimated_output_tokens < 0:
-        raise ValueError("estimated_output_tokens must be a non-negative integer")
+    if estimated_output_tokens is not None and (
+        type(estimated_output_tokens) is not int or estimated_output_tokens < 0
+    ):
+        raise ValueError("estimated_output_tokens must be a non-negative integer or unknown")
     required = set(required_capabilities)
     if any(not isinstance(item, str) or not item.strip() for item in required):
         raise ValueError("required capabilities must be non-empty strings")
@@ -264,9 +275,13 @@ def choose_capable_route(
             continue
         if privacy_classification not in option.privacy_levels:
             continue
-        if estimated_input_tokens + estimated_output_tokens > option.max_context_tokens:
+        if estimated_input_tokens + (estimated_output_tokens or 0) > option.max_context_tokens:
             continue
-        known_price = option.input_cost_per_million is not None and option.output_cost_per_million is not None
+        known_price = (
+            estimated_output_tokens is not None
+            and option.input_cost_per_million is not None
+            and option.output_cost_per_million is not None
+        )
         cost = (
             (estimated_input_tokens * option.input_cost_per_million
              + estimated_output_tokens * option.output_cost_per_million) / 1_000_000
