@@ -8,6 +8,22 @@ from scripts.impact_policy import classify_changes, classify_path, final_status
 
 
 class ImpactPolicyTests(unittest.TestCase):
+
+    def test_optimizer_paths_have_explicit_impact_coverage(self):
+        expected = {
+            ".ai-harness/runtime/token_optimizer.py": {
+                "tests.test_token_optimizer", "tests.test_context_broker",
+                "tests.test_context_evidence_lifecycle",
+            },
+            "tests/test_token_optimizer.py": {"tests.test_token_optimizer"},
+        }
+        for path, required in expected.items():
+            with self.subTest(path=path):
+                impact = classify_path(path)
+                self.assertIsNotNone(impact)
+                self.assertTrue(required.issubset(set(impact.required_suites)))
+                self.assertTrue(impact.hardening_required)
+
     def test_runtime_resilience_workflow_requires_matrix_for_remote_provider_changes(self):
         workflow = Path(".github/workflows/runtime-resilience.yml").read_text(encoding="utf-8")
         for path in (
