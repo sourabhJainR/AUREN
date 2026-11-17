@@ -299,13 +299,15 @@ def serve_local(
             if composition is not None
             else getattr(runtime, "execution_controller", None)
         )
-        dashboard = create_server(
-            root, "127.0.0.1", dashboard_port, controller=shared_controller,
-        )
         mcp_socket = _bound_loopback_socket(mcp_port)
         actual_mcp_port = int(mcp_socket.getsockname()[1])
         service, credential_path = create_local_mcp_service(
             runtime, root, actual_mcp_port, composition=composition,
+        )
+        dashboard = create_server(
+            root, "127.0.0.1", dashboard_port, controller=shared_controller,
+            operator_mcp_url=f"http://127.0.0.1:{actual_mcp_port}/mcp",
+            operator_token_file=credential_path,
         )
         app = AurenMCPASGI(service)
         config = uvicorn.Config(
