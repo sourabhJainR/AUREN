@@ -36,6 +36,12 @@ The profile selector, built-in single-user composition root and local MCP startu
 
 Do not treat a configured key/model pair, detected CLI or mocked adapter test as live provider acceptance. Local MCP remains proposal-only until the scoped coding executor passes its own security and recovery gates.
 
+### First-run readiness contract
+
+`auren doctor` returns a `readiness` projection (`auren-first-run-readiness-v1`) alongside the detailed diagnostic fields. It separates setup blockers from detected-but-unvalidated providers and explicitly marks external client/deployment acceptance as unverified. The projection is read-only and does not grant execution authority. A configured MCP client does not place its native terminal, filesystem or browser actions inside the AUREN Guard boundary; only actions dispatched through AUREN-managed execution are subject to AUREN Guard and approval enforcement.
+
+Use the `readiness.checks` entries to identify the missing capability and `readiness.next_actions` for the next safe step. A `ready_with_unverified_acceptance` status is not a production-ready claim: complete the versioned OS/client acceptance procedure before marking an integration accepted.
+
 ## Objective
 
 A developer should be able to install AUREN on a new workstation, open a new or existing repository, connect a supported local AI client, and begin a verified engineering task without writing a runtime factory or assembling AUREN internals.
