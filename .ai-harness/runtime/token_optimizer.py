@@ -130,10 +130,11 @@ def select_relevant_context(query: str, sections: Iterable[str], budget_chars: i
 def choose_model_tier(*, task: str, risk: str = "normal", uncertainty: str = "known", verification_failures: int = 0) -> RouteDecision:
     """Apply the Minimum Viable Model rule before escalation."""
     normalized_risk = risk.lower()
+    normalized_uncertainty = uncertainty.lower()
     words = _terms(task)
     hard = {"architecture", "migration", "security", "incident", "concurrency", "distributed", "production"}
     simple = {"format", "rename", "summarize", "classification", "documentation", "typo", "changelog"}
-    if normalized_risk in {"critical", "high"} or uncertainty == "unknown" or verification_failures >= 2:
+    if normalized_risk in {"critical", "high"} or normalized_uncertainty in {"high", "unknown"} or verification_failures >= 2:
         tier, reason = "high", "risk-or-uncertainty-requires-stronger-reasoning"
     elif words & hard:
         tier, reason = "high", "task-signals-complex-reasoning"
