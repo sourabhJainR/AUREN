@@ -13,7 +13,7 @@ class ImpactPolicyTests(unittest.TestCase):
         expected = {
             ".ai-harness/runtime/token_optimizer.py": {
                 "tests.test_token_optimizer", "tests.test_context_broker",
-                "tests.test_context_pipeline",
+                "tests.test_context_evidence_lifecycle",
             },
             "tests/test_token_optimizer.py": {"tests.test_token_optimizer"},
         }
