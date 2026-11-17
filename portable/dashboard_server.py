@@ -243,8 +243,10 @@ class _Handler(BaseHTTPRequestHandler):
         from .mcp_local_client import call_local_tool
         from .identity_compat import canonical_auren_home
 
-        url = os.environ.get("AUREN_LOCAL_MCP_URL", "http://127.0.0.1:8765/mcp")
-        token_file = os.environ.get(
+        url = self.operator_mcp_url or os.environ.get(
+            "AUREN_LOCAL_MCP_URL", "http://127.0.0.1:8765/mcp",
+        )
+        token_file = self.operator_token_file or os.environ.get(
             "AUREN_LOCAL_MCP_TOKEN_FILE",
             str(canonical_auren_home() / "mcp" / "local-operator.token"),
         )
@@ -979,12 +981,36 @@ def create_server(
     delivery_execution_guard: RuntimeExecutionGuard | None = None,
     delivery_budget_id: str | None = None,
     controller: ExecutionController | None = None,
+    operator_mcp_url: str | None = None,
+    operator_token_file: str | Path | None = None,
 ):
     """Create a bound local dashboard server without starting its event loop."""
     if host not in {"127.0.0.1", "localhost"}:
         raise ValueError("dashboard server only binds to loopback; remote access requires a separately secured deployment")
     if type(port) is not int or not 0 <= port <= 65535:
         raise ValueError("dashboard port must be between 0 and 65535; use 0 for automatic selection")
+    if operator_mcp_url is not None:
+        parsed_operator_url = urlparse(operator_mcp_url)
+        try:
+            operator_port = parsed_operator_url.port
+        except ValueError as exc:
+            raise ValueError("operator MCP URL must be a valid loopback HTTP /mcp endpoint") from exc
+        if (
+            parsed_operator_url.scheme != "http"
+            or parsed_operator_url.hostname not in {"127.0.0.1", "localhost"}
+            or operator_port is None
+            or not 1 <= operator_port <= 65535
+            or parsed_operator_url.path != "/mcp"
+            or parsed_operator_url.username is not None
+            or parsed_operator_url.password is not None
+            or parsed_operator_url.query
+            or parsed_operator_url.fragment
+        ):
+            raise ValueError("operator MCP URL must be a loopback HTTP /mcp endpoint")
+    if operator_token_file is not None:
+        operator_token_file = str(Path(operator_token_file).expanduser())
+        if not operator_token_file:
+            raise ValueError("operator token file path cannot be empty")
     if controller is not None and not isinstance(controller, ExecutionController):
         raise TypeError("controller must be an ExecutionController")
     if delivery_execution_guard is not None:
@@ -1016,6 +1042,8 @@ def create_server(
         "delivery_supervisor": delivery_supervisor,
         "delivery_execution_guard": delivery_execution_guard,
         "delivery_budget_id": delivery_budget_id,
+        "operator_mcp_url": operator_mcp_url,
+        "operator_token_file": operator_token_file,
     })
     server = ThreadingHTTPServer((host, port), handler)
     server.daemon_threads = True
