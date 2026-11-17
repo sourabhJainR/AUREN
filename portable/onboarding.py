@@ -445,6 +445,90 @@ def configure_clients(
             "blocked_count": sum(x["status"] in {"blocked", "conflict"} for x in outcomes)}
 
 
+
+def _first_run_readiness(report: dict[str, Any], project_profile_error: str | None) -> dict[str, Any]:
+    """Build a truthful, actionable readiness view from existing capability reports.
+
+    This is a projection only: it owns no state and does not grant execution
+    authority or claim that a configured integration passed external acceptance.
+    """
+    checks: list[dict[str, str]] = []
+
+    def add(name: str, status: str, detail: str, next_action: str | None = None) -> None:
+        item = {"name": name, "status": status, "detail": detail}
+        if next_action:
+            item["next_action"] = next_action
+        checks.append(item)
+
+    dependency = report.get("local_http_dependency", {})
+    add(
+        "local_runtime_dependency",
+        "ready" if dependency.get("available") else "blocked",
+        "uvicorn is installed" if dependency.get("available") else "uvicorn is not installed",
+        None if dependency.get("available") else "Install the AUREN runtime dependencies before running a local MCP service.",
+    )
+
+    add(
+        "project_profile",
+        "ready" if project_profile_error is None else "needs_setup",
+        "AUREN project profile is valid" if project_profile_error is None else project_profile_error,
+        None if project_profile_error is None else "Run auren init from the target repository; existing profiles are never overwritten.",
+    )
+
+    providers = report.get("providers", [])
+    remote = report.get("remote_model_providers", {})
+    local = report.get("local_model", {})
+    provider_available = bool(providers) or bool(remote.get("enabled")) or bool(local.get("available"))
+    add(
+        "model_or_host_capability",
+        "detected_not_validated" if provider_available else "not_detected",
+        "At least one provider or local model is configured/detected; live model quality and vendor acceptance are not implied."
+        if provider_available else "No direct provider or local model was detected. A connected host may still supply its own model.",
+        None if provider_available else "Connect a supported coding host, or configure a local model/direct provider if AUREN-managed inference is required.",
+    )
+
+    host = report.get("vibe_coding_host", {})
+    host_status = str(host.get("status", "not_configured"))
+    host_map = {
+        "ready": ("detected_not_validated", "Host readiness was reported by its adapter; live client acceptance remains separate."),
+        "not_configured": ("not_configured", "No Vibe Coding host configuration was found."),
+        "blocked": ("blocked", str(host.get("reason", "Host configuration is blocked."))),
+    }
+    normalized_host, host_detail = host_map.get(
+        host_status, ("detected_not_validated", f"Host adapter status: {host_status}.")
+    )
+    add(
+        "coding_host",
+        normalized_host,
+        host_detail,
+        "Run auren connect to preview supported local MCP client configuration, then complete the host-specific acceptance test."
+        if normalized_host != "detected_not_validated" else None,
+    )
+
+    add(
+        "guard_and_execution_boundary",
+        "runtime_enforced_not_independently_accepted",
+        "Guard and approval enforcement belong to AUREN-managed actions. Connecting an MCP client does not govern that host's native terminal, filesystem or browser tools.",
+    )
+    add(
+        "external_acceptance",
+        "not_validated",
+        "Repository diagnostics cannot prove a live client handshake, clean-machine installation, production isolation or operator acceptance.",
+        "Run the versioned acceptance procedure for each target OS and client before calling that combination accepted.",
+    )
+
+    blocking = [item for item in checks if item["status"] == "blocked"]
+    setup = [item for item in checks if item["status"] in {"needs_setup", "not_detected", "not_configured"}]
+    next_actions = [item["next_action"] for item in checks if item.get("next_action")]
+    overall = "blocked" if blocking else ("setup_required" if setup else "ready_with_unverified_acceptance")
+    return {
+        "schema_version": "auren-first-run-readiness-v1",
+        "status": overall,
+        "checks": checks,
+        "next_actions": next_actions,
+        "claim_boundary": "readiness_projection_not_external_acceptance_or_execution_authorization",
+    }
+
 def doctor(project_root: str | Path = ".") -> dict[str, Any]:
     """Report runtime, local-model and direct API configuration without exposing secrets."""
     root = Path(project_root).expanduser().resolve()
@@ -534,4 +618,13 @@ def doctor(project_root: str | Path = ".") -> dict[str, Any]:
             "models": [], "status": "probe_failed", "reason": type(exc).__name__,
         }
     report["repository"] = inspect_repository(root)
+    profile_error = runtime_profile.get("profile_error")
+    report["readiness"] = _first_run_readiness(
+        report, str(profile_error) if profile_error is not None else None,
+    )
+    report["next_action"] = (
+        report["readiness"]["next_actions"][0]
+        if report["readiness"]["next_actions"]
+        else "Run a read-only AUREN task, then inspect its evidence before enabling implementation workflows."
+    )
     return report
