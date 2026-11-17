@@ -239,17 +239,31 @@ class LocalMCPHostTests(unittest.TestCase):
         finally:
             service.close()
 
-    def test_dashboard_server_selects_an_available_loopback_port(self):
-        server = create_server(self.project, "127.0.0.1", 0)
+    def test_dashboard_server_selects_an_available_loopback_port_and_operator_mcp_endpoint(self):
+        server = create_server(
+            self.project, "127.0.0.1", 0,
+            operator_mcp_url="http://127.0.0.1:43129/mcp",
+            operator_token_file=self.token_path,
+        )
         try:
             self.assertEqual("127.0.0.1", server.server_address[0])
             self.assertGreater(server.server_address[1], 0)
+            self.assertEqual("http://127.0.0.1:43129/mcp", server.RequestHandlerClass.operator_mcp_url)
+            self.assertEqual(str(self.token_path), server.RequestHandlerClass.operator_token_file)
         finally:
             registry_path = self.project / ".auren" / "response_delivery_registry.sqlite3"
             server.server_close()
             # Windows cannot remove a SQLite file while an initialization
             # connection is still open; this guards deterministic close.
             registry_path.unlink()
+
+    def test_dashboard_server_rejects_non_loopback_operator_mcp_endpoints(self):
+        with self.assertRaisesRegex(ValueError, "loopback HTTP /mcp"):
+            create_server(
+                self.project, "127.0.0.1", 0,
+                operator_mcp_url="http://mcp.example.test:43129/mcp",
+                operator_token_file=self.token_path,
+            )
 
 
 class LocalMCPHostArgumentTests(unittest.TestCase):
