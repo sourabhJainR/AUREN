@@ -55,6 +55,10 @@ class ModelOption:
             raise ValueError("model prices cannot be negative")
         if self.max_context_tokens < 1 or self.estimated_latency_ms < 0:
             raise ValueError("invalid model capacity or latency")
+        if type(self.availability_verified) is not bool:
+            raise ValueError("availability_verified must be a boolean")
+        if any(not isinstance(x, str) or not x.strip() for x in self.capabilities + self.privacy_levels):
+            raise ValueError("capabilities and privacy levels must be non-empty strings")
 
 
 @dataclass(frozen=True)
@@ -95,7 +99,8 @@ def select_relevant_context(query: str, sections: Iterable[str], budget_chars: i
     required_chars = sum(len(item) + 1 for item in required)
     if required_chars > max(0, int(budget_chars)):
         raise ValueError("required policy/acceptance context exceeds the context budget")
-    ranked: list[ContextSlice] = [ContextSlice(item, 1.0, "required-preserved") for item in required]
+    required_slices = [ContextSlice(item, 1.0, "required-preserved") for item in required]
+    ranked: list[ContextSlice] = []
     for section in supplied:
         text = str(section).strip()
         if not text:
@@ -109,7 +114,7 @@ def select_relevant_context(query: str, sections: Iterable[str], budget_chars: i
             score = 0.01 if len(text) <= 240 else 0.0
         ranked.append(ContextSlice(text, score, "query-overlap" if overlap else "structural-fallback"))
     ranked.sort(key=lambda x: (-x.score, len(x.text), hashlib.sha256(x.text.encode()).hexdigest()))
-    selected: list[ContextSlice] = list(ranked[:len(required)])
+    selected: list[ContextSlice] = list(required_slices)
     selected_texts = {item.text for item in selected}
     used = required_chars
     for item in ranked:
@@ -253,7 +258,7 @@ def choose_capable_route(
         candidates.append((cost, option.estimated_latency_ms, option.provider, option.model, option))
     if not candidates:
         raise ValueError("no verified model option satisfies capability, privacy, tier and context constraints")
-    cost, latency, _, _, chosen = min(candidates)
+    cost, latency, _, _, chosen = min(candidates, key=lambda item: item[:4])
     return RouteDecision(
         chosen.tier, "lowest-cost-verified-capable-option",
         estimated_input_tokens, round(cost, 8), chosen.provider, chosen.model,
