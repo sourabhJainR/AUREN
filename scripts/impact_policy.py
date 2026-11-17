@@ -133,6 +133,8 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("tests/test_control_center_api.py", ("tests.test_control_center_api",), True),
     ("portable/durable_routines.py", ("tests.test_durable_routines", "tests.test_continuous_execution"), True),
     ("tests/test_durable_routines.py", ("tests.test_durable_routines",), True),
+    (".ai-harness/runtime/token_optimizer.py", ("tests.test_token_optimizer", "tests.test_context_broker", "tests.test_context_pipeline"), True),
+    ("tests/test_token_optimizer.py", ("tests.test_token_optimizer",), True),
     (".ai-harness/runtime/*evaluator*.py", ("tests.test_canary_evaluator", "tests.test_production_evaluator_trust"), True),
     ("portable/external_evaluation_campaign.py", ("tests.test_external_evaluation_campaign", "tests.test_external_evaluator_gateway", "tests.test_sealed_arena_boundary"), True),
     ("portable/independent_evaluation_attestation.py", ("tests.test_independent_evaluation_attestation", "tests.test_sealed_arena_boundary", "tests.test_sealed_arena_signature"), True),
