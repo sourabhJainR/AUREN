@@ -493,6 +493,7 @@ def _first_run_readiness(report: dict[str, Any], project_profile_error: str | No
         "ready": ("detected_not_validated", "Host readiness was reported by its adapter; live client acceptance remains separate."),
         "not_configured": ("not_configured", "No Vibe Coding host configuration was found."),
         "blocked": ("blocked", str(host.get("reason", "Host configuration is blocked."))),
+        "provider_missing": ("needs_setup", "The configured coding host CLI is missing; the host cannot execute the selected workflow."),
     }
     normalized_host, host_detail = host_map.get(
         host_status, ("detected_not_validated", f"Host adapter status: {host_status}.")
@@ -501,7 +502,13 @@ def _first_run_readiness(report: dict[str, Any], project_profile_error: str | No
         "coding_host",
         normalized_host,
         host_detail,
-        "Run auren connect to preview supported local MCP client configuration, then complete the host-specific acceptance test."
+        (
+            "Install the configured coding host CLI and rerun auren doctor."
+            if host_status == "provider_missing"
+            else "Resolve the reported host blocker before starting a coding task."
+            if host_status == "blocked"
+            else "Run auren connect to preview supported local MCP client configuration, then complete the host-specific acceptance test."
+        )
         if normalized_host != "detected_not_validated" else None,
     )
 
