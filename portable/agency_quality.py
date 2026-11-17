@@ -6,7 +6,9 @@ findings so an agent cannot self-certify completion merely by producing text.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterable, Mapping
+from typing import Iterable, Mapping, Sequence
+
+from .evaluation_rubric import RubricDefinition, RubricScoreReceipt, evaluate_rubric
 
 SEVERITIES = ("blocker", "material", "minor", "observation")
 DEFAULT_RUBRIC: dict[str, object] = {
@@ -101,3 +103,45 @@ def evaluate(
     normalized_evidence = [str(x) for x in evidence if str(x).strip()]
     gates = {str(k): bool(v) for k, v in hard_gates.items()}
     return QualityReceipt(score, threshold, gates, normalized_findings, normalized_evidence)
+
+
+
+def evaluate_versioned_rubric(
+    rubric: RubricDefinition,
+    *,
+    subject_id: str,
+    run_id: str,
+    source_digest: str,
+    plan_digest: str,
+    evaluator_id: str,
+    evaluator_version: str,
+    scores: Mapping[str, int],
+    evidence: Mapping[str, Sequence[str]],
+    hard_gates: Mapping[str, bool | None],
+    artifact_digests: Sequence[str] = (),
+    rationales: Mapping[str, str] | None = None,
+    uncertainty: float = 0.0,
+    executor_id: str,
+) -> RubricScoreReceipt:
+    """Canonical versioned rubric entry point for Arena and agency consumers.
+
+    Legacy evaluate() remains available for compatibility. New evaluation
+    paths should use this method and persist its immutable, provenance-bound
+    receipt with the canonical run/evidence record.
+    """
+    return evaluate_rubric(
+        rubric,
+        subject_id=subject_id,
+        run_id=run_id,
+        source_digest=source_digest,
+        plan_digest=plan_digest,
+        evaluator_id=evaluator_id,
+        evaluator_version=evaluator_version,
+        scores=scores,
+        evidence=evidence,
+        hard_gates=hard_gates,
+        artifact_digests=artifact_digests,
+        rationales=rationales,
+        uncertainty=uncertainty,
+        executor_id=executor_id,
+    )
