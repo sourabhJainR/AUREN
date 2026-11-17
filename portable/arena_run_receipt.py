@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import re
+from dataclasses import replace
 from typing import Iterable, Mapping
 
 
@@ -32,6 +34,12 @@ class ArenaRunReceipt:
     contamination_detected: bool = False
     receipt_digest: str = ""
     campaign_digest: str = ""
+    rubric_digest: str = ""
+    rubric_receipt_digest: str = ""
+    rubric_status: str = ""
+    plan_digest: str = ""
+    evaluator_id: str = ""
+    executor_id: str = ""
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -45,6 +53,22 @@ class ArenaRunReceipt:
         ):
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{name} is required")
+        for name in ("rubric_digest", "rubric_receipt_digest", "plan_digest"):
+            value = getattr(self, name)
+            if value and (not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value)):
+                raise ValueError(f"{name} must be a lowercase SHA-256 digest")
+        if self.rubric_status and self.rubric_status not in {"passed", "failed", "blocked", "unscored"}:
+            raise ValueError("invalid rubric_status")
+        if self.rubric_receipt_digest and not all((
+            self.rubric_digest, self.rubric_status, self.plan_digest, self.evaluator_id.strip(),
+        )):
+            raise ValueError("a bound rubric receipt requires digest, status, plan and evaluator identity")
+        if self.evaluator_id and not self.evaluator_id.strip():
+            raise ValueError("evaluator_id cannot be whitespace")
+        if self.executor_id and not self.executor_id.strip():
+            raise ValueError("executor_id cannot be whitespace")
+        if self.evaluator_id and self.executor_id and self.evaluator_id == self.executor_id:
+            raise ValueError("Arena evaluator cannot be the executor")
         if not isinstance(self.campaign_digest, str):
             raise ValueError("campaign_digest must be a string")
         if self.campaign_digest and not self.campaign_digest.strip():
@@ -97,6 +121,15 @@ class ArenaRunReceipt:
         # to a campaign. Promotion-chain acceptance rejects an empty binding.
         if self.campaign_digest:
             payload["campaign_digest"] = self.campaign_digest
+        if self.rubric_receipt_digest:
+            payload.update({
+                "rubric_digest": self.rubric_digest,
+                "rubric_receipt_digest": self.rubric_receipt_digest,
+                "rubric_status": self.rubric_status,
+                "plan_digest": self.plan_digest,
+                "evaluator_id": self.evaluator_id,
+                "executor_id": self.executor_id,
+            })
         return payload
 
     @staticmethod
@@ -120,10 +153,42 @@ class ArenaRunReceipt:
 
     @property
     def trustworthy(self) -> bool:
-        return not self.contamination_detected and bool(self.oracle_digest) and bool(self.corpus_digest)
+        rubric_ok = not self.rubric_receipt_digest or self.rubric_status == "passed"
+        return not self.contamination_detected and bool(self.oracle_digest) and bool(self.corpus_digest) and rubric_ok
 
     def as_dict(self) -> dict[str, object]:
         return {**self._payload(), "receipt_digest": self.receipt_digest}
+
+
+def attach_rubric_receipt(arena_receipt: ArenaRunReceipt, rubric_receipt: object) -> ArenaRunReceipt:
+    """Bind the canonical rubric receipt to an Arena run without changing its run identity."""
+    if not isinstance(arena_receipt, ArenaRunReceipt):
+        raise TypeError("arena_receipt must be ArenaRunReceipt")
+    for name in ("run_id", "rubric_digest", "receipt_digest", "status", "plan_digest", "evaluator_id", "executor_id"):
+        if not isinstance(getattr(rubric_receipt, name, None), str) or not getattr(rubric_receipt, name).strip():
+            raise ValueError(f"rubric receipt is missing {name}")
+    if rubric_receipt.run_id != arena_receipt.run_id:
+        raise ValueError("rubric receipt run_id does not match Arena run")
+    if not re.fullmatch(r"[0-9a-f]{64}", rubric_receipt.rubric_digest):
+        raise ValueError("rubric digest must be a lowercase SHA-256 value")
+    if not re.fullmatch(r"[0-9a-f]{64}", rubric_receipt.receipt_digest):
+        raise ValueError("rubric receipt digest must be a lowercase SHA-256 value")
+    if not re.fullmatch(r"[0-9a-f]{64}", rubric_receipt.plan_digest):
+        raise ValueError("plan digest must be a lowercase SHA-256 value")
+    if not isinstance(rubric_receipt.evaluator_id, str) or not rubric_receipt.evaluator_id.strip():
+        raise ValueError("evaluator identity is required")
+    if rubric_receipt.evaluator_id == rubric_receipt.executor_id:
+        raise ValueError("executor cannot act as Arena evaluator")
+    return replace(
+        arena_receipt,
+        rubric_digest=rubric_receipt.rubric_digest,
+        rubric_receipt_digest=rubric_receipt.receipt_digest,
+        rubric_status=rubric_receipt.status,
+        plan_digest=rubric_receipt.plan_digest,
+        evaluator_id=rubric_receipt.evaluator_id,
+        executor_id=rubric_receipt.executor_id,
+        receipt_digest="",
+    )
 
 
 def oracle_registry_digest(oracle_ids: Iterable[str]) -> str:
@@ -136,4 +201,4 @@ def oracle_registry_digest(oracle_ids: Iterable[str]) -> str:
     ).hexdigest()
 
 
-__all__ = ["ArenaRunReceipt", "oracle_registry_digest"]
+__all__ = ["ArenaRunReceipt", "attach_rubric_receipt", "oracle_registry_digest"]
