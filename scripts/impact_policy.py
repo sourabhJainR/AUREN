@@ -254,6 +254,14 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("state/*rollback*", ("tests.test_state_root_rollback_rehearsal", "tests.test_execution_controls"), True),
     (".github/actions/**", ("tests.test_impact_policy",), True),
     (".github/workflows/**", ("tests.test_impact_policy",), True),
+    ("portable/evaluation_rubric.py", ("tests.test_evaluation_rubric", "tests.test_agency_quality", "tests.test_arena_run_receipt"), True),
+    ("tests/test_evaluation_rubric.py", ("tests.test_evaluation_rubric",), True),
+    ("dashboard/assets/control-center-live.js", ("tests.test_control_center_api",), True),
+    ("portable/project_export.py", ("tests.test_project_export", "tests.test_auren_cli_export"), True),
+    ("tests/test_project_export.py", ("tests.test_project_export",), True),
+    ("benchmarks/paired_engineering_benchmark.py", ("tests.test_paired_engineering_benchmark", "tests.test_paired_benchmark_report_cli"), True),
+    ("scripts/report_paired_engineering_benchmark.py", ("tests.test_paired_benchmark_report_cli",), True),
+    ("tests/test_paired_engineering_benchmark.py", ("tests.test_paired_engineering_benchmark",), True),
 )
 
 _SENSITIVE_PREFIXES = (
