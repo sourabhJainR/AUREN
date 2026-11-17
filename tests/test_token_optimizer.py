@@ -71,6 +71,20 @@ class TokenOptimizerTests(unittest.TestCase):
         self.assertEqual(route.model, "secure")
         self.assertGreater(route.estimated_cost_units, 0)
 
+
+    def test_model_route_keeps_unknown_prices_unknown(self):
+        option = optimizer.ModelOption(
+            "provider", "model", "standard", None, None, 10000,
+            ("coding",), ("private",), True, 200,
+        )
+        route = optimizer.choose_capable_route(
+            [option], required_capabilities=("coding",),
+            privacy_classification="private", minimum_tier="standard",
+            estimated_input_tokens=100, estimated_output_tokens=50,
+        )
+        self.assertIsNone(route.estimated_cost_units)
+        self.assertIn("price-unknown", route.reason)
+
     def test_optimizer_cost_is_unknown_without_pricing_not_reported_as_zero(self):
         report = optimizer.optimize("fix authentication", ["authentication code"], 100)
         self.assertIsNone(report.estimated_cost_units)
