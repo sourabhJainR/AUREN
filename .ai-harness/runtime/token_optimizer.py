@@ -175,7 +175,7 @@ def optimize(
 ) -> OptimizationReport:
     original = [str(s) for s in sections if str(s).strip()]
     selected = select_relevant_context(query, original, budget_chars, required_sections=required_sections)
-    selected_chars = len(query) + sum(len(x.text) for x in selected)
+    selected_chars = sum(len(x.text) for x in selected)
     base_route = choose_model_tier(
         task=query, risk=risk, uncertainty=uncertainty,
         verification_failures=verification_failures,
@@ -215,12 +215,10 @@ def optimize(
         )
     cache_key = optimization_cache_key(**cache_identity) if cache_identity is not None else None
     return OptimizationReport(
-        original_chars=len(query) + sum(len(x) for x in original),
+        original_chars=sum(len(x) for x in original),
         selected_chars=selected_chars,
         estimated_input_tokens=input_tokens,
-        compression_ratio=round(
-            selected_chars / max(1, len(query) + sum(len(x) for x in original)), 4,
-        ),
+        compression_ratio=round(selected_chars / max(1, sum(len(x) for x in original)), 4),
         selected_sections=len(selected),
         route=route,
         script_candidate=should_use_script(query, repeat_count),
