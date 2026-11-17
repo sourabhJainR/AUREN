@@ -237,6 +237,11 @@ class ControlCenterApiTests(unittest.TestCase):
         self.assertEqual({"task_id": "task-1", "reason": "No longer needed"}, captured["arguments"])
         self.assertTrue(payload["cancellation_requested"])
 
+    def test_approval_decision_reason_limit_matches_canonical_mcp_contract(self):
+        script = (Path(__file__).resolve().parents[1] / "dashboard" / "assets" / "control-center-live.js").read_text(encoding="utf-8")
+        self.assertIn('operatorReason(decision === "approve" ? "approval" : "rejection", 240)', script)
+        self.assertIn('Reason must be no more than " + maxLength + " characters.', script)
+
     def test_live_operator_console_persists_pending_submission_and_reads_canonical_task_queue(self):
         script = (Path(__file__).resolve().parents[1] / "dashboard" / "assets" / "control-center-live.js").read_text(encoding="utf-8")
         self.assertIn("auren.operator.pendingSubmission.v1", script)
