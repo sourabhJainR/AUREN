@@ -372,3 +372,29 @@ def test_shared_chatgpt_desktop_config_is_discovered_without_codex_cli(tmp_path:
 
     assert codex_client["path"] == str(tmp_path / ".codex" / "config.toml")
     assert codex_client["format"] == "toml"
+
+
+
+def test_doctor_includes_truthful_actionable_first_run_readiness(tmp_path: Path, monkeypatch):
+    report = doctor(tmp_path)
+    readiness = report["readiness"]
+    assert readiness["schema_version"] == "auren-first-run-readiness-v1"
+    assert readiness["status"] in {"blocked", "setup_required", "ready_with_unverified_acceptance"}
+    checks = {item["name"]: item for item in readiness["checks"]}
+    assert checks["project_profile"]["status"] == "needs_setup"
+    assert checks["external_acceptance"]["status"] == "not_validated"
+    assert checks["guard_and_execution_boundary"]["status"] == "runtime_enforced_not_independently_accepted"
+    assert "native terminal" in checks["guard_and_execution_boundary"]["detail"]
+    assert readiness["claim_boundary"] == "readiness_projection_not_external_acceptance_or_execution_authorization"
+
+
+def test_first_run_readiness_does_not_call_detected_provider_live_validated(tmp_path: Path, monkeypatch):
+    from portable import onboarding
+
+    monkeypatch.setattr(onboarding.ProviderFabric if hasattr(onboarding, "ProviderFabric") else onboarding,
+                        "unused", None, raising=False)
+    report = doctor(tmp_path)
+    provider_check = next(item for item in report["readiness"]["checks"]
+                          if item["name"] == "model_or_host_capability")
+    assert provider_check["status"] in {"detected_not_validated", "not_detected"}
+    assert "live model quality" in provider_check["detail"]
