@@ -393,4 +393,23 @@ def test_first_run_readiness_does_not_call_detected_provider_live_validated(tmp_
     provider_check = next(item for item in report["readiness"]["checks"]
                           if item["name"] == "model_or_host_capability")
     assert provider_check["status"] in {"detected_not_validated", "not_detected"}
-    assert "live model quality" in provider_check["detail"]
+    assert "live model quality" in provider_check["detail"] or "connected host may still supply its own model" in provider_check["detail"]
+
+
+
+def test_missing_configured_coding_host_is_reported_as_setup_required():
+    from portable.onboarding import _first_run_readiness
+
+    report = {
+        "local_http_dependency": {"available": True},
+        "providers": [{"name": "unrelated-provider"}],
+        "remote_model_providers": {},
+        "local_model": {"available": False},
+        "vibe_coding_host": {"status": "provider_missing", "reason": "provider_cli_missing"},
+    }
+    readiness = _first_run_readiness(report, None)
+    host = next(item for item in readiness["checks"] if item["name"] == "coding_host")
+    assert host["status"] == "needs_setup"
+    assert "CLI is missing" in host["detail"]
+    assert "Install the configured coding host CLI" in host["next_action"]
+    assert readiness["status"] == "setup_required"
