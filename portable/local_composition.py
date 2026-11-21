@@ -402,7 +402,8 @@ class LocalOperatorAuthority:
     def authorize_assignment(self, request: Mapping[str, Any], *, policy_path: Path) -> bool:
         if (
             not isinstance(request, Mapping)
-            or request.get("principal_id") != _OPERATOR_ID
+            or request.get("identity_mode") != "local_unattributed"
+            or request.get("principal_id") is not None
             or request.get("role_id") != "BE-01"
             or request.get("manager_id") != "EM-ENG-01"
             or request.get("action_class") != _HANDLER_ACTION
@@ -648,7 +649,7 @@ class LocalRuntimeComposition:
                 work_key=str(context.get("dispatch_key", "")),
                 task_payload=payload,
                 deadline_seconds=context.get("deadline_seconds"),
-                principal_id=_OPERATOR_ID,
+                identity_mode="local_unattributed",
             )
 
         self.dispatch_root = self.runtime.configure_trusted_plan_dispatch(
@@ -658,6 +659,7 @@ class LocalRuntimeComposition:
             budget_resolver=self.budgets.resolve,
             approval_resolver=lambda _run_id, _task_id, _handler: None,
             assignment_resolver=assignment_resolver,
+            allow_local_identity=True,
         )
         self._supervisor_lock = threading.Lock()
         self.supervisor = self.runtime.create_continuous_supervisor(
