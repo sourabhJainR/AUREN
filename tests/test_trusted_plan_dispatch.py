@@ -828,6 +828,27 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                 payload={"resource": "tests"},
             )
 
+    def test_missing_authenticated_principal_is_rejected_before_queue(self):
+        self.assignment_principal_id = None
+        store, request, record = self._approval(
+            self.controller, context=self.context,
+        )
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        root = self._root(self.controller, store, request, record, guard, context=self.context)
+        with self.assertRaisesRegex(
+            PermissionError,
+            "trusted assignment must bind an authenticated principal identity",
+        ):
+            root.dispatch(
+                run_id=self.plan.run_id, task_id="implement",
+                dispatch_key="missing-authenticated-principal",
+                handler="dispatch-test", packet=self.packet, payload={"resource": "tests"},
+            )
+        with sqlite3.connect(self.controller.db_path) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0], 0)
+        with sqlite3.connect(self.controller.company.db_path) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM work_units").fetchone()[0], 0)
+
     def test_approval_requester_must_match_authenticated_implementer_before_queue(self):
         store, request, record = self._approval(
             self.controller, context=self.context, requester_id="different-worker",
