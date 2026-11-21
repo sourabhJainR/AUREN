@@ -371,8 +371,17 @@ def submit_agent_task(
         raise ValueError("assigned tasks require an explicit stable work_key")
     if identity_mode == "host_authenticated" and (not isinstance(principal_id, str) or not principal_id.strip()):
         raise ValueError("host-authenticated principal_id is required for assigned tasks")
+    if identity_mode not in {"host_authenticated", "local_unattributed"}:
+        raise ValueError("identity_mode must be host_authenticated or local_unattributed")
     if identity_mode == "local_unattributed" and principal_id is not None:
         raise ValueError("local_unattributed assigned tasks cannot claim a principal_id")
+    if identity_mode == "local_unattributed":
+        classify = getattr(controller, "_handler_execution_class", None)
+        if not callable(classify):
+            raise PermissionError("local_unattributed mode requires controller execution-class enforcement")
+        execution_class = classify(handler)
+        if execution_class not in {"read_only", "ci_gated"}:
+            raise PermissionError("local_unattributed mode cannot submit consequential or approval-gated operations")
     controller_root = getattr(controller, "root", None)
     policy_path = (
         Path(controller_root) / ".auren" / "guard_policy.json"
