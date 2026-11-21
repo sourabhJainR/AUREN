@@ -79,7 +79,7 @@ class ContextBroker:
                 scope=self._cache_scope_resolver(c)
                 cached=self._cache.search_scoped(scope,c.kind,query,budget_chars=budget)
                 if cached:
-                    text="\\n".join(page.text for page in cached); cache_status="hit"
+                    text="\n".join(page.text for page in cached); cache_status="hit"
                 else:
                     text=str(c.loader() or ""); cache_status="miss"
                     if text: self._cache.put_scoped(scope,c.kind,text)

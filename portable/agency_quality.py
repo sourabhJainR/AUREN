@@ -120,8 +120,11 @@ def evaluate_versioned_rubric(
     hard_gates: Mapping[str, bool | None],
     artifact_digests: Sequence[str] = (),
     rationales: Mapping[str, str] | None = None,
+    applicability: Mapping[str, bool] | None = None,
+    applicability_rationales: Mapping[str, str] | None = None,
     uncertainty: float = 0.0,
     executor_id: str,
+    task_ids: Sequence[str],
 ) -> RubricScoreReceipt:
     """Canonical versioned rubric entry point for Arena and agency consumers.
 
@@ -142,6 +145,9 @@ def evaluate_versioned_rubric(
         hard_gates=hard_gates,
         artifact_digests=artifact_digests,
         rationales=rationales,
+        applicability=applicability,
+        applicability_rationales=applicability_rationales,
         uncertainty=uncertainty,
         executor_id=executor_id,
+        task_ids=task_ids,
     )

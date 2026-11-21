@@ -57,7 +57,7 @@ class AgencyQualityTests(unittest.TestCase):
             rubric, subject_id="candidate", run_id="run-1",
             source_digest="a" * 64, plan_digest="b" * 64,
             artifact_digests=("c" * 64,), evaluator_id="qa", evaluator_version="qa-v1",
-            executor_id="engineer", scores={"correctness": 100, "evidence": 100},
+            executor_id="engineer", task_ids=("task-1",), scores={"correctness": 100, "evidence": 100},
             evidence={"correctness": ["tests://1"], "evidence": ["report://1"]},
             rationales={"correctness": "Tests passed", "evidence": "Report attached"},
             hard_gates={"guard": True},

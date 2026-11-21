@@ -113,6 +113,7 @@ class RubricScoreReceipt:
     rubric_version: str
     rubric_digest: str
     subject_id: str
+    task_ids: tuple[str, ...]
     run_id: str
     source_digest: str
     plan_digest: str
@@ -124,6 +125,8 @@ class RubricScoreReceipt:
     criterion_scores: tuple[tuple[str, int | None], ...]
     criterion_evidence: tuple[tuple[str, tuple[str, ...]], ...]
     criterion_rationales: tuple[tuple[str, str], ...]
+    criterion_applicability: tuple[tuple[str, bool], ...]
+    criterion_applicability_rationales: tuple[tuple[str, str], ...]
     hard_gates: tuple[tuple[str, bool | None], ...]
     uncertainty: float
     status: str
@@ -148,12 +151,20 @@ class RubricScoreReceipt:
             for value in self.artifact_digests
         ):
             raise ValueError("artifact digests must contain SHA-256 values")
+        if not self.task_ids or any(not isinstance(item, str) or not item.strip() for item in self.task_ids) or len(set(self.task_ids)) != len(self.task_ids):
+            raise ValueError("task_ids must contain unique canonical task identifiers")
         if len(set(self.mandatory_criteria)) != len(self.mandatory_criteria):
             raise ValueError("mandatory criterion IDs must be unique")
         score_map = dict(self.criterion_scores)
         evidence_map = dict(self.criterion_evidence)
         rationale_map = dict(self.criterion_rationales)
+        applicability_map = dict(self.criterion_applicability)
+        applicability_rationale_map = dict(self.criterion_applicability_rationales)
         gate_map = dict(self.hard_gates)
+        if set(applicability_map) != set(score_map) or any(type(value) is not bool for value in applicability_map.values()):
+            raise ValueError("receipt must record an explicit applicability decision for every criterion")
+        if set(applicability_rationale_map) != set(score_map):
+            raise ValueError("receipt must record an applicability rationale for every criterion")
         if not score_map or not set(self.mandatory_criteria).issubset(score_map):
             raise ValueError("receipt must include every declared mandatory criterion")
         if any(value is not None and (type(value) is not int or not 0 <= value <= 100) for value in score_map.values()):
@@ -161,9 +172,12 @@ class RubricScoreReceipt:
         if type(self.threshold) is not int or not 0 <= self.threshold <= 100:
             raise ValueError("receipt threshold must be from 0 to 100")
         complete = (
-            all(score_map.get(key) is not None for key in score_map)
-            and all(evidence_map.get(key) for key in score_map)
-            and all(rationale_map.get(key, "").strip() for key in score_map)
+            all(
+                (score_map.get(key) is not None and bool(evidence_map.get(key)) and bool(rationale_map.get(key, "").strip()))
+                if applicability_map[key] else
+                (score_map.get(key) is None and not evidence_map.get(key) and bool(applicability_rationale_map.get(key, "").strip()))
+                for key in score_map
+            )
             and all(value is not None for value in gate_map.values())
         )
         blocked = (
@@ -207,6 +221,7 @@ class RubricScoreReceipt:
             "rubric_version": self.rubric_version,
             "rubric_digest": self.rubric_digest,
             "subject_id": self.subject_id,
+            "task_ids": list(self.task_ids),
             "run_id": self.run_id,
             "source_digest": self.source_digest,
             "plan_digest": self.plan_digest,
@@ -218,6 +233,8 @@ class RubricScoreReceipt:
             "criterion_scores": dict(self.criterion_scores),
             "criterion_evidence": {k: list(v) for k, v in self.criterion_evidence},
             "criterion_rationales": dict(self.criterion_rationales),
+            "criterion_applicability": dict(self.criterion_applicability),
+            "criterion_applicability_rationales": dict(self.criterion_applicability_rationales),
             "hard_gates": dict(self.hard_gates),
             "uncertainty": self.uncertainty,
             "status": self.status,
@@ -284,8 +301,11 @@ def evaluate_rubric(
     hard_gates: Mapping[str, bool | None],
     artifact_digests: Sequence[str] = (),
     rationales: Mapping[str, str] | None = None,
+    applicability: Mapping[str, bool] | None = None,
+    applicability_rationales: Mapping[str, str] | None = None,
     uncertainty: float = 0.0,
     executor_id: str,
+    task_ids: Sequence[str],
 ) -> RubricScoreReceipt:
     """Score a candidate against a pinned rubric and bind the result to evidence.
 
@@ -304,6 +324,8 @@ def evaluate_rubric(
         raise ValueError("source_digest and plan_digest must be lowercase SHA-256 values")
     if evaluator_id == executor_id:
         raise ValueError("executor cannot evaluate its own candidate")
+    if not task_ids or any(not isinstance(item, str) or not item.strip() for item in task_ids) or len(set(task_ids)) != len(task_ids):
+        raise ValueError("task_ids must contain unique canonical task identifiers")
     if type(uncertainty) not in (int, float) or not 0.0 <= float(uncertainty) <= 1.0:
         raise ValueError("uncertainty must be a number from 0.0 to 1.0")
     if not artifact_digests:
@@ -313,26 +335,55 @@ def evaluate_rubric(
     if len(set(artifact_digests)) != len(artifact_digests):
         raise ValueError("artifact digests must be unique")
     rationales = rationales or {}
+    applicability = applicability or {}
+    applicability_rationales = applicability_rationales or {}
     known_ids = {item.criterion_id for item in rubric.criteria}
-    if set(scores) - known_ids or set(evidence) - known_ids or set(rationales) - known_ids:
+    if set(scores) - known_ids or set(evidence) - known_ids or set(rationales) - known_ids or set(applicability) - known_ids or set(applicability_rationales) - known_ids:
         raise ValueError("scores, evidence and rationales must reference known rubric criteria")
     if set(hard_gates) - set(rubric.hard_gate_ids):
         raise ValueError("unknown hard gate")
     normalized_scores: list[tuple[str, int | None]] = []
     normalized_evidence: list[tuple[str, tuple[str, ...]]] = []
     normalized_rationales: list[tuple[str, str]] = []
+    normalized_applicability: list[tuple[str, bool]] = []
+    normalized_applicability_rationales: list[tuple[str, str]] = []
     weighted = 0.0
+    applicable_weight = 0
     complete = True
     for criterion in rubric.criteria:
-        score = scores.get(criterion.criterion_id)
+        criterion_id = criterion.criterion_id
+        if criterion.applicable_to and "all" not in criterion.applicable_to and criterion_id not in applicability:
+            raise ValueError(f"explicit applicability decision is required for {criterion_id}")
+        is_applicable = applicability.get(criterion_id, True)
+        if type(is_applicable) is not bool:
+            raise ValueError(f"applicability for {criterion_id} must be true or false")
+        applicability_rationale = applicability_rationales.get(criterion_id, "")
+        if not isinstance(applicability_rationale, str) or len(applicability_rationale) > 4000:
+            raise ValueError(f"applicability rationale for {criterion_id} is invalid")
+        if not is_applicable and not applicability_rationale.strip():
+            complete = False
+        normalized_applicability.append((criterion_id, is_applicable))
+        normalized_applicability_rationales.append((criterion_id, applicability_rationale.strip()))
+        if not is_applicable:
+            if criterion.mandatory:
+                # Mandatory criteria cannot be waived by an applicability declaration.
+                raise ValueError(f"mandatory criterion {criterion_id} cannot be marked not applicable")
+            if criterion_id in scores or evidence.get(criterion_id):
+                raise ValueError(f"not-applicable criterion {criterion_id} cannot carry a score or evidence")
+            normalized_scores.append((criterion_id, None))
+            normalized_evidence.append((criterion_id, ()))
+            normalized_rationales.append((criterion_id, ""))
+            continue
+        applicable_weight += criterion.weight
+        score = scores.get(criterion_id)
         if score is not None and (type(score) is not int or not 0 <= score <= 100):
             raise ValueError(f"score for {criterion.criterion_id} must be an integer from 0 to 100")
-        refs = tuple(str(x).strip() for x in evidence.get(criterion.criterion_id, ()) if str(x).strip())
+        refs = tuple(str(x).strip() for x in evidence.get(criterion_id, ()) if str(x).strip())
         missing_kinds = [
             kind for kind in criterion.evidence_required
             if not any(ref.startswith((kind + "://", kind + ":", kind + "/")) for ref in refs)
         ]
-        rationale = rationales.get(criterion.criterion_id, "")
+        rationale = rationales.get(criterion_id, "")
         if not isinstance(rationale, str) or not rationale.strip() or len(rationale) > 4000:
             complete = False
             rationale = ""
@@ -356,8 +407,11 @@ def evaluate_rubric(
         normalized_gates.append((gate_id, value))
     mandatory_pass = all(
         dict(normalized_scores).get(criterion.criterion_id) == 100
-        for criterion in rubric.criteria if criterion.mandatory
+        for criterion in rubric.criteria if criterion.mandatory and dict(normalized_applicability).get(criterion.criterion_id) is True
     )
+    if applicable_weight <= 0:
+        complete = False
+    weighted = weighted * 100.0 / applicable_weight if applicable_weight else 0.0
     if not complete or any(value is None for _, value in normalized_gates):
         status = "unscored"
         weighted_score = None
@@ -376,6 +430,7 @@ def evaluate_rubric(
         "rubric_version": rubric.version,
         "rubric_digest": rubric.digest,
         "subject_id": subject_id,
+        "task_ids": list(task_ids),
         "run_id": run_id,
         "source_digest": source_digest,
         "plan_digest": plan_digest,
@@ -387,6 +442,8 @@ def evaluate_rubric(
         "criterion_scores": dict(normalized_scores),
         "criterion_evidence": {key: list(value) for key, value in normalized_evidence},
         "criterion_rationales": dict(normalized_rationales),
+        "criterion_applicability": dict(normalized_applicability),
+        "criterion_applicability_rationales": dict(normalized_applicability_rationales),
         "hard_gates": dict(normalized_gates),
         "uncertainty": float(uncertainty),
         "status": status,
@@ -399,6 +456,7 @@ def evaluate_rubric(
         rubric_version=rubric.version,
         rubric_digest=rubric.digest,
         subject_id=subject_id,
+        task_ids=tuple(task_ids),
         run_id=run_id,
         source_digest=source_digest,
         plan_digest=plan_digest,
@@ -410,6 +468,8 @@ def evaluate_rubric(
         criterion_scores=tuple(normalized_scores),
         criterion_evidence=tuple(normalized_evidence),
         criterion_rationales=tuple(normalized_rationales),
+        criterion_applicability=tuple(normalized_applicability),
+        criterion_applicability_rationales=tuple(normalized_applicability_rationales),
         hard_gates=tuple(normalized_gates),
         uncertainty=float(uncertainty),
         status=status,
@@ -419,10 +479,50 @@ def evaluate_rubric(
     )
 
 
+def rubric_receipt_projection(receipt: RubricScoreReceipt, *, task_id: str) -> dict[str, object]:
+    """Return one canonical task-scoped view for CLI, MCP and operator workbench."""
+    if not isinstance(receipt, RubricScoreReceipt):
+        raise TypeError("receipt must be a verified RubricScoreReceipt")
+    if not isinstance(task_id, str) or not task_id.strip() or task_id not in receipt.task_ids:
+        raise ValueError("task_id must belong to the receipt's canonical task set")
+    scores = dict(receipt.criterion_scores)
+    evidence = dict(receipt.criterion_evidence)
+    rationales = dict(receipt.criterion_rationales)
+    applicability = dict(receipt.criterion_applicability)
+    applicability_rationales = dict(receipt.criterion_applicability_rationales)
+    criteria = []
+    for criterion_id, applicable in applicability.items():
+        criteria.append({
+            "criterion_id": criterion_id,
+            "status": ("not_applicable" if not applicable else
+                       "scored" if scores.get(criterion_id) is not None else "unscored"),
+            "applicable": applicable,
+            "applicability_rationale": applicability_rationales.get(criterion_id, ""),
+            "score": scores.get(criterion_id),
+            "evidence": list(evidence.get(criterion_id, ())),
+            "rationale": rationales.get(criterion_id, ""),
+        })
+    return {
+        "task_id": task_id,
+        "run_id": receipt.run_id,
+        "subject_id": receipt.subject_id,
+        "plan_digest": receipt.plan_digest,
+        "rubric_id": receipt.rubric_id,
+        "rubric_version": receipt.rubric_version,
+        "rubric_digest": receipt.rubric_digest,
+        "status": receipt.status,
+        "weighted_score": receipt.weighted_score,
+        "threshold": receipt.threshold,
+        "hard_gates": dict(receipt.hard_gates),
+        "criteria": criteria,
+        "receipt_digest": receipt.receipt_digest,
+    }
+
+
 __all__ = [
     "RubricCriterion", "RubricDefinition", "RubricScoreReceipt",
     "evaluate_rubric", "engineering_delivery_rubric",
-    "rubric_plan_binding", "persist_rubric_receipt",
+    "rubric_plan_binding", "persist_rubric_receipt", "rubric_receipt_projection",
 ]
 
 
