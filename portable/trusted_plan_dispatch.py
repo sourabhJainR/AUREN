@@ -367,8 +367,8 @@ class TrustedPlanDispatchRoot:
                 raise PermissionError("local_unattributed assignment requires explicit local-mode opt-in")
             if assignment.principal_id is not None:
                 raise PermissionError("local_unattributed assignment cannot claim a principal identity")
-            if self.controller._handler_execution_class(str(context.get("handler", ""))) == "consequential":
-                raise PermissionError("local_unattributed mode cannot dispatch consequential operations")
+            if self.controller._handler_execution_class(str(context.get("handler", ""))) in {"consequential", "approval_gated"}:
+                raise PermissionError("local_unattributed mode cannot dispatch consequential or approval-gated operations")
         else:
             raise PermissionError("trusted assignment identity mode is invalid")
         task_payload = context.get("payload")
