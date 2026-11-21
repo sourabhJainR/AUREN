@@ -560,7 +560,7 @@ class HybridModelRouter:
             configured_remote_limit = per_request_limit(bounded)
         if type(configured_remote_limit) is int and configured_remote_limit >= 0:
             remote_attempt_limit = min(remote_attempt_limit, configured_remote_limit)
-        for _ in range(remote_attempt_limit):
+        for remote_index in range(remote_attempt_limit):
             try:
                 guard.check()
                 remaining = min(timeout - (time.monotonic() - started), route_deadline - time.monotonic())
@@ -570,14 +570,14 @@ class HybridModelRouter:
                 if remaining <= 0:
                     raise ExecutionBudgetExceeded("overall timeout budget exhausted")
                 selected_provider = (
-                    bounded.provider_order[remote_attempts]
-                    if bounded.provider_order and remote_attempts < len(bounded.provider_order)
+                    bounded.provider_order[remote_index]
+                    if bounded.provider_order and remote_index < len(bounded.provider_order)
                     else "remote"
                 )
                 validation_request = TaskRouteRequest(
                     bounded.task, bounded.capability, bounded.privacy,
                     max(1, attempts_limit - attempts_used + 1), remaining,
-                    provider_attempt=remote_attempts, provider_order=bounded.provider_order,
+                    provider_attempt=remote_index, provider_order=bounded.provider_order,
                 )
                 self._validate_dispatch_availability(selected_provider, None, validation_request)
                 guard.charge_attempt(f"model-route:{route_id}:remote:{remote_attempts + 1}")
