@@ -25,12 +25,12 @@ class AutoCompactionProtectedBudgetTests(unittest.TestCase):
             "UNRESOLVED DECISIONS": "Decision pending: data retention owner.",
             "GUARD": "Guard denies production promotion without approval.",
         }
-        source = "\\n".join(
-            f"## {heading}\\n{body}" for heading, body in sections.items()
-        ) + "\\n## NOTES\\n" + ("repeated note " * 400)
+        source = "\n".join(
+            f"## {heading}\n{body}" for heading, body in sections.items()
+        ) + "\n## NOTES\n" + ("repeated note " * 400)
         result = compact(source, budget_chars=1800)
         for heading, body in sections.items():
-            self.assertIn(f"## {heading}\\n{body}", result.text)
+            self.assertIn(f"## {heading}\n{body}", result.text)
 
     def test_compaction_preserves_protected_sections_verbatim(self):
         goal = "Complete the task without weakening safety constraints."
