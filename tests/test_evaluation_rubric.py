@@ -34,7 +34,7 @@ def evaluate(**overrides):
         hard_gates={"guard": True, "required_ci": True},
         rationales={"correctness": "Acceptance tests pass", "evidence": "All claims are linked", "maintainability": "Review found no material issue"},
         uncertainty=0.05,
-        executor_id="implementer",
+        executor_id="implementer", task_ids=("task-1",),
     )
     values.update(overrides)
     return evaluate_rubric(rubric(), **values)
@@ -175,6 +175,7 @@ class EvaluationRubricTests(unittest.TestCase):
         receipt = evaluate_rubric(
             scoped,
             subject_id="candidate", run_id="run-1", source_digest="a" * 64,
+            task_ids=("task-1",),
             plan_digest="c" * 64, artifact_digests=("b" * 64,),
             evaluator_id="qa", evaluator_version="qa-v1", executor_id="builder",
             scores={"correctness": 100},
@@ -202,7 +203,7 @@ class EvaluationRubricTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "explicit applicability"):
             evaluate_rubric(
-                scoped, subject_id="candidate", run_id="run-1",
+                scoped, subject_id="candidate", run_id="run-1", task_ids=("task-1",),
                 source_digest="a" * 64, plan_digest="c" * 64,
                 artifact_digests=("b" * 64,), evaluator_id="qa",
                 evaluator_version="qa-v1", executor_id="builder",
