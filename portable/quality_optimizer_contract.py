@@ -135,6 +135,7 @@ def evaluate_verified_rubric(
         evaluator_id=evaluator_id,
         source_digest=expected_source_digest,
         artifact_digests=tuple(sorted(allowed_artifacts)),
+        task_ids=tuple(task_ids),
         **evaluation,
     )
 
