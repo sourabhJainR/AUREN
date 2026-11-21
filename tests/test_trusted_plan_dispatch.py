@@ -886,7 +886,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         root = self._root(self.controller, store, request, record, guard, context=self.context)
         with self.assertRaisesRegex(
             PermissionError,
-            "trusted assignment must bind an authenticated principal identity",
+            "host agent assignment authorization failed closed",
         ):
             root.dispatch(
                 run_id=self.plan.run_id, task_id="implement",
