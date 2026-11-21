@@ -299,7 +299,45 @@ def run_local_provider_task(payload: Mapping[str, Any]) -> Mapping[str, Any]:
     try:
         from .hybrid_model_router import HybridModelRouter, TaskRouteRequest
         discovery = _BoundLocalModelDiscovery(model) if kind == "local" else None
-        router = HybridModelRouter(discovery=discovery, remote_executor=pool)
+        def validate_bound_provider(provider: str, selected_model: str | None, request: Any) -> Mapping[str, Any]:
+            """Revalidate the admission-bound endpoint immediately before dispatch."""
+            if kind == "local":
+                if provider != "local" or selected_model != model or discovery is None:
+                    return {"available": False}
+                report = discovery.discover()
+                models = report.get("models", []) if isinstance(report, Mapping) else []
+                available = bool(report.get("available")) and any(
+                    isinstance(item, Mapping) and item.get("name") == model for item in models
+                )
+                return {
+                    "available": available,
+                    "capabilities": ["general"],
+                    "privacy_levels": ["private"],
+                    "verified_at_epoch": time.time(),
+                    "max_age_seconds": 5.0,
+                }
+            if provider != name or selected_model is not None:
+                return {"available": False}
+            current_pool = pool
+            current_providers = getattr(current_pool, "providers", ())
+            current = next((
+                item for item in current_providers
+                if getattr(getattr(item, "spec", None), "name", None) == name
+                and getattr(item, "model", None) == model
+            ), None)
+            return {
+                "available": current is not None,
+                "capabilities": ["general"],
+                "privacy_levels": ["public"],
+                "verified_at_epoch": time.time(),
+                "max_age_seconds": 5.0,
+            }
+
+        router = HybridModelRouter(
+            discovery=discovery,
+            remote_executor=pool,
+            availability_validator=validate_bound_provider,
+        )
         request = TaskRouteRequest(
             task=prompt,
             capability="general",
