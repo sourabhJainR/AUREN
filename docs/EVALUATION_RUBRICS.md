@@ -51,6 +51,7 @@ receipt = evaluate_rubric(
     evaluator_id="independent-qa",
     evaluator_version="qa-v1",
     executor_id="implementer",
+    task_ids=("task-1",),
     scores={"correctness": 100, "evidence": 95},
     evidence={"correctness": ["tests://run-1"], "evidence": ["report://run-1"]},
     hard_gates={"guard": True, "required_ci": True},
