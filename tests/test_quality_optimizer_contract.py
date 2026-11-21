@@ -52,14 +52,18 @@ class QualityOptimizerContractTests(unittest.TestCase):
         receipt = evaluate_verified_rubric(
             self.rubric, evidence_resolver=records.get,
             expected_run_id="run-1", expected_source_digest=D,
-            expected_artifact_digests=(A,), **kwargs,
+            expected_artifact_digests=(A,), plan_id="plan-1", task_ids=("task-1",),
+            plan_binding=rubric_plan_binding(self.rubric, plan_id="plan-1", plan_digest=D, task_ids=("task-1",)),
+            **kwargs,
         )
         self.assertEqual("passed", receipt.status)
         with self.assertRaises(ValueError):
             evaluate_verified_rubric(
                 self.rubric, evidence_resolver=records.get,
                 expected_run_id="run-2", expected_source_digest=D,
-                expected_artifact_digests=(A,), **kwargs,
+                expected_artifact_digests=(A,), plan_id="plan-1", task_ids=("task-1",),
+                plan_binding=rubric_plan_binding(self.rubric, plan_id="plan-1", plan_digest=D, task_ids=("task-1",)),
+                **kwargs,
             )
 
     def test_evaluator_alias_cannot_claim_independence(self):
@@ -67,7 +71,9 @@ class QualityOptimizerContractTests(unittest.TestCase):
             evaluate_verified_rubric(
                 self.rubric, evidence_resolver=lambda _: None,
                 expected_run_id="run-1", expected_source_digest=D,
-                expected_artifact_digests=(A,), executor_id="QA-Team",
+                expected_artifact_digests=(A,), plan_id="plan-1", task_ids=("task-1",),
+                plan_binding=rubric_plan_binding(self.rubric, plan_id="plan-1", plan_digest=D, task_ids=("task-1",)),
+                executor_id="QA-Team",
                 evaluator_id=" qa-team ", subject_id="candidate", run_id="run-1",
                 plan_digest=D, evaluator_version="qa-v1", scores={},
                 evidence={}, hard_gates={},

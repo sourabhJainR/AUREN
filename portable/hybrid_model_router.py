@@ -51,7 +51,8 @@ class HybridModelRouter:
     def __init__(self, *, discovery: LocalModelDiscovery | None = None,
                  remote_executor: Callable[[TaskRouteRequest], Any] | None = None,
                  local_executor: Callable[[TaskRouteRequest, str], Any] | None = None,
-                 resource_reader: Callable[[], dict[str, Any]] | None = None):
+                 resource_reader: Callable[[], dict[str, Any]] | None = None,
+                 availability_validator: Callable[[str, str | None, TaskRouteRequest], Mapping[str, Any]] | None = None):
         if discovery is None:
             from .muxin_session_adapter import LocalModelDiscovery
             discovery = LocalModelDiscovery()
@@ -62,6 +63,9 @@ class HybridModelRouter:
         self.remote_executor = remote_executor
         self.local_executor = local_executor or self._execute_local
         self.resource_reader = resource_reader or self._resources
+        if availability_validator is not None and not callable(availability_validator):
+            raise TypeError("availability_validator must be callable")
+        self.availability_validator = availability_validator
 
     def _execute_local(self, request: TaskRouteRequest, model: str) -> Any:
         """Run local inference and emit privacy-safe Ollama telemetry when tracing is bound."""
@@ -154,6 +158,42 @@ class HybridModelRouter:
                 except Exception:
                     pass
             raise
+
+    def _validate_dispatch_availability(
+        self, provider: str, model: str | None, request: TaskRouteRequest,
+    ) -> None:
+        """Require fresh capability/privacy evidence at the dispatch boundary."""
+        if self.availability_validator is None:
+            return
+        evidence = self.availability_validator(provider, model, request)
+        if not isinstance(evidence, Mapping):
+            raise RuntimeError("provider availability validator returned no evidence")
+        if evidence.get("available") is not True:
+            raise RuntimeError("provider is no longer available")
+        capabilities = evidence.get("capabilities")
+        privacy_levels = evidence.get("privacy_levels")
+        if not isinstance(capabilities, (list, tuple, set)) or not all(
+            isinstance(item, str) for item in capabilities
+        ):
+            raise RuntimeError("provider capability evidence is missing")
+        if not isinstance(privacy_levels, (list, tuple, set)) or not all(
+            isinstance(item, str) for item in privacy_levels
+        ):
+            raise RuntimeError("provider privacy evidence is missing")
+        if request.capability.casefold() not in {item.casefold() for item in capabilities}:
+            raise RuntimeError("provider no longer satisfies the task capability")
+        if request.privacy.casefold() not in {item.casefold() for item in privacy_levels}:
+            raise RuntimeError("provider no longer satisfies the task privacy requirement")
+        verified_at = evidence.get("verified_at_epoch")
+        max_age = evidence.get("max_age_seconds")
+        now = time.time()
+        if (
+            isinstance(verified_at, bool) or not isinstance(verified_at, (int, float))
+            or isinstance(max_age, bool) or not isinstance(max_age, (int, float))
+            or not math.isfinite(float(verified_at)) or not math.isfinite(float(max_age))
+            or max_age <= 0 or verified_at > now or now - verified_at > max_age
+        ):
+            raise RuntimeError("provider availability evidence is stale or invalid")
 
     @staticmethod
     def _resources():
@@ -462,6 +502,12 @@ class HybridModelRouter:
                         remaining = min(remaining, float(shared_remaining))
                     if remaining <= 0:
                         raise ExecutionBudgetExceeded("overall timeout budget exhausted")
+                    validation_request = TaskRouteRequest(
+                        bounded.task, bounded.capability, bounded.privacy,
+                        max(1, attempts_limit - attempts_used + 1), remaining,
+                        provider_order=bounded.provider_order,
+                    )
+                    self._validate_dispatch_availability("local", model, validation_request)
                     guard.charge_attempt(f"model-route:{route_id}:local:{attempts_used + 1}")
                     attempts_used += 1
                     persist_guard()
@@ -514,7 +560,7 @@ class HybridModelRouter:
             configured_remote_limit = per_request_limit(bounded)
         if type(configured_remote_limit) is int and configured_remote_limit >= 0:
             remote_attempt_limit = min(remote_attempt_limit, configured_remote_limit)
-        for _ in range(remote_attempt_limit):
+        for remote_index in range(remote_attempt_limit):
             try:
                 guard.check()
                 remaining = min(timeout - (time.monotonic() - started), route_deadline - time.monotonic())
@@ -523,6 +569,17 @@ class HybridModelRouter:
                     remaining = min(remaining, float(shared_remaining))
                 if remaining <= 0:
                     raise ExecutionBudgetExceeded("overall timeout budget exhausted")
+                selected_provider = (
+                    bounded.provider_order[remote_index]
+                    if bounded.provider_order and remote_index < len(bounded.provider_order)
+                    else "remote"
+                )
+                validation_request = TaskRouteRequest(
+                    bounded.task, bounded.capability, bounded.privacy,
+                    max(1, attempts_limit - attempts_used + 1), remaining,
+                    provider_attempt=remote_index, provider_order=bounded.provider_order,
+                )
+                self._validate_dispatch_availability(selected_provider, None, validation_request)
                 guard.charge_attempt(f"model-route:{route_id}:remote:{remote_attempts + 1}")
                 attempts_used += 1
                 remote_attempts += 1
