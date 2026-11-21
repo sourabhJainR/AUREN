@@ -62,13 +62,12 @@ class AuthorizedAgentAssignment:
     task_payload_digest: str | None = None
     deadline_seconds: float | None = None
     principal_id: str | None = None
-    identity_mode: str = "host_authenticated"
+    identity_mode: str | None = None
 
     def as_payload(self) -> dict[str, Any]:
         """Return the immutable, non-secret assignment envelope stored with the task."""
         payload = {
-            "schema_version": _SCHEMA_IDENTITY_MODE,
-            "identity_mode": self.identity_mode,
+            "schema_version": _SCHEMA if self.identity_mode is None else _SCHEMA_IDENTITY_MODE,
             "assignment_id": self.assignment_id,
             "role_id": self.role_id,
             "manager_id": self.manager_id,
@@ -83,6 +82,8 @@ class AuthorizedAgentAssignment:
             "deadline_seconds": self.deadline_seconds,
             "authorization": ("local_policy_authorized_before_submission" if self.identity_mode == "local_unattributed" else "host_authorized_before_submission"),
         }
+        if self.identity_mode is not None:
+            payload["identity_mode"] = self.identity_mode
         if self.principal_id is not None:
             payload["principal_id"] = self.principal_id
         return payload
@@ -162,7 +163,7 @@ def authorize_agent_assignment(
     task_payload: Mapping[str, Any] | None = None,
     deadline_seconds: float | None = None,
     principal_id: str | None = None,
-    identity_mode: str = "host_authenticated",
+    identity_mode: str | None = None,
 ) -> AuthorizedAgentAssignment:
     """Validate the role hierarchy and require host authorization of exact inputs.
 
@@ -172,10 +173,16 @@ def authorize_agent_assignment(
     """
     if not callable(authorizer):
         raise AgentAssignmentDenied("host assignment authorizer is required")
-    if identity_mode not in {"host_authenticated", "local_unattributed"}:
+    if identity_mode is None:
+        # Preserve the pre-v5 helper contract for non-trusted legacy callers.
+        # TrustedPlanDispatchRoot rejects this legacy mode; callers must opt into
+        # host_authenticated or local_unattributed for trusted plan dispatch.
+        if principal_id is not None:
+            identity_mode = "host_authenticated"
+    elif identity_mode not in {"host_authenticated", "local_unattributed"}:
         raise ValueError("identity_mode must be host_authenticated or local_unattributed")
     if identity_mode == "host_authenticated" and principal_id is None:
-        raise ValueError("host_authenticated assignments require principal_id")
+        raise ValueError("host-authenticated assignments require principal_id")
     if identity_mode == "local_unattributed" and principal_id is not None:
         raise ValueError("local_unattributed assignments cannot claim a principal_id")
     if principal_id is not None and (
@@ -290,8 +297,7 @@ def authorize_agent_assignment(
     task_payload_digest = hashlib.sha256(_canonical(clean_task_payload)).hexdigest()
 
     body = {
-        "schema_version": _SCHEMA_IDENTITY_MODE,
-        "identity_mode": identity_mode,
+        "schema_version": _SCHEMA if identity_mode is None else _SCHEMA_IDENTITY_MODE,
         "role_id": role_id.strip(),
         "manager_id": manager_id.strip(),
         "action_class": action_class.strip(),
@@ -303,6 +309,8 @@ def authorize_agent_assignment(
         "task_payload_digest": task_payload_digest,
         "deadline_seconds": normalized_deadline_seconds,
     }
+    if identity_mode is not None:
+        body["identity_mode"] = identity_mode
     if principal_id is not None:
         body["principal_id"] = principal_id.strip()
     assignment_digest = hashlib.sha256(_canonical(body)).hexdigest()
@@ -362,7 +370,7 @@ def submit_agent_task(
     if not isinstance(work_key, str) or not work_key.strip():
         raise ValueError("assigned tasks require an explicit stable work_key")
     if identity_mode == "host_authenticated" and (not isinstance(principal_id, str) or not principal_id.strip()):
-        raise ValueError("host_authenticated assigned tasks require a principal_id")
+        raise ValueError("host-authenticated principal_id is required for assigned tasks")
     if identity_mode == "local_unattributed" and principal_id is not None:
         raise ValueError("local_unattributed assigned tasks cannot claim a principal_id")
     controller_root = getattr(controller, "root", None)
