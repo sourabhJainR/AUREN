@@ -46,6 +46,7 @@ class ArenaRunReceiptTests(unittest.TestCase):
             return evaluate_rubric(
                 rubric, subject_id="arena-candidate", run_id="run-1",
                 source_digest="a" * 64, plan_digest="b" * 64,
+                task_ids=("arena-validation",),
                 artifact_digests=("c" * 64,), evaluator_id="independent-oracle",
                 evaluator_version="oracle-v1", executor_id="candidate",
                 scores={"correctness": 100, "evidence": 100},
@@ -73,6 +74,7 @@ class ArenaRunReceiptTests(unittest.TestCase):
         receipt = evaluate_rubric(
             rubric, subject_id="candidate", run_id="other-run",
             source_digest="a" * 64, plan_digest="b" * 64,
+            task_ids=("arena-validation",),
             artifact_digests=("c" * 64,), executor_id="candidate-executor",
             evaluator_id="qa", evaluator_version="qa-v1", scores={"correctness": 100},
             evidence={"correctness": ["tests://1"]},
