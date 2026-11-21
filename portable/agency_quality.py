@@ -124,7 +124,7 @@ def evaluate_versioned_rubric(
     applicability_rationales: Mapping[str, str] | None = None,
     uncertainty: float = 0.0,
     executor_id: str,
-    task_ids: Sequence[str] = (),
+    task_ids: Sequence[str],
 ) -> RubricScoreReceipt:
     """Canonical versioned rubric entry point for Arena and agency consumers.
 
