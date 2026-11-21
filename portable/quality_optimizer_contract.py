@@ -82,6 +82,10 @@ def evaluate_verified_rubric(
         raise ValueError("expected artifact digests must be SHA-256 values")
 
     evidence = evaluation.pop("evidence")
+    if evaluation.get("run_id") != expected_run_id:
+        raise ValueError("evaluation run_id does not match verified evidence run")
+    if evaluation.get("source_digest") not in (None, expected_source_digest):
+        raise ValueError("evaluation source digest does not match verified evidence")
     verified: dict[str, list[str]] = {}
     for criterion_id, references in evidence.items():
         verified_refs: list[str] = []
@@ -112,7 +116,7 @@ def evaluate_verified_rubric(
                 raise ValueError("evidence custodian must be independent of executor and evaluator")
             if not isinstance(record["evidence_type"], str) or not record["evidence_type"].strip():
                 raise ValueError("evidence type is required")
-            verified_refs.append("evidence://" + reference)
+            verified_refs.append(record["evidence_type"].strip() + "://" + reference)
         verified[criterion_id] = verified_refs
 
     return evaluate_rubric(
