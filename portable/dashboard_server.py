@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import logging
 import os
 import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -504,6 +505,7 @@ class _Handler(BaseHTTPRequestHandler):
                 self._record_delivery_failure(task_id, response_id, "invalid_delivery_request")
             self._send_delivery_json(400, {"error": "invalid delivery request"})
         except Exception:
+            logging.getLogger(__name__).exception("response delivery GET failed")
             if "task_id" in locals():
                 self._record_delivery_failure(task_id, response_id, "delivery_state_unavailable")
             self._send_delivery_json(503, {"error": "response delivery state unavailable; automatic replay is blocked"})
