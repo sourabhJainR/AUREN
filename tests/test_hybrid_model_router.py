@@ -20,6 +20,47 @@ class Discovery:
         return {"available": bool(self.names), "models": [{"name": n} for n in self.names]}
 
 class HybridRouterTests(unittest.TestCase):
+    def test_dispatch_revalidates_fresh_capability_and_privacy_evidence(self):
+        calls = []
+        validations = []
+        def validator(provider, model, request):
+            validations.append((provider, model))
+            return {
+                "available": True,
+                "capabilities": [request.capability],
+                "privacy_levels": [request.privacy],
+                "verified_at_epoch": time.time(),
+                "max_age_seconds": 10,
+            }
+        router = HybridModelRouter(
+            discovery=Discovery([]),
+            remote_executor=lambda request: calls.append(request) or "ok",
+            resource_reader=lambda: {},
+            availability_validator=validator,
+        )
+        result = router.route(TaskRouteRequest("public task", "general", privacy="public", max_attempts=1))
+        self.assertTrue(result.success)
+        self.assertEqual([("remote", None)], validations)
+        self.assertEqual(1, len(calls))
+
+    def test_stale_or_incapable_availability_evidence_blocks_dispatch(self):
+        calls = []
+        router = HybridModelRouter(
+            discovery=Discovery([]),
+            remote_executor=lambda request: calls.append(request) or "unsafe",
+            resource_reader=lambda: {},
+            availability_validator=lambda provider, model, request: {
+                "available": True,
+                "capabilities": ["summarization"],
+                "privacy_levels": ["public"],
+                "verified_at_epoch": time.time() - 100,
+                "max_age_seconds": 1,
+            },
+        )
+        result = router.route(TaskRouteRequest("public task", "general", privacy="public", max_attempts=1))
+        self.assertFalse(result.success)
+        self.assertEqual([], calls)
+
     def test_private_task_never_falls_back_to_remote(self):
         remote_calls = []
         router = HybridModelRouter(discovery=Discovery([]),
