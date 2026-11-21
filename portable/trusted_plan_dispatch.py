@@ -55,6 +55,7 @@ class TrustedPlanDispatchRoot:
         budget_resolver: Callable[[str, str, str], Mapping[str, Any]],
         approval_resolver: Callable[[str, str, str], Mapping[str, Any] | None],
         assignment_resolver: Callable[[Mapping[str, Any]], Any],
+        allow_local_identity: bool = False,
     ) -> None:
         if not isinstance(controller, ExecutionController):
             raise TypeError("controller must be the live ExecutionController")
@@ -75,7 +76,10 @@ class TrustedPlanDispatchRoot:
         self.approval_store = approval_store
         self.budget_resolver = budget_resolver
         self.approval_resolver = approval_resolver
+        if type(allow_local_identity) is not bool:
+            raise ValueError("allow_local_identity must be a boolean")
         self.assignment_resolver = assignment_resolver
+        self.allow_local_identity = allow_local_identity
         self._token = object()
         self._assignment_contexts: dict[str, dict[str, Any]] = {}
         self._assignment_contexts_lock = threading.RLock()
@@ -261,6 +265,8 @@ class TrustedPlanDispatchRoot:
             return None
         if not isinstance(resolved, Mapping):
             raise PermissionError("trusted approval resolver returned an invalid record reference")
+        if assignment.get("identity_mode") == "local_unattributed":
+            raise PermissionError("local_unattributed mode cannot consume authenticated approval receipts")
         approval_id = resolved.get("approval_id")
         request = resolved.get("request")
         if not isinstance(approval_id, str) or not approval_id.strip() or not isinstance(request, ActionRequest):
@@ -310,7 +316,8 @@ class TrustedPlanDispatchRoot:
             implementer_principal_id = assignment_evidence.get("principal_id")
             implementer_role_id = assignment_evidence.get("role_id")
             if (
-                assignment_evidence.get("schema_version") != "auren-agent-assignment-v4"
+                assignment_evidence.get("schema_version") not in {"auren-agent-assignment-v4", "auren-agent-assignment-v5"}
+                or assignment_evidence.get("identity_mode", "host_authenticated") != "host_authenticated"
                 or not isinstance(implementer_principal_id, str)
                 or not implementer_principal_id.strip()
                 or not isinstance(implementer_role_id, str)
@@ -347,13 +354,23 @@ class TrustedPlanDispatchRoot:
             raise PermissionError("host agent assignment authorization failed closed") from exc
         if not isinstance(assignment, AuthorizedAgentAssignment):
             raise PermissionError("host assignment resolver must return AuthorizedAgentAssignment")
-        if (
-            not isinstance(assignment.principal_id, str)
-            or not assignment.principal_id.strip()
-            or len(assignment.principal_id) > 256
-            or not assignment.principal_id.isprintable()
-        ):
-            raise PermissionError("trusted assignment must bind an authenticated principal identity")
+        if assignment.identity_mode == "host_authenticated":
+            if (
+                not isinstance(assignment.principal_id, str)
+                or not assignment.principal_id.strip()
+                or len(assignment.principal_id) > 256
+                or not assignment.principal_id.isprintable()
+            ):
+                raise PermissionError("trusted assignment must bind a valid authenticated principal identity")
+        elif assignment.identity_mode == "local_unattributed":
+            if not self.allow_local_identity:
+                raise PermissionError("local_unattributed assignment requires explicit local-mode opt-in")
+            if assignment.principal_id is not None:
+                raise PermissionError("local_unattributed assignment cannot claim a principal identity")
+            if self.controller._handler_execution_class(str(context.get("handler", ""))) == "consequential":
+                raise PermissionError("local_unattributed mode cannot dispatch consequential operations")
+        else:
+            raise PermissionError("trusted assignment identity mode is invalid")
         task_payload = context.get("payload")
         profile_metadata = task_payload.get("_auren_agent_profile") if isinstance(task_payload, Mapping) else None
         if profile_metadata is not None:
@@ -546,8 +563,8 @@ class TrustedPlanDispatchRoot:
             raise PermissionError("payload work_key differs from the trusted dispatch identity")
         safe_payload["work_key"] = dispatch_key
         budget, guard = self._budget_binding(run_id, task_id, handler)
-        # Authenticate the implementation principal before resolving the reviewer.
-        # The reviewer receipt must be bound to this exact host-authorized identity.
+        # Resolve an explicit host-authenticated or locally authorized assignment.
+        # Local mode is opt-in and cannot satisfy consequential approval gates.
         guard.check()
         live_snapshot = guard.snapshot()
         RuntimeExecutionGuard.resume(live_snapshot)
