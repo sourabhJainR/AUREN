@@ -35,11 +35,24 @@ class ContextLease:
     context_id: str; kind: str; text: str; score: float; reason: str; acquired_at: float; digest: str
 
 class ContextBroker:
-    """Demand-driven context lifecycle: discover -> score -> load -> release."""
+    """Demand-driven context lifecycle: discover -> score -> load -> release.
+
+    Optional cache reuse is enabled only when both a cache and a per-candidate
+    scope resolver are supplied. The resolver must derive its scope from the
+    current trusted runtime identity and policy/revision state on every read.
+    """
     OPTIONAL_SCORE_FLOOR=0.60
-    def __init__(self, *, budget_chars:int=12000, max_items:int=18)->None:
+    def __init__(self, *, budget_chars:int=12000, max_items:int=18,
+                 cache:Any|None=None, cache_scope_resolver:Callable[[ContextCandidate],Any]|None=None)->None:
         if int(budget_chars) < 0: raise ValueError("context broker budget cannot be negative")
+        if (cache is None) != (cache_scope_resolver is None):
+            raise ValueError("context cache and trusted cache scope resolver must be configured together")
+        if cache is not None and not all(callable(getattr(cache,name,None)) for name in ("search_scoped","put_scoped")):
+            raise TypeError("context cache must implement scoped read and write operations")
+        if cache_scope_resolver is not None and not callable(cache_scope_resolver):
+            raise TypeError("cache_scope_resolver must be callable")
         self.budget_chars=int(budget_chars); self.max_items=max(1,int(max_items)); self._candidates={}; self._active={}; self._events=[]
+        self._cache=cache; self._cache_scope_resolver=cache_scope_resolver
     def _emit(self,event:dict[str,Any])->None:
         self._events.append(event)
         target=get_auren_env("CONTEXT_BROKER_TELEMETRY")
@@ -61,13 +74,24 @@ class ContextBroker:
             if len(leases)>=limit: break
             if not c.required and c.phase not in {"*",phase}: continue
             if not c.required and score<self.OPTIONAL_SCORE_FLOOR: continue
-            text=str(c.loader() or ""); size=len(text)
+            cache_status="disabled"; text=""
+            if self._cache is not None:
+                scope=self._cache_scope_resolver(c)
+                cached=self._cache.search_scoped(scope,c.kind,query,budget_chars=budget)
+                if cached:
+                    text="\\n".join(page.text for page in cached); cache_status="hit"
+                else:
+                    text=str(c.loader() or ""); cache_status="miss"
+                    if text: self._cache.put_scoped(scope,c.kind,text)
+            else:
+                text=str(c.loader() or "")
+            size=len(text)
             if not size: continue
             if c.required and size>budget-used: raise RuntimeError(f"required context exceeds broker budget: {c.context_id}")
             if not c.required and used+size>budget: continue
             digest=hashlib.sha256(text.encode()).hexdigest()[:16]; lease=ContextLease(c.context_id,c.kind,text,score,c.reason,time.time(),digest)
             self._active[c.context_id]=lease; leases.append(lease); used+=size
-            self._emit({"event":"lease","context_id":c.context_id,"kind":c.kind,"phase":phase,"score":round(score,6),"chars":size,"digest":digest,"reason":c.reason})
+            self._emit({"event":"lease","context_id":c.context_id,"kind":c.kind,"phase":phase,"score":round(score,6),"chars":size,"digest":digest,"reason":c.reason,"cache":cache_status})
         self._emit({"event":"discover","phase":phase,"query_digest":hashlib.sha256(query.encode()).hexdigest()[:16],"selected":[x.context_id for x in leases],"chars":used})
         return leases
     def release(self,context_ids:Iterable[str]|None=None)->None:

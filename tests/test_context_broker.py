@@ -71,6 +71,49 @@ class ContextBrokerTests(unittest.TestCase):
                 broker._emit({"event": "test"})
             self.assertTrue(legacy.exists())
 
+
+    def test_scoped_cache_is_used_only_with_fresh_resolved_scope(self):
+        sys.path.insert(0, str(ROOT / ".ai-harness"))
+        from runtime.context_cache import ContextCacheScope, ContextPageCache
+
+        scope_a = ContextCacheScope("tenant-a", "private", "ctx1", "model1", "tool1", "policy1", "repo1", "rubric1")
+        scope_b = ContextCacheScope("tenant-b", "private", "ctx1", "model1", "tool1", "policy1", "repo1", "rubric1")
+        cache = ContextPageCache()
+        calls = []
+        broker = self.module.ContextBroker(
+            cache=cache,
+            cache_scope_resolver=lambda candidate: scope_a,
+        )
+        candidate = self.module.ContextCandidate(
+            "repository", "source", "repository source",
+            lambda: calls.append("loaded") or "tenant A repository context",
+            relevance=1.0, required=True,
+        )
+        broker.register(candidate)
+        first = broker.discover("repository", phase="current")
+        broker.release()
+        second = broker.discover("repository", phase="current")
+        self.assertEqual(first[0].text, second[0].text)
+        self.assertEqual(calls, ["loaded"])
+        self.assertEqual(broker.telemetry()["events"][-2]["cache"], "hit")
+
+        other = self.module.ContextBroker(
+            cache=cache,
+            cache_scope_resolver=lambda candidate: scope_b,
+        )
+        other.register(self.module.ContextCandidate(
+            "repository", "source", "repository source",
+            lambda: "tenant B repository context", relevance=1.0, required=True,
+        ))
+        self.assertEqual("tenant B repository context", other.discover("repository", phase="current")[0].text)
+
+    def test_cache_and_scope_resolver_must_be_configured_together(self):
+        from unittest.mock import Mock
+        with self.assertRaises(ValueError):
+            self.module.ContextBroker(cache=Mock())
+        with self.assertRaises(ValueError):
+            self.module.ContextBroker(cache_scope_resolver=lambda candidate: None)
+
     def test_required_context_cannot_silently_overflow_budget(self):
         broker = self.module.ContextBroker(budget_chars=20)
         broker.register(self.module.ContextCandidate("contract", "task", "required", lambda: "x" * 30, required=True))
