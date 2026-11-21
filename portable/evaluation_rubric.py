@@ -151,7 +151,7 @@ class RubricScoreReceipt:
             for value in self.artifact_digests
         ):
             raise ValueError("artifact digests must contain SHA-256 values")
-        if any(not isinstance(item, str) or not item.strip() for item in self.task_ids) or len(set(self.task_ids)) != len(self.task_ids):
+        if not self.task_ids or any(not isinstance(item, str) or not item.strip() for item in self.task_ids) or len(set(self.task_ids)) != len(self.task_ids):
             raise ValueError("task_ids must contain unique canonical task identifiers")
         if len(set(self.mandatory_criteria)) != len(self.mandatory_criteria):
             raise ValueError("mandatory criterion IDs must be unique")
@@ -305,7 +305,7 @@ def evaluate_rubric(
     applicability_rationales: Mapping[str, str] | None = None,
     uncertainty: float = 0.0,
     executor_id: str,
-    task_ids: Sequence[str] = (),
+    task_ids: Sequence[str],
 ) -> RubricScoreReceipt:
     """Score a candidate against a pinned rubric and bind the result to evidence.
 
@@ -324,7 +324,7 @@ def evaluate_rubric(
         raise ValueError("source_digest and plan_digest must be lowercase SHA-256 values")
     if evaluator_id == executor_id:
         raise ValueError("executor cannot evaluate its own candidate")
-    if any(not isinstance(item, str) or not item.strip() for item in task_ids) or len(set(task_ids)) != len(task_ids):
+    if not task_ids or any(not isinstance(item, str) or not item.strip() for item in task_ids) or len(set(task_ids)) != len(task_ids):
         raise ValueError("task_ids must contain unique canonical task identifiers")
     if type(uncertainty) not in (int, float) or not 0.0 <= float(uncertainty) <= 1.0:
         raise ValueError("uncertainty must be a number from 0.0 to 1.0")
