@@ -6,7 +6,7 @@ from pathlib import Path
 
 from portable.evaluation_rubric import (
     RubricCriterion, RubricDefinition, evaluate_rubric, persist_rubric_receipt,
-    engineering_delivery_rubric, rubric_plan_binding,
+    engineering_delivery_rubric, rubric_plan_binding, rubric_receipt_projection,
 )
 
 
@@ -219,6 +219,17 @@ class EvaluationRubricTests(unittest.TestCase):
                 evidence={"evidence": ["evidence_report://run-1"], "maintainability": ["review://run-1"]},
                 rationales={"evidence": "Linked", "maintainability": "Reviewed"},
             )
+
+
+    def test_task_scoped_projection_preserves_applicability_and_rejects_unknown_task(self):
+        receipt = evaluate(task_ids=("task-1", "task-2"))
+        projection = rubric_receipt_projection(receipt, task_id="task-2")
+        self.assertEqual("task-2", projection["task_id"])
+        self.assertEqual(receipt.receipt_digest, projection["receipt_digest"])
+        self.assertEqual("passed", projection["status"])
+        self.assertTrue(all(item["status"] == "scored" for item in projection["criteria"]))
+        with self.assertRaises(ValueError):
+            rubric_receipt_projection(receipt, task_id="task-outside-plan")
 
     def test_unknown_criterion_and_invalid_score_are_rejected(self):
         with self.assertRaises(ValueError):
