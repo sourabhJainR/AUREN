@@ -47,6 +47,52 @@ CHUNKED_RESPONSE_ACCEPT = "application/vnd.auren.chunked+json"
 class ApiResponseTooLarge(ValueError):
     """The atomic local HTTP response cannot be delivered within its byte cap."""
 
+def _finalize_response_delivery_progress(
+    journal: ProgressJournal,
+    task_id: str,
+    response_sha256: str,
+    *,
+    max_attempts: int = 5,
+) -> dict:
+    """Project supervisor completion without turning a concurrent journal append into HTTP 503.
+
+    The delivery worker and status reader can observe the receiver receipt at the
+    same time. If another writer advances the journal after our snapshot, reread
+    the latest sequence and retry this projection a bounded number of times.
+    This changes only the progress projection; the durable supervisor state and
+    digest-bound receiver acknowledgement remain the source of truth.
+    """
+    if type(max_attempts) is not int or not 1 <= max_attempts <= 10:
+        raise ValueError("max_attempts must be an integer from 1 to 10")
+    last_conflict = None
+    for _attempt in range(max_attempts):
+        snapshot = journal.snapshot(task_id)
+        reported_state = snapshot.get("reported_state", snapshot.get("state"))
+        if reported_state != "running":
+            return snapshot
+        try:
+            journal.record(
+                task_id, "response_delivery_supervisor_completed", state="completed",
+                stage="response-delivery-finalization",
+                message="supervisor completed after verified receiver acknowledgement",
+                evidence_ref="sha256:" + response_sha256,
+                expected_sequence=snapshot.get("sequence"),
+            )
+        except RuntimeError as exc:
+            if "progress journal changed during reconciliation; retry" not in str(exc):
+                raise
+            last_conflict = exc
+            continue
+        return journal.snapshot(task_id)
+
+    snapshot = journal.snapshot(task_id)
+    if snapshot.get("reported_state", snapshot.get("state")) == "completed":
+        return snapshot
+    raise RuntimeError(
+        "response delivery completion projection remained contended after bounded retries"
+    ) from last_conflict
+
+
 
 def _encode_bounded_json(payload, *, max_bytes: int = MAX_API_RESPONSE_BYTES) -> bytes:
     if type(max_bytes) is not int or max_bytes < 1:
@@ -417,16 +463,8 @@ class _Handler(BaseHTTPRequestHandler):
                 action == "status" and terminal_state == "completed"
                 and all_acknowledged and snapshot.get("reported_state") == "running"
             ):
-                self.progress_journal.record(
-                    self._delivery_task_id(response_id, delivery_id),
-                    "response_delivery_supervisor_completed", state="completed",
-                    stage="response-delivery-finalization",
-                    message="supervisor completed after verified receiver acknowledgement",
-                    evidence_ref="sha256:" + manifest.sha256,
-                    expected_sequence=snapshot.get("sequence"),
-                )
-                snapshot = self.progress_journal.snapshot(
-                    self._delivery_task_id(response_id, delivery_id),
+                snapshot = _finalize_response_delivery_progress(
+                    self.progress_journal, task_id, manifest.sha256,
                 )
             if action == "status":
                 self._send_delivery_json(200, {

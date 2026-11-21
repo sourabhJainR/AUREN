@@ -740,3 +740,42 @@ def test_dashboard_telemetry_failures_do_not_change_ack_or_completion(monkeypatc
         assert server.RequestHandlerClass.delivery_metrics_failures >= 2
     finally:
         _stop_server(server, thread)
+
+def test_delivery_completion_projection_retries_concurrent_journal_append(tmp_path, monkeypatch):
+    journal = ProgressJournal(tmp_path / "progress.jsonl")
+    task_id = "delivery-completion-race"
+    digest = "a" * 64
+    journal.record(
+        task_id, "response_delivery_receiver_acknowledged", state="running",
+        stage="response-delivery", message="receiver receipt verified",
+        evidence_ref="sha256:" + digest,
+    )
+    original_record = journal.record
+    injected = {"conflict": False}
+
+    def append_between_snapshot_and_projection(*args, **kwargs):
+        if (
+            len(args) > 1
+            and args[0] == task_id
+            and args[1] == "response_delivery_supervisor_completed"
+            and not injected["conflict"]
+        ):
+            injected["conflict"] = True
+            original_record(
+                task_id, "concurrent_worker_checkpoint", state="running",
+                stage="response-delivery", message="worker checkpoint appended",
+            )
+            raise RuntimeError("progress journal changed during reconciliation; retry")
+        return original_record(*args, **kwargs)
+
+    monkeypatch.setattr(journal, "record", append_between_snapshot_and_projection)
+    snapshot = dashboard_server._finalize_response_delivery_progress(
+        journal, task_id, digest,
+    )
+
+    assert injected["conflict"] is True
+    assert snapshot["state"] == "completed"
+    events = [row for row in journal._events() if row.get("task_id") == task_id]
+    assert events[-1]["event"] == "response_delivery_supervisor_completed"
+    assert events[-1]["evidence_ref"] == "sha256:" + digest
+
