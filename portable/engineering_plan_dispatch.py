@@ -216,23 +216,38 @@ class EngineeringPlanDispatch:
             "authorization",
         }
         schema = value.get("schema_version")
+        identity_mode = "host_authenticated"
         if schema == "auren-agent-assignment-v3":
             required = base_required
         elif schema == "auren-agent-assignment-v4":
             required = base_required | {"principal_id"}
+        elif schema == "auren-agent-assignment-v5":
+            identity_mode = value.get("identity_mode")
+            if identity_mode not in {"host_authenticated", "local_unattributed"}:
+                raise ValueError("assignment evidence identity mode is invalid")
+            required = base_required | {"identity_mode"}
+            if identity_mode == "host_authenticated":
+                required.add("principal_id")
         else:
             raise ValueError("assignment evidence has an unsupported schema")
         if set(value) != required:
             raise ValueError("assignment evidence is incomplete or has an unsupported schema")
-        if schema == "auren-agent-assignment-v4" and (
+        if identity_mode == "host_authenticated" and schema != "auren-agent-assignment-v3" and (
             not isinstance(value.get("principal_id"), str)
             or not value["principal_id"].strip()
             or len(value["principal_id"]) > 256
             or not value["principal_id"].isprintable()
         ):
             raise ValueError("assignment principal identity is invalid")
-        if value.get("authorization") != "host_authorized_before_submission":
-            raise ValueError("assignment evidence lacks host authorization")
+        if identity_mode == "local_unattributed" and value.get("principal_id") is not None:
+            raise ValueError("local assignment evidence cannot claim an authenticated principal")
+        expected_authorization = (
+            "local_policy_authorized_before_submission"
+            if identity_mode == "local_unattributed"
+            else "host_authorized_before_submission"
+        )
+        if value.get("authorization") != expected_authorization:
+            raise ValueError("assignment evidence lacks the required authorization marker")
         for name in ("assignment_id", "role_id", "manager_id", "action_class", "policy_version", "work_key"):
             if not isinstance(value.get(name), str) or not value[name].strip():
                 raise ValueError("assignment evidence identity fields must be non-empty text")

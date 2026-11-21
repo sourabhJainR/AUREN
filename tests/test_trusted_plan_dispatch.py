@@ -69,6 +69,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
             manager_id=getattr(self, "assignment_manager_id", "EM-ENG-01"),
             action_class=self.assignment_action_class, scope=self.assignment_scope,
             principal_id=getattr(self, "assignment_principal_id", "worker-1"),
+            identity_mode=getattr(self, "assignment_identity_mode", "host_authenticated"),
             authorizer=lambda request: (
                 self.assignment_allowed
                 and request.get("principal_id") == getattr(self, "assignment_principal_id", "worker-1")
@@ -734,7 +735,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         self.assertEqual("worker-1", binding["approval_evidence"]["implementer_principal_id"])
         self.assertEqual("BE-01", binding["approval_evidence"]["implementer_role_id"])
         self.assertEqual("worker-1", binding["assignment_evidence"]["principal_id"])
-        self.assertEqual("auren-agent-assignment-v4", binding["assignment_evidence"]["schema_version"])
+        self.assertEqual("auren-agent-assignment-v5", binding["assignment_evidence"]["schema_version"])
         self.assertEqual("BE-01", binding["assignment_evidence"]["role_id"])
         self.assertEqual(binding["assignment_evidence"], task.payload["_auren_agent_assignment"])
         self.assertTrue(approvals.verify_audit_chain())
@@ -828,6 +829,54 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
                 payload={"resource": "tests"},
             )
 
+    def test_local_unattributed_plan_dispatch_requires_opt_in_and_runs_nonconsequential_task(self):
+        self.assignment_identity_mode = "local_unattributed"
+        self.assignment_principal_id = None
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        checkpoint = guard.snapshot()["digest"]
+        root = TrustedPlanDispatchRoot(
+            controller=self.controller, store=self.plan_store,
+            recovery_bridge=self.recovery_bridge,
+            approval_store=DurableApprovalStore(self.controller),
+            budget_resolver=lambda run_id, task_id, handler: {
+                "budget_id": "crew:local:run-1", "guard": guard,
+                "checkpoint_digest": checkpoint, "policy_digest": "a" * 64,
+            },
+            approval_resolver=lambda run_id, task_id, handler: None,
+            assignment_resolver=self._assignment_resolver,
+            allow_local_identity=True,
+        )
+        task = root.dispatch(
+            run_id=self.plan.run_id, task_id="implement",
+            dispatch_key="local:dispatch-run:implement", handler="dispatch-test",
+            packet=self.packet, payload={"resource": "tests"},
+        )
+        self.assertIsNotNone(task)
+        persisted = self.controller.task(task.id).payload["_auren_agent_assignment"]
+        self.assertEqual("local_unattributed", persisted["identity_mode"])
+        self.assertNotIn("principal_id", persisted)
+
+    def test_local_unattributed_plan_dispatch_is_denied_without_opt_in(self):
+        self.assignment_identity_mode = "local_unattributed"
+        self.assignment_principal_id = None
+        guard = RuntimeExecutionGuard(max_steps=8, max_attempts=4)
+        checkpoint = guard.snapshot()["digest"]
+        root = TrustedPlanDispatchRoot(
+            controller=self.controller, store=self.plan_store,
+            recovery_bridge=self.recovery_bridge,
+            approval_store=DurableApprovalStore(self.controller),
+            budget_resolver=lambda run_id, task_id, handler: {
+                "budget_id": "crew:local:run-1", "guard": guard,
+                "checkpoint_digest": checkpoint, "policy_digest": "a" * 64,
+            },
+            approval_resolver=lambda run_id, task_id, handler: None,
+            assignment_resolver=self._assignment_resolver,
+        )
+        with self.assertRaisesRegex(PermissionError, "explicit local-mode opt-in"):
+            root.dispatch(run_id=self.plan.run_id, task_id="implement",
+                dispatch_key="local:dispatch-run:blocked", handler="dispatch-test",
+                packet=self.packet, payload={"resource": "tests"})
+
     def test_missing_authenticated_principal_is_rejected_before_queue(self):
         self.assignment_principal_id = None
         store, request, record = self._approval(
@@ -837,7 +886,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         root = self._root(self.controller, store, request, record, guard, context=self.context)
         with self.assertRaisesRegex(
             PermissionError,
-            "trusted assignment must bind an authenticated principal identity",
+            "host agent assignment authorization failed closed",
         ):
             root.dispatch(
                 run_id=self.plan.run_id, task_id="implement",

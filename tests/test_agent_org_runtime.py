@@ -225,7 +225,7 @@ class AgentOrgRuntimeTests(unittest.TestCase):
         self.assertEqual(envelope["role_id"], "BE-01")
         self.assertEqual(envelope["principal_id"], "host:api-worker")
         self.assertEqual(envelope["scope"], ["portable/api.py"])
-        self.assertEqual(envelope["schema_version"], "auren-agent-assignment-v4")
+        self.assertEqual(envelope["schema_version"], "auren-agent-assignment-v5")
         self.assertEqual(envelope["work_key"], "AUREN:test:agent-assignment")
         self.assertEqual(envelope["deadline_seconds"], 30.0)
         self.assertEqual(len(envelope["task_payload_digest"]), 64)
@@ -283,7 +283,7 @@ class AgentOrgRuntimeTests(unittest.TestCase):
             registry_path=REGISTRY,
         )
         envelope = assignment.as_payload()
-        self.assertEqual(envelope["schema_version"], "auren-agent-assignment-v4")
+        self.assertEqual(envelope["schema_version"], "auren-agent-assignment-v5")
         self.assertEqual(envelope["principal_id"], "host:worker-17")
         self.assertEqual(assignment.principal_id, "host:worker-17")
         self.assertEqual(seen[0]["principal_id"], "host:worker-17")

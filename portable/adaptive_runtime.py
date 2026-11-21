@@ -162,6 +162,7 @@ class AdaptiveRuntime:
         budget_resolver: Any,
         approval_resolver: Any,
         assignment_resolver: Any,
+        allow_local_identity: bool = False,
         conflict_scope_verifier: Callable[[Mapping[str, Any], Mapping[str, tuple[str, ...]], str], bool] | None = None,
         conflict_resolution_verifier: Callable[[str, str], bool] | None = None,
         requirement_conflict_resolver: Callable[[Mapping[str, Any], str], Mapping[str, Any]] | None = None,
@@ -192,6 +193,7 @@ class AdaptiveRuntime:
             budget_resolver=budget_resolver,
             approval_resolver=approval_resolver,
             assignment_resolver=assignment_resolver,
+            allow_local_identity=allow_local_identity,
         )
         return self.trusted_plan_dispatch_root
 
