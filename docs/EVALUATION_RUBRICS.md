@@ -12,14 +12,19 @@ authority. The initial Python contract is `portable.evaluation_rubric`.
 - A plan binding pins plan ID/digest, canonical task IDs and rubric digest before
   execution; attach this binding to the canonical plan/run manifest.
 - Criterion IDs are stable. Weights sum to 100. Each scored criterion needs
-  criterion-specific evidence references.
+  criterion-specific evidence references. Scoped criteria require an explicit
+  applicability decision. A not-applicable decision needs a rationale, cannot
+  waive a mandatory criterion, carries no score/evidence, and is excluded from
+  the weighted denominator; remaining weights are normalized to 100.
 - A missing score or evidence reference is `unscored`, not zero and never pass.
 - Mandatory policy gates are independent of the weighted score. A failed or
   unknown gate prevents a passing result even when the weighted score is 100.
 - The executor cannot evaluate its own candidate when its identity is supplied.
-- Receipts bind the rubric digest, exact source and plan digests, artifact
-  digests, subject, run, executor identity, distinct evaluator identity/version, per-criterion rationale
-  and uncertainty. Missing rationale/evidence remains unscored. Re-scoring
+- Receipts bind the rubric digest, exact source and plan digests, canonical
+  task IDs, artifact digests, subject, run, executor identity, distinct evaluator
+  identity/version, per-criterion applicability, rationale and uncertainty.
+  `rubric_receipt_projection` provides a task-scoped projection for CLI, MCP and
+  operator workbench consumers; a task outside the receipt is rejected. Missing rationale/evidence remains unscored. Re-scoring
   under a changed rubric creates a new receipt; prior receipts are not mutated.
 
 ## Example
