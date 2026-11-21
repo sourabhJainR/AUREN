@@ -735,7 +735,7 @@ class TrustedPlanDispatchRootTests(unittest.TestCase):
         self.assertEqual("worker-1", binding["approval_evidence"]["implementer_principal_id"])
         self.assertEqual("BE-01", binding["approval_evidence"]["implementer_role_id"])
         self.assertEqual("worker-1", binding["assignment_evidence"]["principal_id"])
-        self.assertEqual("auren-agent-assignment-v4", binding["assignment_evidence"]["schema_version"])
+        self.assertEqual("auren-agent-assignment-v5", binding["assignment_evidence"]["schema_version"])
         self.assertEqual("BE-01", binding["assignment_evidence"]["role_id"])
         self.assertEqual(binding["assignment_evidence"], task.payload["_auren_agent_assignment"])
         self.assertTrue(approvals.verify_audit_chain())
