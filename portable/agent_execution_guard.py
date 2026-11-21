@@ -18,6 +18,7 @@ from .agent_org_runtime import REGISTRY_PATH, load_agent_org_registry
 
 _SCHEMA = "auren-agent-assignment-v3"
 _SCHEMA_WITH_PRINCIPAL = "auren-agent-assignment-v4"
+_SCHEMA_IDENTITY_MODE = "auren-agent-assignment-v5"
 _ASSIGNMENT_KEY = "_auren_agent_assignment"
 _MAX_SCOPE_ITEMS = 100
 _MAX_SCOPE_LENGTH = 512
@@ -92,21 +93,37 @@ def validate_agent_assignment_for_dispatch(
         "assignment_digest", "work_key", "task_payload_digest", "deadline_seconds", "authorization",
     }
     schema = envelope.get("schema_version")
-    if schema != _SCHEMA_WITH_PRINCIPAL:
-        raise AgentAssignmentScopeDenied(
-            "legacy assignment has no authenticated principal; reauthorize as assignment v4"
-        )
-    required = base_required | {"principal_id"}
-    if set(envelope) != required:
-        raise AgentAssignmentScopeDenied("agent assignment schema is invalid")
-    principal_id = envelope.get("principal_id")
-    if (
+    if schema == _SCHEMA_WITH_PRINCIPAL:
+        identity_mode = "host_authenticated"
+        principal_id = envelope.get("principal_id")
+        if set(envelope) != base_required | {"principal_id"}:
+            raise AgentAssignmentScopeDenied("agent assignment schema is invalid")
+        if envelope.get("authorization") != "host_authorized_before_submission":
+            raise AgentAssignmentScopeDenied("agent assignment authorization marker is invalid")
+    elif schema == _SCHEMA_IDENTITY_MODE:
+        identity_mode = envelope.get("identity_mode")
+        if identity_mode not in {"host_authenticated", "local_unattributed"}:
+            raise AgentAssignmentScopeDenied("agent assignment identity mode is invalid")
+        expected_fields = base_required | {"identity_mode"}
+        if identity_mode == "host_authenticated":
+            expected_fields.add("principal_id")
+        if set(envelope) != expected_fields:
+            raise AgentAssignmentScopeDenied("agent assignment schema is invalid")
+        expected_marker = "local_policy_authorized_before_submission" if identity_mode == "local_unattributed" else "host_authorized_before_submission"
+        if envelope.get("authorization") != expected_marker:
+            raise AgentAssignmentScopeDenied("agent assignment authorization marker is invalid")
+        principal_id = envelope.get("principal_id")
+    elif schema == _SCHEMA:
+        raise AgentAssignmentScopeDenied("legacy assignment has no authenticated principal; reauthorize as assignment v4")
+    else:
+        raise AgentAssignmentScopeDenied("legacy assignment requires reauthorization under the current Guard policy")
+    if identity_mode == "host_authenticated" and (
         not isinstance(principal_id, str) or not principal_id.strip()
         or len(principal_id) > 256 or not principal_id.isprintable()
     ):
         raise AgentAssignmentScopeDenied("agent assignment principal identity is invalid")
-    if envelope.get("authorization") != "host_authorized_before_submission":
-        raise AgentAssignmentScopeDenied("agent assignment authorization marker is invalid")
+    if identity_mode == "local_unattributed" and principal_id is not None:
+        raise AgentAssignmentScopeDenied("local assignment cannot claim an authenticated principal")
     role_id, manager_id, action_class = (
         envelope.get("role_id"), envelope.get("manager_id"), envelope.get("action_class")
     )
@@ -211,7 +228,10 @@ def validate_agent_assignment_for_dispatch(
         "task_payload_digest": task_payload_digest,
         "deadline_seconds": assigned_deadline,
     }
-    body["principal_id"] = principal_id
+    if schema == _SCHEMA_IDENTITY_MODE:
+        body["identity_mode"] = identity_mode
+    if identity_mode == "host_authenticated":
+        body["principal_id"] = principal_id
     digest = hashlib.sha256(_canonical(body)).hexdigest()
     if envelope.get("assignment_digest") != digest:
         raise AgentAssignmentScopeDenied("agent assignment digest does not match its contents")
@@ -251,7 +271,10 @@ def validate_agent_assignment_for_dispatch(
         "task_payload_digest": task_payload_digest,
         "deadline_seconds": assigned_deadline,
     }
-    verification_payload["principal_id"] = principal_id
+    if schema == _SCHEMA_IDENTITY_MODE:
+        verification_payload["identity_mode"] = identity_mode
+    if identity_mode == "host_authenticated":
+        verification_payload["principal_id"] = principal_id
     verification_request = MappingProxyType(verification_payload)
     try:
         authorized = authorization_verifier(verification_request)
