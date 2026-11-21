@@ -161,6 +161,65 @@ class EvaluationRubricTests(unittest.TestCase):
         })
         self.assertEqual(receipt.status, "unscored")
 
+
+    def test_not_applicable_criterion_is_explicit_and_weights_are_renormalized(self):
+        scoped = RubricDefinition(
+            rubric_id="delivery-scope",
+            version="1.0.0",
+            criteria=(
+                RubricCriterion("correctness", "Correctness", 70, ("tests",), True, ("all",)),
+                RubricCriterion("operations", "Operational readiness", 30, ("ops",), False, ("deployment",)),
+            ),
+            hard_gate_ids=("guard",),
+        )
+        receipt = evaluate_rubric(
+            scoped,
+            subject_id="candidate", run_id="run-1", source_digest="a" * 64,
+            plan_digest="c" * 64, artifact_digests=("b" * 64,),
+            evaluator_id="qa", evaluator_version="qa-v1", executor_id="builder",
+            scores={"correctness": 100},
+            evidence={"correctness": ["tests://run-1"]},
+            rationales={"correctness": "Tests pass"},
+            applicability={"correctness": True, "operations": False},
+            applicability_rationales={"operations": "No deployment is part of this change"},
+            hard_gates={"guard": True},
+        )
+        self.assertEqual("passed", receipt.status)
+        self.assertEqual(100.0, receipt.weighted_score)
+        self.assertEqual({"correctness": True, "operations": False}, dict(receipt.criterion_applicability))
+        self.assertIsNone(dict(receipt.criterion_scores)["operations"])
+        self.assertEqual(
+            "No deployment is part of this change",
+            dict(receipt.criterion_applicability_rationales)["operations"],
+        )
+
+    def test_scoped_criterion_requires_explicit_applicability_decision(self):
+        scoped = RubricDefinition(
+            rubric_id="scope-check", version="1.0.0",
+            criteria=(
+                RubricCriterion("tests", "Tests", 100, ("tests",), False, ("repository",)),
+            ),
+        )
+        with self.assertRaisesRegex(ValueError, "explicit applicability"):
+            evaluate_rubric(
+                scoped, subject_id="candidate", run_id="run-1",
+                source_digest="a" * 64, plan_digest="c" * 64,
+                artifact_digests=("b" * 64,), evaluator_id="qa",
+                evaluator_version="qa-v1", executor_id="builder",
+                scores={"tests": 100}, evidence={"tests": ["tests://run-1"]},
+                rationales={"tests": "Passed"}, hard_gates={},
+            )
+
+    def test_mandatory_criterion_cannot_be_waived_as_not_applicable(self):
+        with self.assertRaisesRegex(ValueError, "mandatory criterion"):
+            evaluate(
+                applicability={"correctness": False},
+                applicability_rationales={"correctness": "Claimed not relevant"},
+                scores={"evidence": 100, "maintainability": 100},
+                evidence={"evidence": ["evidence_report://run-1"], "maintainability": ["review://run-1"]},
+                rationales={"evidence": "Linked", "maintainability": "Reviewed"},
+            )
+
     def test_unknown_criterion_and_invalid_score_are_rejected(self):
         with self.assertRaises(ValueError):
             evaluate(scores={"unknown": 100})
