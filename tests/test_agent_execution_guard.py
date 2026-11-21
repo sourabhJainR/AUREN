@@ -31,7 +31,7 @@ class AgentExecutionGuardTests(unittest.TestCase):
     def _payload(
         self, scope=("portable/api.py",), action_class="edit_assigned_paths",
         deadline_seconds=None, task_path=None, work_key="AUREN:test:agent-execution-guard",
-        principal_id="host:worker-test",
+        principal_id="host:worker-test", identity_mode="host_authenticated",
     ):
         assigned_path = task_path if task_path is not None else scope[0]
         assignment = authorize_agent_assignment(
@@ -42,7 +42,7 @@ class AgentExecutionGuardTests(unittest.TestCase):
             work_key=work_key,
             task_payload={"path": assigned_path, "resource": scope[0]},
             deadline_seconds=deadline_seconds,
-            principal_id=principal_id,
+            principal_id=principal_id, identity_mode=identity_mode,
             authorizer=lambda _request: True,
             registry_path=REGISTRY_PATH,
         )
@@ -62,6 +62,28 @@ class AgentExecutionGuardTests(unittest.TestCase):
             expected_policy_digest=expected_policy_digest,
             **kwargs,
         )
+
+    def test_local_unattributed_assignment_is_explicit_and_does_not_fabricate_principal(self):
+        payload = self._payload(principal_id=None, identity_mode="local_unattributed")
+        envelope = payload["_auren_agent_assignment"]
+        self.assertEqual("auren-agent-assignment-v5", envelope["schema_version"])
+        self.assertEqual("local_unattributed", envelope["identity_mode"])
+        self.assertNotIn("principal_id", envelope)
+        verified = []
+        self._validate(
+            payload, expected_action_class="edit_assigned_paths", resource=payload["path"],
+            authorization_verifier=lambda request: verified.append(dict(request)) or True,
+        )
+        self.assertEqual("local_unattributed", verified[0]["identity_mode"])
+        self.assertNotIn("principal_id", verified[0])
+        self.assertIsNone(current_agent_assignment_principal_id())
+
+    def test_local_assignment_cannot_smuggle_authenticated_principal(self):
+        payload = self._payload(principal_id=None, identity_mode="local_unattributed")
+        payload["_auren_agent_assignment"]["principal_id"] = "invented-user"
+        with self.assertRaisesRegex(AgentAssignmentScopeDenied, "schema is invalid"):
+            self._validate(payload, expected_action_class="edit_assigned_paths",
+                resource=payload["path"], authorization_verifier=lambda _request: True)
 
     def test_authenticated_principal_is_verified_and_bound_to_execution_context(self):
         payload = self._payload(principal_id="host:worker-17")
