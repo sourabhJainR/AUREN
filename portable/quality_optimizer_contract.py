@@ -61,6 +61,9 @@ def evaluate_verified_rubric(
     expected_run_id: str,
     expected_source_digest: str,
     expected_artifact_digests: Sequence[str],
+    plan_binding: Mapping[str, Any],
+    plan_id: str,
+    task_ids: Sequence[str],
     executor_id: str,
     evaluator_id: str,
     **evaluation: Any,
@@ -81,6 +84,12 @@ def evaluate_verified_rubric(
     if not allowed_artifacts or any(not _SHA256.fullmatch(x) for x in allowed_artifacts):
         raise ValueError("expected artifact digests must be SHA-256 values")
 
+    plan_digest = evaluation.get("plan_digest")
+    if not isinstance(plan_digest, str):
+        raise ValueError("evaluation plan_digest is required")
+    verify_plan_rubric_binding(
+        rubric, plan_binding, plan_id=plan_id, plan_digest=plan_digest, task_ids=task_ids
+    )
     evidence = evaluation.pop("evidence")
     if evaluation.get("run_id") != expected_run_id:
         raise ValueError("evaluation run_id does not match verified evidence run")
