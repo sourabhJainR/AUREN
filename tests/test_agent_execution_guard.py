@@ -110,7 +110,11 @@ class AgentExecutionGuardTests(unittest.TestCase):
         self.assertIsNone(current_agent_assignment_principal_id())
 
     def test_legacy_v3_assignment_without_authenticated_principal_is_denied_before_verifier(self):
-        payload = self._payload(principal_id=None)
+        payload = self._payload()
+        legacy_envelope = payload["_auren_agent_assignment"]
+        legacy_envelope["schema_version"] = "auren-agent-assignment-v3"
+        legacy_envelope.pop("identity_mode", None)
+        legacy_envelope.pop("principal_id", None)
         verifier_calls = []
         with self.assertRaisesRegex(
             AgentAssignmentScopeDenied,
