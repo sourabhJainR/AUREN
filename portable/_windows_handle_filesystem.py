@@ -72,6 +72,11 @@ kernel32.GetFileInformationByHandleEx.restype = wintypes.BOOL
 kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
 kernel32.CloseHandle.restype = wintypes.BOOL
 ntdll.NtCreateFile.restype = ctypes.c_long
+ntdll.NtCreateFile.argtypes = [
+    ctypes.POINTER(wintypes.HANDLE), wintypes.ULONG, ctypes.POINTER(OBJECT_ATTRIBUTES),
+    ctypes.POINTER(IO_STATUS_BLOCK), ctypes.c_void_p, wintypes.ULONG, wintypes.ULONG,
+    wintypes.ULONG, wintypes.ULONG, ctypes.c_void_p, wintypes.ULONG
+]
 ntdll.RtlNtStatusToDosError.argtypes = [ctypes.c_long]
 ntdll.RtlNtStatusToDosError.restype = wintypes.ULONG
 
