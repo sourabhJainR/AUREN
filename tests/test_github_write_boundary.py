@@ -379,7 +379,7 @@ class GitHubWriteBoundaryTests(unittest.TestCase):
             gateway=Gateway(),
             approval="approved",
         )
-        binding = SimpleNamespace(tool_name="push_files")
+        binding = SimpleNamespace(tool_name="push_files", arguments_digest=payload["tool_arguments_digest"])
         request = {"provider_operation": {"provider": "github"}}
         validate_github_write_authorization(
             payload, authorization=authorization, request=request, call_binding=binding,
@@ -425,7 +425,7 @@ class GitHubWriteBoundaryTests(unittest.TestCase):
             validate_github_write_authorization(
                 payload, authorization=authorization,
                 request={"provider_operation": {"provider": "github"}},
-                call_binding=SimpleNamespace(tool_name="push_files"),
+                call_binding=SimpleNamespace(tool_name="push_files", arguments_digest=payload["tool_arguments_digest"]),
             )
         context.repository_slug = "acme/product"
         authorization.approval = None
@@ -433,7 +433,7 @@ class GitHubWriteBoundaryTests(unittest.TestCase):
             validate_github_write_authorization(
                 payload, authorization=authorization,
                 request={"provider_operation": {"provider": "github"}},
-                call_binding=SimpleNamespace(tool_name="push_files"),
+                call_binding=SimpleNamespace(tool_name="push_files", arguments_digest=payload["tool_arguments_digest"]),
             )
 
     def test_write_authorization_requires_exact_action_target_and_evidence(self):
@@ -474,14 +474,14 @@ class GitHubWriteBoundaryTests(unittest.TestCase):
             validate_github_write_authorization(
                 payload, authorization=authorization,
                 request={"provider_operation": {"provider": "github"}},
-                call_binding=SimpleNamespace(tool_name="push_files"),
+                call_binding=SimpleNamespace(tool_name="push_files", arguments_digest=payload["tool_arguments_digest"]),
             )
         action_request.target = payload["target"]
         with self.assertRaisesRegex(GitHubWriteBoundaryError, "canonical plan and exact write target"):
             validate_github_write_authorization(
                 payload, authorization=authorization,
                 request={"provider_operation": {"provider": "github"}},
-                call_binding=SimpleNamespace(tool_name="push_files"),
+                call_binding=SimpleNamespace(tool_name="push_files", arguments_digest=payload["tool_arguments_digest"]),
             )
 
     def test_mcp_adapter_blocks_github_write_before_child_process_without_authority(self):
