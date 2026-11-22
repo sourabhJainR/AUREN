@@ -1064,6 +1064,8 @@ class MCPStdioToolAdapter:
         read_only_response_chunker: Callable[[Mapping[str, Any]], Sequence[Mapping[str, Any]]] | None = None,
         read_only_response_merger: Callable[[Sequence[Mapping[str, Any]]], Mapping[str, Any]] | None = None,
         team_budget_enforcer: Any | None = None,
+        github_server: bool | None = None,
+        execution_plan: Any | None = None,
     ) -> None:
         if not argv or any(not isinstance(x, str) or not x for x in argv):
             raise ValueError("MCP command must be a non-empty argv array")
@@ -1134,6 +1136,15 @@ class MCPStdioToolAdapter:
         if team_budget_enforcer is not None and not callable(getattr(team_budget_enforcer, "execute", None)):
             raise TypeError("team_budget_enforcer must implement execute")
         self.team_budget_enforcer = team_budget_enforcer
+        if github_server is not None and type(github_server) is not bool:
+            raise TypeError("github_server must be a boolean or None")
+        self.github_server = bool(github_server) or _looks_like_github_server(self.argv, self.tool_name)
+        if execution_plan is not None and (
+            getattr(execution_plan, "target", None) is None
+            or not isinstance(getattr(execution_plan, "digest", None), str)
+        ):
+            raise TypeError("execution_plan must be a validated CanonicalExecutionPlan")
+        self.execution_plan = execution_plan
 
     @staticmethod
     def _read_response(stream: Any, responses: queue.Queue[str], request_id: int, timeout: float) -> dict[str, Any]:
@@ -1305,8 +1316,35 @@ class MCPStdioToolAdapter:
         # assignment-aware sandbox, deny this launch before authority dispatch.
         deny_unscoped_subprocess_for_assigned_agent()
 
+        arguments = self._arguments_for_request(request)
+        request_snapshot: dict[str, Any] | None = None
+        if self.github_server:
+            try:
+                request_snapshot = json.loads(json.dumps(dict(request), ensure_ascii=False, allow_nan=False))
+                if not isinstance(request_snapshot, dict):
+                    raise TypeError("MCP request snapshot must be an object")
+                # Never accept caller-supplied boundary metadata. The host replaces
+                # it with a fresh preflight derived from the active canonical plan.
+                request_snapshot.pop("_auren_github_write", None)
+                from .github_write_boundary import preflight_github_tool
+                plan = self.execution_plan
+                if plan is None:
+                    from .canonical_execution_plan import current_execution_plan
+                    plan = current_execution_plan()
+                github_write = preflight_github_tool(
+                    argv=self.argv, tool_name=self.tool_name, arguments=arguments,
+                    plan=plan, github_server=True,
+                )
+                if github_write is not None:
+                    if not self.requires_authority_binding or self.authority_dispatch is None:
+                        raise PermissionError(
+                            "GitHub mutations require canonical execution plan and trusted approval dispatch"
+                        )
+                    request_snapshot["_auren_github_write"] = github_write
+            except Exception as exc:
+                raise AdapterUnavailable("GitHub write boundary rejected MCP dispatch") from exc
+
         if not self.requires_authority_binding:
-            arguments = self._arguments_for_request(request)
             adaptive_deadline = (
                 time.monotonic() + min(300.0, float(self.timeout_seconds * 3))
                 if self.read_only_response_reducer is not None or self.read_only_response_chunker is not None
@@ -1446,10 +1484,10 @@ class MCPStdioToolAdapter:
                 f"MCP tool {self.tool_name} requires a trusted execution authority resolver before dispatch"
             )
         try:
-            request_snapshot = json.loads(json.dumps(dict(request), ensure_ascii=False, allow_nan=False))
+            if request_snapshot is None:
+                request_snapshot = json.loads(json.dumps(dict(request), ensure_ascii=False, allow_nan=False))
             if not isinstance(request_snapshot, dict):
                 raise TypeError("MCP request snapshot must be an object")
-            arguments = self._arguments_for_request(request_snapshot)
             call_binding = MCPToolCallBinding.from_call(
                 self.tool_name, self.argv, arguments, request_snapshot,
                 env_allowlist=self.env_allowlist, timeout_seconds=self.timeout_seconds,
