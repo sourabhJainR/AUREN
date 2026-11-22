@@ -944,7 +944,7 @@ class MCPExecutionAuthorization:
                 raise ValueError("MCP read action evidence must bind the exact request and configured tool call")
         if self.gateway.is_external_effect(self.action_request) and not self.gateway.has_durable_side_effect_ledger:
             raise ValueError("MCP external effects require the canonical durable side-effect ledger")
-        github_write = request.get("_auren_github_write")
+        github_write = call_binding.github_write_preflight
         if github_write is not None:
             from .github_write_boundary import validate_github_write_authorization
             validate_github_write_authorization(
