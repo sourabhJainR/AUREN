@@ -140,17 +140,26 @@ class CanonicalExecutionPlan:
         )
         if len(capabilities) != len(value.get("capabilities", ())):
             raise ValueError("malformed capability evidence")
-        contracts = tuple(
-            (
+        contract_items = value.get("tool_contracts", ())
+        contracts_list: list[tuple[str, str, str]] = []
+        for item in contract_items:
+            if not isinstance(item, Mapping):
+                raise ValueError("malformed tool contract")
+            if "arguments_digest" in item:
+                arguments_digest = item.get("arguments_digest")
+                if not isinstance(arguments_digest, str) or not re.fullmatch(r"[0-9a-f]{64}", arguments_digest):
+                    raise ValueError("tool contract arguments_digest must be a SHA-256 digest")
+                arguments_contract: Any = {"$arguments_sha256": arguments_digest}
+            elif "arguments" in item:
+                arguments_contract = item.get("arguments")
+            else:
+                raise ValueError("tool contract requires arguments or arguments_digest")
+            contracts_list.append((
                 item.get("name"),
                 json.dumps(item.get("schema"), sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False),
-                json.dumps(item.get("arguments"), sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False),
-            )
-            for item in value.get("tool_contracts", ())
-            if isinstance(item, Mapping)
-        )
-        if len(contracts) != len(value.get("tool_contracts", ())):
-            raise ValueError("malformed tool contract")
+                json.dumps(arguments_contract, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False),
+            ))
+        contracts = tuple(contracts_list)
         return cls(
             target=target,
             requirements=_string_tuple(value.get("requirements", ()), "requirements"),
@@ -197,7 +206,11 @@ class CanonicalExecutionPlan:
             "reuse_justification": self.reuse_justification,
             "required_checks": list(self.required_checks),
             "tool_contracts": [
-                {"name": name, "schema": json.loads(schema_json), "arguments": json.loads(arguments_json)}
+                (
+                    {"name": name, "schema": json.loads(schema_json), "arguments_digest": json.loads(arguments_json)["$arguments_sha256"]}
+                    if set(json.loads(arguments_json)) == {"$arguments_sha256"}
+                    else {"name": name, "schema": json.loads(schema_json), "arguments": json.loads(arguments_json)}
+                )
                 for name, schema_json, arguments_json in self.tool_contracts
             ],
         }
@@ -259,7 +272,14 @@ class CanonicalExecutionPlan:
                 raise ToolContractError(f"tool contract {name} is malformed") from exc
             if not isinstance(schema, Mapping) or not isinstance(arguments, Mapping):
                 raise ToolContractError(f"tool contract {name} is malformed")
-            validate_tool_arguments(schema, arguments)
+            if set(arguments) == {"$arguments_sha256"}:
+                digest = arguments.get("$arguments_sha256")
+                if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+                    raise ToolContractError(f"tool contract {name} has an invalid arguments digest")
+                if schema.get("type") != "object" or not isinstance(schema.get("properties"), Mapping):
+                    raise ToolContractError(f"tool contract {name} has an invalid object schema")
+            else:
+                validate_tool_arguments(schema, arguments)
 
     def authorize_path(self, relative_path: str) -> str:
         return self.target.authorize_path(relative_path)
