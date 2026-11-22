@@ -12,8 +12,9 @@ controller, Guard, `ExecutionEnvelope`, `EngineeringRecoveryLedger`, and
 2. Compare the declaration with the observed checkout/remote before writes.
    Product implementation in the governance repository is rejected unless the
    plan explicitly opts in.
-3. Discover the actual tool schema and validate required fields, types, enum
-   values, bounds and unexpected arguments before invoking the tool.
+3. Discover the actual tool schema and recursively validate required fields, types,
+   enum values, object properties, array items, bounds and unexpected arguments
+   before invoking the tool. Unsupported schema keywords fail closed.
 4. Record capability checks with evidence and timestamp. Missing capabilities
    are blockers, not passes.
 5. Map each acceptance requirement to implementation, positive test, negative
@@ -23,7 +24,7 @@ controller, Guard, `ExecutionEnvelope`, `EngineeringRecoveryLedger`, and
    SHA. A stale SHA, pending/unknown result, failed check or skipped required
    check blocks acceptance. Skipped non-required checks remain explicitly
    skipped. The caller must supply the expected required-check names so missing
-   checks cannot disappear from the response.
+   checks cannot disappear from the response. An empty required-check list is rejected.
 7. Persist a fully passed matrix through the existing `CanonicalEvidenceLedger`.
    Its local digest is tamper-evident against accidental changes, not a digital
    signature or independent custody proof.
