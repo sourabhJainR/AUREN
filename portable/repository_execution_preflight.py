@@ -236,11 +236,18 @@ class AcceptanceMatrix:
         )
 
 
-def exact_head_ci_gate(expected_sha: str, checks: Sequence[Mapping[str, Any]], *,
-                       required_check_names: Sequence[str] = ()) -> dict[str, Any]:
+def exact_head_ci_gate(
+    expected_sha: str,
+    checks: Sequence[Mapping[str, Any]],
+    *,
+    required_check_names: Sequence[str] = (),
+) -> dict[str, Any]:
     """Fail closed: stale, missing, skipped-required and pending checks never pass."""
     if not _SHA.fullmatch(expected_sha):
         raise ValueError("expected_sha must be a full lowercase commit SHA")
+    expected_required = set(required_check_names)
+    if any(not isinstance(name, str) or not name.strip() for name in expected_required):
+        raise ValueError("required_check_names must contain non-empty names")
     results = []
     seen_names: set[str] = set()
     for check in checks:
@@ -248,9 +255,11 @@ def exact_head_ci_gate(expected_sha: str, checks: Sequence[Mapping[str, Any]], *
         if name in seen_names:
             raise ValueError(f"duplicate CI check name: {name}")
         seen_names.add(name)
-        sha, conclusion, required = check.get("head_sha"), check.get("conclusion"), check.get("required", True)
+        sha, conclusion = check.get("head_sha"), check.get("conclusion")
+        required = check.get("required", True)
         if type(required) is not bool:
             raise ValueError("check required must be boolean")
+        required = required or name in expected_required
         if sha != expected_sha:
             state = "stale"
         elif conclusion == "success":
@@ -264,11 +273,13 @@ def exact_head_ci_gate(expected_sha: str, checks: Sequence[Mapping[str, Any]], *
         else:
             state = "pending_or_unknown"
         results.append({"name": name, "state": state, "required": required, "head_sha": sha})
-    expected_required = set(required_check_names)
-    if any(not isinstance(name, str) or not name.strip() for name in expected_required):
-        raise ValueError("required_check_names must contain non-empty names")
     expected_required.update(item["name"] for item in results if item["required"])
     missing = sorted(expected_required - seen_names)
-    results.extend({"name": name, "state": "missing", "required": True, "head_sha": None} for name in missing)
-    passed = bool(expected_required) and all(item["state"] == "passed" for item in results if item["required"])
+    results.extend(
+        {"name": name, "state": "missing", "required": True, "head_sha": None}
+        for name in missing
+    )
+    passed = bool(expected_required) and all(
+        item["state"] == "passed" for item in results if item["required"]
+    )
     return {"expected_sha": expected_sha, "passed": passed, "missing_required": missing, "checks": results}
