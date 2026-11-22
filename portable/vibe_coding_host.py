@@ -719,8 +719,8 @@ class MCPTrustedExecutionContext:
         if self.repository_slug and not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", self.repository_slug):
             raise ValueError("trusted MCP repository slug must be owner/repo")
         if self.repository_branch:
-            from .repository_execution_preflight import _safe_branch_name
-            _safe_branch_name(self.repository_branch, "trusted MCP repository branch")
+            from .repository_execution_preflight import validate_branch_name
+            validate_branch_name(self.repository_branch, "trusted MCP repository branch")
         if self.execution_plan_digest and not re.fullmatch(r"[0-9a-f]{64}", self.execution_plan_digest):
             raise ValueError("trusted MCP execution plan digest must be a SHA-256 digest")
 
