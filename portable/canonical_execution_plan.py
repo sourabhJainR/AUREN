@@ -208,7 +208,7 @@ class CanonicalExecutionPlan:
             "tool_contracts": [
                 (
                     {"name": name, "schema": json.loads(schema_json), "arguments_digest": json.loads(arguments_json)["$arguments_sha256"]}
-                    if set(json.loads(arguments_json)) == {"$arguments_sha256"}
+                    if isinstance(json.loads(arguments_json), Mapping) and set(json.loads(arguments_json)) == {"$arguments_sha256"}
                     else {"name": name, "schema": json.loads(schema_json), "arguments": json.loads(arguments_json)}
                 )
                 for name, schema_json, arguments_json in self.tool_contracts
