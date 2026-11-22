@@ -1390,7 +1390,7 @@ class MCPStdioToolAdapter:
                         "GitHub mutations require canonical execution plan and trusted approval dispatch"
                     )
             except Exception as exc:
-                raise AdapterUnavailable("GitHub write boundary rejected MCP dispatch") from exc
+                raise AdapterUnavailable(f"GitHub write boundary rejected MCP dispatch: {exc}") from exc
 
         if not self.requires_authority_binding:
             adaptive_deadline = (
