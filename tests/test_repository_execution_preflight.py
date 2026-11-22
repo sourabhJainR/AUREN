@@ -191,6 +191,25 @@ class RepositoryExecutionPreflightTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             self.target().authorize_path("docs/unrelated.md")
 
+    def test_path_scope_globs_do_not_cross_directories(self):
+        one_level = self.target(allowed_paths=("src/*.py",))
+        self.assertEqual(one_level.authorize_path("src/main.py"), "src/main.py")
+        with self.assertRaises(PermissionError):
+            one_level.authorize_path("src/private/token.py")
+
+        recursive = self.target(allowed_paths=("src/**/test_*.py",))
+        self.assertEqual(recursive.authorize_path("src/test_unit.py"), "src/test_unit.py")
+        self.assertEqual(
+            recursive.authorize_path("src/private/test_unit.py"),
+            "src/private/test_unit.py",
+        )
+        with self.assertRaises(PermissionError):
+            recursive.authorize_path("src/private/token.py")
+
+    def test_target_rejects_string_path_scope(self):
+        with self.assertRaisesRegex(ValueError, "allowed_paths"):
+            self.target(allowed_paths="src")
+
     def test_base_sha_must_be_full(self):
         with self.assertRaises(ValueError):
             self.target(base_sha="abc")
@@ -206,6 +225,31 @@ class RepositoryExecutionPreflightTests(unittest.TestCase):
                      {"branch": "main", "count": 4}):
             with self.subTest(args=args), self.assertRaises(ToolContractError):
                 validate_tool_arguments(schema, args)
+
+    def test_tool_schema_rejects_null_property_schemas(self):
+        schema = {
+            "type": "object",
+            "properties": {"config": None},
+            "additionalProperties": False,
+        }
+        with self.assertRaisesRegex(ToolContractError, "properties schema"):
+            validate_tool_arguments(schema, {"config": {"branch": "main"}})
+
+    def test_tool_schema_enum_uses_json_type_equality(self):
+        invalid_schemas_and_arguments = (
+            ({"type": "object", "properties": {"enabled": {
+                "type": "boolean", "enum": [1],
+            }}}, {"enabled": True}),
+            ({"type": "object", "properties": {"count": {
+                "type": "integer", "enum": [True],
+            }}}, {"count": 1}),
+            ({"type": "object", "properties": {"value": {
+                "type": "object", "enum": [{"enabled": 1}],
+            }}}, {"value": {"enabled": True}}),
+        )
+        for schema, arguments in invalid_schemas_and_arguments:
+            with self.subTest(schema=schema), self.assertRaises(ToolContractError):
+                validate_tool_arguments(schema, arguments)
 
     def test_nested_tool_schemas_validate_required_properties_and_array_items(self):
         schema = {
@@ -303,7 +347,7 @@ class RepositoryExecutionPreflightTests(unittest.TestCase):
         self.assertFalse(exact_head_ci_gate(
             SHA, optionalized, required_check_names=("required",)
         )["passed"])
-        with self.assertRaisesRegex(ValueError, "authoritative non-empty"):
+        with self.assertRaises(TypeError):
             exact_head_ci_gate(SHA, checks)
 
     def test_acceptance_matrix_persists_via_canonical_ledger_contract(self):
