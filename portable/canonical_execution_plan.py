@@ -289,6 +289,10 @@ class CanonicalExecutionPlan:
             if not isinstance(schema, Mapping) or not isinstance(arguments, Mapping):
                 raise ToolContractError(f"tool contract {name} is malformed")
             if set(arguments) == {"$arguments_sha256"}:
+                if host_capabilities is None or host_capabilities.get("github_write_digest_contracts") is not True:
+                    raise ToolContractError(
+                        f"tool contract {name} requires a trusted GitHub write schema-enforcement host probe"
+                    )
                 digest = arguments.get("$arguments_sha256")
                 if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
                     raise ToolContractError(f"tool contract {name} has an invalid arguments digest")
