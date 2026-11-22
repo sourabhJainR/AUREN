@@ -253,7 +253,7 @@ def exact_head_ci_gate(expected_sha: str, checks: Sequence[Mapping[str, Any]], *
             raise ValueError("check required must be boolean")
         if sha != expected_sha:
             state = "stale"
-        elif conclusion in {"success", "neutral"}:
+        elif conclusion == "success":
             state = "passed"
         elif conclusion == "skipped" and not required:
             state = "skipped_not_required"
