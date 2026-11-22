@@ -763,6 +763,46 @@ class ExecutionController:
             )
         return reference
 
+    def _canonical_plan_feasibility_review(self, plan: CanonicalExecutionPlan) -> dict[str, Any]:
+        """Reuse the established design gate; never invent a second feasibility engine."""
+        from .engineering_design_guard import EngineeringDesignGuard
+
+        intent_parts = (
+            *plan.requirements, *plan.assumptions, *plan.constraints,
+            *plan.acceptance, *plan.non_goals,
+        )
+        intent = "\\n".join(intent_parts)
+        review = EngineeringDesignGuard.review_request(
+            intent=intent,
+            requirements=plan.requirements,
+            assumptions=plan.assumptions,
+            acceptance_criteria=plan.acceptance,
+            constraints=plan.constraints,
+            non_goals=plan.non_goals,
+        )
+        if review.get("implementation_may_start") is not True:
+            conflict_ids = [
+                str(item.get("id", "unknown"))
+                for item in review.get("unresolved_contradictions", ())
+                if isinstance(item, Mapping)
+            ]
+            raise PermissionError(
+                "canonical plan feasibility review blocked unresolved contradictions: "
+                + (", ".join(conflict_ids) if conflict_ids else "review did not authorize implementation")
+            )
+        return {
+            "schema_version": "auren-plan-feasibility-receipt-v1",
+            "review_digest": str(review["digest"]),
+            "intent_digest": str(review["intent_digest"]),
+            "conflict_ids": [],
+            "blind_spot_ids": [
+                str(item.get("id", "unknown"))
+                for item in review.get("blind_spots", ())
+                if isinstance(item, Mapping)
+            ],
+            "limitations": str(review.get("limitations", "")),
+        }
+
     def _validate_canonical_execution_plan(self, plan: CanonicalExecutionPlan) -> None:
         """Bind a plan to the live repository, branch and exact base revision."""
         import subprocess
@@ -902,6 +942,10 @@ class ExecutionController:
         plan = CanonicalExecutionPlan.from_mapping(raw)
         if plan.digest != digest:
             raise PermissionError("durable canonical execution plan digest mismatch")
+        expected_review = self._canonical_plan_feasibility_review(plan)
+        stored_review = task.payload.get("_auren_feasibility_review")
+        if not isinstance(stored_review, Mapping) or dict(stored_review) != expected_review:
+            raise PermissionError("durable canonical feasibility receipt is missing, stale or altered")
         self._validate_canonical_execution_plan(plan)
         return plan
 
@@ -2460,13 +2504,17 @@ class ExecutionController:
                 raise ValueError("approval-gated handler has no trusted gateway/ledger policy")
         self._load_handler(handler)
         payload_copy = dict(payload)
-        if "_auren_execution_plan" in payload_copy or "_auren_execution_plan_digest" in payload_copy:
-            raise ValueError("canonical execution-plan fields are supervisor-owned")
+        if any(name in payload_copy for name in (
+            "_auren_execution_plan", "_auren_execution_plan_digest", "_auren_feasibility_review",
+        )):
+            raise ValueError("canonical execution-plan and feasibility fields are supervisor-owned")
         if execution_plan is not None:
             plan = CanonicalExecutionPlan.from_mapping(execution_plan)
             self._validate_canonical_execution_plan(plan)
+            feasibility_receipt = self._canonical_plan_feasibility_review(plan)
             payload_copy["_auren_execution_plan"] = plan.payload()
             payload_copy["_auren_execution_plan_digest"] = plan.digest
+            payload_copy["_auren_feasibility_review"] = feasibility_receipt
         assignment_envelope = payload_copy.get("_auren_agent_assignment")
         if isinstance(assignment_envelope, Mapping):
             assigned_work_key = assignment_envelope.get("work_key")
