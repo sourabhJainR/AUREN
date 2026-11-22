@@ -111,7 +111,9 @@ def _open_relative(parent, name: str, *, directory: bool, access: int,
                    disposition: int):
     encoded = ctypes.create_unicode_buffer(name)
     byte_length = len(name.encode("utf-16-le"))
-    name_string = UNICODE_STRING(byte_length, byte_length + 2, encoded)
+    name_string = UNICODE_STRING(
+        byte_length, byte_length + 2, ctypes.cast(encoded, wintypes.LPWSTR)
+    )
     attributes = OBJECT_ATTRIBUTES(
         ctypes.sizeof(OBJECT_ATTRIBUTES), parent, ctypes.pointer(name_string),
         OBJ_CASE_INSENSITIVE, None, None
