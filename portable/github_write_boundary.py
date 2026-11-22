@@ -336,13 +336,20 @@ def _trusted_tool_contract(plan: Any, tool_name: str, arguments: Mapping[str, An
         planned_arguments = json.loads(arguments_json)
     except (TypeError, ValueError) as exc:
         raise GitHubWriteBoundaryError("canonical GitHub tool contract is malformed") from exc
-    canonical_arguments = json.dumps(
-        dict(arguments), sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
-    )
-    if canonical_arguments != json.dumps(
-        planned_arguments, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
-    ):
-        raise GitHubWriteBoundaryError("GitHub tool arguments differ from the exact arguments approved in the plan")
+    if set(planned_arguments) == {"$arguments_sha256"}:
+        expected_arguments_digest = planned_arguments.get("$arguments_sha256")
+        if not isinstance(expected_arguments_digest, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_arguments_digest):
+            raise GitHubWriteBoundaryError("canonical GitHub argument digest is invalid")
+        if _digest(dict(arguments)) != expected_arguments_digest:
+            raise GitHubWriteBoundaryError("GitHub tool arguments differ from the exact digest approved in the plan")
+    else:
+        canonical_arguments = json.dumps(
+            dict(arguments), sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
+        )
+        if canonical_arguments != json.dumps(
+            planned_arguments, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
+        ):
+            raise GitHubWriteBoundaryError("GitHub tool arguments differ from the exact arguments approved in the plan")
     try:
         _require_schema_contract(tool_name if tool_name in _WRITE_TOOLS else _WRITE_TOOLS.get(_tool_key(tool_name), ""), schema)
         from .repository_execution_preflight import validate_tool_arguments
