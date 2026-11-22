@@ -771,7 +771,7 @@ class ExecutionController:
             *plan.requirements, *plan.assumptions, *plan.constraints,
             *plan.acceptance, *plan.non_goals,
         )
-        intent = "\\n".join(intent_parts)
+        intent = "\n".join(intent_parts)
         review = EngineeringDesignGuard.review_request(
             intent=intent,
             requirements=plan.requirements,
