@@ -109,8 +109,10 @@ class GuardedFilesystemTests(unittest.TestCase):
             self.skipTest(f"Windows symlink creation unavailable: {type(exc).__name__}")
 
         stop = threading.Event()
+        successful_swaps = 0
 
         def replace_parent():
+            nonlocal successful_swaps
             while not stop.is_set():
                 try:
                     if parent.is_symlink():
@@ -121,6 +123,7 @@ class GuardedFilesystemTests(unittest.TestCase):
                         parent.rename(held)
                     if not parent.exists():
                         parent.symlink_to(self.outside, target_is_directory=True)
+                        successful_swaps += 1
                     if parent.is_symlink():
                         parent.unlink()
                     if held.exists() and not parent.exists():
@@ -146,6 +149,7 @@ class GuardedFilesystemTests(unittest.TestCase):
                 parent.unlink()
             if held.exists() and not parent.exists():
                 held.rename(parent)
+        self.assertGreater(successful_swaps, 0, "race worker never installed the outside symlink")
         self.assertFalse((self.outside / "race.txt").exists())
         self.assertEqual("untouched", victim.read_text(encoding="utf-8"))
 
