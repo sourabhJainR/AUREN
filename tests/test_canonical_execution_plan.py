@@ -82,6 +82,24 @@ class CanonicalExecutionPlanTests(unittest.TestCase):
                 host_capabilities={},
             )
 
+        sandbox_plan = self.plan()
+        sandbox_plan["required_capabilities"].append("isolated_sandbox")
+        sandbox_plan["capabilities"].append({
+            "name": "isolated_sandbox",
+            "available": True,
+            "evidence": "operator-declared sandbox requirement",
+        })
+        with self.assertRaises(PermissionError):
+            CanonicalExecutionPlan.from_mapping(sandbox_plan).validate_runtime(
+                repository="acme/fileoperations",
+                branch="main",
+                head_sha=self.head,
+                host_capabilities={
+                    "workspace_filesystem": True,
+                    "isolated_sandbox": False,
+                },
+            )
+
     def test_guarded_filesystem_enforces_plan_scope(self):
         plan = CanonicalExecutionPlan.from_mapping(self.plan())
         with execution_plan_scope(plan):
