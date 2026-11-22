@@ -110,10 +110,10 @@ class ActionPolicy:
 
     allowed_capabilities: frozenset[str]
     protected_targets: tuple[str, ...] = ()
-    allowed_actions: frozenset[str] = frozenset({"read", "inspect", "test", "edit", "specialist.execute", "merge", "release", "deploy", "publish", "send", "charge", "delete_remote"})
-    approval_required_actions: frozenset[str] = frozenset({"merge", "release", "deploy"})
-    external_effect_actions: frozenset[str] = frozenset({"publish", "send", "charge", "delete_remote"})
-    evidence_required_actions: frozenset[str] = frozenset({"merge", "release", "deploy"})
+    allowed_actions: frozenset[str] = frozenset({"read", "inspect", "test", "edit", "specialist.execute", "merge", "release", "deploy", "publish", "send", "charge", "delete_remote", "repository.write"})
+    approval_required_actions: frozenset[str] = frozenset({"merge", "release", "deploy", "repository.write", "delete_remote"})
+    external_effect_actions: frozenset[str] = frozenset({"publish", "send", "charge", "delete_remote", "repository.write"})
+    evidence_required_actions: frozenset[str] = frozenset({"merge", "release", "deploy", "repository.write", "delete_remote"})
     require_idempotency_for_external_effects: bool = True
     require_durable_ledger_for_external_effects: bool = False
 
