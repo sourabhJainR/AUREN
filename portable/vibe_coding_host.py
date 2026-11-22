@@ -1191,7 +1191,7 @@ class MCPStdioToolAdapter:
         self.team_budget_enforcer = team_budget_enforcer
         if github_server is not None and type(github_server) is not bool:
             raise TypeError("github_server must be a boolean or None")
-        from .github_write_boundary import is_github_server
+        from .github_write_boundary import is_github_server, is_github_write_tool
         self.github_server = bool(github_server) or is_github_server(self.argv, self.tool_name)
         if execution_plan is not None and (
             getattr(execution_plan, "target", None) is None
@@ -2923,7 +2923,7 @@ class LocalVibeCodingHost:
                         "requires_authority_binding",
                         tool_spec.get("external_effects", tool_key not in _MCP_READ_ONLY_CAPABILITIES),
                     )
-                    if requires_authority:
+                    if requires_authority and is_github_write_tool(tool_spec["tool_name"]):
                         github_write_authority_configured = True
             host_capabilities["github_mcp"] = github_server_configured
             host_capabilities["repository.write"] = bool(
