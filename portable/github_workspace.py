@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from .identity_compat import canonical_auren_home
+from .canonical_execution_plan import enforce_execution_plan_subprocess
 
 
 _GITHUB_REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -40,6 +41,7 @@ def parse_github_repository_url(repository_url: str) -> tuple[str, str]:
 
 
 def _git(args: list[str], *, cwd: Path | None = None, timeout: int = 60) -> str:
+    enforce_execution_plan_subprocess()
     try:
         result = subprocess.run(
             ["git", *args],

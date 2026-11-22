@@ -19,11 +19,13 @@ from threading import Event, Thread
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 from uuid import uuid4
 
 from .autonomous_company import AutonomousCompany, TrustScore
 from .canonical_evidence_ledger import CanonicalEvidenceLedger
+from .canonical_execution_plan import CanonicalExecutionPlan, execution_plan_scope
+from .repository_execution_preflight import exact_head_ci_gate, validate_tool_arguments
 from .decision_gate import require_valid_decision_record
 from .engineering_recovery import verify_ci_gate
 from .engineering_evidence_capture import EvidenceCapture
@@ -185,6 +187,8 @@ class ExecutionController:
         max_pending_tasks: int | None = None,
         deployment_admission_coordinator: Any | None = None,
         deployment_instance_id: str | None = None,
+        execution_plan_ci_provider: Callable[[CanonicalExecutionPlan], Sequence[Mapping[str, Any]]] | None = None,
+        tool_schema_resolver: Callable[[str], Mapping[str, Any]] | None = None,
     ) -> None:
         if max_pending_tasks is not None and (
             type(max_pending_tasks) is not int or not 1 <= max_pending_tasks <= 100000
@@ -210,6 +214,12 @@ class ExecutionController:
         self._deployment_instance_id = (
             deployment_instance_id.strip() if isinstance(deployment_instance_id, str) else None
         )
+        if execution_plan_ci_provider is not None and not callable(execution_plan_ci_provider):
+            raise TypeError("execution_plan_ci_provider must be callable")
+        if tool_schema_resolver is not None and not callable(tool_schema_resolver):
+            raise TypeError("tool_schema_resolver must be callable")
+        self._execution_plan_ci_provider = execution_plan_ci_provider
+        self._tool_schema_resolver = tool_schema_resolver
         if agent_assignment_verifier is not None and not callable(agent_assignment_verifier):
             raise TypeError("agent_assignment_verifier must be callable")
         # Host-owned verifier is injected by trusted bootstrap and re-used after restart.
@@ -752,6 +762,266 @@ class ExecutionController:
                  execution_class, implementation_digest, guard_action or "", agent_action_class or ""),
             )
         return reference
+
+    def _canonical_plan_feasibility_review(self, plan: CanonicalExecutionPlan) -> dict[str, Any]:
+        """Reuse the established design gate; never invent a second feasibility engine."""
+        from .engineering_design_guard import EngineeringDesignGuard
+
+        intent_parts = (
+            *plan.requirements, *plan.assumptions, *plan.constraints,
+            *plan.acceptance, *plan.non_goals,
+        )
+        intent = "\n".join(intent_parts)
+        review = EngineeringDesignGuard.review_request(
+            intent=intent,
+            requirements=plan.requirements,
+            assumptions=plan.assumptions,
+            acceptance_criteria=plan.acceptance,
+            constraints=plan.constraints,
+            non_goals=plan.non_goals,
+        )
+        # Reuse the repository's established stack/approach inventory instead of
+        # creating a second implementation-discovery subsystem.
+        target_reuse_review = EngineeringDesignGuard.recommend_approaches(
+            self.root, intent, risk="medium",
+        )
+        runtime_root = Path(__file__).resolve().parents[1]
+        runtime_reuse_review = (
+            target_reuse_review
+            if runtime_root == self.root.resolve()
+            else EngineeringDesignGuard.recommend_approaches(
+                runtime_root, intent, risk="medium",
+            )
+        )
+        reuse_candidates: set[str] = set()
+        for scope, reuse_result in (
+            ("implementation", target_reuse_review),
+            ("runtime", runtime_reuse_review),
+        ):
+            for recommendation in reuse_result.get("recommendations", ()):
+                if not isinstance(recommendation, Mapping):
+                    continue
+                for candidate in recommendation.get("repository_evidence", ()):
+                    if (
+                        isinstance(candidate, str)
+                        and candidate.endswith(".py")
+                        and (candidate.startswith("portable/") or candidate.startswith(".ai-harness/runtime/"))
+                    ):
+                        reuse_candidates.add(f"{scope}:{candidate}")
+        reviewed_reuse_paths = set(plan.reuse_reviewed_paths)
+        if reuse_candidates:
+            if plan.reuse_decision not in {"reuse_existing", "new_component"}:
+                raise PermissionError(
+                    "existing implementation candidates were found; review them and declare "
+                    "reuse_decision plus the complete reuse_reviewed_paths before implementation"
+                )
+            if reviewed_reuse_paths != reuse_candidates:
+                missing = sorted(reuse_candidates - reviewed_reuse_paths)
+                unexpected = sorted(reviewed_reuse_paths - reuse_candidates)
+                raise PermissionError(
+                    "reuse review must account for every discovered code owner; "
+                    f"missing={missing}, unexpected={unexpected}"
+                )
+        elif plan.reuse_decision not in {"", "not_applicable"} or reviewed_reuse_paths:
+            raise PermissionError("reuse decision references candidates that the repository review did not find")
+        sensitive_scope = bool(re.search(
+            r"\b(?:personal|sensitive|confidential|customer|private)\s+(?:data|documents?|records?)\b"
+            r"|\b(?:pii|credentials?|passwords?|secrets?|private keys?)\b"
+            r"|\b(?:security|privacy)\b",
+            intent,
+            flags=re.IGNORECASE,
+        ))
+        declared_data_policy = bool(plan.constraints) and any(re.search(
+            r"\b(?:consent|approval|local.only|no external|encrypt|retention|delete|redact|mask|"
+            r"least privilege|access control|threat model|data minimization|classification|not_applicable)\b",
+            constraint,
+            flags=re.IGNORECASE,
+        ) for constraint in plan.constraints)
+        if sensitive_scope and not declared_data_policy:
+            raise PermissionError(
+                "security/privacy-sensitive plan needs an explicit data-handling constraint "
+                "covering consent, storage, access, encryption, retention or a reasoned not_applicable decision"
+            )
+        if review.get("implementation_may_start") is not True:
+            conflict_ids = [
+                str(item.get("id", "unknown"))
+                for item in review.get("unresolved_contradictions", ())
+                if isinstance(item, Mapping)
+            ]
+            raise PermissionError(
+                "canonical plan feasibility review blocked unresolved contradictions: "
+                + (", ".join(conflict_ids) if conflict_ids else "review did not authorize implementation")
+            )
+        return {
+            "schema_version": "auren-plan-feasibility-receipt-v1",
+            "review_digest": str(review["digest"]),
+            "intent_digest": str(review["intent_digest"]),
+            "conflict_ids": [],
+            "blind_spot_ids": [
+                str(item.get("id", "unknown"))
+                for item in review.get("blind_spots", ())
+                if isinstance(item, Mapping)
+            ],
+            "reuse_review": json.loads(json.dumps({
+                "implementation_repository": {
+                    "stack": target_reuse_review.get("stack", {}),
+                    "required_gates": target_reuse_review.get("required_gates", ()),
+                    "recommendations": target_reuse_review.get("recommendations", ()),
+                },
+                "runtime_repository": {
+                    "stack": runtime_reuse_review.get("stack", {}),
+                    "required_gates": runtime_reuse_review.get("required_gates", ()),
+                    "recommendations": runtime_reuse_review.get("recommendations", ()),
+                },
+            }, sort_keys=True, ensure_ascii=False, allow_nan=False)),
+            "limitations": str(review.get("limitations", "")),
+        }
+
+    def _validate_canonical_execution_plan(self, plan: CanonicalExecutionPlan) -> None:
+        """Bind a plan to the live repository, branch and exact base revision."""
+        import subprocess
+        identity = _git_repository_identity(self.root)
+        if identity is None:
+            raise PermissionError("canonical execution plan requires a verifiable local Git repository identity")
+        try:
+            branch = subprocess.run(
+                ["git", "-C", str(self.root), "symbolic-ref", "--quiet", "--short", "HEAD"],
+                check=True, capture_output=True, text=True, timeout=2,
+            ).stdout.strip()
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise PermissionError("canonical execution plan requires an attached, verifiable branch") from exc
+        import importlib.util
+        import os
+        import shutil
+        import sys
+        host_capabilities = {
+            "git_repository": True,
+            "workspace_filesystem": self.root.is_dir() and os.access(self.root, os.W_OK),
+            "python_runtime": sys.version_info >= (3, 10),
+            "isolated_sandbox": shutil.which("openshell") is not None,
+            "browser": importlib.util.find_spec("playwright") is not None,
+            "build_runner": shutil.which("npm") is not None,
+            "ci": bool(os.environ.get("GITHUB_ACTIONS") or os.environ.get("AUREN_CI_PROVIDER")),
+            "artifact_store": bool(os.environ.get("AUREN_ARTIFACT_STORE_URI")),
+            "permissions": bool(os.environ.get("AUREN_PERMISSION_PROBE_ID")),
+        }
+        plan.validate_runtime(
+            repository=identity[0], branch=branch, head_sha=identity[1],
+            host_capabilities=host_capabilities,
+        )
+        if plan.required_checks:
+            if self._execution_plan_ci_provider is None:
+                raise PermissionError("required exact-head CI checks have no trusted host provider")
+            checks = self._execution_plan_ci_provider(plan)
+            gate = exact_head_ci_gate(
+                plan.target.base_sha, checks,
+                required_check_names=plan.required_checks,
+            )
+            if not gate["passed"]:
+                raise PermissionError("canonical plan exact-head CI gate blocked: " + json.dumps(
+                    gate, sort_keys=True, separators=(",", ":"),
+                ))
+        if plan.tool_contracts:
+            if self._tool_schema_resolver is None:
+                raise PermissionError("tool contracts require a trusted runtime tool-schema resolver")
+            for name, schema_json, arguments_json in plan.tool_contracts:
+                trusted_schema = self._tool_schema_resolver(name)
+                if not isinstance(trusted_schema, Mapping):
+                    raise PermissionError(f"trusted tool schema is unavailable: {name}")
+                trusted_json = json.dumps(
+                    trusted_schema, sort_keys=True, separators=(",", ":"),
+                    ensure_ascii=False, allow_nan=False,
+                )
+                if trusted_json != schema_json:
+                    raise PermissionError(f"tool schema changed after plan creation: {name}")
+                arguments = json.loads(arguments_json)
+                if not isinstance(arguments, Mapping):
+                    raise PermissionError(f"tool arguments are malformed: {name}")
+                validate_tool_arguments(trusted_schema, arguments)
+
+    def _record_canonical_plan_acceptance(
+        self, task: DurableTask, plan: CanonicalExecutionPlan, result: Any,
+    ) -> None:
+        """Persist criterion-level evidence; unsigned local records remain unknown."""
+        if not isinstance(result, Mapping):
+            raise RuntimeError("canonical execution plan requires structured acceptance evidence")
+        acceptance_evidence = result.get("acceptance_evidence")
+        if not isinstance(acceptance_evidence, Mapping):
+            raise RuntimeError("handler did not return acceptance_evidence for the canonical plan")
+        success = result.get("success", True)
+        if type(success) is not bool:
+            raise RuntimeError("handler success must be boolean before acceptance evidence can be recorded")
+        self._validate_canonical_execution_plan(plan)
+        for index, criterion in enumerate(plan.acceptance):
+            references = acceptance_evidence.get(criterion)
+            if isinstance(references, str):
+                references = [references]
+            if (
+                not isinstance(references, (list, tuple))
+                or not references
+                or any(not isinstance(item, str) or not item.strip() for item in references)
+            ):
+                raise RuntimeError(
+                    f"acceptance criterion {index + 1} has no verifiable evidence references"
+                )
+            evidence_payload = {
+                "task_id": task.id,
+                "handler": task.handler,
+                "plan_digest": plan.digest,
+                "criterion": criterion,
+                "evidence_references": list(references),
+                "result_success": success,
+            }
+            payload_digest = hashlib.sha256(json.dumps(
+                evidence_payload, sort_keys=True, separators=(",", ":"),
+                ensure_ascii=False, allow_nan=False,
+            ).encode("utf-8")).hexdigest()
+            event_id = f"acceptance:{task.id}:{task.attempts}:{index}"
+            event = self.evidence_capture.record(
+                "regression_passed" if success else "regression_failed",
+                work_unit_id=task.work_unit_id,
+                task_id=task.id,
+                iteration=task.attempts,
+                status="passed" if success else "failed",
+                repository=plan.target.repository,
+                head_sha=plan.target.base_sha,
+                artifact_digest=payload_digest,
+                evidence_uri=f"urn:auren:acceptance:{payload_digest}",
+                metadata={
+                    "handler": task.handler,
+                    "plan_digest": plan.digest,
+                    "result_category": "success" if success else "failure",
+                },
+                event_id=event_id,
+            )
+            signed = bool(event.get("signer_id") and event.get("signature"))
+            self.evidence_ledger.record(
+                evidence_id=f"acceptance:{task.id}:{index}",
+                repository=plan.target.repository,
+                head_sha=plan.target.base_sha,
+                evidence_type="execution_acceptance",
+                status=("passed" if success else "failed") if signed else "unknown",
+                source_uri=f"urn:auren:engineering-event:{event_id}",
+                payload_digest=payload_digest,
+                signer_id=event.get("signer_id") if signed else "unattested-local-controller",
+            )
+
+    def _canonical_execution_plan_for_task(self, task: DurableTask) -> CanonicalExecutionPlan | None:
+        raw = task.payload.get("_auren_execution_plan")
+        digest = task.payload.get("_auren_execution_plan_digest")
+        if raw is None and digest is None:
+            return None
+        if not isinstance(raw, Mapping) or not isinstance(digest, str):
+            raise PermissionError("durable canonical execution plan is missing or malformed")
+        plan = CanonicalExecutionPlan.from_mapping(raw)
+        if plan.digest != digest:
+            raise PermissionError("durable canonical execution plan digest mismatch")
+        expected_review = self._canonical_plan_feasibility_review(plan)
+        stored_review = task.payload.get("_auren_feasibility_review")
+        if not isinstance(stored_review, Mapping) or dict(stored_review) != expected_review:
+            raise PermissionError("durable canonical feasibility receipt is missing, stale or altered")
+        self._validate_canonical_execution_plan(plan)
+        return plan
 
     def _handler_guard_action(self, name: str) -> str:
         with closing(sqlite3.connect(self.db_path)) as db, db:
@@ -2278,6 +2548,7 @@ class ExecutionController:
         goal: str | None = None,
         work_key: str | None = None,
         deadline_seconds: float | None = None,
+        execution_plan: Mapping[str, Any] | None = None,
     ) -> DurableTask:
         if deadline_seconds is not None and (
             isinstance(deadline_seconds, bool)
@@ -2307,6 +2578,33 @@ class ExecutionController:
                 raise ValueError("approval-gated handler has no trusted gateway/ledger policy")
         self._load_handler(handler)
         payload_copy = dict(payload)
+        if any(name in payload_copy for name in (
+            "_auren_execution_plan", "_auren_execution_plan_digest", "_auren_feasibility_review",
+        )):
+            raise ValueError("canonical execution-plan and feasibility fields are supervisor-owned")
+        if execution_plan is not None:
+            plan = CanonicalExecutionPlan.from_mapping(execution_plan)
+            self._validate_canonical_execution_plan(plan)
+            feasibility_receipt = self._canonical_plan_feasibility_review(plan)
+            approval_scope = " ".join((
+                *plan.requirements, *plan.constraints, *plan.assumptions,
+                *plan.acceptance, *plan.non_goals,
+            ))
+            explicit_approval_required = bool(re.search(
+                r"\b(?:without|unless|until)\b.{0,80}\b(?:explicit\s+)?(?:human\s+)?(?:approval|consent(?:s|ing)?)\b"
+                r"|\b(?:approval|consent(?:s|ing)?)\s+(?:is\s+)?required\s+before\b"
+                r"|\b(?:approval|consent(?:s|ing)?)\b.{0,40}\b(?:before|prior to)\b",
+                approval_scope,
+                flags=re.IGNORECASE,
+            ))
+            if explicit_approval_required and execution_class != "approval_gated":
+                raise PermissionError(
+                    "canonical plan requires explicit human approval for this scope; "
+                    "register an approval_gated handler with a trusted approval policy"
+                )
+            payload_copy["_auren_execution_plan"] = plan.payload()
+            payload_copy["_auren_execution_plan_digest"] = plan.digest
+            payload_copy["_auren_feasibility_review"] = feasibility_receipt
         assignment_envelope = payload_copy.get("_auren_agent_assignment")
         if isinstance(assignment_envelope, Mapping):
             assigned_work_key = assignment_envelope.get("work_key")
@@ -3768,6 +4066,7 @@ class ExecutionController:
                 )
             self._verify_engineering_plan_dispatch_checkpoint(task)
             self._verify_workflow_profile_binding(task)
+            canonical_plan = self._canonical_execution_plan_for_task(task)
             gates_passed, gate_detail, gate_evidence = self._preflight_gates(task)
             if not gates_passed:
                 complete_engineering_budget("failed")
@@ -3836,10 +4135,13 @@ class ExecutionController:
                 raise RuntimeError(
                     "organization Guard changed after decision receipt; handler dispatch blocked"
                 )
-            if execution_class == "consequential":
-                result = self._invoke_consequential_with_ledger(task, handler)
-            else:
-                result = self._invoke_with_lease_heartbeat(task, handler)
+            with execution_plan_scope(canonical_plan, repository_root=self.root):
+                if execution_class == "consequential":
+                    result = self._invoke_consequential_with_ledger(task, handler)
+                else:
+                    result = self._invoke_with_lease_heartbeat(task, handler)
+            if canonical_plan is not None:
+                self._record_canonical_plan_acceptance(task, canonical_plan, result)
             if execution_class == "approval_gated":
                 self._verify_approval_gated_result(task, result)
         except LeaseLostError:

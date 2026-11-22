@@ -85,3 +85,52 @@ proof; it only makes the operator's target explicit. If the declared target is
 the governance repository, \`AUREN_ALLOW_GOVERNANCE_REPOSITORY_CHANGES=1\` is
 still required. It covers the Vibe Coding host entry point; it does not
 automatically govern host-native tools or every external GitHub client.
+
+
+## Windows handle-relative filesystem boundary
+
+On Windows, guarded file access starts from the volume or share anchor and opens
+each workspace component relative to the retained parent handle with
+`NtCreateFile` and `FILE_OPEN_REPARSE_POINT`. Every opened handle is checked
+for reparse-point attributes and directory/file type. Parent handles omit
+`FILE_SHARE_DELETE` while child handles are opened, so another process cannot
+rename or replace an inspected parent during traversal. Existing leaf files are
+validated before truncation. There is no pathname-based fallback when the
+native handle-relative path is unavailable.
+
+The Windows regression test races writes against parent-directory replacement
+with an outside symlink and checks that an outside sentinel is never modified.
+It also asserts that the race worker successfully installs the hostile link;
+a test that never creates the race is not accepted as a pass. This adapter
+protects its own file operations; it does not sandbox arbitrary handler code.
+
+The FileOperations regression workflow resolves the live PR head at run time
+and records the resolved FileOperations SHA together with the AUREN candidate
+SHA and workflow run ID. Unit tests and production build are followed by
+Chromium tests against the built production preview, including the PDF
+lock/wrong-password/unlock round trip. Evidence from an earlier FileOperations
+SHA does not validate a later PR head.
+
+
+## Canonical controller feasibility and approval binding
+
+The durable controller reuses `EngineeringDesignGuard.review_request` at plan admission. It evaluates the declared requirements, assumptions, constraints, acceptance criteria and non-goals before a task record is created. Known unresolved contradictions (for example, live quotes versus delayed-only data, offline-only versus required remote API access, or no external retention versus durable history) reject admission before handler execution.
+
+The controller stores a supervisor-owned feasibility receipt beside the immutable plan digest and recomputes it at dispatch. A missing, changed or stale receipt blocks execution. Blind spots remain visible in the receipt; a deterministic review is not a semantic proof that every requirement is feasible. The guard's own limitations must be retained and independent review is still required for high-risk changes.
+
+A plan that explicitly requires human approval or consent for an action cannot be submitted through a read-only, CI-gated or ordinary consequential handler. It must use the existing `approval_gated` handler class with a trusted approval policy and approval-aware checkpoint/resume contract. A caller-supplied string or plan field is not approval. The approval decision must be recorded by the configured trusted approval gateway.
+
+Security and privacy constraints must be stated in the plan, not assumed from a generic request to be "secure". External transfer, retention, deletion, credential use and permission changes need explicit scope and the appropriate existing Guard/approval policy. If the required approval gateway or policy is unavailable, execution blocks. Do not send real customer data or credentials to validation jobs; regression fixtures must be synthetic.
+
+The canonical plan test suite includes deliberately contradictory requirements and a privacy-sensitive transfer without approval. It verifies that no durable task or file side effect is created. The FileOperations workflow uses a pinned public repository revision and a disposable CI workspace; it does not read or upload the operator's local files. Its npm/browser build steps require outbound access to package and browser artifact registries in the GitHub-hosted runner.
+
+
+A plan-scoped `ContextVar` is an adapter guard, not an operating-system sandbox. The guarded filesystem checks both the approved canonical repository root and the relative path, and plan-scoped raw subprocess entry points fail closed. Arbitrary Python handlers can still bypass these adapters with direct filesystem or network APIs unless they run inside an OS-enforced sandbox. Therefore a plan receipt alone must never be used to claim isolation. Do not run untrusted handlers or handle sensitive data under this adapter-only mode; require a configured sandbox and trusted approval/egress policy first.
+
+
+The feasibility receipt also carries the existing `EngineeringDesignGuard.recommend_approaches` inventory for both the implementation checkout and the AUREN runtime checkout. It exposes known reusable owners and repository evidence before dispatch. This is a bounded, pattern-based inventory, not proof that no duplicate implementation exists; reviewers must inspect the candidate files and justify a new owner when reuse is not suitable.
+
+Plans mentioning personal, sensitive, confidential or customer data, credentials, secrets, security or privacy must declare an explicit data-handling constraint. A constraint that requires consent or approval binds the task to the trusted `approval_gated` path. Plans that declare `isolated_sandbox` as required are rejected when the host probe cannot confirm that capability. Adapter-only plan scope must not be described as isolation.
+
+
+When the reuse inventory finds code owners in `portable/` or `.ai-harness/runtime/`, admission requires an explicit `reuse_decision` and a complete list of reviewed candidate paths. A `new_component` decision also requires a written justification. The decision and reviewed paths are part of the immutable plan digest and are revalidated at dispatch. This forces a deliberate reuse decision; it does not replace human code review or prove that every possible duplicate has been discovered.

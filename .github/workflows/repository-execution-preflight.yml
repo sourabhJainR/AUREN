@@ -1,0 +1,52 @@
+name: Repository Execution Preflight Integration
+
+on:
+  pull_request:
+    paths:
+      - "portable/repository_execution_preflight.py"
+      - "portable/execution_controller.py"
+      - "portable/agent_execution_guard.py"
+      - "portable/guarded_filesystem.py"
+      - "portable/canonical_evidence_ledger.py"
+      - "portable/canonical_execution_plan.py"
+      - "tests/test_repository_execution_preflight.py"
+      - "tests/test_execution_controller*.py"
+      - "tests/test_agent_execution_guard.py"
+      - "tests/test_guarded_filesystem.py"
+      - "tests/test_canonical_evidence_ledger.py"
+      - "tests/test_canonical_execution_plan.py"
+      - ".github/workflows/repository-execution-preflight.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repository-execution-preflight-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preflight-and-guard:
+    name: Preflight, dispatch Guard and evidence integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+      - uses: ./.github/actions/python-test-setup
+        with:
+          python-version: "3.12"
+      - name: Compile affected runtime
+        run: python -m compileall -q portable
+      - name: Repository preflight contracts
+        run: python -m unittest tests.test_repository_execution_preflight -v
+      - name: Dispatch and filesystem Guard
+        run: python -m unittest tests.test_agent_execution_guard tests.test_guarded_filesystem tests.test_execution_controller_guard_policy -v
+      - name: Durable controller and restart behavior
+        run: python -m unittest tests.test_execution_controller tests.test_execution_controller_restart tests.test_execution_controller_cancellation tests.test_execution_controller_evidence_capture -v
+      - name: Canonical evidence ledger
+        run: python -m unittest tests.test_canonical_evidence_ledger -v
+      - name: Canonical execution plan admission and dispatch
+        run: python -m unittest tests.test_canonical_execution_plan -v

@@ -1,0 +1,133 @@
+name: FileOperations Canonical Execution Regression
+
+on:
+  push:
+    branches:
+      - feat/1436-canonical-execution-preflight
+    paths:
+      - "portable/canonical_execution_plan.py"
+      - "portable/execution_controller.py"
+      - "portable/guarded_filesystem.py"
+      - "portable/_windows_handle_filesystem.py"
+      - "portable/repository_execution_preflight.py"
+      - "tests/integration/fileoperations_execution_plan.py"
+      - ".github/workflows/fileoperations-canonical-execution.yml"
+  pull_request:
+    paths:
+      - "portable/canonical_execution_plan.py"
+      - "portable/execution_controller.py"
+      - "portable/guarded_filesystem.py"
+      - "portable/_windows_handle_filesystem.py"
+      - "portable/repository_execution_preflight.py"
+      - "tests/integration/fileoperations_execution_plan.py"
+      - ".github/workflows/fileoperations-canonical-execution.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fileoperations-canonical-execution-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fileoperations-regression:
+    name: AUREN plan enforcement and FileOperations PR #${{ matrix.fileoperations_pr }} regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - fileoperations_pr: 5
+          - fileoperations_pr: 7
+    steps:
+      - name: Checkout AUREN at candidate SHA
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: auren
+          fetch-depth: 1
+      - name: Checkout live FileOperations PR head
+        uses: actions/checkout@v7
+        with:
+          repository: sourabhJainR/FileOperations
+          ref: refs/pull/${{ matrix.fileoperations_pr }}/head
+          path: fileoperations
+          fetch-depth: 1
+      - name: Record resolved FileOperations revision
+        id: fileoperations_revision
+        env:
+          FILEOPERATIONS_PR: ${{ matrix.fileoperations_pr }}
+          FILEOPERATIONS_REF: refs/pull/${{ matrix.fileoperations_pr }}/head
+          AUREN_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          resolved_sha="$(git -C fileoperations rev-parse HEAD)"
+          printf '%s\n' "fileoperations_pr=$FILEOPERATIONS_PR" "fileoperations_ref=$FILEOPERATIONS_REF" "fileoperations_sha=$resolved_sha" "auren_sha=$AUREN_SHA" "workflow_run_id=$GITHUB_RUN_ID" > "$GITHUB_WORKSPACE/fileoperations-fixture-evidence.txt"
+          {
+            echo '### FileOperations regression source'
+            echo "- PR: #$FILEOPERATIONS_PR"
+            echo "- Ref: $FILEOPERATIONS_REF"
+            echo "- Resolved commit: $resolved_sha"
+            echo "- AUREN candidate: $AUREN_SHA"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "sha=$resolved_sha" >> "$GITHUB_OUTPUT"
+          git -C fileoperations switch -c main
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Exercise AUREN plan enforcement on FileOperations
+        env:
+          AUREN_ROOT: ${{ github.workspace }}/auren
+          FILEOPERATIONS_ROOT: ${{ github.workspace }}/fileoperations
+        run: python auren/tests/integration/fileoperations_execution_plan.py
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: fileoperations/apps/filekit/package.json
+      - name: Install FileKit dependencies
+        working-directory: fileoperations/apps/filekit
+        run: npm install --no-audit --no-fund
+      - name: Run FileKit unit tests
+        working-directory: fileoperations/apps/filekit
+        run: npm test
+      - name: Build FileKit production bundle
+        working-directory: fileoperations/apps/filekit
+        run: npm run build
+      - name: Verify production entry point
+        working-directory: fileoperations/apps/filekit
+        run: test -s dist/index.html
+      - name: Install Chromium
+        working-directory: fileoperations/apps/filekit
+        run: npx playwright install --with-deps chromium
+      - name: Run FileKit browser regression
+        working-directory: fileoperations/apps/filekit
+        run: npm run test:browser
+      - name: Upload resolved fixture evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fileoperations-pr-${{ matrix.fileoperations_pr }}-revision-evidence
+          path: fileoperations-fixture-evidence.txt
+          if-no-files-found: error
+
+  windows-filesystem-race:
+    name: Windows handle-relative filesystem race regression
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout AUREN at candidate SHA
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run guarded filesystem tests, including replacement race
+        run: python -m unittest discover -s tests -p "test_guarded_filesystem.py" -v
