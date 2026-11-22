@@ -1547,7 +1547,10 @@ class MCPStdioToolAdapter:
             if dispatched:
                 raise AdapterUnavailable("MCP consequential dispatch may execute only once")
             dispatched = True
-            return self._invoke_unchecked(request_snapshot, arguments=arguments)
+            return self._invoke_unchecked(
+                request_snapshot, arguments=arguments,
+                github_write_preflight=github_write_preflight,
+            )
 
         result = self.authority_dispatch(request_snapshot, call_binding, invoke_once)
         if not dispatched:
@@ -1559,6 +1562,7 @@ class MCPStdioToolAdapter:
     def _invoke_unchecked(
         self, request: Mapping[str, Any], *, arguments: Mapping[str, Any] | None = None,
         deadline: float | None = None,
+        github_write_preflight: Mapping[str, Any] | None = None,
     ) -> Mapping[str, Any]:
         state = request.get("state", {})
         if not isinstance(state, Mapping):
@@ -1670,15 +1674,53 @@ class MCPStdioToolAdapter:
             proc.stdin.write(json.dumps(initialize) + "\n")
             proc.stdin.flush()
             self._read_response(proc.stdout, responses, 1, response_timeout())
-            proc.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}) + "\n")
+            proc.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}) + "\\n")
             proc.stdin.flush()
             args = dict(arguments) if arguments is not None else self._arguments_for_request(request)
+            call_id = 2
+            if github_write_preflight is not None:
+                from .github_write_boundary import validate_preflight_payload
+                from .repository_execution_preflight import validate_tool_arguments
+                preflight = validate_preflight_payload(github_write_preflight)
+                if _digest(args) != preflight["tool_arguments_digest"]:
+                    raise AdapterUnavailable("GitHub MCP arguments changed after canonical preflight")
+                cursor = None
+                discovered_schema = None
+                for _page in range(8):
+                    list_request = {
+                        "jsonrpc": "2.0", "id": call_id, "method": "tools/list",
+                        "params": ({"cursor": cursor} if cursor else {}),
+                    }
+                    proc.stdin.write(json.dumps(list_request, ensure_ascii=False) + "\\n")
+                    proc.stdin.flush()
+                    listing = self._read_response(proc.stdout, responses, call_id, response_timeout())
+                    call_id += 1
+                    tools = listing.get("tools")
+                    if not isinstance(tools, list):
+                        raise AdapterUnavailable("GitHub MCP tools/list returned no tool inventory")
+                    matches = [tool for tool in tools if isinstance(tool, Mapping) and tool.get("name") == self.tool_name]
+                    if len(matches) > 1:
+                        raise AdapterUnavailable("GitHub MCP tools/list returned duplicate tool names")
+                    if matches:
+                        discovered_schema = matches[0].get("inputSchema")
+                        break
+                    cursor = listing.get("nextCursor")
+                    if not cursor:
+                        break
+                if not isinstance(discovered_schema, Mapping):
+                    raise AdapterUnavailable("GitHub MCP tools/list did not return the configured tool schema")
+                if _digest(discovered_schema) != preflight["tool_schema_digest"]:
+                    raise AdapterUnavailable("live GitHub MCP tool schema differs from the canonical plan contract")
+                try:
+                    validate_tool_arguments(discovered_schema, args)
+                except Exception as exc:
+                    raise AdapterUnavailable("GitHub MCP arguments fail live tool-schema validation") from exc
             proc.stdin.write(json.dumps({
-                "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                "jsonrpc": "2.0", "id": call_id, "method": "tools/call",
                 "params": {"name": self.tool_name, "arguments": args},
-            }, ensure_ascii=False) + "\n")
+            }, ensure_ascii=False) + "\\n")
             proc.stdin.flush()
-            result = self._read_response(proc.stdout, responses, 2, response_timeout())
+            result = self._read_response(proc.stdout, responses, call_id, response_timeout())
             if result.get("isError") is True:
                 raise AdapterUnavailable(f"MCP tool reported an error: {result.get('content', [])}")
             structured = result.get("structuredContent")
