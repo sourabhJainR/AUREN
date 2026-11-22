@@ -769,6 +769,73 @@ class ExecutionController:
             raise PermissionError("canonical execution plan requires an attached, verifiable branch") from exc
         plan.validate_runtime(repository=identity[0], branch=branch, head_sha=identity[1])
 
+    def _record_canonical_plan_acceptance(
+        self, task: DurableTask, plan: CanonicalExecutionPlan, result: Any,
+    ) -> None:
+        """Persist criterion-level evidence; unsigned local records remain unknown."""
+        if not isinstance(result, Mapping):
+            raise RuntimeError("canonical execution plan requires structured acceptance evidence")
+        acceptance_evidence = result.get("acceptance_evidence")
+        if not isinstance(acceptance_evidence, Mapping):
+            raise RuntimeError("handler did not return acceptance_evidence for the canonical plan")
+        success = result.get("success", True)
+        if type(success) is not bool:
+            raise RuntimeError("handler success must be boolean before acceptance evidence can be recorded")
+        self._validate_canonical_execution_plan(plan)
+        for index, criterion in enumerate(plan.acceptance):
+            references = acceptance_evidence.get(criterion)
+            if isinstance(references, str):
+                references = [references]
+            if (
+                not isinstance(references, (list, tuple))
+                or not references
+                or any(not isinstance(item, str) or not item.strip() for item in references)
+            ):
+                raise RuntimeError(
+                    f"acceptance criterion {index + 1} has no verifiable evidence references"
+                )
+            evidence_payload = {
+                "task_id": task.id,
+                "handler": task.handler,
+                "plan_digest": plan.digest,
+                "criterion": criterion,
+                "evidence_references": list(references),
+                "result_success": success,
+            }
+            payload_digest = hashlib.sha256(json.dumps(
+                evidence_payload, sort_keys=True, separators=(",", ":"),
+                ensure_ascii=False, allow_nan=False,
+            ).encode("utf-8")).hexdigest()
+            event_id = f"acceptance:{task.id}:{task.attempts}:{index}"
+            event = self.evidence_capture.record(
+                "regression_passed" if success else "regression_failed",
+                work_unit_id=task.work_unit_id,
+                task_id=task.id,
+                iteration=task.attempts,
+                status="passed" if success else "failed",
+                repository=plan.target.repository,
+                head_sha=plan.target.base_sha,
+                artifact_digest=payload_digest,
+                evidence_uri=f"urn:auren:acceptance:{payload_digest}",
+                metadata={
+                    "handler": task.handler,
+                    "plan_digest": plan.digest,
+                    "result_category": "success" if success else "failure",
+                },
+                event_id=event_id,
+            )
+            signed = bool(event.get("signer_id") and event.get("signature"))
+            self.evidence_ledger.record(
+                evidence_id=f"acceptance:{task.id}:{index}",
+                repository=plan.target.repository,
+                head_sha=plan.target.base_sha,
+                evidence_type="execution_acceptance",
+                status=("passed" if success else "failed") if signed else "unknown",
+                source_uri=f"urn:auren:engineering-event:{event_id}",
+                payload_digest=payload_digest,
+                signer_id=event.get("signer_id") if signed else "unattested-local-controller",
+            )
+
     def _canonical_execution_plan_for_task(self, task: DurableTask) -> CanonicalExecutionPlan | None:
         raw = task.payload.get("_auren_execution_plan")
         digest = task.payload.get("_auren_execution_plan_digest")
@@ -3879,6 +3946,8 @@ class ExecutionController:
                     result = self._invoke_consequential_with_ledger(task, handler)
                 else:
                     result = self._invoke_with_lease_heartbeat(task, handler)
+            if canonical_plan is not None:
+                self._record_canonical_plan_acceptance(task, canonical_plan, result)
             if execution_class == "approval_gated":
                 self._verify_approval_gated_result(task, result)
         except LeaseLostError:
