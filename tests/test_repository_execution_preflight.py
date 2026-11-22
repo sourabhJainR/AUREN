@@ -10,6 +10,7 @@ from portable.repository_execution_preflight import (
     AcceptanceMatrix, AcceptanceRow, AcceptanceStatus, CapabilityCheck,
     RepositoryTarget, ToolContractError, capability_blockers,
     exact_head_ci_gate, validate_tool_arguments, guard_governance_repository,
+    repository_slug_from_remote,
 )
 
 SHA = "a" * 40
@@ -66,6 +67,10 @@ class RepositoryExecutionPreflightTests(unittest.TestCase):
                     ["git", "remote", "get-url", "origin"], 0,
                     "ssh://git@gitlab.com/acme/product.git", "",
                 ),
+                subprocess.CompletedProcess(
+                    ["git", "remote", "get-url", "origin"], 0,
+                    "https://github.com/acme/product?ref=main", "",
+                ),
             )
             for origin in cases:
                 with self.subTest(origin=origin):
@@ -119,6 +124,13 @@ class RepositoryExecutionPreflightTests(unittest.TestCase):
             ),
             "acme/product",
         )
+        self.assertIsNone(
+            repository_slug_from_remote("https://github.com/acme/product?ref=main")
+        )
+        with self.assertRaises(ValueError):
+            guard_governance_repository(
+                "https://github.com/acme/product.git", governance_repository="../auren"
+            )
 
     def test_governance_repository_requires_explicit_opt_in(self):
         with self.assertRaises(PermissionError):
