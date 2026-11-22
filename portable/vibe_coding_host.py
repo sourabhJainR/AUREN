@@ -2895,6 +2895,29 @@ class LocalVibeCodingHost:
             if canonical_plan.target.base_sha != source_head:
                 raise PermissionError("canonical plan base SHA differs from the verified source checkout HEAD")
 
+            from .github_write_boundary import is_github_server
+            host_capabilities: dict[str, bool] = {
+                "workspace_filesystem": bool(self.config.allow_workspace_writes),
+                "isolated_sandbox": False,
+            }
+            github_server_configured = False
+            for tool_key, tool_spec in self.config.mcp_tools.items():
+                declared_capability = tool_spec.get("capability", tool_key)
+                if isinstance(declared_capability, str) and declared_capability.strip():
+                    host_capabilities[declared_capability] = True
+                if is_github_server(tool_spec["argv"], tool_spec["tool_name"]):
+                    github_server_configured = True
+            host_capabilities["github_mcp"] = github_server_configured
+            host_capabilities["repository.write"] = bool(
+                github_server_configured and self.mcp_authority_resolver is not None
+            )
+            canonical_plan.validate_runtime(
+                repository=observed_repository,
+                branch=canonical_plan.target.branch,
+                head_sha=source_head,
+                host_capabilities=host_capabilities,
+            )
+
         lease = IsolatedGitWorktree(self.project_root, workflow_id, self.state_root / "worktrees")
         workspace = lease.open() if self.config.allow_workspace_writes else self.project_root
         if self.config.allow_workspace_writes:
