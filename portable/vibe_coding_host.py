@@ -1138,7 +1138,8 @@ class MCPStdioToolAdapter:
         self.team_budget_enforcer = team_budget_enforcer
         if github_server is not None and type(github_server) is not bool:
             raise TypeError("github_server must be a boolean or None")
-        self.github_server = bool(github_server) or _looks_like_github_server(self.argv, self.tool_name)
+        from .github_write_boundary import is_github_server
+        self.github_server = bool(github_server) or is_github_server(self.argv, self.tool_name)
         if execution_plan is not None and (
             getattr(execution_plan, "target", None) is None
             or not isinstance(getattr(execution_plan, "digest", None), str)
