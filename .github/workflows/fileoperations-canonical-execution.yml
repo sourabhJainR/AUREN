@@ -38,9 +38,7 @@ jobs:
       matrix:
         include:
           - fileoperations_pr: 5
-            fileoperations_ref: 102807e868b96d3d836b3651d9e5557d10816d21
           - fileoperations_pr: 7
-            fileoperations_ref: 20dce184f3609bbb5346bea73d152385aa55dacb
     steps:
       - name: Checkout AUREN at candidate SHA
         uses: actions/checkout@v7
@@ -48,15 +46,39 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           path: auren
           fetch-depth: 1
-      - name: Checkout pinned FileOperations baseline
+      - name: Checkout live FileOperations PR head
         uses: actions/checkout@v7
         with:
           repository: sourabhJainR/FileOperations
-          ref: ${{ matrix.fileoperations_ref }}
+          ref: refs/pull/${{ matrix.fileoperations_pr }}/head
           path: fileoperations
           fetch-depth: 1
-      - name: Attach FileOperations fixture branch
-        run: git -C fileoperations switch -c main
+      - name: Record resolved FileOperations revision
+        id: fileoperations_revision
+        env:
+          FILEOPERATIONS_PR: ${{ matrix.fileoperations_pr }}
+          FILEOPERATIONS_REF: refs/pull/${{ matrix.fileoperations_pr }}/head
+          AUREN_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          resolved_sha="$(git -C fileoperations rev-parse HEAD)"
+          printf '%s\n' "fileoperations_pr=$FILEOPERATIONS_PR" "fileoperations_ref=$FILEOPERATIONS_REF" "fileoperations_sha=$resolved_sha" "auren_sha=$AUREN_SHA" "workflow_run_id=$GITHUB_RUN_ID" > "$GITHUB_WORKSPACE/fileoperations-fixture-evidence.txt"
+          {
+            echo '### FileOperations regression source'
+            echo "- PR: #$FILEOPERATIONS_PR"
+            echo "- Ref: $FILEOPERATIONS_REF"
+            echo "- Resolved commit: $resolved_sha"
+            echo "- AUREN candidate: $AUREN_SHA"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "sha=$resolved_sha" >> "$GITHUB_OUTPUT"
+          git -C fileoperations switch -c main
+      - name: Upload resolved fixture evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fileoperations-pr-${{ matrix.fileoperations_pr }}-revision-evidence
+          path: fileoperations-fixture-evidence.txt
+          if-no-files-found: error
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
