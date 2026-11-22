@@ -700,6 +700,9 @@ class MCPTrustedExecutionContext:
     repository_revision: str
     repository_digest: str
     budget_id: str
+    repository_slug: str = ""
+    repository_branch: str = ""
+    execution_plan_digest: str = ""
 
     def validate(self) -> None:
         for name in (
@@ -713,6 +716,13 @@ class MCPTrustedExecutionContext:
             value = Path(getattr(self, name)).expanduser()
             if not value.is_absolute() or str(value.resolve()) != getattr(self, name):
                 raise ValueError(f"trusted MCP execution context {name} must be an absolute canonical path")
+        if self.repository_slug and not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", self.repository_slug):
+            raise ValueError("trusted MCP repository slug must be owner/repo")
+        if self.repository_branch:
+            from .repository_execution_preflight import _safe_branch_name
+            _safe_branch_name(self.repository_branch, "trusted MCP repository branch")
+        if self.execution_plan_digest and not re.fullmatch(r"[0-9a-f]{64}", self.execution_plan_digest):
+            raise ValueError("trusted MCP execution plan digest must be a SHA-256 digest")
 
 
 @dataclass(frozen=True)
@@ -899,6 +909,12 @@ class MCPExecutionAuthorization:
                 raise ValueError("MCP read action evidence must bind the exact request and configured tool call")
         if self.gateway.is_external_effect(self.action_request) and not self.gateway.has_durable_side_effect_ledger:
             raise ValueError("MCP external effects require the canonical durable side-effect ledger")
+        github_write = request.get("_auren_github_write")
+        if github_write is not None:
+            from .github_write_boundary import validate_github_write_authorization
+            validate_github_write_authorization(
+                github_write, authorization=self, request=request, call_binding=call_binding,
+            )
 
 
 def build_mcp_authority_dispatch(
