@@ -1,5 +1,6 @@
 import unittest
 import json
+import hashlib
 import sys
 import tempfile
 from pathlib import Path
@@ -16,6 +17,13 @@ from portable.github_write_boundary import (
 
 SHA = "a" * 40
 HEAD = "b" * 40
+
+
+def _argument_digest(value):
+    encoded = json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _schema_for(value):
@@ -84,7 +92,7 @@ def make_plan(**target_changes):
         for name, arguments in tool_contract_overrides.items():
             tool_arguments[name] = arguments
     contracts = [
-        {"name": name, "schema": tool_schema_overrides.get(name, _schema_for(arguments)), "arguments": arguments}
+        {"name": name, "schema": tool_schema_overrides.get(name, _schema_for(arguments)), "arguments_digest": _argument_digest(arguments)}
         for name, arguments in tool_arguments.items()
     ]
     target.update(target_changes)
@@ -323,6 +331,12 @@ class GitHubWriteBoundaryTests(unittest.TestCase):
             arguments={"branch": "feature/work"}, plan=None,
         ))
 
+
+    def test_canonical_plan_stores_argument_digest_not_file_content(self):
+        payload = json.dumps(self.plan.payload(), sort_keys=True)
+        self.assertNotIn("value = 1", payload)
+        self.assertNotIn("assert True", payload)
+        self.assertTrue(all("arguments_digest" in contract for contract in self.plan.payload()["tool_contracts"]))
 
     def test_pull_request_base_branch_is_part_of_canonical_plan_digest(self):
         main_plan = make_plan(pull_request_base_branch="main")
