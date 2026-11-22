@@ -95,7 +95,8 @@ class CanonicalExecutionPlanTests(unittest.TestCase):
             {"root": str(self.root), "path": "outside/result.txt"},
             execution_plan=self.plan(),
         )
-        controller.run_once(task.id)
+        with self.assertRaises(PermissionError):
+            controller.run_once(task.id)
         self.assertFalse((self.root / "outside/result.txt").exists())
         self.assertEqual(controller.task(task.id).state, "failed")
 
