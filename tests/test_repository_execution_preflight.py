@@ -49,6 +49,58 @@ class RepositoryExecutionPreflightTests(unittest.TestCase):
                     with self.assertRaisesRegex(PermissionError, "governance repository"):
                         host.run("guard-test", "implement product feature")
 
+    def test_vibe_host_blocks_missing_or_unrecognized_origin_before_worktree_creation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = VibeHostConfig(
+                provider=None, reviewer_provider=None, allow_workspace_writes=True,
+                test_commands=(("python", "-c", "pass"),), mcp_tools={},
+            )
+            host = LocalVibeCodingHost(
+                directory, config=config, state_root=Path(directory) / "state"
+            )
+            cases = (
+                subprocess.CompletedProcess(
+                    ["git", "remote", "get-url", "origin"], 2, "", "no origin"
+                ),
+                subprocess.CompletedProcess(
+                    ["git", "remote", "get-url", "origin"], 0,
+                    "ssh://git@gitlab.com/acme/product.git", "",
+                ),
+            )
+            for origin in cases:
+                with self.subTest(origin=origin):
+                    with patch.dict(os.environ, {
+                        "AUREN_GOVERNANCE_REPOSITORY": "acme/auren",
+                    }):
+                        with patch("portable.vibe_coding_host._run", return_value=origin):
+                            with patch("portable.vibe_coding_host.IsolatedGitWorktree.open") as open_worktree:
+                                with self.assertRaisesRegex(PermissionError, "verify the implementation repository identity"):
+                                    host.run("unverified-origin", "implement product feature")
+                                open_worktree.assert_not_called()
+
+    def test_unverified_origin_requires_a_separate_explicit_opt_in(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = VibeHostConfig(
+                provider=None, reviewer_provider=None, allow_workspace_writes=True,
+                test_commands=(("python", "-c", "pass"),), mcp_tools={},
+            )
+            host = LocalVibeCodingHost(
+                directory, config=config, state_root=Path(directory) / "state"
+            )
+            origin = subprocess.CompletedProcess(
+                ["git", "remote", "get-url", "origin"], 2, "", "no origin"
+            )
+            with patch.dict(os.environ, {
+                "AUREN_ALLOW_UNVERIFIED_REPOSITORY_IDENTITY": "1",
+            }):
+                with patch("portable.vibe_coding_host._run", return_value=origin):
+                    with patch(
+                        "portable.vibe_coding_host.IsolatedGitWorktree.open",
+                        side_effect=RuntimeError("worktree reached"),
+                    ):
+                        with self.assertRaisesRegex(RuntimeError, "worktree reached"):
+                            host.run("explicit-unverified-origin", "implement product feature")
+
     def test_governance_remote_guard_recognizes_https_and_ssh(self):
         for remote in ("https://github.com/acme/auren.git", "git@github.com:acme/auren.git"):
             with self.subTest(remote=remote), self.assertRaises(PermissionError):
