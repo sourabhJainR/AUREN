@@ -113,7 +113,7 @@ def open_workspace_file(
     parts = _relative_parts(relative_path)
     enforce_agent_resource_scope(PurePosixPath(*parts).as_posix())
     if any(flag in mode for flag in ("w", "a", "x", "+")):
-        enforce_execution_plan_write(PurePosixPath(*parts).as_posix())
+        enforce_execution_plan_write(PurePosixPath(*parts).as_posix(), root=workspace)
     if os.name == "posix":
         try:
             descriptor = _open_posix(workspace, parts, mode, create_parents)
