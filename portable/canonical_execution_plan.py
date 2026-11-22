@@ -145,6 +145,8 @@ class CanonicalExecutionPlan:
         for item in contract_items:
             if not isinstance(item, Mapping):
                 raise ValueError("malformed tool contract")
+            if "arguments_digest" in item and "arguments" in item:
+                raise ValueError("tool contract cannot include both arguments and arguments_digest")
             if "arguments_digest" in item:
                 arguments_digest = item.get("arguments_digest")
                 if not isinstance(arguments_digest, str) or not re.fullmatch(r"[0-9a-f]{64}", arguments_digest):
