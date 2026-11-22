@@ -163,22 +163,44 @@ class CanonicalExecutionPlan:
         ).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
 
-    def validate_runtime(self, *, repository: str, branch: str, head_sha: str) -> None:
+    def validate_runtime(
+        self, *, repository: str, branch: str, head_sha: str,
+        host_capabilities: Mapping[str, bool] | None = None,
+    ) -> None:
         if not isinstance(head_sha, str) or not _SHA.fullmatch(head_sha):
             raise PermissionError("runtime HEAD is unavailable or invalid")
         self.target.validate_observed_target(
             repository=repository, branch=branch, base_sha=head_sha,
         )
+        declared = {
+            name: (available, evidence)
+            for name, available, evidence in self.capabilities
+        }
+        if host_capabilities is not None:
+            if not isinstance(host_capabilities, Mapping) or any(
+                not isinstance(name, str) or type(available) is not bool
+                for name, available in host_capabilities.items()
+            ):
+                raise ValueError("host capability probes must be a string-to-boolean mapping")
         blockers = capability_blockers(
             [
                 CapabilityCheck(
-                    name=name, available=available, evidence=evidence,
-                    checked_at="plan-admission",
+                    name=name,
+                    available=available and (
+                        host_capabilities.get(name, False) if host_capabilities is not None else True
+                    ),
+                    evidence=evidence,
+                    checked_at="controller-host-probe",
                 )
                 for name, available, evidence in self.capabilities
             ],
             self.required_capabilities,
         )
+        if host_capabilities is not None:
+            missing_probes = sorted(set(self.required_capabilities) - set(host_capabilities))
+            blockers = tuple(blockers) + tuple(
+                f"{name}: no trusted host capability probe" for name in missing_probes
+            )
         if blockers:
             raise PermissionError("execution plan capability gate blocked: " + "; ".join(blockers))
         for name, schema_json, arguments_json in self.tool_contracts:
