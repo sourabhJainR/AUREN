@@ -337,6 +337,7 @@ class GitHubWriteBoundaryTests(unittest.TestCase):
         self.assertNotIn("value = 1", payload)
         self.assertNotIn("assert True", payload)
         self.assertTrue(all("arguments_digest" in contract for contract in self.plan.payload()["tool_contracts"]))
+        self.plan.validate_runtime(repository="acme/product", branch="feature/work", head_sha=SHA)
 
     def test_pull_request_base_branch_is_part_of_canonical_plan_digest(self):
         main_plan = make_plan(pull_request_base_branch="main")
