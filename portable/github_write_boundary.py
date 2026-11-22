@@ -354,10 +354,7 @@ def _trusted_tool_contract(plan: Any, tool_name: str, arguments: Mapping[str, An
             planned_arguments, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
         ):
             raise GitHubWriteBoundaryError("GitHub tool arguments differ from the exact arguments approved in the plan")
-    _require_schema_contract(
-        tool_name if tool_name in _WRITE_TOOLS else _WRITE_TOOLS.get(_tool_key(tool_name), ""),
-        schema,
-    )
+    _require_schema_contract(_WRITE_TOOLS.get(_tool_key(tool_name), ""), schema)
     try:
         from .repository_execution_preflight import validate_tool_arguments
         validate_tool_arguments(schema, arguments)
