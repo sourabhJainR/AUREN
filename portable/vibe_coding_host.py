@@ -2905,6 +2905,15 @@ class LocalVibeCodingHost:
             github_server_configured = False
             github_write_authority_configured = False
             for tool_key, tool_spec in self.config.mcp_tools.items():
+                command = str(tool_spec["argv"][0])
+                command_path = Path(command).expanduser()
+                command_available = bool(
+                    shutil.which(command)
+                    or command_path.is_file()
+                    or (self.project_root / command_path).is_file()
+                )
+                if not command_available:
+                    continue
                 declared_capability = tool_spec.get("capability", tool_key)
                 if isinstance(declared_capability, str) and declared_capability.strip():
                     host_capabilities[declared_capability] = True
