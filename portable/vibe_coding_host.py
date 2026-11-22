@@ -2684,9 +2684,20 @@ class LocalVibeCodingHost:
             ("git", "-C", str(self.project_root), "remote", "get-url", "origin"),
             cwd=self.project_root, timeout=10,
         )
-        if origin.returncode == 0 and origin.stdout.strip():
-            guard_governance_repository(
-                origin.stdout.strip(),
+        allow_unverified_identity = (
+            os.environ.get("AUREN_ALLOW_UNVERIFIED_REPOSITORY_IDENTITY") == "1"
+        )
+        origin_url = (origin.stdout or "").strip()
+        if origin.returncode != 0 or not origin_url:
+            if not allow_unverified_identity:
+                raise PermissionError(
+                    "cannot verify the implementation repository identity because its GitHub "
+                    "origin is missing; configure origin or set "
+                    "AUREN_ALLOW_UNVERIFIED_REPOSITORY_IDENTITY=1 after operator review"
+                )
+        else:
+            observed_repository = guard_governance_repository(
+                origin_url,
                 governance_repository=os.environ.get(
                     "AUREN_GOVERNANCE_REPOSITORY", "sourabhJainR/AUREN"
                 ),
@@ -2694,6 +2705,12 @@ class LocalVibeCodingHost:
                     os.environ.get("AUREN_ALLOW_GOVERNANCE_REPOSITORY_CHANGES") == "1"
                 ),
             )
+            if observed_repository is None and not allow_unverified_identity:
+                raise PermissionError(
+                    "cannot verify the implementation repository identity from its origin; "
+                    "use a supported GitHub remote or set "
+                    "AUREN_ALLOW_UNVERIFIED_REPOSITORY_IDENTITY=1 after operator review"
+                )
         lease = IsolatedGitWorktree(self.project_root, workflow_id, self.state_root / "worktrees")
         workspace = lease.open() if self.config.allow_workspace_writes else self.project_root
         if self.config.allow_workspace_writes:
