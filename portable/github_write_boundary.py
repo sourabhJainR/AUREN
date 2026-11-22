@@ -383,3 +383,50 @@ def preflight_github_tool(
         paths=paths, target=f"{repository}@{branch}", plan_digest=plan.digest,
         tool_name=tool_name,
     ).payload()
+
+
+def validate_github_write_authorization(
+    metadata: Mapping[str, Any], *, authorization: Any,
+    request: Mapping[str, Any], call_binding: Any,
+) -> None:
+    """Require a canonical target, trusted approval, durable intent and exact evidence."""
+    payload = validate_preflight_payload(metadata)
+    context = getattr(authorization, "trusted_context", None)
+    action_request = getattr(authorization, "action_request", None)
+    gateway = getattr(authorization, "gateway", None)
+    if context is None or action_request is None or gateway is None:
+        raise GitHubWriteBoundaryError("GitHub write requires typed host authority")
+    if payload["tool_name"] != getattr(call_binding, "tool_name", None):
+        raise GitHubWriteBoundaryError("GitHub write metadata does not match the configured MCP tool")
+    if payload["repository"] != str(getattr(context, "repository_slug", "")).casefold():
+        raise GitHubWriteBoundaryError("GitHub write repository differs from the host-verified repository")
+    if payload["branch"] != getattr(context, "repository_branch", ""):
+        raise GitHubWriteBoundaryError("GitHub write branch differs from the host-verified implementation branch")
+    if payload["base_sha"] != getattr(context, "repository_revision", ""):
+        raise GitHubWriteBoundaryError("GitHub write base SHA differs from the host-verified workspace revision")
+    if payload["plan_digest"] != getattr(context, "execution_plan_digest", ""):
+        raise GitHubWriteBoundaryError("GitHub write is not bound to the host-verified canonical plan digest")
+    if getattr(action_request, "capability", None) != "repository.write":
+        raise GitHubWriteBoundaryError("GitHub write authority must use the repository.write capability")
+    if getattr(action_request, "action", None) != payload["action"]:
+        raise GitHubWriteBoundaryError("GitHub write action differs from the approved operation")
+    if getattr(action_request, "target", None) != payload["target"]:
+        raise GitHubWriteBoundaryError("GitHub write target differs from the approved repository/branch/PR")
+    if getattr(action_request, "risk", None) != "external_effect":
+        raise GitHubWriteBoundaryError("GitHub writes must be classified as external effects")
+    if not getattr(action_request, "idempotency_key", ""):
+        raise GitHubWriteBoundaryError("GitHub writes require a durable idempotency key")
+    operation = request.get("provider_operation")
+    if not isinstance(operation, Mapping) or operation.get("provider") != "github":
+        raise GitHubWriteBoundaryError("GitHub writes require a durable GitHub provider-operation claim")
+    required_evidence = {
+        f"github-write:{payload['digest']}",
+        f"canonical-plan:{payload['plan_digest']}",
+    }
+    if not required_evidence.issubset(set(getattr(action_request, "evidence_refs", ()))):
+        raise GitHubWriteBoundaryError("GitHub write approval must bind the canonical plan and exact write target")
+    if not callable(getattr(gateway, "requires_approval", None)) or not gateway.requires_approval(action_request):
+        raise GitHubWriteBoundaryError("GitHub write policy must require trusted human approval")
+    verdict = gateway.evaluate(action_request, approval=getattr(authorization, "approval", None))
+    if not verdict.allowed or not verdict.approval_required:
+        raise GitHubWriteBoundaryError("GitHub write approval was not accepted by the canonical governance gateway")
