@@ -391,6 +391,20 @@ class AcceptanceRow:
     evidence_sha: str = ""
     residual_risk: str = ""
 
+    def __post_init__(self) -> None:
+        # Every value included in the evidence digest must be immutable.
+        # frozen=True protects attribute assignment, not mutable objects stored
+        # inside a field (for example, a list supplied as residual_risk).
+        for field in (
+            "requirement_id", "description", "implementation", "positive_test",
+            "negative_test", "integration_test", "evidence_uri", "evidence_sha",
+            "residual_risk",
+        ):
+            if type(getattr(self, field)) is not str:
+                raise ValueError(f"{field} must be an immutable string")
+        if not isinstance(self.status, AcceptanceStatus):
+            raise ValueError("status must be an AcceptanceStatus")
+
     def validate_for_head(self, expected_sha: str) -> None:
         _text(self.requirement_id, "requirement_id")
         _text(self.description, "description")
