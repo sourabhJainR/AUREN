@@ -162,6 +162,67 @@ class CanonicalExecutionPlanTests(unittest.TestCase):
                 execution_plan=plan,
             )
 
+    def test_infeasible_requirements_are_rejected_before_task_creation(self):
+        controller = ExecutionController(self.root)
+        calls = []
+        controller.register_handler(
+            "plan_write",
+            lambda payload: calls.append("ran") or _plan_write_handler(payload),
+            execution_class="read_only",
+        )
+        cases = (
+            (
+                ("Build live market quotes.", "Use a free provider with 15-minute delayed quotes.", "Show delayed data as real-time."),
+                (),
+            ),
+            (
+                ("Provide durable historical price analytics.",),
+                ("Do not store external market data.",),
+            ),
+            (
+                ("Fetch required live data from an external API.",),
+                ("The application must work offline with no network access.",),
+            ),
+            (
+                ("Run every action fully autonomously without human approval.",),
+                ("A human must approve every consequential action.",),
+            ),
+        )
+        for index, (requirements, constraints) in enumerate(cases):
+            with self.subTest(case=index):
+                plan = self.plan()
+                plan["requirements"] = list(requirements)
+                plan["constraints"] = list(constraints)
+                work_key = f"infeasible-plan-{index}"
+                with self.assertRaises(PermissionError):
+                    controller.submit(
+                        "plan_write",
+                        {"root": str(self.root), "path": f"output/rejected-{index}.txt"},
+                        work_key=work_key,
+                        execution_plan=plan,
+                    )
+                self.assertIsNone(controller.task_by_work_key(work_key))
+        self.assertEqual(calls, [])
+        self.assertFalse(any(self.root.glob("output/rejected-*.txt")))
+
+    def test_sensitive_data_transfer_requires_trusted_human_approval_gate(self):
+        controller = ExecutionController(self.root)
+        controller.register_handler("plan_write", _plan_write_handler, execution_class="read_only")
+        plan = self.plan()
+        plan["constraints"] = [
+            "Do not transfer personal or confidential data to external services without explicit human approval."
+        ]
+        work_key = "privacy-transfer-requires-approval"
+        with self.assertRaises(PermissionError, match="approval_gated"):
+            controller.submit(
+                "plan_write",
+                {"root": str(self.root), "path": "output/private-export.txt"},
+                work_key=work_key,
+                execution_plan=plan,
+            )
+        self.assertIsNone(controller.task_by_work_key(work_key))
+        self.assertFalse((self.root / "output/private-export.txt").exists())
+
     def test_unknown_tool_schema_constraint_fails_closed_at_admission(self):
         plan = self.plan()
         plan["tool_contracts"] = [{
