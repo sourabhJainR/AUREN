@@ -8,11 +8,13 @@ on:
       - "portable/agent_execution_guard.py"
       - "portable/guarded_filesystem.py"
       - "portable/canonical_evidence_ledger.py"
+      - "portable/canonical_execution_plan.py"
       - "tests/test_repository_execution_preflight.py"
       - "tests/test_execution_controller*.py"
       - "tests/test_agent_execution_guard.py"
       - "tests/test_guarded_filesystem.py"
       - "tests/test_canonical_evidence_ledger.py"
+      - "tests/test_canonical_execution_plan.py"
       - ".github/workflows/repository-execution-preflight.yml"
   workflow_dispatch:
 
@@ -46,3 +48,5 @@ jobs:
         run: python -m unittest tests.test_execution_controller tests.test_execution_controller_restart tests.test_execution_controller_cancellation tests.test_execution_controller_evidence_capture -v
       - name: Canonical evidence ledger
         run: python -m unittest tests.test_canonical_evidence_ledger -v
+      - name: Canonical execution plan admission and dispatch
+        run: python -m unittest tests.test_canonical_execution_plan -v
