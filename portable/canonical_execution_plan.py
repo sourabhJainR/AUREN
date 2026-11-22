@@ -206,6 +206,14 @@ def enforce_execution_plan_write(relative_path: str) -> None:
         plan.authorize_path(relative_path)
 
 
+def enforce_execution_plan_subprocess() -> None:
+    """Raw local processes are not a sandbox and are denied for plan-scoped work."""
+    if _ACTIVE_PLAN.get() is not None:
+        raise PermissionError(
+            "raw subprocess execution is blocked for canonical-plan tasks; use a configured isolated sandbox"
+        )
+
+
 @contextmanager
 def execution_plan_scope(plan: CanonicalExecutionPlan | None) -> Iterator[None]:
     token = _ACTIVE_PLAN.set(plan)
@@ -217,5 +225,5 @@ def execution_plan_scope(plan: CanonicalExecutionPlan | None) -> Iterator[None]:
 
 __all__ = [
     "CanonicalExecutionPlan", "current_execution_plan",
-    "enforce_execution_plan_write", "execution_plan_scope",
+    "enforce_execution_plan_write", "enforce_execution_plan_subprocess", "execution_plan_scope",
 ]
