@@ -10,6 +10,7 @@ from portable.canonical_execution_plan import (
     CanonicalExecutionPlan, execution_plan_scope,
 )
 from portable.execution_controller import ExecutionController
+from portable.engineering_design_guard import EngineeringDesignGuard
 from portable.guarded_filesystem import write_workspace_text
 from portable.bounded_subprocess import run_bounded_command
 
@@ -151,6 +152,28 @@ class CanonicalExecutionPlanTests(unittest.TestCase):
         controller.register_handler("plan_write", _plan_write_handler, execution_class="read_only")
         plan = self.plan()
         plan["requirements"] = ["Improve durable retry and resume behavior."]
+        runtime_review = EngineeringDesignGuard.recommend_approaches(
+            Path(__file__).resolve().parents[1],
+            "Improve durable retry and resume behavior.",
+            risk="medium",
+        )
+        reviewed_paths = sorted({
+            f"runtime:{path}"
+            for recommendation in runtime_review["recommendations"]
+            for path in recommendation.get("repository_evidence", ())
+            if path.endswith(".py") and (
+                path.startswith("portable/") or path.startswith(".ai-harness/runtime/")
+            )
+        })
+        self.assertIn("runtime:portable/execution_controller.py", reviewed_paths)
+        with self.assertRaises(PermissionError):
+            controller.submit(
+                "plan_write",
+                {"root": str(self.root), "path": "output/reuse-review.txt"},
+                execution_plan=plan,
+            )
+        plan["reuse_decision"] = "reuse_existing"
+        plan["reuse_reviewed_paths"] = reviewed_paths
         task = controller.submit(
             "plan_write",
             {"root": str(self.root), "path": "output/reuse-review.txt"},
@@ -159,12 +182,6 @@ class CanonicalExecutionPlanTests(unittest.TestCase):
         receipt = task.payload["_auren_feasibility_review"]
         recommendations = receipt["reuse_review"]["runtime_repository"]["recommendations"]
         self.assertTrue(recommendations)
-        evidence_paths = {
-            path
-            for recommendation in recommendations
-            for path in recommendation.get("repository_evidence", ())
-        }
-        self.assertIn("portable/execution_controller.py", evidence_paths)
         self.assertIn("durable state machine + deadline scheduling", {
             recommendation["pattern"] for recommendation in recommendations
         })
