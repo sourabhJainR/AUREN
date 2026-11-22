@@ -1,4 +1,8 @@
 import unittest
+import json
+import sys
+import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -505,6 +509,79 @@ class GitHubWriteBoundaryTests(unittest.TestCase):
         with patch("subprocess.Popen", side_effect=AssertionError("child process must not start")):
             with self.assertRaises(AdapterUnavailable):
                 adapter._call_untraced(request)
+
+
+
+    def test_mcp_adapter_discovers_and_compares_live_github_tool_schema_before_call(self):
+        from portable.vibe_coding_host import AdapterUnavailable, MCPStdioToolAdapter
+
+        arguments = {
+            "owner": "acme", "repo": "product", "branch": "feature/work",
+            "expected_head_sha": SHA, "files": [
+                {"path": "src/main.py", "content": "value = 1"},
+                {"path": "tests/test_main.py", "content": "assert True"},
+            ],
+        }
+        preflight = preflight_github_tool(
+            argv=self.argv, tool_name="push_files", arguments=arguments, plan=self.plan,
+        )
+        schema_json = next(item[1] for item in self.plan.tool_contracts if item[0] == "push_files")
+        schema = json.loads(schema_json)
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            marker = root / "tool-called"
+            server = root / "github_mcp_server.py"
+
+            def write_server(live_schema):
+                server.write_text(
+                    "import json, pathlib, sys\n"
+                    f"schema = {json.dumps(live_schema)!r}\n"
+                    f"marker = {str(marker)!r}\n"
+                    "for line in sys.stdin:\n"
+                    "    request = json.loads(line)\n"
+                    "    method = request.get('method')\n"
+                    "    if method == 'initialize':\n"
+                    "        print(json.dumps({'jsonrpc':'2.0','id':request['id'],'result':{'protocolVersion':'2024-11-05','capabilities':{},'serverInfo':{'name':'fake-github','version':'1'}}}), flush=True)\n"
+                    "    elif method == 'tools/list':\n"
+                    "        print(json.dumps({'jsonrpc':'2.0','id':request['id'],'result':{'tools':[{'name':'push_files','inputSchema':schema}]}}), flush=True)\n"
+                    "    elif method == 'tools/call':\n"
+                    "        pathlib.Path(marker).write_text('called')\n"
+                    "        print(json.dumps({'jsonrpc':'2.0','id':request['id'],'result':{'structuredContent':{'ok':True}}}), flush=True)\n"
+                    "        break\n",
+                    encoding="utf-8",
+                )
+
+            write_server(schema)
+            adapter = MCPStdioToolAdapter(
+                argv=(sys.executable, str(server)),
+                tool_name="push_files",
+                argument_map={},
+                timeout_seconds=5,
+                requires_authority_binding=True,
+                github_server=True,
+                execution_plan=self.plan,
+                trusted_workspace_root=root,
+            )
+            result = adapter._invoke_unchecked(
+                {"state": {"workspace_root": str(root), "project_root": str(root)}},
+                arguments=arguments,
+                github_write_preflight=preflight,
+            )
+            self.assertEqual(result, {"ok": True})
+            self.assertTrue(marker.is_file())
+
+            marker.unlink()
+            changed_schema = dict(schema)
+            changed_schema["description"] = "different live schema"
+            write_server(changed_schema)
+            with self.assertRaisesRegex(AdapterUnavailable, "schema differs"):
+                adapter._invoke_unchecked(
+                    {"state": {"workspace_root": str(root), "project_root": str(root)}},
+                    arguments=arguments,
+                    github_write_preflight=preflight,
+                )
+            self.assertFalse(marker.exists())
 
 
 
