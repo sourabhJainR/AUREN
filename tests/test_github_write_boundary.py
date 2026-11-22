@@ -387,6 +387,23 @@ class GitHubWriteBoundaryTests(unittest.TestCase):
                 argv=self.argv, tool_name="push_files", arguments=arguments, plan=unsafe_plan,
             )
 
+
+    def test_github_write_requires_explicit_capability_evidence(self):
+        arguments = {
+            "owner": "acme", "repo": "product", "branch": "feature/work",
+            "expected_head_sha": SHA, "files": [
+                {"path": "src/main.py", "content": "value = 1"},
+                {"path": "tests/test_main.py", "content": "assert True"},
+            ],
+        }
+        payload = self.plan.payload()
+        payload["required_capabilities"].remove("repository.write")
+        plan = CanonicalExecutionPlan.from_mapping(payload)
+        with self.assertRaisesRegex(GitHubWriteBoundaryError, "repository.write"):
+            preflight_github_tool(
+                argv=self.argv, tool_name="push_files", arguments=arguments, plan=plan,
+            )
+
     def test_preflight_payload_detects_tampering(self):
         payload = preflight_github_tool(
             argv=self.argv, tool_name="create_branch",
