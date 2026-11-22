@@ -1,9 +1,9 @@
 """Root-confined filesystem operations for AUREN workspace adapters.
 
-POSIX operations use directory descriptors and O_NOFOLLOW for each path
-component to reduce symlink and TOCTOU exposure. The Windows fallback performs
-canonical containment and symlink checks but is not a kernel-level sandbox;
-production isolation must still be supplied by the configured OS sandbox.
+POSIX uses directory descriptors and O_NOFOLLOW. Windows uses native NT
+handle-relative opens, rejects reparse points on opened handles, and denies
+delete sharing while traversing directories to prevent replacement races.
+Neither adapter is a substitute for an OS sandbox for untrusted code.
 """
 from __future__ import annotations
 
@@ -122,11 +122,9 @@ def open_workspace_file(
                 raise PermissionError("symlink traversal is forbidden") from exc
             raise
         return os.fdopen(descriptor, mode) if "b" in mode else os.fdopen(descriptor, mode, encoding="utf-8")
-    target = resolve_workspace_path(workspace, relative_path)
-    if create_parents:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target = resolve_workspace_path(workspace, relative_path)
-    return target.open(mode) if "b" in mode else target.open(mode, encoding="utf-8")
+    from ._windows_handle_filesystem import open_workspace_file as open_windows_workspace_file
+
+    return open_windows_workspace_file(workspace, parts, mode, create_parents)
 
 
 def read_workspace_text(root: str | Path, relative_path: str | Path) -> str:
@@ -166,7 +164,8 @@ def write_workspace_text(root: str | Path, relative_path: str | Path, content: s
         stream.flush()
         if hasattr(stream, "fileno"):
             os.fsync(stream.fileno())
-    return resolve_workspace_path(root, relative_path)
+    workspace = Path(root).expanduser().resolve(strict=True)
+    return workspace.joinpath(*_relative_parts(relative_path))
 
 
 __all__ = [
