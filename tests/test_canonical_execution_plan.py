@@ -71,6 +71,17 @@ class CanonicalExecutionPlanTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             plan.validate_runtime(repository="acme/fileoperations", branch="main", head_sha="b" * 40)
 
+        with self.assertRaises(PermissionError):
+            plan.validate_runtime(
+                repository="acme/fileoperations", branch="main", head_sha=self.head,
+                host_capabilities={"workspace_filesystem": False},
+            )
+        with self.assertRaises(PermissionError):
+            plan.validate_runtime(
+                repository="acme/fileoperations", branch="main", head_sha=self.head,
+                host_capabilities={},
+            )
+
     def test_guarded_filesystem_enforces_plan_scope(self):
         plan = CanonicalExecutionPlan.from_mapping(self.plan())
         with execution_plan_scope(plan):
