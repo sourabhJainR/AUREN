@@ -216,21 +216,25 @@ class CanonicalExecutionPlanTests(unittest.TestCase):
     def test_sensitive_data_transfer_requires_trusted_human_approval_gate(self):
         controller = ExecutionController(self.root)
         controller.register_handler("plan_write", _plan_write_handler, execution_class="read_only")
-        plan = self.plan()
-        plan["constraints"] = [
-            "Do not transfer personal or confidential data to external services without explicit human approval."
-        ]
-        work_key = "privacy-transfer-requires-approval"
-        with self.assertRaises(PermissionError) as raised:
-            controller.submit(
-                "plan_write",
-                {"root": str(self.root), "path": "output/private-export.txt"},
-                work_key=work_key,
-                execution_plan=plan,
-            )
-        self.assertIn("approval_gated", str(raised.exception))
-        self.assertIsNone(controller.task_by_work_key(work_key))
-        self.assertFalse((self.root / "output/private-export.txt").exists())
+        constraints = (
+            "Do not transfer personal or confidential data to external services without explicit human approval.",
+            "Obtain explicit human consent before transferring personal data to an external service.",
+        )
+        for index, constraint in enumerate(constraints):
+            with self.subTest(index=index):
+                plan = self.plan()
+                plan["constraints"] = [constraint]
+                work_key = f"privacy-transfer-requires-approval-{index}"
+                with self.assertRaises(PermissionError) as raised:
+                    controller.submit(
+                        "plan_write",
+                        {"root": str(self.root), "path": f"output/private-export-{index}.txt"},
+                        work_key=work_key,
+                        execution_plan=plan,
+                    )
+                self.assertIn("approval_gated", str(raised.exception))
+                self.assertIsNone(controller.task_by_work_key(work_key))
+                self.assertFalse((self.root / f"output/private-export-{index}.txt").exists())
 
     def test_unknown_tool_schema_constraint_fails_closed_at_admission(self):
         plan = self.plan()
