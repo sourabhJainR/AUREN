@@ -109,12 +109,16 @@ class GuardedFilesystemTests(unittest.TestCase):
             self.skipTest(f"Windows symlink creation unavailable: {type(exc).__name__}")
 
         stop = threading.Event()
+        installed = threading.Event()
         successful_swaps = 0
+        worker_errors = []
 
         def replace_parent():
             nonlocal successful_swaps
             while not stop.is_set():
                 try:
+                    # Keep one real directory parked while the workspace name
+                    # alternates between that directory and an outside symlink.
                     if parent.is_symlink():
                         parent.unlink()
                     if held.exists() and not parent.exists():
@@ -124,24 +128,35 @@ class GuardedFilesystemTests(unittest.TestCase):
                     if not parent.exists():
                         parent.symlink_to(self.outside, target_is_directory=True)
                         successful_swaps += 1
+                        installed.set()
+                        # Give the writer a deterministic interval in which
+                        # the hostile parent is present, then restore the tree.
+                        time.sleep(0.0005)
                     if parent.is_symlink():
                         parent.unlink()
                     if held.exists() and not parent.exists():
                         held.rename(parent)
-                except (FileNotFoundError, PermissionError, OSError):
-                    # Sharing violations while a directory handle is open are
-                    # expected; retrying keeps pressure on the replacement window.
+                except (FileNotFoundError, PermissionError, OSError) as exc:
+                    # Open directory handles intentionally deny delete sharing.
+                    # Contention is expected; retain the last error for a useful
+                    # assertion if the worker cannot install even one symlink.
+                    worker_errors.append(type(exc).__name__)
                     time.sleep(0.0002)
 
         worker = threading.Thread(target=replace_parent, daemon=True)
         worker.start()
         try:
+            self.assertTrue(
+                installed.wait(timeout=5),
+                f"race worker never installed the outside symlink; errors={worker_errors[-5:]}",
+            )
             for index in range(250):
                 try:
                     write_workspace_text(self.root, "slot/race.txt", f"inside-{index}")
                 except (PermissionError, FileNotFoundError, NotADirectoryError, OSError):
                     pass
                 self.assertEqual("untouched", victim.read_text(encoding="utf-8"))
+                time.sleep(0)  # yield so the replacement worker can race each open
         finally:
             stop.set()
             worker.join(timeout=2)
@@ -152,6 +167,7 @@ class GuardedFilesystemTests(unittest.TestCase):
         self.assertGreater(successful_swaps, 0, "race worker never installed the outside symlink")
         self.assertFalse((self.outside / "race.txt").exists())
         self.assertEqual("untouched", victim.read_text(encoding="utf-8"))
+
 
 
 if __name__ == "__main__":
