@@ -1,0 +1,74 @@
+name: FileOperations Canonical Execution Regression
+
+on:
+  pull_request:
+    paths:
+      - "portable/canonical_execution_plan.py"
+      - "portable/execution_controller.py"
+      - "portable/guarded_filesystem.py"
+      - "portable/repository_execution_preflight.py"
+      - "tests/integration/fileoperations_execution_plan.py"
+      - ".github/workflows/fileoperations-canonical-execution.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fileoperations-canonical-execution-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fileoperations-regression:
+    name: AUREN plan enforcement and FileOperations regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout AUREN at candidate SHA
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: auren
+          fetch-depth: 1
+      - name: Checkout pinned FileOperations baseline
+        uses: actions/checkout@v7
+        with:
+          repository: sourabhJainR/FileOperations
+          ref: 102807e868b96d3d836b3651d9e5557d10816d21
+          path: fileoperations
+          fetch-depth: 1
+      - name: Attach FileOperations fixture branch
+        run: git -C fileoperations switch -c main
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Exercise AUREN plan enforcement on FileOperations
+        env:
+          AUREN_ROOT: ${{ github.workspace }}/auren
+          FILEOPERATIONS_ROOT: ${{ github.workspace }}/fileoperations
+        run: python auren/tests/integration/fileoperations_execution_plan.py
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: fileoperations/apps/filekit/package.json
+      - name: Install FileKit dependencies
+        working-directory: fileoperations/apps/filekit
+        run: npm install --no-audit --no-fund
+      - name: Run FileKit unit tests
+        working-directory: fileoperations/apps/filekit
+        run: npm test
+      - name: Build FileKit production bundle
+        working-directory: fileoperations/apps/filekit
+        run: npm run build
+      - name: Verify production entry point
+        working-directory: fileoperations/apps/filekit
+        run: test -s dist/index.html
+      - name: Install Chromium
+        working-directory: fileoperations/apps/filekit
+        run: npx playwright install --with-deps chromium
+      - name: Run FileKit browser regression
+        working-directory: fileoperations/apps/filekit
+        run: npm run test:browser
