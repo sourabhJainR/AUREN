@@ -12,7 +12,7 @@ AUREN treats GitHub mutations as approved external effects. The MCP adapter does
 
 ## Vibe Coding host
 
-Pass a validated `CanonicalExecutionPlan` (or its mapping) to `LocalVibeCodingHost.run(..., execution_plan=plan)`. The host verifies the repository origin, source checkout branch and base SHA before building the isolated workspace. The plan implementation branch must be the source branch or the plan's declared `pull_request_base_branch`. It also probes configured MCP capabilities and calls `CanonicalExecutionPlan.validate_runtime`; missing or unsupported required capabilities block admission.
+Pass a validated `CanonicalExecutionPlan` (or its mapping) to `LocalVibeCodingHost.run(..., execution_plan=plan)`. The host verifies the repository origin, source checkout branch and base SHA before building the isolated workspace. The plan implementation branch must be the source branch or the plan's declared `pull_request_base_branch`. It also probes configured MCP capabilities and calls `CanonicalExecutionPlan.validate_runtime`; missing or unsupported required capabilities block admission. Digest-only tool contracts are accepted only when the host reports the trusted `github_write_digest_contracts` probe.
 
 For an MCP server whose command does not contain `github`, set `github_server: true` on its `mcp_tools` entry. The host also detects common GitHub MCP server command names. All unknown tools on a declared GitHub server are denied; only the explicit read-only allowlist bypasses write preflight.
 
