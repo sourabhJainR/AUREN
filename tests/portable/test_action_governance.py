@@ -270,3 +270,13 @@ def test_duplicate_action_identity_does_not_create_stranded_ledger_intent():
         assert not second.executed
         assert second.verdict.reason == "duplicate_action_identity"
         assert ledger.get("publish:key-2") is None
+
+
+def test_repository_write_requires_approval_evidence_and_external_effect_idempotency():
+    policy = ActionPolicy(allowed_capabilities=frozenset({"repository.write"}))
+    assert "repository.write" in policy.allowed_actions
+    assert "repository.write" in policy.approval_required_actions
+    assert "repository.write" in policy.external_effect_actions
+    assert "repository.write" in policy.evidence_required_actions
+    assert "delete_remote" in policy.approval_required_actions
+    assert "delete_remote" in policy.evidence_required_actions
