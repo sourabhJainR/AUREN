@@ -72,13 +72,6 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           echo "sha=$resolved_sha" >> "$GITHUB_OUTPUT"
           git -C fileoperations switch -c main
-      - name: Upload resolved fixture evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: fileoperations-pr-${{ matrix.fileoperations_pr }}-revision-evidence
-          path: fileoperations-fixture-evidence.txt
-          if-no-files-found: error
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -112,3 +105,10 @@ jobs:
       - name: Run FileKit browser regression
         working-directory: fileoperations/apps/filekit
         run: npm run test:browser
+      - name: Upload resolved fixture evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fileoperations-pr-${{ matrix.fileoperations_pr }}-revision-evidence
+          path: fileoperations-fixture-evidence.txt
+          if-no-files-found: error
