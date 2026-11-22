@@ -1369,30 +1369,24 @@ class MCPStdioToolAdapter:
         deny_unscoped_subprocess_for_assigned_agent()
 
         arguments = self._arguments_for_request(request)
-        request_snapshot: dict[str, Any] | None = None
+        github_write_preflight: Mapping[str, Any] | None = None
         if self.github_server:
             try:
-                request_snapshot = json.loads(json.dumps(dict(request), ensure_ascii=False, allow_nan=False))
-                if not isinstance(request_snapshot, dict):
-                    raise TypeError("MCP request snapshot must be an object")
-                # Never accept caller-supplied boundary metadata. The host replaces
-                # it with a fresh preflight derived from the active canonical plan.
-                request_snapshot.pop("_auren_github_write", None)
                 from .github_write_boundary import preflight_github_tool
                 plan = self.execution_plan
                 if plan is None:
                     from .canonical_execution_plan import current_execution_plan
                     plan = current_execution_plan()
-                github_write = preflight_github_tool(
+                github_write_preflight = preflight_github_tool(
                     argv=self.argv, tool_name=self.tool_name, arguments=arguments,
                     plan=plan, github_server=True,
                 )
-                if github_write is not None:
-                    if not self.requires_authority_binding or self.authority_dispatch is None:
-                        raise PermissionError(
-                            "GitHub mutations require canonical execution plan and trusted approval dispatch"
-                        )
-                    request_snapshot["_auren_github_write"] = github_write
+                if github_write_preflight is not None and (
+                    not self.requires_authority_binding or self.authority_dispatch is None
+                ):
+                    raise PermissionError(
+                        "GitHub mutations require canonical execution plan and trusted approval dispatch"
+                    )
             except Exception as exc:
                 raise AdapterUnavailable("GitHub write boundary rejected MCP dispatch") from exc
 
@@ -1536,13 +1530,13 @@ class MCPStdioToolAdapter:
                 f"MCP tool {self.tool_name} requires a trusted execution authority resolver before dispatch"
             )
         try:
-            if request_snapshot is None:
-                request_snapshot = json.loads(json.dumps(dict(request), ensure_ascii=False, allow_nan=False))
+            request_snapshot = json.loads(json.dumps(dict(request), ensure_ascii=False, allow_nan=False))
             if not isinstance(request_snapshot, dict):
                 raise TypeError("MCP request snapshot must be an object")
             call_binding = MCPToolCallBinding.from_call(
                 self.tool_name, self.argv, arguments, request_snapshot,
                 env_allowlist=self.env_allowlist, timeout_seconds=self.timeout_seconds,
+                github_write_preflight=github_write_preflight,
             )
         except Exception as exc:
             raise AdapterUnavailable("MCP call binding could not be established; dispatch blocked") from exc
