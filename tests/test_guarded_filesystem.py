@@ -90,5 +90,65 @@ class GuardedFilesystemTests(unittest.TestCase):
             read_workspace_text(self.root, "alias/file.txt")
 
 
+    @unittest.skipUnless(os.name == "nt", "Windows handle-relative race test")
+    def test_windows_parent_replacement_race_never_writes_outside(self):
+        import threading
+        import time
+
+        victim = self.outside / "victim.txt"
+        victim.write_text("untouched", encoding="utf-8")
+        parent = self.root / "slot"
+        held = self.root / "slot-held"
+        parent.mkdir()
+        (parent / "inside.txt").write_text("inside", encoding="utf-8")
+        try:
+            probe = self.root / "symlink-probe"
+            probe.symlink_to(self.outside, target_is_directory=True)
+            probe.unlink()
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"Windows symlink creation unavailable: {type(exc).__name__}")
+
+        stop = threading.Event()
+
+        def replace_parent():
+            while not stop.is_set():
+                try:
+                    if parent.is_symlink():
+                        parent.unlink()
+                    if held.exists() and not parent.exists():
+                        held.rename(parent)
+                    if parent.exists() and not parent.is_symlink():
+                        parent.rename(held)
+                    if not parent.exists():
+                        parent.symlink_to(self.outside, target_is_directory=True)
+                    if parent.is_symlink():
+                        parent.unlink()
+                    if held.exists() and not parent.exists():
+                        held.rename(parent)
+                except (FileNotFoundError, PermissionError, OSError):
+                    # Sharing violations while a directory handle is open are
+                    # expected; retrying keeps pressure on the replacement window.
+                    time.sleep(0.0002)
+
+        worker = threading.Thread(target=replace_parent, daemon=True)
+        worker.start()
+        try:
+            for index in range(250):
+                try:
+                    write_workspace_text(self.root, "slot/race.txt", f"inside-{index}")
+                except (PermissionError, FileNotFoundError, NotADirectoryError, OSError):
+                    pass
+                self.assertEqual("untouched", victim.read_text(encoding="utf-8"))
+        finally:
+            stop.set()
+            worker.join(timeout=2)
+            if parent.is_symlink():
+                parent.unlink()
+            if held.exists() and not parent.exists():
+                held.rename(parent)
+        self.assertFalse((self.outside / "race.txt").exists())
+        self.assertEqual("untouched", victim.read_text(encoding="utf-8"))
+
+
 if __name__ == "__main__":
     unittest.main()
