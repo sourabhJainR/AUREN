@@ -1,6 +1,16 @@
 name: FileOperations Canonical Execution Regression
 
 on:
+  push:
+    branches:
+      - feat/1436-canonical-execution-preflight
+    paths:
+      - "portable/canonical_execution_plan.py"
+      - "portable/execution_controller.py"
+      - "portable/guarded_filesystem.py"
+      - "portable/repository_execution_preflight.py"
+      - "tests/integration/fileoperations_execution_plan.py"
+      - ".github/workflows/fileoperations-canonical-execution.yml"
   pull_request:
     paths:
       - "portable/canonical_execution_plan.py"
