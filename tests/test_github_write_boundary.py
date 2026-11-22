@@ -79,11 +79,12 @@ def make_plan(**target_changes):
         },
     }
     tool_contract_overrides = target_changes.pop("tool_contract_overrides", {})
+    tool_schema_overrides = target_changes.pop("tool_schema_overrides", {})
     if isinstance(tool_contract_overrides, dict):
         for name, arguments in tool_contract_overrides.items():
             tool_arguments[name] = arguments
     contracts = [
-        {"name": name, "schema": _schema_for(arguments), "arguments": arguments}
+        {"name": name, "schema": tool_schema_overrides.get(name, _schema_for(arguments)), "arguments": arguments}
         for name, arguments in tool_arguments.items()
     ]
     target.update(target_changes)
@@ -327,6 +328,31 @@ class GitHubWriteBoundaryTests(unittest.TestCase):
         main_plan = make_plan(pull_request_base_branch="main")
         release_plan = make_plan(pull_request_base_branch="release")
         self.assertNotEqual(main_plan.digest, release_plan.digest)
+
+
+    def test_tool_schema_must_require_expected_sha_and_file_paths(self):
+        arguments = {
+            "owner": "acme", "repo": "product", "branch": "feature/work",
+            "expected_head_sha": SHA, "files": [
+                {"path": "src/main.py", "content": "value = 1"},
+                {"path": "tests/test_main.py", "content": "assert True"},
+            ],
+        }
+        unsafe_schema = _schema_for(arguments)
+        unsafe_schema["required"].remove("expected_head_sha")
+        unsafe_plan = make_plan(tool_schema_overrides={"push_files": unsafe_schema})
+        with self.assertRaisesRegex(GitHubWriteBoundaryError, "expected-SHA"):
+            preflight_github_tool(
+                argv=self.argv, tool_name="push_files", arguments=arguments, plan=unsafe_plan,
+            )
+
+        unsafe_schema = _schema_for(arguments)
+        unsafe_schema["properties"]["files"]["items"]["required"].remove("path")
+        unsafe_plan = make_plan(tool_schema_overrides={"push_files": unsafe_schema})
+        with self.assertRaisesRegex(GitHubWriteBoundaryError, "require each file path"):
+            preflight_github_tool(
+                argv=self.argv, tool_name="push_files", arguments=arguments, plan=unsafe_plan,
+            )
 
     def test_preflight_payload_detects_tampering(self):
         payload = preflight_github_tool(
