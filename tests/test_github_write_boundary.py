@@ -100,12 +100,24 @@ def make_plan(**target_changes):
         "target": target,
         "requirements": ["Implement the requested product change."],
         "acceptance": ["All required checks pass on the exact candidate head."],
-        "required_capabilities": ["workspace_filesystem"],
-        "capabilities": [{
-            "name": "workspace_filesystem",
-            "available": True,
-            "evidence": "guarded filesystem host probe",
-        }],
+        "required_capabilities": ["workspace_filesystem", "github_mcp", "repository.write"],
+        "capabilities": [
+            {
+                "name": "workspace_filesystem",
+                "available": True,
+                "evidence": "guarded filesystem host probe",
+            },
+            {
+                "name": "github_mcp",
+                "available": True,
+                "evidence": "configured GitHub MCP server probe",
+            },
+            {
+                "name": "repository.write",
+                "available": True,
+                "evidence": "authority-bound repository write adapter probe",
+            },
+        ],
         "stopping_condition": "Stop on any failed security or acceptance gate.",
         "tool_contracts": contracts,
     })
@@ -339,7 +351,10 @@ class GitHubWriteBoundaryTests(unittest.TestCase):
         self.assertTrue(all("arguments_digest" in contract for contract in self.plan.payload()["tool_contracts"]))
         self.plan.validate_runtime(
             repository="acme/product", branch="feature/work", head_sha=SHA,
-            host_capabilities={"workspace_filesystem": True, "github_write_digest_contracts": True},
+            host_capabilities={
+                "workspace_filesystem": True, "github_mcp": True,
+                "repository.write": True, "github_write_digest_contracts": True,
+            },
         )
 
     def test_pull_request_base_branch_is_part_of_canonical_plan_digest(self):
