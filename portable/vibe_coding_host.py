@@ -35,6 +35,7 @@ from .agent_execution_guard import (
 )
 from .execution_boundary import ExecutionAuthorityBinding, execute_bound_action
 from .runtime_recovery import RuntimeExecutionGuard
+from .repository_execution_preflight import guard_governance_repository
 from .provider_fabric import ProviderFabric
 from .engineering_design_guard import EngineeringDesignGuard
 from .vibe_coding import STAGE_ORDER, STAGE_SPECS, VibeCodingCheckpoint, VibeStage
@@ -2677,6 +2678,22 @@ class LocalVibeCodingHost:
             raise ValueError("workflow_id must be a safe identifier")
         if not intent.strip():
             raise ValueError("intent is required")
+        # Protect the orchestration repository from accidental product-code writes.
+        # AUREN development remains possible, but requires an explicit operator opt-in.
+        origin = _run(
+            ("git", "-C", str(self.project_root), "remote", "get-url", "origin"),
+            cwd=self.project_root, timeout=10,
+        )
+        if origin.returncode == 0 and origin.stdout.strip():
+            guard_governance_repository(
+                origin.stdout.strip(),
+                governance_repository=os.environ.get(
+                    "AUREN_GOVERNANCE_REPOSITORY", "sourabhJainR/AUREN"
+                ),
+                allow_governance_repository_changes=(
+                    os.environ.get("AUREN_ALLOW_GOVERNANCE_REPOSITORY_CHANGES") == "1"
+                ),
+            )
         lease = IsolatedGitWorktree(self.project_root, workflow_id, self.state_root / "worktrees")
         workspace = lease.open() if self.config.allow_workspace_writes else self.project_root
         if self.config.allow_workspace_writes:
