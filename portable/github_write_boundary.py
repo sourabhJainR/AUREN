@@ -59,14 +59,7 @@ _ACTIONS = {
     "merge_pull_request": "merge",
     "delete_branch": "delete_remote",
 }
-_MUTATING_UNSUPPORTED = frozenset({
-    "create_repository", "delete_repository", "create_issue", "update_issue",
-    "add_issue_comment", "create_issue_comment", "create_pull_request_review",
-    "create_pull_request_review_comment", "request_copilot_review",
-    "assign_copilot_to_issue", "create_release", "update_release",
-    "delete_release", "create_gist", "update_gist", "delete_gist",
-    "create_workflow_dispatch", "cancel_workflow_run",
-})
+
 
 
 class GitHubWriteBoundaryError(PermissionError):
