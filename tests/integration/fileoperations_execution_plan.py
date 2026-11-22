@@ -102,6 +102,70 @@ def main() -> None:
         if _sha256(protected_file) != before:
             raise AssertionError("out-of-scope write modified the protected FileOperations file")
 
+        infeasible_plan = dict(plan)
+        infeasible_plan["requirements"] = [
+            "Build live market quotes.",
+            "Use a free provider with 15-minute delayed quotes.",
+            "Show delayed data as real-time.",
+        ]
+        infeasible_key = f"fileoperations-infeasible:{head}"
+        try:
+            controller.submit(
+                "fileoperations_plan_write",
+                {"root": str(FILEOPERATIONS_ROOT), "path": "apps/filekit/.auren-validation/infeasible.txt"},
+                work_key=infeasible_key,
+                execution_plan=infeasible_plan,
+            )
+        except PermissionError:
+            pass
+        else:
+            raise AssertionError("contradictory FileOperations requirement was admitted")
+        if controller.task_by_work_key(infeasible_key) is not None:
+            raise AssertionError("infeasible FileOperations requirement created a durable task")
+
+        missing_privacy_policy = dict(plan)
+        missing_privacy_policy["requirements"] = [
+            "Export personal data to an external analytics service.",
+        ]
+        privacy_key = f"fileoperations-privacy-policy:{head}"
+        try:
+            controller.submit(
+                "fileoperations_plan_write",
+                {"root": str(FILEOPERATIONS_ROOT), "path": "apps/filekit/.auren-validation/private.txt"},
+                work_key=privacy_key,
+                execution_plan=missing_privacy_policy,
+            )
+        except PermissionError:
+            pass
+        else:
+            raise AssertionError("sensitive-data requirement without a privacy policy was admitted")
+        if controller.task_by_work_key(privacy_key) is not None:
+            raise AssertionError("privacy-sensitive requirement created a durable task")
+
+        consent_required = dict(plan)
+        consent_required["requirements"] = ["Transfer personal data to an external service."]
+        consent_required["constraints"] = [
+            "Encrypt transferred data and enforce role-based access control.",
+        ]
+        consent_required["acceptance"] = [
+            "Do not transfer personal data until the user consents.",
+        ]
+        consent_key = f"fileoperations-consent-gate:{head}"
+        try:
+            controller.submit(
+                "fileoperations_plan_write",
+                {"root": str(FILEOPERATIONS_ROOT), "path": "apps/filekit/.auren-validation/consent.txt"},
+                work_key=consent_key,
+                execution_plan=consent_required,
+            )
+        except PermissionError as exc:
+            if "approval_gated" not in str(exc):
+                raise
+        else:
+            raise AssertionError("consent-bound transfer bypassed the trusted approval gate")
+        if controller.task_by_work_key(consent_key) is not None:
+            raise AssertionError("consent-bound transfer created a durable task without approval")
+
         print(json.dumps({
             "repository": repository,
             "head_sha": head,
@@ -109,6 +173,9 @@ def main() -> None:
             "in_scope_task": controller.task(allowed.id).state,
             "out_of_scope_task": controller.task(denied.id).state,
             "protected_file_unchanged": True,
+            "infeasible_requirement_rejected": True,
+            "privacy_policy_required": True,
+            "consent_gate_required": True,
             "result": "passed",
         }, sort_keys=True))
     finally:
