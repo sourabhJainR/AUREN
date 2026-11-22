@@ -10,6 +10,7 @@ from enum import Enum
 import fnmatch
 import hashlib
 import json
+import math
 import re
 from typing import Any, Mapping, Sequence
 
@@ -121,51 +122,159 @@ class ToolContractError(ValueError):
     """Tool arguments do not satisfy the discovered input contract."""
 
 
+_SCHEMA_ALLOWED_KEYWORDS = {
+    "type", "properties", "required", "additionalProperties", "items", "enum",
+    "minLength", "maxLength", "minimum", "maximum", "minItems", "maxItems",
+    "minProperties", "maxProperties", "description", "title", "default",
+    "examples", "deprecated", "readOnly", "writeOnly",
+}
+
+
+def _validate_schema_value(schema: Mapping[str, Any], value: Any, path: str) -> None:
+    """Validate the supported recursive JSON-Schema subset; reject unknown constraints."""
+    if not isinstance(schema, Mapping):
+        raise ToolContractError(f"invalid schema for {path}")
+    unsupported = sorted(set(schema) - _SCHEMA_ALLOWED_KEYWORDS)
+    if unsupported:
+        raise ToolContractError(
+            f"unsupported schema keywords for {path}: " + ", ".join(unsupported)
+        )
+    kind = schema.get("type")
+    if kind not in {"string", "integer", "number", "boolean", "array", "object", "null"}:
+        raise ToolContractError(f"unsupported schema type for {path}: {kind}")
+
+    scoped_keywords = {
+        "properties": "object", "required": "object", "additionalProperties": "object",
+        "minProperties": "object", "maxProperties": "object",
+        "items": "array", "minItems": "array", "maxItems": "array",
+        "minLength": "string", "maxLength": "string",
+        "minimum": "number", "maximum": "number",
+    }
+    misplaced = sorted(
+        key for key, owner in scoped_keywords.items()
+        if key in schema and kind not in ({owner, "integer"} if owner == "number" else {owner})
+    )
+    if misplaced:
+        raise ToolContractError(
+            f"schema constraints do not apply to {path} ({kind}): " + ", ".join(misplaced)
+        )
+
+    if "enum" in schema:
+        choices = schema["enum"]
+        if not isinstance(choices, (list, tuple)) or not choices:
+            raise ToolContractError(f"enum for {path} must be a non-empty array")
+        if value not in choices:
+            raise ToolContractError(f"{path} is not an allowed enum value")
+
+    def integer_bound(key: str) -> int | None:
+        if key not in schema:
+            return None
+        bound = schema[key]
+        if type(bound) is not int or bound < 0:
+            raise ToolContractError(f"{key} for {path} must be a non-negative integer")
+        return bound
+
+    if kind == "string":
+        if not isinstance(value, str):
+            raise ToolContractError(f"{path} must be string")
+        minimum, maximum = integer_bound("minLength"), integer_bound("maxLength")
+        if minimum is not None and maximum is not None and minimum > maximum:
+            raise ToolContractError(f"invalid string bounds for {path}")
+        if minimum is not None and len(value) < minimum:
+            raise ToolContractError(f"{path} is shorter than minLength")
+        if maximum is not None and len(value) > maximum:
+            raise ToolContractError(f"{path} is longer than maxLength")
+        return
+
+    if kind == "integer":
+        if type(value) is not int:
+            raise ToolContractError(f"{path} must be integer")
+    elif kind == "number":
+        if type(value) not in (int, float) or not math.isfinite(value):
+            raise ToolContractError(f"{path} must be a finite number")
+    elif kind == "boolean":
+        if type(value) is not bool:
+            raise ToolContractError(f"{path} must be boolean")
+    elif kind == "null":
+        if value is not None:
+            raise ToolContractError(f"{path} must be null")
+    elif kind == "array":
+        if not isinstance(value, (list, tuple)):
+            raise ToolContractError(f"{path} must be array")
+        minimum, maximum = integer_bound("minItems"), integer_bound("maxItems")
+        if minimum is not None and maximum is not None and minimum > maximum:
+            raise ToolContractError(f"invalid array bounds for {path}")
+        if minimum is not None and len(value) < minimum:
+            raise ToolContractError(f"{path} has fewer than minItems")
+        if maximum is not None and len(value) > maximum:
+            raise ToolContractError(f"{path} has more than maxItems")
+        item_schema = schema.get("items")
+        if item_schema is not None:
+            if not isinstance(item_schema, Mapping):
+                raise ToolContractError(f"items schema for {path} must be an object")
+            for index, item in enumerate(value):
+                _validate_schema_value(item_schema, item, f"{path}[{index}]")
+    elif kind == "object":
+        if not isinstance(value, Mapping):
+            raise ToolContractError(f"{path} must be object")
+        if any(not isinstance(key, str) for key in value):
+            raise ToolContractError(f"{path} object keys must be strings")
+        properties = schema.get("properties", {})
+        required = schema.get("required", [])
+        if not isinstance(properties, Mapping) or any(not isinstance(key, str) for key in properties):
+            raise ToolContractError(f"properties schema for {path} is malformed")
+        if not isinstance(required, list) or any(not isinstance(key, str) for key in required):
+            raise ToolContractError(f"required schema for {path} is malformed")
+        missing = sorted(set(required) - set(value))
+        if missing:
+            raise ToolContractError(
+                f"{path} is missing required properties: " + ", ".join(missing)
+            )
+        minimum, maximum = integer_bound("minProperties"), integer_bound("maxProperties")
+        if minimum is not None and maximum is not None and minimum > maximum:
+            raise ToolContractError(f"invalid property bounds for {path}")
+        if minimum is not None and len(value) < minimum:
+            raise ToolContractError(f"{path} has fewer than minProperties")
+        if maximum is not None and len(value) > maximum:
+            raise ToolContractError(f"{path} has more than maxProperties")
+        additional = schema.get("additionalProperties", True)
+        if type(additional) is not bool and not isinstance(additional, Mapping):
+            raise ToolContractError(f"additionalProperties schema for {path} is malformed")
+        extra = sorted(set(value) - set(properties))
+        if extra and additional is False:
+            raise ToolContractError(
+                f"{path} has unexpected properties: " + ", ".join(extra)
+            )
+        for key, item in value.items():
+            child_schema = properties.get(key)
+            if child_schema is None:
+                if isinstance(additional, Mapping):
+                    _validate_schema_value(additional, item, f"{path}.{key}")
+                continue
+            _validate_schema_value(child_schema, item, f"{path}.{key}")
+
+    if kind in {"integer", "number"}:
+        for key in ("minimum", "maximum"):
+            if key in schema:
+                bound = schema[key]
+                if type(bound) not in (int, float) or not math.isfinite(bound):
+                    raise ToolContractError(f"{key} for {path} must be a finite number")
+        minimum, maximum = schema.get("minimum"), schema.get("maximum")
+        if minimum is not None and maximum is not None and minimum > maximum:
+            raise ToolContractError(f"invalid numeric bounds for {path}")
+        if minimum is not None and value < minimum:
+            raise ToolContractError(f"{path} is below minimum")
+        if maximum is not None and value > maximum:
+            raise ToolContractError(f"{path} is above maximum")
+
+
 def validate_tool_arguments(schema: Mapping[str, Any], arguments: Mapping[str, Any]) -> None:
-    """Validate the intentionally supported JSON-Schema subset before dispatch."""
+    """Validate supported nested JSON-Schema constraints before tool dispatch."""
     if not isinstance(schema, Mapping) or schema.get("type") != "object":
         raise ToolContractError("tool input schema must declare an object")
     if not isinstance(arguments, Mapping):
         raise ToolContractError("tool arguments must be an object")
-    properties = schema.get("properties", {})
-    required = schema.get("required", [])
-    if not isinstance(properties, Mapping) or not isinstance(required, list) or any(not isinstance(x, str) for x in required):
-        raise ToolContractError("tool schema properties/required are malformed")
-    missing = [key for key in required if key not in arguments]
-    if missing:
-        raise ToolContractError("missing required tool arguments: " + ", ".join(sorted(missing)))
-    if schema.get("additionalProperties", True) is False:
-        extra = sorted(set(arguments) - set(properties))
-        if extra:
-            raise ToolContractError("unexpected tool arguments: " + ", ".join(extra))
-    for key, value in arguments.items():
-        rule = properties.get(key)
-        if rule is None:
-            continue
-        if not isinstance(rule, Mapping):
-            raise ToolContractError(f"invalid schema for argument: {key}")
-        kind = rule.get("type")
-        valid = {
-            "string": lambda v: isinstance(v, str),
-            "integer": lambda v: type(v) is int,
-            "number": lambda v: type(v) in (int, float) and not isinstance(v, bool),
-            "boolean": lambda v: type(v) is bool,
-            "array": lambda v: isinstance(v, (list, tuple)),
-            "object": lambda v: isinstance(v, Mapping),
-            "null": lambda v: v is None,
-        }.get(kind)
-        if valid is None:
-            raise ToolContractError(f"unsupported schema type for {key}: {kind}")
-        if not valid(value):
-            raise ToolContractError(f"argument {key} must be {kind}")
-        if "enum" in rule and value not in rule["enum"]:
-            raise ToolContractError(f"argument {key} is not an allowed enum value")
-        if isinstance(value, str) and (len(value) < rule.get("minLength", 0) or len(value) > rule.get("maxLength", float("inf"))):
-            raise ToolContractError(f"argument {key} violates string length constraints")
-        if type(value) in (int, float) and (value < rule.get("minimum", float("-inf")) or value > rule.get("maximum", float("inf"))):
-            raise ToolContractError(f"argument {key} violates numeric bounds")
-        if isinstance(value, (list, tuple)) and (len(value) < rule.get("minItems", 0) or len(value) > rule.get("maxItems", float("inf"))):
-            raise ToolContractError(f"argument {key} violates array length constraints")
+    _validate_schema_value(schema, arguments, "arguments")
 
 
 @dataclass(frozen=True, slots=True)
@@ -285,9 +394,17 @@ def exact_head_ci_gate(
     """Fail closed: stale, missing, skipped-required and pending checks never pass."""
     if not _SHA.fullmatch(expected_sha):
         raise ValueError("expected_sha must be a full lowercase commit SHA")
-    expected_required = set(required_check_names)
-    if any(not isinstance(name, str) or not name.strip() for name in expected_required):
+    if (
+        isinstance(required_check_names, (str, bytes))
+        or not isinstance(required_check_names, Sequence)
+        or not required_check_names
+    ):
+        raise ValueError("required_check_names must provide the authoritative non-empty required-check set")
+    if any(not isinstance(name, str) or not name.strip() for name in required_check_names):
         raise ValueError("required_check_names must contain non-empty names")
+    expected_required = set(required_check_names)
+    if len(expected_required) != len(required_check_names):
+        raise ValueError("required_check_names must not contain duplicates")
     results = []
     seen_names: set[str] = set()
     for check in checks:
