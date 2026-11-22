@@ -298,8 +298,10 @@ def _require_schema_contract(operation: str, schema: Mapping[str, Any]) -> None:
         required_fields = {"owner", "repo", "branch", "expected_head_sha", "path"}
     elif operation == "create_commit":
         required_fields = {"owner", "repo", "branch", "expected_head_sha", "parents", "files"}
-    elif operation in {"update_ref", "update_branch"}:
+    elif operation == "update_ref":
         required_fields = {"owner", "repo", "ref", "expected_head_sha", "sha"}
+    elif operation == "update_branch":
+        required_fields = {"owner", "repo", "branch", "expected_head_sha", "sha"}
     elif operation == "delete_branch":
         required_fields = {"owner", "repo", "branch", "expected_head_sha"}
     elif operation == "create_pull_request":
