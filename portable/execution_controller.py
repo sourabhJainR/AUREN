@@ -2512,6 +2512,18 @@ class ExecutionController:
             plan = CanonicalExecutionPlan.from_mapping(execution_plan)
             self._validate_canonical_execution_plan(plan)
             feasibility_receipt = self._canonical_plan_feasibility_review(plan)
+            approval_scope = " ".join((*plan.requirements, *plan.constraints))
+            explicit_approval_required = bool(re.search(
+                r"\\b(?:without|unless|until)\\b.{0,80}\\b(?:explicit\\s+)?(?:human\\s+)?(?:approval|consent)\\b"
+                r"|\\b(?:approval|consent)\\s+(?:is\\s+)?required\\s+before\\b",
+                approval_scope,
+                flags=re.IGNORECASE,
+            ))
+            if explicit_approval_required and execution_class != "approval_gated":
+                raise PermissionError(
+                    "canonical plan requires explicit human approval for this scope; "
+                    "register an approval_gated handler with a trusted approval policy"
+                )
             payload_copy["_auren_execution_plan"] = plan.payload()
             payload_copy["_auren_execution_plan_digest"] = plan.digest
             payload_copy["_auren_feasibility_review"] = feasibility_receipt
