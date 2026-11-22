@@ -310,6 +310,17 @@ class RepositoryExecutionPreflightTests(unittest.TestCase):
                 "REQ-1", "Requirement", "src/a.py", "test_positive", "test_negative",
                 "browser_test", AcceptanceStatus.PASSED, "urn:test:1", "b" * 40),))
 
+    def test_acceptance_matrix_rejects_dot_segments_in_repository_slug(self):
+        row = AcceptanceRow(
+            "REQ-1", "Requirement", "", "", "", "",
+            AcceptanceStatus.BLOCKED, residual_risk="not run",
+        )
+        for repository in ("../product", "./product", "owner/..", "owner/."):
+            with self.subTest(repository=repository), self.assertRaisesRegex(
+                ValueError, "canonical repository"
+            ):
+                AcceptanceMatrix(repository, SHA, (row,))
+
     def test_incomplete_matrix_never_reports_pass(self):
         row = AcceptanceRow("REQ-1", "Requirement", "", "", "", "",
                             AcceptanceStatus.BLOCKED, residual_risk="browser runner unavailable")
