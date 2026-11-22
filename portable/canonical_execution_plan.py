@@ -27,6 +27,20 @@ _ACTIVE_REPOSITORY_ROOT: ContextVar[Path | None] = ContextVar(
     "auren_canonical_execution_repository_root", default=None
 )
 _SHA = re.compile(r"^[0-9a-f]{40}$")
+_DIGEST_ONLY_GITHUB_TOOLS = frozenset({
+    "create_branch", "push_files", "create_or_update_file", "create_file",
+    "update_file", "delete_file", "create_commit", "update_ref",
+    "update_branch", "create_pull_request", "update_pull_request",
+    "merge_pull_request", "delete_branch",
+})
+
+
+def _is_github_write_tool(name: str) -> bool:
+    key = re.sub(r"[^a-z0-9]+", "_", name.casefold()).strip("_")
+    if key.startswith("github_"):
+        key = key[len("github_"):]
+    return key in _DIGEST_ONLY_GITHUB_TOOLS
+
 
 
 def _required_text(value: Any, field: str) -> str:
@@ -278,6 +292,10 @@ class CanonicalExecutionPlan:
                 digest = arguments.get("$arguments_sha256")
                 if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
                     raise ToolContractError(f"tool contract {name} has an invalid arguments digest")
+                if not _is_github_write_tool(name):
+                    raise ToolContractError(
+                        f"tool contract {name} cannot use digest-only arguments outside the GitHub write adapter"
+                    )
                 if schema.get("type") != "object" or not isinstance(schema.get("properties"), Mapping):
                     raise ToolContractError(f"tool contract {name} has an invalid object schema")
             else:
