@@ -310,6 +310,14 @@ class RepositoryExecutionPreflightTests(unittest.TestCase):
                 "REQ-1", "Requirement", "src/a.py", "test_positive", "test_negative",
                 "browser_test", AcceptanceStatus.PASSED, "urn:test:1", "b" * 40),))
 
+    def test_acceptance_matrix_rejects_mutable_row_collections(self):
+        row = AcceptanceRow(
+            "REQ-1", "Requirement", "", "", "", "",
+            AcceptanceStatus.BLOCKED, residual_risk="not run",
+        )
+        with self.assertRaisesRegex(ValueError, "immutable tuple"):
+            AcceptanceMatrix("acme/product", SHA, [row])
+
     def test_acceptance_matrix_rejects_dot_segments_in_repository_slug(self):
         row = AcceptanceRow(
             "REQ-1", "Requirement", "", "", "", "",
