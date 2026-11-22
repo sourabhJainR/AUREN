@@ -414,8 +414,10 @@ class AcceptanceMatrix:
             or not _SHA.fullmatch(self.head_sha)
         ):
             raise ValueError("acceptance matrix requires canonical repository and full head SHA")
+        if not isinstance(self.rows, tuple) or not self.rows:
+            raise ValueError("acceptance matrix rows must be a non-empty immutable tuple")
         ids = [row.requirement_id for row in self.rows]
-        if not self.rows or len(ids) != len(set(ids)):
+        if len(ids) != len(set(ids)):
             raise ValueError("acceptance matrix must contain unique requirement rows")
         for row in self.rows:
             row.validate_for_head(self.head_sha)
