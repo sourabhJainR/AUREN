@@ -2728,7 +2728,10 @@ class LocalVibeCodingHost:
         if not config.allow_workspace_writes:
             raise PermissionError("the complete product lifecycle requires explicit isolated-worktree writes; source checkout remains untouched")
 
-    def run(self, workflow_id: str, intent: str, *, max_total_attempts: int = 32):
+    def run(
+        self, workflow_id: str, intent: str, *, max_total_attempts: int = 32,
+        execution_plan: Mapping[str, Any] | Any | None = None,
+    ):
         if not _WORKFLOW_ID.fullmatch(workflow_id):
             raise ValueError("workflow_id must be a safe identifier")
         if not intent.strip():
@@ -2780,11 +2783,41 @@ class LocalVibeCodingHost:
                 governance_repository=governance_repository,
                 allow_governance_repository_changes=allow_governance_changes,
             )
+        source_branch_result = _run(
+            ("git", "-C", str(self.project_root), "branch", "--show-current"),
+            cwd=self.project_root, timeout=10,
+        )
+        source_head_result = _run(
+            ("git", "-C", str(self.project_root), "rev-parse", "--verify", "HEAD^{commit}"),
+            cwd=self.project_root, timeout=10,
+        )
+        if source_branch_result.returncode or not source_branch_result.stdout.strip() or source_head_result.returncode:
+            if execution_plan is not None:
+                raise PermissionError("canonical GitHub writes require a verified source branch and base commit")
+        source_branch = source_branch_result.stdout.strip()
+        source_head = source_head_result.stdout.strip()
+        canonical_plan = None
+        if execution_plan is not None:
+            from .canonical_execution_plan import CanonicalExecutionPlan
+            if isinstance(execution_plan, CanonicalExecutionPlan):
+                canonical_plan = execution_plan
+            elif isinstance(execution_plan, Mapping):
+                canonical_plan = CanonicalExecutionPlan.from_mapping(execution_plan)
+            else:
+                raise TypeError("execution_plan must be a CanonicalExecutionPlan or mapping")
+            if observed_repository is None:
+                raise PermissionError("canonical GitHub writes require a verified GitHub origin")
+            canonical_plan.target.validate_observed_target(
+                repository=observed_repository, branch=source_branch, base_sha=source_head,
+            )
+
         lease = IsolatedGitWorktree(self.project_root, workflow_id, self.state_root / "worktrees")
         workspace = lease.open() if self.config.allow_workspace_writes else self.project_root
         if self.config.allow_workspace_writes:
             # Reuse only a cleanly based, previously created isolated worktree.
             lease.base_revision = _run(("git", "-C", str(workspace), "rev-parse", "HEAD"), cwd=workspace, timeout=10).stdout.strip()
+            if canonical_plan is not None and lease.base_revision != source_head:
+                raise PermissionError("isolated worktree base SHA changed after canonical plan admission")
         else:
             head = _run(("git", "-C", str(self.project_root), "rev-parse", "HEAD"), cwd=self.project_root, timeout=10)
             if head.returncode:
@@ -2841,6 +2874,9 @@ class LocalVibeCodingHost:
                 repository_revision=current_head.stdout.strip(),
                 repository_digest=fingerprint_worktree(workspace),
                 budget_id=f"mcp:{workflow_id}",
+                repository_slug=observed_repository or "",
+                repository_branch=source_branch,
+                execution_plan_digest=canonical_plan.digest if canonical_plan is not None else "",
             )
             trusted_context.validate()
             assert self.mcp_authority_resolver is not None
@@ -2894,6 +2930,8 @@ class LocalVibeCodingHost:
                 requires_authority_binding=bool(spec.get("external_effects", capability not in _MCP_READ_ONLY_CAPABILITIES)),
                 trusted_workspace_root=workspace,
                 authority_dispatch=mcp_authority_dispatch,
+                github_server=spec.get("github_server"),
+                execution_plan=canonical_plan,
             )
         if "independent_review" in self.config.mcp_tools:
             tools["independent_review"] = MCPIndependentReviewTool(
