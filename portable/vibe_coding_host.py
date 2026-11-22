@@ -761,6 +761,8 @@ class MCPToolCallBinding:
             validated_preflight = validate_preflight_payload(github_write_preflight)
             if validated_preflight["tool_name"] != tool_name:
                 raise ValueError("GitHub write preflight does not match configured tool name")
+            if validated_preflight["tool_arguments_digest"] != _digest(dict(arguments)):
+                raise ValueError("GitHub write preflight does not match exact MCP arguments")
             github_preflight_json = json.dumps(
                 validated_preflight, sort_keys=True, separators=(",", ":"),
                 ensure_ascii=False, allow_nan=False,
