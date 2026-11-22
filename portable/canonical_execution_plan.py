@@ -50,6 +50,7 @@ class CanonicalExecutionPlan:
     required_capabilities: tuple[str, ...]
     capabilities: tuple[tuple[str, bool, str], ...]
     stopping_condition: str
+    required_checks: tuple[str, ...] = ()
     tool_contracts: tuple[tuple[str, str, str], ...] = ()
 
     def __post_init__(self) -> None:
@@ -62,6 +63,10 @@ class CanonicalExecutionPlan:
             if any(not isinstance(item, str) or not item.strip() for item in values):
                 raise ValueError(f"{name} must contain non-empty strings")
         _required_text(self.stopping_condition, "stopping_condition")
+        if not isinstance(self.required_checks, tuple) or any(not isinstance(item, str) or not item.strip() for item in self.required_checks):
+            raise ValueError("required_checks must be an immutable tuple of non-empty names")
+        if len(set(self.required_checks)) != len(self.required_checks):
+            raise ValueError("required_checks must be unique")
         if not isinstance(self.capabilities, tuple):
             raise ValueError("capabilities must be an immutable tuple")
         names: set[str] = set()
@@ -126,6 +131,7 @@ class CanonicalExecutionPlan:
             required_capabilities=_string_tuple(value.get("required_capabilities", ()), "required_capabilities"),
             capabilities=capabilities,
             stopping_condition=value.get("stopping_condition", ""),
+            required_checks=_string_tuple(value.get("required_checks", ()), "required_checks"),
             tool_contracts=contracts,
         )
 
@@ -149,6 +155,7 @@ class CanonicalExecutionPlan:
                 for name, available, evidence in self.capabilities
             ],
             "stopping_condition": self.stopping_condition,
+            "required_checks": list(self.required_checks),
             "tool_contracts": [
                 {"name": name, "schema": json.loads(schema_json), "arguments": json.loads(arguments_json)}
                 for name, schema_json, arguments_json in self.tool_contracts
