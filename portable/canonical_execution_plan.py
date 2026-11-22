@@ -57,6 +57,9 @@ class CanonicalExecutionPlan:
     assumptions: tuple[str, ...] = ()
     constraints: tuple[str, ...] = ()
     non_goals: tuple[str, ...] = ()
+    reuse_decision: str = ""
+    reuse_reviewed_paths: tuple[str, ...] = ()
+    reuse_justification: str = ""
     required_checks: tuple[str, ...] = ()
     tool_contracts: tuple[tuple[str, str, str], ...] = ()
 
@@ -74,6 +77,18 @@ class CanonicalExecutionPlan:
             values = getattr(self, name)
             if not isinstance(values, tuple) or any(not isinstance(item, str) or not item.strip() for item in values):
                 raise ValueError(f"{name} must be an immutable tuple of non-empty strings")
+        if self.reuse_decision not in {"", "reuse_existing", "new_component", "not_applicable"}:
+            raise ValueError("reuse_decision must be reuse_existing, new_component or not_applicable")
+        if not isinstance(self.reuse_reviewed_paths, tuple) or any(
+            not isinstance(path, str) or not path.strip() for path in self.reuse_reviewed_paths
+        ):
+            raise ValueError("reuse_reviewed_paths must be an immutable tuple of non-empty paths")
+        if len(set(self.reuse_reviewed_paths)) != len(self.reuse_reviewed_paths):
+            raise ValueError("reuse_reviewed_paths must not contain duplicates")
+        if not isinstance(self.reuse_justification, str):
+            raise ValueError("reuse_justification must be text")
+        if self.reuse_decision == "new_component" and not self.reuse_justification.strip():
+            raise ValueError("new_component reuse decision requires a justification")
         if not isinstance(self.required_checks, tuple) or any(not isinstance(item, str) or not item.strip() for item in self.required_checks):
             raise ValueError("required_checks must be an immutable tuple of non-empty names")
         if len(set(self.required_checks)) != len(self.required_checks):
@@ -145,6 +160,9 @@ class CanonicalExecutionPlan:
             assumptions=_string_tuple(value.get("assumptions", ()), "assumptions"),
             constraints=_string_tuple(value.get("constraints", ()), "constraints"),
             non_goals=_string_tuple(value.get("non_goals", ()), "non_goals"),
+            reuse_decision=value.get("reuse_decision", ""),
+            reuse_reviewed_paths=_string_tuple(value.get("reuse_reviewed_paths", ()), "reuse_reviewed_paths"),
+            reuse_justification=value.get("reuse_justification", ""),
             required_checks=_string_tuple(value.get("required_checks", ()), "required_checks"),
             tool_contracts=contracts,
         )
@@ -172,6 +190,9 @@ class CanonicalExecutionPlan:
             "assumptions": list(self.assumptions),
             "constraints": list(self.constraints),
             "non_goals": list(self.non_goals),
+            "reuse_decision": self.reuse_decision,
+            "reuse_reviewed_paths": list(self.reuse_reviewed_paths),
+            "reuse_justification": self.reuse_justification,
             "required_checks": list(self.required_checks),
             "tool_contracts": [
                 {"name": name, "schema": json.loads(schema_json), "arguments": json.loads(arguments_json)}
