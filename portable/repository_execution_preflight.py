@@ -34,7 +34,7 @@ def _safe_branch_name(value: str, field: str) -> str:
         or ".." in branch
         or "@{" in branch
         or branch.endswith(".lock")
-        or any(ord(char) < 32 or char in " ~^:?*[\\\\\\" for char in branch)
+        or any(ord(char) < 32 or char in " ~^:?*[" or ord(char) == 92 for char in branch)
         or any(part in {"", ".", ".."} for part in branch.split("/"))
     ):
         raise ValueError(f"{field} must be a safe Git branch name")
