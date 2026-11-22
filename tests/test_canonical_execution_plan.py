@@ -128,6 +128,20 @@ class CanonicalExecutionPlanTests(unittest.TestCase):
         self.assertFalse((self.root / "outside/result.txt").exists())
         self.assertEqual(controller.task(task.id).state, "failed")
 
+    def test_controller_rejects_a_second_workspace_root(self):
+        controller = ExecutionController(self.root)
+        controller.register_handler("plan_write", _plan_write_handler, execution_class="read_only")
+        with tempfile.TemporaryDirectory() as other_root:
+            task = controller.submit(
+                "plan_write",
+                {"root": other_root, "path": "output/escaped-root.txt"},
+                execution_plan=self.plan(),
+            )
+            with self.assertRaises(PermissionError):
+                controller.run_once(task.id)
+            self.assertFalse((Path(other_root) / "output/escaped-root.txt").exists())
+            self.assertEqual(controller.task(task.id).state, "failed")
+
     def test_required_ci_checks_need_trusted_provider_and_exact_head(self):
         controller = ExecutionController(self.root)
         controller.register_handler("plan_write", _plan_write_handler, execution_class="read_only")
