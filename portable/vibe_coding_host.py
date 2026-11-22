@@ -2872,9 +2872,11 @@ class LocalVibeCodingHost:
                 raise PermissionError("canonical GitHub writes require a verified source branch and base commit")
         source_branch = source_branch_result.stdout.strip()
         source_head = source_head_result.stdout.strip()
+        from .canonical_execution_plan import CanonicalExecutionPlan, current_execution_plan
+        if execution_plan is None:
+            execution_plan = current_execution_plan()
         canonical_plan = None
         if execution_plan is not None:
-            from .canonical_execution_plan import CanonicalExecutionPlan
             if isinstance(execution_plan, CanonicalExecutionPlan):
                 canonical_plan = execution_plan
             elif isinstance(execution_plan, Mapping):
