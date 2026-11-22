@@ -4057,7 +4057,7 @@ class ExecutionController:
                 raise RuntimeError(
                     "organization Guard changed after decision receipt; handler dispatch blocked"
                 )
-            with execution_plan_scope(canonical_plan):
+            with execution_plan_scope(canonical_plan, repository_root=self.root):
                 if execution_class == "consequential":
                     result = self._invoke_consequential_with_ledger(task, handler)
                 else:
