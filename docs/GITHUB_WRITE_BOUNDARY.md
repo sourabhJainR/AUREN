@@ -46,6 +46,8 @@ The authority resolver can read the host-created contract from `call_binding.git
 - A GitHub server that does not implement `tools/list` cannot be used for writes.
 - Tools that do not accept an expected SHA or whose schema does not match the reviewed contract are rejected. No pathname-only or best-effort fallback is used.
 - PR writes are blocked unless the plan declares a PR base branch and the action binds the exact PR head SHA and base SHA.
+- A plan contains one exact argument digest per tool name. Use a batch tool for multiple file changes; a later write through the same tool requires a new plan and approval.
+- For branch/file writes, `base_sha` is the expected current head of the implementation branch. For PR operations, `base_sha` is the expected current head of the declared PR base branch; `expected_head_sha` separately binds the PR head branch.
 - The read-only allowlist is explicit. New GitHub tools must be reviewed before they are added.
 
 ## Scope and remaining work
