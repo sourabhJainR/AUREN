@@ -9,7 +9,7 @@ from portable.vibe_coding_host import LocalVibeCodingHost, VibeHostConfig
 from portable.repository_execution_preflight import (
     AcceptanceMatrix, AcceptanceRow, AcceptanceStatus, CapabilityCheck,
     RepositoryTarget, ToolContractError, capability_blockers,
-    exact_head_ci_gate, validate_tool_arguments,
+    exact_head_ci_gate, validate_tool_arguments, guard_governance_repository,
 )
 
 SHA = "a" * 40
@@ -48,6 +48,24 @@ class RepositoryExecutionPreflightTests(unittest.TestCase):
                 with patch("portable.vibe_coding_host._run", return_value=remote):
                     with self.assertRaisesRegex(PermissionError, "governance repository"):
                         host.run("guard-test", "implement product feature")
+
+    def test_governance_remote_guard_recognizes_https_and_ssh(self):
+        for remote in ("https://github.com/acme/auren.git", "git@github.com:acme/auren.git"):
+            with self.subTest(remote=remote), self.assertRaises(PermissionError):
+                guard_governance_repository(remote, governance_repository="acme/auren")
+            self.assertEqual(
+                guard_governance_repository(
+                    remote, governance_repository="acme/auren",
+                    allow_governance_repository_changes=True,
+                ),
+                "acme/auren",
+            )
+        self.assertEqual(
+            guard_governance_repository(
+                "https://github.com/acme/product.git", governance_repository="acme/auren"
+            ),
+            "acme/product",
+        )
 
     def test_governance_repository_requires_explicit_opt_in(self):
         with self.assertRaises(PermissionError):
