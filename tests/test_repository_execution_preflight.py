@@ -95,6 +95,12 @@ class RepositoryExecutionPreflightTests(unittest.TestCase):
         missing = exact_head_ci_gate(SHA, checks, required_check_names=("unit", "browser", "security"))
         self.assertFalse(missing["passed"])
         self.assertEqual(missing["missing_required"], ["security"])
+        optionalized = [
+            {"name": "required", "head_sha": SHA, "conclusion": "skipped", "required": False}
+        ]
+        self.assertFalse(exact_head_ci_gate(
+            SHA, optionalized, required_check_names=("required",)
+        )["passed"])
 
     def test_acceptance_matrix_persists_via_canonical_ledger_contract(self):
         class Ledger:
