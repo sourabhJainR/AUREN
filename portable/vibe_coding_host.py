@@ -1191,7 +1191,7 @@ class MCPStdioToolAdapter:
         self.team_budget_enforcer = team_budget_enforcer
         if github_server is not None and type(github_server) is not bool:
             raise TypeError("github_server must be a boolean or None")
-        from .github_write_boundary import is_github_server, is_github_write_tool
+        from .github_write_boundary import is_github_server
         self.github_server = bool(github_server) or is_github_server(self.argv, self.tool_name)
         if execution_plan is not None and (
             getattr(execution_plan, "target", None) is None
@@ -2897,7 +2897,7 @@ class LocalVibeCodingHost:
             if canonical_plan.target.base_sha != source_head:
                 raise PermissionError("canonical plan base SHA differs from the verified source checkout HEAD")
 
-            from .github_write_boundary import is_github_server
+            from .github_write_boundary import is_github_server, is_github_write_tool
             host_capabilities: dict[str, bool] = {
                 "workspace_filesystem": bool(self.config.allow_workspace_writes),
                 "isolated_sandbox": False,
