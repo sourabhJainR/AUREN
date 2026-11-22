@@ -2903,15 +2903,22 @@ class LocalVibeCodingHost:
                 "isolated_sandbox": False,
             }
             github_server_configured = False
+            github_write_authority_configured = False
             for tool_key, tool_spec in self.config.mcp_tools.items():
                 declared_capability = tool_spec.get("capability", tool_key)
                 if isinstance(declared_capability, str) and declared_capability.strip():
                     host_capabilities[declared_capability] = True
                 if tool_spec.get("github_server") or is_github_server(tool_spec["argv"], tool_spec["tool_name"]):
                     github_server_configured = True
+                    requires_authority = tool_spec.get(
+                        "requires_authority_binding",
+                        tool_spec.get("external_effects", tool_key not in _MCP_READ_ONLY_CAPABILITIES),
+                    )
+                    if requires_authority:
+                        github_write_authority_configured = True
             host_capabilities["github_mcp"] = github_server_configured
             host_capabilities["repository.write"] = bool(
-                github_server_configured and self.mcp_authority_resolver is not None
+                github_write_authority_configured and self.mcp_authority_resolver is not None
             )
             canonical_plan.validate_runtime(
                 repository=observed_repository,
