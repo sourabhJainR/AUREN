@@ -283,6 +283,46 @@ def validate_preflight_payload(value: Mapping[str, Any]) -> dict[str, Any]:
 
 
 
+
+def _require_schema_contract(operation: str, schema: Mapping[str, Any]) -> None:
+    properties = schema.get("properties")
+    required = schema.get("required")
+    if not isinstance(properties, Mapping) or not isinstance(required, list):
+        raise GitHubWriteBoundaryError("GitHub tool schema must declare properties and required fields")
+    required_set = set(required)
+    if operation == "create_branch":
+        required_fields = {"owner", "repo", "branch", "sha"}
+    elif operation in {"push_files"}:
+        required_fields = {"owner", "repo", "branch", "expected_head_sha", "files"}
+    elif operation in {"create_or_update_file", "create_file", "update_file", "delete_file"}:
+        required_fields = {"owner", "repo", "branch", "expected_head_sha", "path"}
+    elif operation == "create_commit":
+        required_fields = {"owner", "repo", "branch", "expected_head_sha", "parents", "files"}
+    elif operation in {"update_ref", "update_branch"}:
+        required_fields = {"owner", "repo", "ref", "expected_head_sha", "sha"}
+    elif operation == "delete_branch":
+        required_fields = {"owner", "repo", "branch", "expected_head_sha"}
+    elif operation == "create_pull_request":
+        required_fields = {"owner", "repo", "head", "base", "expected_head_sha", "expected_base_sha"}
+    elif operation in {"update_pull_request", "merge_pull_request"}:
+        required_fields = {"owner", "repo", "pull_number", "head", "base", "expected_head_sha", "expected_base_sha"}
+    else:
+        raise GitHubWriteBoundaryError(f"GitHub operation {operation} has no reviewed schema contract")
+    if not required_fields.issubset(properties) or not required_fields.issubset(required_set):
+        missing = sorted(required_fields - (set(properties) & required_set))
+        raise GitHubWriteBoundaryError(
+            "GitHub tool schema must require exact expected-SHA and target fields: " + ", ".join(missing)
+        )
+    if operation in {"push_files", "create_commit"}:
+        file_schema = properties["files"]
+        if not isinstance(file_schema, Mapping) or file_schema.get("type") != "array":
+            raise GitHubWriteBoundaryError("GitHub files argument must be an array with a reviewed path schema")
+        item_schema = file_schema.get("items")
+        if not isinstance(item_schema, Mapping) or not isinstance(item_schema.get("properties"), Mapping):
+            raise GitHubWriteBoundaryError("GitHub files items must declare a path property")
+        if "path" not in item_schema["properties"] or "path" not in item_schema.get("required", []):
+            raise GitHubWriteBoundaryError("GitHub files schema must require each file path")
+
 def _trusted_tool_contract(plan: Any, tool_name: str, arguments: Mapping[str, Any]) -> tuple[str, str]:
     contracts = getattr(plan, "tool_contracts", ())
     matches = [item for item in contracts if isinstance(item, tuple) and len(item) == 3 and item[0] == tool_name]
@@ -304,6 +344,7 @@ def _trusted_tool_contract(plan: Any, tool_name: str, arguments: Mapping[str, An
     ):
         raise GitHubWriteBoundaryError("GitHub tool arguments differ from the exact arguments approved in the plan")
     try:
+        _require_schema_contract(tool_name if tool_name in _WRITE_TOOLS else _WRITE_TOOLS.get(_tool_key(tool_name), ""), schema)
         from .repository_execution_preflight import validate_tool_arguments
         validate_tool_arguments(schema, arguments)
     except Exception as exc:
