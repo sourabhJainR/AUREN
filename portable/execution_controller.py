@@ -2560,9 +2560,9 @@ class ExecutionController:
                 *plan.acceptance, *plan.non_goals,
             ))
             explicit_approval_required = bool(re.search(
-                r"\b(?:without|unless|until)\b.{0,80}\b(?:explicit\s+)?(?:human\s+)?(?:approval|consent)\b"
-                r"|\b(?:approval|consent)\s+(?:is\s+)?required\s+before\b"
-                r"|\b(?:approval|consent)\b.{0,40}\b(?:before|prior to)\b",
+                r"\b(?:without|unless|until)\b.{0,80}\b(?:explicit\s+)?(?:human\s+)?(?:approval|consent(?:s|ing)?)\b"
+                r"|\b(?:approval|consent(?:s|ing)?)\s+(?:is\s+)?required\s+before\b"
+                r"|\b(?:approval|consent(?:s|ing)?)\b.{0,40}\b(?:before|prior to)\b",
                 approval_scope,
                 flags=re.IGNORECASE,
             ))
