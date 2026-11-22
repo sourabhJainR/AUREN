@@ -268,9 +268,9 @@ def validate_preflight_payload(value: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest) or _digest(snapshot) != digest:
         raise GitHubWriteBoundaryError("GitHub write preflight digest is invalid")
     operation = snapshot.get("operation")
-    if operation not in _WRITE_TOOLS.values() and operation not in _MUTATING_UNSUPPORTED:
+    if operation not in _ACTIONS:
         raise GitHubWriteBoundaryError("GitHub write operation is not registered")
-    if snapshot.get("action") != _ACTIONS.get(operation):
+    if snapshot.get("action") != _ACTIONS[operation]:
         raise GitHubWriteBoundaryError("GitHub write action does not match its operation")
     for field in ("repository", "branch", "target", "tool_name"):
         if not isinstance(snapshot.get(field), str) or not snapshot[field].strip():
