@@ -85,3 +85,16 @@ proof; it only makes the operator's target explicit. If the declared target is
 the governance repository, \`AUREN_ALLOW_GOVERNANCE_REPOSITORY_CHANGES=1\` is
 still required. It covers the Vibe Coding host entry point; it does not
 automatically govern host-native tools or every external GitHub client.
+
+
+## Canonical controller feasibility and approval binding
+
+The durable controller reuses `EngineeringDesignGuard.review_request` at plan admission. It evaluates the declared requirements, assumptions, constraints, acceptance criteria and non-goals before a task record is created. Known unresolved contradictions (for example, live quotes versus delayed-only data, offline-only versus required remote API access, or no external retention versus durable history) reject admission before handler execution.
+
+The controller stores a supervisor-owned feasibility receipt beside the immutable plan digest and recomputes it at dispatch. A missing, changed or stale receipt blocks execution. Blind spots remain visible in the receipt; a deterministic review is not a semantic proof that every requirement is feasible. The guard's own limitations must be retained and independent review is still required for high-risk changes.
+
+A plan that explicitly requires human approval or consent for an action cannot be submitted through a read-only, CI-gated or ordinary consequential handler. It must use the existing `approval_gated` handler class with a trusted approval policy and approval-aware checkpoint/resume contract. A caller-supplied string or plan field is not approval. The approval decision must be recorded by the configured trusted approval gateway.
+
+Security and privacy constraints must be stated in the plan, not assumed from a generic request to be "secure". External transfer, retention, deletion, credential use and permission changes need explicit scope and the appropriate existing Guard/approval policy. If the required approval gateway or policy is unavailable, execution blocks. Do not send real customer data or credentials to validation jobs; regression fixtures must be synthetic.
+
+The canonical plan test suite includes deliberately contradictory requirements and a privacy-sensitive transfer without approval. It verifies that no durable task or file side effect is created. The FileOperations workflow uses a pinned public repository revision and a disposable CI workspace; it does not read or upload the operator's local files. Its npm/browser build steps require outbound access to package and browser artifact registries in the GitHub-hosted runner.
