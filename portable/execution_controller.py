@@ -782,8 +782,16 @@ class ExecutionController:
         )
         # Reuse the repository's established stack/approach inventory instead of
         # creating a second implementation-discovery subsystem.
-        reuse_review = EngineeringDesignGuard.recommend_approaches(
+        target_reuse_review = EngineeringDesignGuard.recommend_approaches(
             self.root, intent, risk="medium",
+        )
+        runtime_root = Path(__file__).resolve().parents[1]
+        runtime_reuse_review = (
+            target_reuse_review
+            if runtime_root == self.root.resolve()
+            else EngineeringDesignGuard.recommend_approaches(
+                runtime_root, intent, risk="medium",
+            )
         )
         if review.get("implementation_may_start") is not True:
             conflict_ids = [
@@ -806,9 +814,16 @@ class ExecutionController:
                 if isinstance(item, Mapping)
             ],
             "reuse_review": json.loads(json.dumps({
-                "stack": reuse_review.get("stack", {}),
-                "required_gates": reuse_review.get("required_gates", ()),
-                "recommendations": reuse_review.get("recommendations", ()),
+                "implementation_repository": {
+                    "stack": target_reuse_review.get("stack", {}),
+                    "required_gates": target_reuse_review.get("required_gates", ()),
+                    "recommendations": target_reuse_review.get("recommendations", ()),
+                },
+                "runtime_repository": {
+                    "stack": runtime_reuse_review.get("stack", {}),
+                    "required_gates": runtime_reuse_review.get("required_gates", ()),
+                    "recommendations": runtime_reuse_review.get("recommendations", ()),
+                },
             }, sort_keys=True, ensure_ascii=False, allow_nan=False)),
             "limitations": str(review.get("limitations", "")),
         }
