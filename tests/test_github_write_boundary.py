@@ -498,6 +498,7 @@ class GitHubWriteBoundaryTests(unittest.TestCase):
             requires_authority_binding=False,
             github_server=True,
             execution_plan=self.plan,
+            trusted_workspace_root=Path.cwd(),
         )
         request = {
             "owner": "acme", "repo": "product", "branch": "feature/work",
