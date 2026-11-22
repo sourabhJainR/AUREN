@@ -90,6 +90,12 @@ class CanonicalExecutionPlanTests(unittest.TestCase):
         controller.run_once(task.id)
         self.assertEqual((self.root / "output/result.txt").read_text(encoding="utf-8"), "plan-scoped write")
         self.assertEqual(controller.task(task.id).state, "completed")
+        acceptance = controller.evidence_ledger.resolve(
+            f"acceptance:{task.id}:0", repository="acme/fileoperations", head_sha=self.head,
+        )
+        self.assertIsNotNone(acceptance)
+        self.assertEqual(acceptance["evidence_type"], "execution_acceptance")
+        self.assertEqual(acceptance["status"], "unknown")  # no trusted signer configured
 
     def test_controller_blocks_out_of_scope_write_before_file_creation(self):
         controller = ExecutionController(self.root)
