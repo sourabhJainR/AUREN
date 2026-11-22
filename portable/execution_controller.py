@@ -793,6 +793,37 @@ class ExecutionController:
                 runtime_root, intent, risk="medium",
             )
         )
+        reuse_candidates: set[str] = set()
+        for scope, reuse_result in (
+            ("implementation", target_reuse_review),
+            ("runtime", runtime_reuse_review),
+        ):
+            for recommendation in reuse_result.get("recommendations", ()):
+                if not isinstance(recommendation, Mapping):
+                    continue
+                for candidate in recommendation.get("repository_evidence", ()):
+                    if (
+                        isinstance(candidate, str)
+                        and candidate.endswith(".py")
+                        and (candidate.startswith("portable/") or candidate.startswith(".ai-harness/runtime/"))
+                    ):
+                        reuse_candidates.add(f"{scope}:{candidate}")
+        reviewed_reuse_paths = set(plan.reuse_reviewed_paths)
+        if reuse_candidates:
+            if plan.reuse_decision not in {"reuse_existing", "new_component"}:
+                raise PermissionError(
+                    "existing implementation candidates were found; review them and declare "
+                    "reuse_decision plus the complete reuse_reviewed_paths before implementation"
+                )
+            if reviewed_reuse_paths != reuse_candidates:
+                missing = sorted(reuse_candidates - reviewed_reuse_paths)
+                unexpected = sorted(reviewed_reuse_paths - reuse_candidates)
+                raise PermissionError(
+                    "reuse review must account for every discovered code owner; "
+                    f"missing={missing}, unexpected={unexpected}"
+                )
+        elif plan.reuse_decision not in {"", "not_applicable"} or reviewed_reuse_paths:
+            raise PermissionError("reuse decision references candidates that the repository review did not find")
         sensitive_scope = bool(re.search(
             r"\b(?:personal|sensitive|confidential|customer|private)\s+(?:data|documents?|records?)\b"
             r"|\b(?:pii|credentials?|passwords?|secrets?|private keys?)\b"
