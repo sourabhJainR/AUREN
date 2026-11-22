@@ -81,7 +81,7 @@ def repository_slug_from_remote(remote_url: str) -> str | None:
     """Extract a GitHub owner/repo slug from HTTPS, SSH or SCP-style remotes."""
     value = _text(remote_url, "remote URL")
     match = re.fullmatch(
-        r"(?:https://github\\.com/|ssh://git@github\\.com/|git@github\\.com:)([^/\\s]+/[^/\\s]+?)(?:\\.git)?/?",
+        r"(?:https://github\.com/|ssh://git@github\.com/|git@github\.com:)([^/\s]+/[^/\s]+?)(?:\.git)?/?",
         value,
         flags=re.IGNORECASE,
     )
