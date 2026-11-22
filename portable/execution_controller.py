@@ -19,12 +19,13 @@ from threading import Event, Thread
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 from uuid import uuid4
 
 from .autonomous_company import AutonomousCompany, TrustScore
 from .canonical_evidence_ledger import CanonicalEvidenceLedger
 from .canonical_execution_plan import CanonicalExecutionPlan, execution_plan_scope
+from .repository_execution_preflight import exact_head_ci_gate, validate_tool_arguments
 from .decision_gate import require_valid_decision_record
 from .engineering_recovery import verify_ci_gate
 from .engineering_evidence_capture import EvidenceCapture
@@ -186,6 +187,8 @@ class ExecutionController:
         max_pending_tasks: int | None = None,
         deployment_admission_coordinator: Any | None = None,
         deployment_instance_id: str | None = None,
+        execution_plan_ci_provider: Callable[[CanonicalExecutionPlan], Sequence[Mapping[str, Any]]] | None = None,
+        tool_schema_resolver: Callable[[str], Mapping[str, Any]] | None = None,
     ) -> None:
         if max_pending_tasks is not None and (
             type(max_pending_tasks) is not int or not 1 <= max_pending_tasks <= 100000
@@ -211,6 +214,12 @@ class ExecutionController:
         self._deployment_instance_id = (
             deployment_instance_id.strip() if isinstance(deployment_instance_id, str) else None
         )
+        if execution_plan_ci_provider is not None and not callable(execution_plan_ci_provider):
+            raise TypeError("execution_plan_ci_provider must be callable")
+        if tool_schema_resolver is not None and not callable(tool_schema_resolver):
+            raise TypeError("tool_schema_resolver must be callable")
+        self._execution_plan_ci_provider = execution_plan_ci_provider
+        self._tool_schema_resolver = tool_schema_resolver
         if agent_assignment_verifier is not None and not callable(agent_assignment_verifier):
             raise TypeError("agent_assignment_verifier must be callable")
         # Host-owned verifier is injected by trusted bootstrap and re-used after restart.
@@ -786,6 +795,35 @@ class ExecutionController:
             repository=identity[0], branch=branch, head_sha=identity[1],
             host_capabilities=host_capabilities,
         )
+        if plan.required_checks:
+            if self._execution_plan_ci_provider is None:
+                raise PermissionError("required exact-head CI checks have no trusted host provider")
+            checks = self._execution_plan_ci_provider(plan)
+            gate = exact_head_ci_gate(
+                plan.target.base_sha, checks,
+                required_check_names=plan.required_checks,
+            )
+            if not gate["passed"]:
+                raise PermissionError("canonical plan exact-head CI gate blocked: " + json.dumps(
+                    gate, sort_keys=True, separators=(",", ":"),
+                ))
+        if plan.tool_contracts:
+            if self._tool_schema_resolver is None:
+                raise PermissionError("tool contracts require a trusted runtime tool-schema resolver")
+            for name, schema_json, arguments_json in plan.tool_contracts:
+                trusted_schema = self._tool_schema_resolver(name)
+                if not isinstance(trusted_schema, Mapping):
+                    raise PermissionError(f"trusted tool schema is unavailable: {name}")
+                trusted_json = json.dumps(
+                    trusted_schema, sort_keys=True, separators=(",", ":"),
+                    ensure_ascii=False, allow_nan=False,
+                )
+                if trusted_json != schema_json:
+                    raise PermissionError(f"tool schema changed after plan creation: {name}")
+                arguments = json.loads(arguments_json)
+                if not isinstance(arguments, Mapping):
+                    raise PermissionError(f"tool arguments are malformed: {name}")
+                validate_tool_arguments(trusted_schema, arguments)
 
     def _record_canonical_plan_acceptance(
         self, task: DurableTask, plan: CanonicalExecutionPlan, result: Any,
