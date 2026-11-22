@@ -20,9 +20,17 @@ concurrency:
 
 jobs:
   fileoperations-regression:
-    name: AUREN plan enforcement and FileOperations regression
+    name: AUREN plan enforcement and FileOperations PR #${{ matrix.fileoperations_pr }} regression
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - fileoperations_pr: 5
+            fileoperations_ref: 102807e868b96d3d836b3651d9e5557d10816d21
+          - fileoperations_pr: 7
+            fileoperations_ref: 833b0ca21e97deae3053e0a5e73ddfa4fd539cc9
     steps:
       - name: Checkout AUREN at candidate SHA
         uses: actions/checkout@v7
@@ -34,7 +42,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: sourabhJainR/FileOperations
-          ref: 102807e868b96d3d836b3651d9e5557d10816d21
+          ref: ${{ matrix.fileoperations_ref }}
           path: fileoperations
           fetch-depth: 1
       - name: Attach FileOperations fixture branch
