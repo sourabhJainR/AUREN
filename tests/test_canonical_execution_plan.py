@@ -236,6 +236,23 @@ class CanonicalExecutionPlanTests(unittest.TestCase):
                 self.assertIsNone(controller.task_by_work_key(work_key))
         self.assertFalse(any(self.root.glob("output/rejected-*.txt")))
 
+    def test_sensitive_data_without_declared_privacy_policy_is_blocked(self):
+        controller = ExecutionController(self.root)
+        controller.register_handler("plan_write", _plan_write_handler, execution_class="read_only")
+        plan = self.plan()
+        plan["requirements"] = ["Export personal data to an external analytics service."]
+        work_key = "sensitive-data-missing-policy"
+        with self.assertRaises(PermissionError) as raised:
+            controller.submit(
+                "plan_write",
+                {"root": str(self.root), "path": "output/personal-data-export.txt"},
+                work_key=work_key,
+                execution_plan=plan,
+            )
+        self.assertIn("security/privacy-sensitive", str(raised.exception))
+        self.assertIsNone(controller.task_by_work_key(work_key))
+        self.assertFalse((self.root / "output/personal-data-export.txt").exists())
+
     def test_sensitive_data_transfer_requires_trusted_human_approval_gate(self):
         controller = ExecutionController(self.root)
         controller.register_handler("plan_write", _plan_write_handler, execution_class="read_only")
