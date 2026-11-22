@@ -166,6 +166,24 @@ def main() -> None:
         if controller.task_by_work_key(consent_key) is not None:
             raise AssertionError("consent-bound transfer created a durable task without approval")
 
+        duplicate_plan = dict(plan)
+        duplicate_plan["requirements"] = ["Improve durable retry and resume behavior."]
+        reuse_key = f"fileoperations-reuse-review:{head}"
+        try:
+            controller.submit(
+                "fileoperations_plan_write",
+                {"root": str(FILEOPERATIONS_ROOT), "path": "apps/filekit/.auren-validation/duplicate.txt"},
+                work_key=reuse_key,
+                execution_plan=duplicate_plan,
+            )
+        except PermissionError as exc:
+            if "existing implementation candidates" not in str(exc):
+                raise
+        else:
+            raise AssertionError("plan with existing AUREN code owners was admitted without a reuse decision")
+        if controller.task_by_work_key(reuse_key) is not None:
+            raise AssertionError("unreviewed duplicate implementation request created a durable task")
+
         print(json.dumps({
             "repository": repository,
             "head_sha": head,
@@ -176,6 +194,7 @@ def main() -> None:
             "infeasible_requirement_rejected": True,
             "privacy_policy_required": True,
             "consent_gate_required": True,
+            "reuse_review_required": True,
             "result": "passed",
         }, sort_keys=True))
     finally:
