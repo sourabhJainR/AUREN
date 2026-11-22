@@ -2759,7 +2759,7 @@ class LocalVibeCodingHost:
 
     def run(
         self, workflow_id: str, intent: str, *, max_total_attempts: int = 32,
-        execution_plan: Mapping[str, Any] | Any | None = None,
+        execution_plan: Any | None = None,
     ):
         if not _WORKFLOW_ID.fullmatch(workflow_id):
             raise ValueError("workflow_id must be a safe identifier")
@@ -2836,9 +2836,17 @@ class LocalVibeCodingHost:
                 raise TypeError("execution_plan must be a CanonicalExecutionPlan or mapping")
             if observed_repository is None:
                 raise PermissionError("canonical GitHub writes require a verified GitHub origin")
-            canonical_plan.target.validate_observed_target(
-                repository=observed_repository, branch=source_branch, base_sha=source_head,
-            )
+            if canonical_plan.target.repository.casefold() != observed_repository.casefold():
+                raise PermissionError("canonical plan repository differs from the verified GitHub origin")
+            allowed_source_branches = {canonical_plan.target.branch}
+            if canonical_plan.target.pull_request_base_branch:
+                allowed_source_branches.add(canonical_plan.target.pull_request_base_branch)
+            if source_branch not in allowed_source_branches:
+                raise PermissionError(
+                    "source checkout branch must be the approved implementation branch or declared PR base branch"
+                )
+            if canonical_plan.target.base_sha != source_head:
+                raise PermissionError("canonical plan base SHA differs from the verified source checkout HEAD")
 
         lease = IsolatedGitWorktree(self.project_root, workflow_id, self.state_root / "worktrees")
         workspace = lease.open() if self.config.allow_workspace_writes else self.project_root
@@ -2904,7 +2912,7 @@ class LocalVibeCodingHost:
                 repository_digest=fingerprint_worktree(workspace),
                 budget_id=f"mcp:{workflow_id}",
                 repository_slug=observed_repository or "",
-                repository_branch=source_branch,
+                repository_branch=canonical_plan.target.branch if canonical_plan is not None else source_branch,
                 execution_plan_digest=canonical_plan.digest if canonical_plan is not None else "",
             )
             trusted_context.validate()
