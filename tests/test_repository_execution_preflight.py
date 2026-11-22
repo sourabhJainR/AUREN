@@ -1,5 +1,11 @@
+import os
+import subprocess
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
+from portable.vibe_coding_host import LocalVibeCodingHost, VibeHostConfig
 from portable.repository_execution_preflight import (
     AcceptanceMatrix, AcceptanceRow, AcceptanceStatus, CapabilityCheck,
     RepositoryTarget, ToolContractError, capability_blockers,
@@ -21,6 +27,27 @@ class RepositoryExecutionPreflightTests(unittest.TestCase):
         self.target().validate_observed_target(repository="acme/product", branch="work/feature", base_sha=SHA)
         with self.assertRaises(PermissionError):
             self.target().validate_observed_target(repository="acme/auren", branch="work/feature", base_sha=SHA)
+
+    def test_vibe_host_blocks_governance_repo_before_worktree_creation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = VibeHostConfig(
+                provider=None, reviewer_provider=None, allow_workspace_writes=True,
+                test_commands=(("python", "-c", "pass"),), mcp_tools={},
+            )
+            host = LocalVibeCodingHost(
+                directory, config=config, state_root=Path(directory) / "state"
+            )
+            remote = subprocess.CompletedProcess(
+                ["git", "remote", "get-url", "origin"], 0,
+                "https://github.com/acme/auren.git", "",
+            )
+            with patch.dict(os.environ, {
+                "AUREN_GOVERNANCE_REPOSITORY": "acme/auren",
+                "AUREN_ALLOW_GOVERNANCE_REPOSITORY_CHANGES": "0",
+            }):
+                with patch("portable.vibe_coding_host._run", return_value=remote):
+                    with self.assertRaisesRegex(PermissionError, "governance repository"):
+                        host.run("guard-test", "implement product feature")
 
     def test_governance_repository_requires_explicit_opt_in(self):
         with self.assertRaises(PermissionError):
