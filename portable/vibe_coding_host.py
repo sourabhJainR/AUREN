@@ -1674,7 +1674,7 @@ class MCPStdioToolAdapter:
             proc.stdin.write(json.dumps(initialize) + "\n")
             proc.stdin.flush()
             self._read_response(proc.stdout, responses, 1, response_timeout())
-            proc.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}) + "\\n")
+            proc.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}) + "\n")
             proc.stdin.flush()
             args = dict(arguments) if arguments is not None else self._arguments_for_request(request)
             call_id = 2
@@ -1691,7 +1691,7 @@ class MCPStdioToolAdapter:
                         "jsonrpc": "2.0", "id": call_id, "method": "tools/list",
                         "params": ({"cursor": cursor} if cursor else {}),
                     }
-                    proc.stdin.write(json.dumps(list_request, ensure_ascii=False) + "\\n")
+                    proc.stdin.write(json.dumps(list_request, ensure_ascii=False) + "\n")
                     proc.stdin.flush()
                     listing = self._read_response(proc.stdout, responses, call_id, response_timeout())
                     call_id += 1
@@ -1718,7 +1718,7 @@ class MCPStdioToolAdapter:
             proc.stdin.write(json.dumps({
                 "jsonrpc": "2.0", "id": call_id, "method": "tools/call",
                 "params": {"name": self.tool_name, "arguments": args},
-            }, ensure_ascii=False) + "\\n")
+            }, ensure_ascii=False) + "\n")
             proc.stdin.flush()
             result = self._read_response(proc.stdout, responses, call_id, response_timeout())
             if result.get("isError") is True:
