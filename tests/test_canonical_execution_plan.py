@@ -128,6 +128,40 @@ class CanonicalExecutionPlanTests(unittest.TestCase):
         self.assertFalse((self.root / "outside/result.txt").exists())
         self.assertEqual(controller.task(task.id).state, "failed")
 
+    def test_required_ci_checks_need_trusted_provider_and_exact_head(self):
+        controller = ExecutionController(self.root)
+        controller.register_handler("plan_write", _plan_write_handler, execution_class="read_only")
+        plan = self.plan()
+        plan["required_checks"] = ["unit"]
+        plan["required_capabilities"].append("ci")
+        plan["capabilities"].append({
+            "name": "ci", "available": True, "evidence": "CI provider configured",
+        })
+        with patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}):
+            with self.assertRaises(PermissionError):
+                controller.submit(
+                    "plan_write", {"root": str(self.root), "path": "output/result.txt"},
+                    execution_plan=plan,
+                )
+
+    def test_tool_contract_requires_trusted_registry_schema(self):
+        controller = ExecutionController(self.root)
+        controller.register_handler("plan_write", _plan_write_handler, execution_class="read_only")
+        plan = self.plan()
+        plan["tool_contracts"] = [{
+            "name": "workspace.write",
+            "schema": {
+                "type": "object", "properties": {"path": {"type": "string"}},
+                "required": ["path"],
+            },
+            "arguments": {"path": "output/result.txt"},
+        }]
+        with self.assertRaises(PermissionError):
+            controller.submit(
+                "plan_write", {"root": str(self.root), "path": "output/result.txt"},
+                execution_plan=plan,
+            )
+
     def test_unknown_tool_schema_constraint_fails_closed_at_admission(self):
         plan = self.plan()
         plan["tool_contracts"] = [{
