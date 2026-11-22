@@ -793,6 +793,24 @@ class ExecutionController:
                 runtime_root, intent, risk="medium",
             )
         )
+        sensitive_scope = bool(re.search(
+            r"\b(?:personal|sensitive|confidential|customer|private)\s+(?:data|documents?|records?)\b"
+            r"|\b(?:pii|credentials?|passwords?|secrets?|private keys?)\b"
+            r"|\b(?:security|privacy)\b",
+            intent,
+            flags=re.IGNORECASE,
+        ))
+        declared_data_policy = bool(plan.constraints) and any(re.search(
+            r"\b(?:consent|approval|local.only|no external|encrypt|retention|delete|redact|mask|"
+            r"least privilege|access control|threat model|data minimization|classification|not_applicable)\b",
+            constraint,
+            flags=re.IGNORECASE,
+        ) for constraint in plan.constraints)
+        if sensitive_scope and not declared_data_policy:
+            raise PermissionError(
+                "security/privacy-sensitive plan needs an explicit data-handling constraint "
+                "covering consent, storage, access, encryption, retention or a reasoned not_applicable decision"
+            )
         if review.get("implementation_may_start") is not True:
             conflict_ids = [
                 str(item.get("id", "unknown"))
