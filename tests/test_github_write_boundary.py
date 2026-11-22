@@ -74,10 +74,6 @@ def make_plan(**target_changes):
             "expected_head_sha": SHA,
         },
     }
-    contracts = [
-        {"name": name, "schema": _schema_for(arguments), "arguments": arguments}
-        for name, arguments in tool_arguments.items()
-    ]
     tool_contract_overrides = target_changes.pop("tool_contract_overrides", {})
     if isinstance(tool_contract_overrides, dict):
         for name, arguments in tool_contract_overrides.items():
@@ -344,7 +340,10 @@ class GitHubWriteBoundaryTests(unittest.TestCase):
             argv=self.argv, tool_name="push_files",
             arguments={
                 "owner": "acme", "repo": "product", "branch": "feature/work",
-                "expected_head_sha": SHA, "files": [{"path": "src/main.py", "content": "x"}],
+                "expected_head_sha": SHA, "files": [
+                    {"path": "src/main.py", "content": "value = 1"},
+                    {"path": "tests/test_main.py", "content": "assert True"},
+                ],
             },
             plan=self.plan,
         )
@@ -387,7 +386,10 @@ class GitHubWriteBoundaryTests(unittest.TestCase):
             argv=self.argv, tool_name="push_files",
             arguments={
                 "owner": "acme", "repo": "product", "branch": "feature/work",
-                "expected_head_sha": SHA, "files": [{"path": "src/main.py", "content": "x"}],
+                "expected_head_sha": SHA, "files": [
+                {"path": "src/main.py", "content": "value = 1"},
+                {"path": "tests/test_main.py", "content": "assert True"},
+            ],
             },
             plan=self.plan,
         )
