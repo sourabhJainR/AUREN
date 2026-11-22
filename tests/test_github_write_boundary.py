@@ -257,6 +257,12 @@ class GitHubWriteBoundaryTests(unittest.TestCase):
             arguments={"branch": "feature/work"}, plan=None,
         ))
 
+
+    def test_pull_request_base_branch_is_part_of_canonical_plan_digest(self):
+        main_plan = make_plan(pull_request_base_branch="main")
+        release_plan = make_plan(pull_request_base_branch="release")
+        self.assertNotEqual(main_plan.digest, release_plan.digest)
+
     def test_preflight_payload_detects_tampering(self):
         payload = preflight_github_tool(
             argv=self.argv, tool_name="create_branch",
