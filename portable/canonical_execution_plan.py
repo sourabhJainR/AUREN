@@ -41,7 +41,7 @@ class CanonicalExecutionPlan:
     required_capabilities: tuple[str, ...]
     capabilities: tuple[tuple[str, bool, str], ...]
     stopping_condition: str
-    tool_contracts: tuple[tuple[str, Mapping[str, Any], Mapping[str, Any]], ...] = ()
+    tool_contracts: tuple[tuple[str, str, str], ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.target, RepositoryTarget):
@@ -92,7 +92,11 @@ class CanonicalExecutionPlan:
         if len(capabilities) != len(value.get("capabilities", ())):
             raise ValueError("malformed capability evidence")
         contracts = tuple(
-            (item.get("name"), item.get("schema"), item.get("arguments"))
+            (
+                item.get("name"),
+                json.dumps(item.get("schema"), sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False),
+                json.dumps(item.get("arguments"), sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False),
+            )
             for item in value.get("tool_contracts", ())
             if isinstance(item, Mapping)
         )
@@ -129,8 +133,8 @@ class CanonicalExecutionPlan:
             ],
             "stopping_condition": self.stopping_condition,
             "tool_contracts": [
-                {"name": name, "schema": schema, "arguments": arguments}
-                for name, schema, arguments in self.tool_contracts
+                {"name": name, "schema": json.loads(schema_json), "arguments": json.loads(arguments_json)}
+                for name, schema_json, arguments_json in self.tool_contracts
             ],
         }
 
@@ -162,8 +166,13 @@ class CanonicalExecutionPlan:
         )
         if blockers:
             raise PermissionError("execution plan capability gate blocked: " + "; ".join(blockers))
-        for name, schema, arguments in self.tool_contracts:
+        for name, schema_json, arguments_json in self.tool_contracts:
             _required_text(name, "tool name")
+            try:
+                schema = json.loads(schema_json)
+                arguments = json.loads(arguments_json)
+            except (TypeError, ValueError) as exc:
+                raise ToolContractError(f"tool contract {name} is malformed") from exc
             if not isinstance(schema, Mapping) or not isinstance(arguments, Mapping):
                 raise ToolContractError(f"tool contract {name} is malformed")
             validate_tool_arguments(schema, arguments)
