@@ -73,6 +73,10 @@ def _tool_key(value: str) -> str:
     return key
 
 
+def is_github_write_tool(tool_name: str) -> bool:
+    return isinstance(tool_name, str) and _tool_key(tool_name) in _WRITE_TOOLS
+
+
 def is_github_server(argv: Sequence[str], tool_name: str) -> bool:
     if not isinstance(tool_name, str) or not tool_name.strip():
         return False
