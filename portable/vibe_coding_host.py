@@ -2907,7 +2907,7 @@ class LocalVibeCodingHost:
                 declared_capability = tool_spec.get("capability", tool_key)
                 if isinstance(declared_capability, str) and declared_capability.strip():
                     host_capabilities[declared_capability] = True
-                if is_github_server(tool_spec["argv"], tool_spec["tool_name"]):
+                if tool_spec.get("github_server") or is_github_server(tool_spec["argv"], tool_spec["tool_name"]):
                     github_server_configured = True
             host_capabilities["github_mcp"] = github_server_configured
             host_capabilities["repository.write"] = bool(
