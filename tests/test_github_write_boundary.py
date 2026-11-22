@@ -497,7 +497,10 @@ class GitHubWriteBoundaryTests(unittest.TestCase):
         )
         request = {
             "owner": "acme", "repo": "product", "branch": "feature/work",
-            "expected_head_sha": SHA, "files": [{"path": "src/main.py", "content": "x"}],
+            "expected_head_sha": SHA, "files": [
+                {"path": "src/main.py", "content": "value = 1"},
+                {"path": "tests/test_main.py", "content": "assert True"},
+            ],
         }
         with patch("subprocess.Popen", side_effect=AssertionError("child process must not start")):
             with self.assertRaises(AdapterUnavailable):
