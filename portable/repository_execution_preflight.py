@@ -56,7 +56,10 @@ class RepositoryTarget:
             _safe_relative_path(pattern, "allowed path")
         for name in ("governance_repository", "evidence_repository"):
             value = getattr(self, name)
-            if value and not _SLUG.fullmatch(value):
+            if value and (
+                not _SLUG.fullmatch(value)
+                or any(part in {".", ".."} for part in value.split("/"))
+            ):
                 raise ValueError(f"{name} must be an owner/repo slug")
         if self.governance_repository and self.repository.casefold() == self.governance_repository.casefold() and not self.allow_governance_repository_changes:
             raise PermissionError("implementation target is the governance repository; explicit opt-in is required")
@@ -89,8 +92,8 @@ def repository_slug_from_remote(remote_url: str) -> str | None:
     if not match:
         return None
     slug = match.group(1)
-    if any(part in {"", ".", ".."} for part in slug.split("/")):
-        raise ValueError("remote URL contains an invalid repository slug")
+    if not _SLUG.fullmatch(slug) or any(part in {"", ".", ".."} for part in slug.split("/")):
+        return None
     return slug
 
 
@@ -103,7 +106,10 @@ def guard_governance_repository(
     """Reject accidental product writes to the orchestration repository."""
     if type(allow_governance_repository_changes) is not bool:
         raise ValueError("allow_governance_repository_changes must be boolean")
-    if not _SLUG.fullmatch(governance_repository):
+    if (
+        not _SLUG.fullmatch(governance_repository)
+        or any(part in {".", ".."} for part in governance_repository.split("/"))
+    ):
         raise ValueError("governance_repository must be an owner/repo slug")
     observed = repository_slug_from_remote(remote_url)
     if (
