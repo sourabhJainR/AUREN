@@ -19,7 +19,11 @@ from portable.guarded_filesystem import write_workspace_text
 
 def _write_file(payload):
     write_workspace_text(payload["root"], payload["path"], "written under canonical execution plan")
-    return {"success": True, "detail": "scoped file write completed", "evidence": ["guarded-filesystem"]}
+    criteria = payload["_auren_execution_plan"]["acceptance"]
+    return {
+        "success": True, "detail": "scoped file write completed", "evidence": ["guarded-filesystem"],
+        "acceptance_evidence": {criterion: ["guarded-filesystem"] for criterion in criteria},
+    }
 
 
 def _git(*args: str) -> str:
