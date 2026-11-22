@@ -131,6 +131,7 @@ class CanonicalExecutionPlan:
             governance_repository=target_data.get("governance_repository", ""),
             evidence_repository=target_data.get("evidence_repository", ""),
             allow_governance_repository_changes=target_data.get("allow_governance_repository_changes", False),
+            pull_request_base_branch=target_data.get("pull_request_base_branch", ""),
         )
         capabilities = tuple(
             (item.get("name"), item.get("available"), item.get("evidence"))
@@ -178,6 +179,7 @@ class CanonicalExecutionPlan:
                 "governance_repository": self.target.governance_repository,
                 "evidence_repository": self.target.evidence_repository,
                 "allow_governance_repository_changes": self.target.allow_governance_repository_changes,
+                "pull_request_base_branch": self.target.pull_request_base_branch,
             },
             "requirements": list(self.requirements),
             "acceptance": list(self.acceptance),
