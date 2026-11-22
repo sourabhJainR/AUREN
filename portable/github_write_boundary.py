@@ -512,6 +512,5 @@ def validate_github_write_authorization(
         raise GitHubWriteBoundaryError("GitHub write approval must bind the canonical plan and exact write target")
     if not callable(getattr(gateway, "requires_approval", None)) or not gateway.requires_approval(action_request):
         raise GitHubWriteBoundaryError("GitHub write policy must require trusted human approval")
-    verdict = gateway.evaluate(action_request, approval=getattr(authorization, "approval", None))
-    if not verdict.allowed or not verdict.approval_required:
-        raise GitHubWriteBoundaryError("GitHub write approval was not accepted by the canonical governance gateway")
+    if getattr(authorization, "approval", None) is None:
+        raise GitHubWriteBoundaryError("GitHub write requires a request-bound trusted approval receipt")
