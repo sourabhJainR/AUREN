@@ -139,7 +139,7 @@ class CanonicalExecutionPlanTests(unittest.TestCase):
             execution_plan=plan,
         )
         receipt = task.payload["_auren_feasibility_review"]
-        recommendations = receipt["reuse_review"]["recommendations"]
+        recommendations = receipt["reuse_review"]["runtime_repository"]["recommendations"]
         self.assertTrue(recommendations)
         evidence_paths = {
             path
