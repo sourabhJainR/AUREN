@@ -175,7 +175,7 @@ class CanonicalExecutionPlanTests(unittest.TestCase):
                 ("Do not store external market data.",),
             ),
             (
-                ("Fetch live data from the internet.",),
+                ("Fetch from the internet.",),
                 ("The application must work offline with no network access.",),
             ),
             (
