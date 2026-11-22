@@ -272,7 +272,7 @@ class ActionGovernanceGateway:
             and not request.idempotency_key.strip()
         ):
             decision, reason = "deny", "idempotency_key_required"
-        elif needs_approval:
+        elif needs_approval or approval is not None:
             verified = False
             if approval is not None and self._approval_verifier is not None:
                 try:
@@ -285,7 +285,10 @@ class ActionGovernanceGateway:
                 except Exception:
                     verified = False
             if not verified:
-                decision, reason = "approval_required", "trusted_approval_missing_or_invalid"
+                if needs_approval:
+                    decision, reason = "approval_required", "trusted_approval_missing_or_invalid"
+                else:
+                    decision, reason = "deny", "approval_not_bound_to_request"
 
         verdict = PolicyVerdict(
             decision=decision,
