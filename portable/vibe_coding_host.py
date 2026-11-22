@@ -2920,6 +2920,7 @@ class LocalVibeCodingHost:
             host_capabilities["repository.write"] = bool(
                 github_write_authority_configured and self.mcp_authority_resolver is not None
             )
+            host_capabilities["github_write_digest_contracts"] = host_capabilities["repository.write"]
             canonical_plan.validate_runtime(
                 repository=observed_repository,
                 branch=canonical_plan.target.branch,
