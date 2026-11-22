@@ -1549,8 +1549,13 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
             os.chmod(config_path, 0o600)
             previous_path = os.environ.get("PATH", "")
             previous_pythonpath = os.environ.get("PYTHONPATH")
+            previous_unverified_identity = os.environ.get("AUREN_ALLOW_UNVERIFIED_REPOSITORY_IDENTITY")
             os.environ["PATH"] = str(bin_dir) + os.pathsep + previous_path
             os.environ["PYTHONPATH"] = str(project) + os.pathsep + str(project / ".ai-harness")
+            # This test intentionally clones to a local file://-style origin.
+            # Permit that test-only unverified identity so it reaches the
+            # provider-native lookup gate being exercised below.
+            os.environ["AUREN_ALLOW_UNVERIFIED_REPOSITORY_IDENTITY"] = "1"
             try:
                 host_config = load_host_config(config_path)
                 try:
@@ -1574,6 +1579,10 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
                     os.environ.pop("PYTHONPATH", None)
                 else:
                     os.environ["PYTHONPATH"] = previous_pythonpath
+                if previous_unverified_identity is None:
+                    os.environ.pop("AUREN_ALLOW_UNVERIFIED_REPOSITORY_IDENTITY", None)
+                else:
+                    os.environ["AUREN_ALLOW_UNVERIFIED_REPOSITORY_IDENTITY"] = previous_unverified_identity
             self.assertEqual(report["run_status"], "failed", report["stop_reason"])
             self.assertEqual("failed", report["stage_statuses"]["development"])
             self.assertFalse(report["production_deployment_performed"])
