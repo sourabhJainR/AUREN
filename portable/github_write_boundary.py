@@ -218,6 +218,8 @@ class GitHubWritePreflight:
     expected_head_sha: str
     paths: tuple[str, ...]
     target: str
+    tool_schema_digest: str
+    tool_arguments_digest: str
     plan_digest: str
     tool_name: str
 
@@ -232,6 +234,8 @@ class GitHubWritePreflight:
             "expected_head_sha": self.expected_head_sha,
             "paths": list(self.paths),
             "target": self.target,
+            "tool_schema_digest": self.tool_schema_digest,
+            "tool_arguments_digest": self.tool_arguments_digest,
             "plan_digest": self.plan_digest,
             "tool_name": self.tool_name,
         }
@@ -252,8 +256,8 @@ def validate_preflight_payload(value: Mapping[str, Any]) -> dict[str, Any]:
         raise GitHubWriteBoundaryError("GitHub write preflight metadata must be an object")
     required = {
         "schema_version", "operation", "action", "repository", "branch",
-        "base_sha", "expected_head_sha", "paths", "target", "plan_digest",
-        "tool_name", "digest",
+        "base_sha", "expected_head_sha", "paths", "target", "tool_schema_digest",
+        "tool_arguments_digest", "plan_digest", "tool_name", "digest",
     }
     if set(value) != required:
         raise GitHubWriteBoundaryError("GitHub write preflight metadata has missing or unknown fields")
@@ -278,10 +282,40 @@ def validate_preflight_payload(value: Mapping[str, Any]) -> dict[str, Any]:
     paths = snapshot.get("paths")
     if not isinstance(paths, list) or any(not isinstance(path, str) or not path for path in paths):
         raise GitHubWriteBoundaryError("GitHub write paths must be a list of non-empty strings")
-    if not isinstance(snapshot.get("plan_digest"), str) or not re.fullmatch(r"[0-9a-f]{64}", snapshot["plan_digest"]):
-        raise GitHubWriteBoundaryError("GitHub write plan digest is invalid")
+    for field in ("tool_schema_digest", "tool_arguments_digest", "plan_digest"):
+        if not isinstance(snapshot.get(field), str) or not re.fullmatch(r"[0-9a-f]{64}", snapshot[field]):
+            raise GitHubWriteBoundaryError(f"GitHub write {field} is invalid")
     snapshot["digest"] = digest
     return snapshot
+
+
+
+def _trusted_tool_contract(plan: Any, tool_name: str, arguments: Mapping[str, Any]) -> tuple[str, str]:
+    contracts = getattr(plan, "tool_contracts", ())
+    matches = [item for item in contracts if isinstance(item, tuple) and len(item) == 3 and item[0] == tool_name]
+    if len(matches) != 1:
+        raise GitHubWriteBoundaryError(
+            "canonical plan must contain exactly one trusted schema and argument contract for this GitHub tool"
+        )
+    _, schema_json, arguments_json = matches[0]
+    try:
+        schema = json.loads(schema_json)
+        planned_arguments = json.loads(arguments_json)
+    except (TypeError, ValueError) as exc:
+        raise GitHubWriteBoundaryError("canonical GitHub tool contract is malformed") from exc
+    canonical_arguments = json.dumps(
+        dict(arguments), sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
+    )
+    if canonical_arguments != json.dumps(
+        planned_arguments, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
+    ):
+        raise GitHubWriteBoundaryError("GitHub tool arguments differ from the exact arguments approved in the plan")
+    try:
+        from .repository_execution_preflight import validate_tool_arguments
+        validate_tool_arguments(schema, arguments)
+    except Exception as exc:
+        raise GitHubWriteBoundaryError("GitHub tool arguments do not satisfy the trusted plan schema") from exc
+    return _digest(schema), _digest(dict(arguments))
 
 
 def preflight_github_tool(
@@ -308,6 +342,7 @@ def preflight_github_tool(
         return None
     target = _plan_target(plan)
     repository = _repository(arguments)
+    tool_schema_digest, tool_arguments_digest = _trusted_tool_contract(plan, tool_name, arguments)
     if repository != target.repository.casefold():
         raise GitHubWriteBoundaryError("GitHub write repository does not match the canonical plan target")
 
@@ -364,7 +399,8 @@ def preflight_github_tool(
         return GitHubWritePreflight(
             operation=operation, action=_ACTIONS[operation], repository=repository,
             branch=head_branch, base_sha=base_sha, expected_head_sha=expected_head_sha,
-            paths=(), target=target_name, plan_digest=plan.digest, tool_name=tool_name,
+            paths=(), target=target_name, tool_schema_digest=tool_schema_digest,
+            tool_arguments_digest=tool_arguments_digest, plan_digest=plan.digest, tool_name=tool_name,
         ).payload()
     elif operation in {"delete_branch"}:
         branch = _branch(_first(arguments, ("branch", "branch_name", "ref")), "branch")
@@ -380,8 +416,9 @@ def preflight_github_tool(
     return GitHubWritePreflight(
         operation=operation, action=_ACTIONS[operation], repository=repository,
         branch=branch, base_sha=base_sha, expected_head_sha=expected_head_sha,
-        paths=paths, target=f"{repository}@{branch}", plan_digest=plan.digest,
-        tool_name=tool_name,
+        paths=paths, target=f"{repository}@{branch}",
+        tool_schema_digest=tool_schema_digest, tool_arguments_digest=tool_arguments_digest,
+        plan_digest=plan.digest, tool_name=tool_name,
     ).payload()
 
 
