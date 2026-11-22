@@ -2555,7 +2555,10 @@ class ExecutionController:
             plan = CanonicalExecutionPlan.from_mapping(execution_plan)
             self._validate_canonical_execution_plan(plan)
             feasibility_receipt = self._canonical_plan_feasibility_review(plan)
-            approval_scope = " ".join((*plan.requirements, *plan.constraints))
+            approval_scope = " ".join((
+                *plan.requirements, *plan.constraints, *plan.assumptions,
+                *plan.acceptance, *plan.non_goals,
+            ))
             explicit_approval_required = bool(re.search(
                 r"\b(?:without|unless|until)\b.{0,80}\b(?:explicit\s+)?(?:human\s+)?(?:approval|consent)\b"
                 r"|\b(?:approval|consent)\s+(?:is\s+)?required\s+before\b"
