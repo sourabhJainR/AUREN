@@ -15,7 +15,7 @@ import re
 from typing import Any, Iterator, Mapping, Sequence
 
 from .repository_execution_preflight import (
-    RepositoryTarget, ToolContractError, capability_blockers,
+    CapabilityCheck, RepositoryTarget, ToolContractError, capability_blockers,
     validate_tool_arguments,
 )
 
@@ -67,11 +67,19 @@ class CanonicalExecutionPlan:
             names.add(name)
         if not isinstance(self.tool_contracts, tuple):
             raise ValueError("tool_contracts must be an immutable tuple")
+        for contract in self.tool_contracts:
+            if (
+                not isinstance(contract, tuple) or len(contract) != 3
+                or any(not isinstance(value, str) for value in contract)
+            ):
+                raise ValueError("tool contracts must contain only immutable strings")
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "CanonicalExecutionPlan":
         if not isinstance(value, Mapping):
             raise TypeError("execution_plan must be a mapping")
+        if value.get("schema_version", "auren-canonical-execution-plan-v1") != "auren-canonical-execution-plan-v1":
+            raise ValueError("unsupported canonical execution plan schema version")
         target_data = value.get("target")
         if not isinstance(target_data, Mapping):
             raise ValueError("execution plan target is required")
@@ -154,12 +162,10 @@ class CanonicalExecutionPlan:
         )
         blockers = capability_blockers(
             [
-                # The evidence strings are retained in the plan digest and
-                # must be non-empty; they are not a substitute for host probes.
-                type("Capability", (), {
-                    "name": name, "available": available, "evidence": evidence,
-                    "checked_at": "plan-admission",
-                })()
+                CapabilityCheck(
+                    name=name, available=available, evidence=evidence,
+                    checked_at="plan-admission",
+                )
                 for name, available, evidence in self.capabilities
             ],
             self.required_capabilities,
