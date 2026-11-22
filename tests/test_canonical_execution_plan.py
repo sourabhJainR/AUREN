@@ -15,7 +15,11 @@ from portable.guarded_filesystem import write_workspace_text
 
 def _plan_write_handler(payload):
     write_workspace_text(payload["root"], payload["path"], "plan-scoped write")
-    return {"success": True, "detail": "written", "evidence": ["workspace-write"]}
+    criteria = payload["_auren_execution_plan"]["acceptance"]
+    return {
+        "success": True, "detail": "written", "evidence": ["workspace-write"],
+        "acceptance_evidence": {criterion: ["workspace-write"] for criterion in criteria},
+    }
 
 
 class CanonicalExecutionPlanTests(unittest.TestCase):
