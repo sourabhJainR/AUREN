@@ -8,6 +8,7 @@ on:
       - "portable/canonical_execution_plan.py"
       - "portable/execution_controller.py"
       - "portable/guarded_filesystem.py"
+      - "portable/_windows_handle_filesystem.py"
       - "portable/repository_execution_preflight.py"
       - "tests/integration/fileoperations_execution_plan.py"
       - ".github/workflows/fileoperations-canonical-execution.yml"
@@ -16,6 +17,7 @@ on:
       - "portable/canonical_execution_plan.py"
       - "portable/execution_controller.py"
       - "portable/guarded_filesystem.py"
+      - "portable/_windows_handle_filesystem.py"
       - "portable/repository_execution_preflight.py"
       - "tests/integration/fileoperations_execution_plan.py"
       - ".github/workflows/fileoperations-canonical-execution.yml"
@@ -112,3 +114,20 @@ jobs:
           name: fileoperations-pr-${{ matrix.fileoperations_pr }}-revision-evidence
           path: fileoperations-fixture-evidence.txt
           if-no-files-found: error
+
+  windows-filesystem-race:
+    name: Windows handle-relative filesystem race regression
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout AUREN at candidate SHA
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run guarded filesystem tests, including replacement race
+        run: python -m unittest discover -s tests -p "test_guarded_filesystem.py" -v
