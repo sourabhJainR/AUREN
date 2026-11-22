@@ -2547,6 +2547,9 @@ def load_host_config(path: str | Path | None = None) -> VibeHostConfig:
         timeout = spec.get("timeout_seconds", 30)
         if type(timeout) is not int or not 1 <= timeout <= 300:
             raise ValueError(f"MCP tool {name} timeout_seconds must be 1..300")
+        github_server = spec.get("github_server")
+        if github_server is not None and type(github_server) is not bool:
+            raise ValueError(f"MCP tool {name} github_server must be a boolean")
         external_effects = spec.get("external_effects", name not in _MCP_READ_ONLY_CAPABILITIES)
         if type(external_effects) is not bool:
             raise ValueError(f"MCP tool {name} external_effects must be a boolean")
