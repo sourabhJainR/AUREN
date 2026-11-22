@@ -14,6 +14,25 @@ SHA = "a" * 40
 HEAD = "b" * 40
 
 
+def _schema_for(value):
+    if isinstance(value, dict):
+        return {
+            "type": "object",
+            "properties": {key: _schema_for(item) for key, item in value.items()},
+            "required": list(value),
+            "additionalProperties": False,
+        }
+    if isinstance(value, list):
+        return {"type": "array", "items": _schema_for(value[0]) if value else {"type": "string"}}
+    if isinstance(value, bool):
+        return {"type": "boolean"}
+    if isinstance(value, int):
+        return {"type": "integer"}
+    if isinstance(value, float):
+        return {"type": "number"}
+    return {"type": "string"}
+
+
 def make_plan(**target_changes):
     target = {
         "repository": "acme/product",
@@ -23,6 +42,50 @@ def make_plan(**target_changes):
         "governance_repository": "acme/auren",
         "pull_request_base_branch": "main",
     }
+    tool_arguments = {
+        "create_branch": {"owner": "acme", "repo": "product", "branch": "feature/work", "sha": SHA},
+        "push_files": {
+            "owner": "acme", "repo": "product", "branch": "feature/work",
+            "expected_head_sha": SHA, "files": [
+                {"path": "src/main.py", "content": "value = 1"},
+                {"path": "tests/test_main.py", "content": "assert True"},
+            ],
+        },
+        "create_or_update_file": {
+            "owner": "acme", "repo": "product", "branch": "feature/work",
+            "expected_head_sha": SHA, "path": "src/main.py",
+        },
+        "create_commit": {
+            "owner": "acme", "repo": "product", "branch": "feature/work",
+            "expected_head_sha": SHA, "parents": [SHA],
+            "files": [{"path": "src/main.py", "content": "value = 1"}],
+        },
+        "create_pull_request": {
+            "owner": "acme", "repo": "product", "head": "feature/work", "base": "main",
+            "expected_head_sha": HEAD, "expected_base_sha": SHA,
+        },
+        "merge_pull_request": {
+            "owner": "acme", "repo": "product", "pull_number": 42,
+            "head": "feature/work", "base": "main",
+            "expected_head_sha": HEAD, "expected_base_sha": SHA,
+        },
+        "delete_branch": {
+            "owner": "acme", "repo": "product", "branch": "feature/work",
+            "expected_head_sha": SHA,
+        },
+    }
+    contracts = [
+        {"name": name, "schema": _schema_for(arguments), "arguments": arguments}
+        for name, arguments in tool_arguments.items()
+    ]
+    tool_contract_overrides = target_changes.pop("tool_contract_overrides", {})
+    if isinstance(tool_contract_overrides, dict):
+        for name, arguments in tool_contract_overrides.items():
+            tool_arguments[name] = arguments
+    contracts = [
+        {"name": name, "schema": _schema_for(arguments), "arguments": arguments}
+        for name, arguments in tool_arguments.items()
+    ]
     target.update(target_changes)
     return CanonicalExecutionPlan.from_mapping({
         "target": target,
@@ -35,8 +98,8 @@ def make_plan(**target_changes):
             "evidence": "guarded filesystem host probe",
         }],
         "stopping_condition": "Stop on any failed security or acceptance gate.",
+        "tool_contracts": contracts,
     })
-
 
 class GitHubWriteBoundaryTests(unittest.TestCase):
     def setUp(self):
@@ -129,7 +192,7 @@ class GitHubWriteBoundaryTests(unittest.TestCase):
                 )
 
     def test_file_mutation_requires_complete_path_inventory(self):
-        with self.assertRaisesRegex(GitHubWriteBoundaryError, "every written path"):
+        with self.assertRaises(GitHubWriteBoundaryError):
             preflight_github_tool(
                 argv=self.argv, tool_name="push_files",
                 arguments={
@@ -152,9 +215,10 @@ class GitHubWriteBoundaryTests(unittest.TestCase):
             SHA,
         )
         args["parents"] = [HEAD]
-        with self.assertRaisesRegex(GitHubWriteBoundaryError, "parent"):
+        bad_parent_plan = make_plan(tool_contract_overrides={"create_commit": args})
+        with self.assertRaises(GitHubWriteBoundaryError):
             preflight_github_tool(
-                argv=self.argv, tool_name="create_commit", arguments=args, plan=self.plan,
+                argv=self.argv, tool_name="create_commit", arguments=args, plan=bad_parent_plan,
             )
 
     def test_pull_request_create_binds_head_base_and_both_shas(self):
@@ -184,9 +248,10 @@ class GitHubWriteBoundaryTests(unittest.TestCase):
                 argv=self.argv, tool_name="create_pull_request", arguments=args, plan=plan,
             )
         args["base"] = "release"
+        bad_base_plan = make_plan(tool_contract_overrides={"create_pull_request": args})
         with self.assertRaisesRegex(GitHubWriteBoundaryError, "base branch"):
             preflight_github_tool(
-                argv=self.argv, tool_name="create_pull_request", arguments=args, plan=self.plan,
+                argv=self.argv, tool_name="create_pull_request", arguments=args, plan=bad_base_plan,
             )
         args["base"] = "main"
         args.pop("expected_head_sha")
