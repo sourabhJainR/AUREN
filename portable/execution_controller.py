@@ -780,6 +780,11 @@ class ExecutionController:
             constraints=plan.constraints,
             non_goals=plan.non_goals,
         )
+        # Reuse the repository's established stack/approach inventory instead of
+        # creating a second implementation-discovery subsystem.
+        reuse_review = EngineeringDesignGuard.recommend_approaches(
+            self.root, intent, risk="medium",
+        )
         if review.get("implementation_may_start") is not True:
             conflict_ids = [
                 str(item.get("id", "unknown"))
@@ -800,6 +805,11 @@ class ExecutionController:
                 for item in review.get("blind_spots", ())
                 if isinstance(item, Mapping)
             ],
+            "reuse_review": json.loads(json.dumps({
+                "stack": reuse_review.get("stack", {}),
+                "required_gates": reuse_review.get("required_gates", ()),
+                "recommendations": reuse_review.get("recommendations", ()),
+            }, sort_keys=True, ensure_ascii=False, allow_nan=False)),
             "limitations": str(review.get("limitations", "")),
         }
 
