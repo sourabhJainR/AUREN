@@ -735,12 +735,13 @@ class MCPToolCallBinding:
     arguments_digest: str
     request_digest: str
     timeout_seconds: int
+    github_write_preflight_json: str = ""
 
     @classmethod
     def from_call(
         cls, tool_name: str, argv: Sequence[str], arguments: Mapping[str, Any],
         request: Mapping[str, Any], *, env_allowlist: Sequence[str] = (),
-        timeout_seconds: int = 30,
+        timeout_seconds: int = 30, github_write_preflight: Mapping[str, Any] | None = None,
     ) -> "MCPToolCallBinding":
         if not isinstance(tool_name, str) or not tool_name.strip():
             raise ValueError("MCP tool name is required")
@@ -752,6 +753,18 @@ class MCPToolCallBinding:
             raise ValueError("MCP call binding timeout must be between 1 and 300 seconds")
         if any(not isinstance(name, str) or not name for name in env_allowlist):
             raise ValueError("MCP environment allowlist must contain non-empty names")
+        if github_write_preflight is not None and not isinstance(github_write_preflight, Mapping):
+            raise TypeError("GitHub write preflight must be a mapping")
+        github_preflight_json = ""
+        if github_write_preflight is not None:
+            from .github_write_boundary import validate_preflight_payload
+            validated_preflight = validate_preflight_payload(github_write_preflight)
+            if validated_preflight["tool_name"] != tool_name:
+                raise ValueError("GitHub write preflight does not match configured tool name")
+            github_preflight_json = json.dumps(
+                validated_preflight, sort_keys=True, separators=(",", ":"),
+                ensure_ascii=False, allow_nan=False,
+            )
         return cls(
             tool_name=tool_name,
             command_digest=_digest(list(argv)),
@@ -759,7 +772,17 @@ class MCPToolCallBinding:
             arguments_digest=_digest(dict(arguments)),
             request_digest=mcp_request_digest(request),
             timeout_seconds=timeout_seconds,
+            github_write_preflight_json=github_preflight_json,
         )
+
+    @property
+    def github_write_preflight(self) -> dict[str, Any] | None:
+        if not self.github_write_preflight_json:
+            return None
+        value = json.loads(self.github_write_preflight_json)
+        if not isinstance(value, dict):
+            raise ValueError("GitHub write preflight snapshot must be an object")
+        return value
 
     @property
     def digest(self) -> str:
@@ -770,6 +793,7 @@ class MCPToolCallBinding:
             "arguments_digest": self.arguments_digest,
             "request_digest": self.request_digest,
             "timeout_seconds": self.timeout_seconds,
+            "github_write_preflight_json": self.github_write_preflight_json,
         })
 
     def validate_for_request(self, request: Mapping[str, Any]) -> None:
@@ -783,6 +807,17 @@ class MCPToolCallBinding:
             raise ValueError("MCP call binding timeout is invalid")
         if self.request_digest != mcp_request_digest(request):
             raise ValueError("MCP call binding does not match the exact request")
+        if not isinstance(self.github_write_preflight_json, str):
+            raise ValueError("MCP GitHub write preflight snapshot must be text")
+        if self.github_write_preflight_json:
+            try:
+                preflight = json.loads(self.github_write_preflight_json)
+                from .github_write_boundary import validate_preflight_payload
+                validated = validate_preflight_payload(preflight)
+            except Exception as exc:
+                raise ValueError("MCP GitHub write preflight snapshot is invalid") from exc
+            if validated["tool_name"] != self.tool_name:
+                raise ValueError("MCP GitHub write preflight tool does not match the call binding")
 
 
 @dataclass(frozen=True)
