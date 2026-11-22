@@ -87,6 +87,31 @@ still required. It covers the Vibe Coding host entry point; it does not
 automatically govern host-native tools or every external GitHub client.
 
 
+## Windows handle-relative filesystem boundary
+
+On Windows, guarded file access starts from the volume or share anchor and opens
+each workspace component relative to the retained parent handle with
+`NtCreateFile` and `FILE_OPEN_REPARSE_POINT`. Every opened handle is checked
+for reparse-point attributes and directory/file type. Parent handles omit
+`FILE_SHARE_DELETE` while child handles are opened, so another process cannot
+rename or replace an inspected parent during traversal. Existing leaf files are
+validated before truncation. There is no pathname-based fallback when the
+native handle-relative path is unavailable.
+
+The Windows regression test races writes against parent-directory replacement
+with an outside symlink and checks that an outside sentinel is never modified.
+It also asserts that the race worker successfully installs the hostile link;
+a test that never creates the race is not accepted as a pass. This adapter
+protects its own file operations; it does not sandbox arbitrary handler code.
+
+The FileOperations regression workflow resolves the live PR head at run time
+and records the resolved FileOperations SHA together with the AUREN candidate
+SHA and workflow run ID. Unit tests and production build are followed by
+Chromium tests against the built production preview, including the PDF
+lock/wrong-password/unlock round trip. Evidence from an earlier FileOperations
+SHA does not validate a later PR head.
+
+
 ## Canonical controller feasibility and approval binding
 
 The durable controller reuses `EngineeringDesignGuard.review_request` at plan admission. It evaluates the declared requirements, assumptions, constraints, acceptance criteria and non-goals before a task record is created. Known unresolved contradictions (for example, live quotes versus delayed-only data, offline-only versus required remote API access, or no external retention versus durable history) reject admission before handler execution.
