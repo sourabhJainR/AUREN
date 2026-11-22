@@ -64,3 +64,18 @@ production browser behavior, deployment, or external evaluator custody.
 python -m unittest tests.test_repository_execution_preflight -v
 python -m unittest tests.test_execution_boundary tests.test_execution_contract tests.test_quality_optimizer_contract tests.test_evaluation_rubric -v
 ```
+
+## Active Vibe Coding host protection
+
+Before opening an isolated worktree, `LocalVibeCodingHost` checks the
+project's GitHub `origin` against the governance repository. The default
+governance slug is `sourabhJainR/AUREN`; deployments can set
+`AUREN_GOVERNANCE_REPOSITORY=owner/repo` to override it. A match blocks
+workspace writes unless the operator explicitly sets
+`AUREN_ALLOW_GOVERNANCE_REPOSITORY_CHANGES=1`. This keeps product work in
+its product repository while allowing deliberate AUREN self-maintenance.
+
+The check is performed before worktree creation. It covers the Vibe Coding
+host entry point; it does not automatically govern host-native tools or every
+external GitHub client. A missing GitHub origin or a non-GitHub remote is not
+proof of repository identity and remains a capability/evidence limitation.
