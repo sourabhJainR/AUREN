@@ -24,6 +24,7 @@ from uuid import uuid4
 
 from .autonomous_company import AutonomousCompany, TrustScore
 from .canonical_evidence_ledger import CanonicalEvidenceLedger
+from .canonical_execution_plan import CanonicalExecutionPlan, execution_plan_scope
 from .decision_gate import require_valid_decision_record
 from .engineering_recovery import verify_ci_gate
 from .engineering_evidence_capture import EvidenceCapture
@@ -752,6 +753,34 @@ class ExecutionController:
                  execution_class, implementation_digest, guard_action or "", agent_action_class or ""),
             )
         return reference
+
+    def _validate_canonical_execution_plan(self, plan: CanonicalExecutionPlan) -> None:
+        """Bind a plan to the live repository, branch and exact base revision."""
+        import subprocess
+        identity = _git_repository_identity(self.root)
+        if identity is None:
+            raise PermissionError("canonical execution plan requires a verifiable local Git repository identity")
+        try:
+            branch = subprocess.run(
+                ["git", "-C", str(self.root), "symbolic-ref", "--quiet", "--short", "HEAD"],
+                check=True, capture_output=True, text=True, timeout=2,
+            ).stdout.strip()
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise PermissionError("canonical execution plan requires an attached, verifiable branch") from exc
+        plan.validate_runtime(repository=identity[0], branch=branch, head_sha=identity[1])
+
+    def _canonical_execution_plan_for_task(self, task: DurableTask) -> CanonicalExecutionPlan | None:
+        raw = task.payload.get("_auren_execution_plan")
+        digest = task.payload.get("_auren_execution_plan_digest")
+        if raw is None and digest is None:
+            return None
+        if not isinstance(raw, Mapping) or not isinstance(digest, str):
+            raise PermissionError("durable canonical execution plan is missing or malformed")
+        plan = CanonicalExecutionPlan.from_mapping(raw)
+        if plan.digest != digest:
+            raise PermissionError("durable canonical execution plan digest mismatch")
+        self._validate_canonical_execution_plan(plan)
+        return plan
 
     def _handler_guard_action(self, name: str) -> str:
         with closing(sqlite3.connect(self.db_path)) as db, db:
@@ -2278,6 +2307,7 @@ class ExecutionController:
         goal: str | None = None,
         work_key: str | None = None,
         deadline_seconds: float | None = None,
+        execution_plan: Mapping[str, Any] | None = None,
     ) -> DurableTask:
         if deadline_seconds is not None and (
             isinstance(deadline_seconds, bool)
@@ -2307,6 +2337,13 @@ class ExecutionController:
                 raise ValueError("approval-gated handler has no trusted gateway/ledger policy")
         self._load_handler(handler)
         payload_copy = dict(payload)
+        if "_auren_execution_plan" in payload_copy or "_auren_execution_plan_digest" in payload_copy:
+            raise ValueError("canonical execution-plan fields are supervisor-owned")
+        if execution_plan is not None:
+            plan = CanonicalExecutionPlan.from_mapping(execution_plan)
+            self._validate_canonical_execution_plan(plan)
+            payload_copy["_auren_execution_plan"] = plan.payload()
+            payload_copy["_auren_execution_plan_digest"] = plan.digest
         assignment_envelope = payload_copy.get("_auren_agent_assignment")
         if isinstance(assignment_envelope, Mapping):
             assigned_work_key = assignment_envelope.get("work_key")
@@ -3768,6 +3805,7 @@ class ExecutionController:
                 )
             self._verify_engineering_plan_dispatch_checkpoint(task)
             self._verify_workflow_profile_binding(task)
+            canonical_plan = self._canonical_execution_plan_for_task(task)
             gates_passed, gate_detail, gate_evidence = self._preflight_gates(task)
             if not gates_passed:
                 complete_engineering_budget("failed")
@@ -3836,10 +3874,11 @@ class ExecutionController:
                 raise RuntimeError(
                     "organization Guard changed after decision receipt; handler dispatch blocked"
                 )
-            if execution_class == "consequential":
-                result = self._invoke_consequential_with_ledger(task, handler)
-            else:
-                result = self._invoke_with_lease_heartbeat(task, handler)
+            with execution_plan_scope(canonical_plan):
+                if execution_class == "consequential":
+                    result = self._invoke_consequential_with_ledger(task, handler)
+                else:
+                    result = self._invoke_with_lease_heartbeat(task, handler)
             if execution_class == "approval_gated":
                 self._verify_approval_gated_result(task, result)
         except LeaseLostError:
