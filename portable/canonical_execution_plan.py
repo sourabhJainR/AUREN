@@ -31,6 +31,15 @@ def _required_text(value: Any, field: str) -> str:
     return value.strip()
 
 
+def _string_tuple(value: Any, field: str) -> tuple[str, ...]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise ValueError(f"{field} must be a sequence of strings")
+    result = tuple(value)
+    if any(not isinstance(item, str) or not item.strip() for item in result):
+        raise ValueError(f"{field} must contain non-empty strings")
+    return result
+
+
 @dataclass(frozen=True, slots=True)
 class CanonicalExecutionPlan:
     """Immutable, digest-bound execution intent stored in the durable task."""
@@ -87,7 +96,7 @@ class CanonicalExecutionPlan:
             repository=target_data.get("repository"),
             branch=target_data.get("branch"),
             base_sha=target_data.get("base_sha"),
-            allowed_paths=tuple(target_data.get("allowed_paths", ())),
+            allowed_paths=_string_tuple(target_data.get("allowed_paths", ()), "allowed_paths"),
             governance_repository=target_data.get("governance_repository", ""),
             evidence_repository=target_data.get("evidence_repository", ""),
             allow_governance_repository_changes=target_data.get("allow_governance_repository_changes", False),
@@ -112,9 +121,9 @@ class CanonicalExecutionPlan:
             raise ValueError("malformed tool contract")
         return cls(
             target=target,
-            requirements=tuple(value.get("requirements", ())),
-            acceptance=tuple(value.get("acceptance", ())),
-            required_capabilities=tuple(value.get("required_capabilities", ())),
+            requirements=_string_tuple(value.get("requirements", ()), "requirements"),
+            acceptance=_string_tuple(value.get("acceptance", ()), "acceptance"),
+            required_capabilities=_string_tuple(value.get("required_capabilities", ()), "required_capabilities"),
             capabilities=capabilities,
             stopping_condition=value.get("stopping_condition", ""),
             tool_contracts=contracts,
