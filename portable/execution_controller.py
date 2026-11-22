@@ -767,7 +767,25 @@ class ExecutionController:
             ).stdout.strip()
         except (OSError, subprocess.SubprocessError) as exc:
             raise PermissionError("canonical execution plan requires an attached, verifiable branch") from exc
-        plan.validate_runtime(repository=identity[0], branch=branch, head_sha=identity[1])
+        import importlib.util
+        import os
+        import shutil
+        import sys
+        host_capabilities = {
+            "git_repository": True,
+            "workspace_filesystem": self.root.is_dir() and os.access(self.root, os.W_OK),
+            "python_runtime": sys.version_info >= (3, 10),
+            "isolated_sandbox": shutil.which("openshell") is not None,
+            "browser": importlib.util.find_spec("playwright") is not None,
+            "build_runner": shutil.which("npm") is not None,
+            "ci": bool(os.environ.get("GITHUB_ACTIONS") or os.environ.get("AUREN_CI_PROVIDER")),
+            "artifact_store": bool(os.environ.get("AUREN_ARTIFACT_STORE_URI")),
+            "permissions": bool(os.environ.get("AUREN_PERMISSION_PROBE_ID")),
+        }
+        plan.validate_runtime(
+            repository=identity[0], branch=branch, head_sha=identity[1],
+            host_capabilities=host_capabilities,
+        )
 
     def _record_canonical_plan_acceptance(
         self, task: DurableTask, plan: CanonicalExecutionPlan, result: Any,
