@@ -9,6 +9,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+from pathlib import Path
 import hashlib
 import json
 import re
@@ -21,6 +22,9 @@ from .repository_execution_preflight import (
 
 _ACTIVE_PLAN: ContextVar["CanonicalExecutionPlan | None"] = ContextVar(
     "auren_canonical_execution_plan", default=None
+)
+_ACTIVE_REPOSITORY_ROOT: ContextVar[Path | None] = ContextVar(
+    "auren_canonical_execution_repository_root", default=None
 )
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 
@@ -242,9 +246,19 @@ def current_execution_plan() -> CanonicalExecutionPlan | None:
     return _ACTIVE_PLAN.get()
 
 
-def enforce_execution_plan_write(relative_path: str) -> None:
+def enforce_execution_plan_write(relative_path: str, *, root: str | Path | None = None) -> None:
     plan = _ACTIVE_PLAN.get()
     if plan is not None:
+        expected_root = _ACTIVE_REPOSITORY_ROOT.get()
+        if expected_root is not None:
+            if root is None:
+                raise PermissionError("canonical plan write did not identify its workspace root")
+            try:
+                observed_root = Path(root).expanduser().resolve(strict=True)
+            except (OSError, RuntimeError) as exc:
+                raise PermissionError("canonical plan workspace root cannot be resolved") from exc
+            if observed_root != expected_root:
+                raise PermissionError("canonical plan write root does not match the approved repository root")
         plan.authorize_path(relative_path)
 
 
@@ -257,11 +271,17 @@ def enforce_execution_plan_subprocess() -> None:
 
 
 @contextmanager
-def execution_plan_scope(plan: CanonicalExecutionPlan | None) -> Iterator[None]:
+def execution_plan_scope(
+    plan: CanonicalExecutionPlan | None, *, repository_root: str | Path | None = None,
+) -> Iterator[None]:
     token = _ACTIVE_PLAN.set(plan)
+    root_token = _ACTIVE_REPOSITORY_ROOT.set(
+        Path(repository_root).expanduser().resolve(strict=True) if plan is not None and repository_root is not None else None
+    )
     try:
         yield
     finally:
+        _ACTIVE_REPOSITORY_ROOT.reset(root_token)
         _ACTIVE_PLAN.reset(token)
 
 
