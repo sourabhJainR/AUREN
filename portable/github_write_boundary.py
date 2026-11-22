@@ -435,6 +435,8 @@ def validate_github_write_authorization(
         raise GitHubWriteBoundaryError("GitHub write requires typed host authority")
     if payload["tool_name"] != getattr(call_binding, "tool_name", None):
         raise GitHubWriteBoundaryError("GitHub write metadata does not match the configured MCP tool")
+    if payload["tool_arguments_digest"] != getattr(call_binding, "arguments_digest", None):
+        raise GitHubWriteBoundaryError("GitHub write arguments differ from the immutable MCP call binding")
     if payload["repository"] != str(getattr(context, "repository_slug", "")).casefold():
         raise GitHubWriteBoundaryError("GitHub write repository differs from the host-verified repository")
     if payload["branch"] != getattr(context, "repository_branch", ""):
