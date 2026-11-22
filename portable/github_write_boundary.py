@@ -389,6 +389,17 @@ def preflight_github_tool(
     if not server and not tool_name.casefold().startswith("github."):
         return None
     target = _plan_target(plan)
+    required_capabilities = set(getattr(plan, "required_capabilities", ()))
+    declared_capabilities = {
+        name: (available, evidence)
+        for name, available, evidence in getattr(plan, "capabilities", ())
+    }
+    for capability in ("github_mcp", "repository.write"):
+        declared = declared_capabilities.get(capability)
+        if capability not in required_capabilities or not declared or declared[0] is not True or not declared[1]:
+            raise GitHubWriteBoundaryError(
+                f"canonical plan must prove required capability {capability!r} before GitHub writes"
+            )
     repository = _repository(arguments)
     tool_schema_digest, tool_arguments_digest = _trusted_tool_contract(plan, tool_name, arguments)
     if repository != target.repository.casefold():
