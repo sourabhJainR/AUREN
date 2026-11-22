@@ -71,6 +71,11 @@ kernel32.GetFileInformationByHandleEx.argtypes = [wintypes.HANDLE, ctypes.c_int,
 kernel32.GetFileInformationByHandleEx.restype = wintypes.BOOL
 kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
 kernel32.CloseHandle.restype = wintypes.BOOL
+kernel32.SetFilePointerEx.argtypes = [wintypes.HANDLE, ctypes.c_longlong,
+                                      ctypes.POINTER(ctypes.c_longlong), wintypes.DWORD]
+kernel32.SetFilePointerEx.restype = wintypes.BOOL
+kernel32.SetEndOfFile.argtypes = [wintypes.HANDLE]
+kernel32.SetEndOfFile.restype = wintypes.BOOL
 ntdll.NtCreateFile.restype = ctypes.c_long
 ntdll.NtCreateFile.argtypes = [
     ctypes.POINTER(wintypes.HANDLE), wintypes.ULONG, ctypes.POINTER(OBJECT_ATTRIBUTES),
@@ -158,7 +163,9 @@ def open_workspace_file(root: Path, parts: tuple[str, ...], mode: str,
         if mode[0] == "r":
             access, disposition, fd_flags = FILE_READ_DATA, FILE_OPEN, os.O_RDONLY
         elif mode[0] == "w":
-            access, disposition, fd_flags = FILE_WRITE_DATA, FILE_OVERWRITE_IF, os.O_WRONLY
+            # Open without truncation. Validate the opened object first so a
+            # reparse point is never modified before it is rejected.
+            access, disposition, fd_flags = FILE_WRITE_DATA, FILE_OPEN_IF, os.O_WRONLY
         elif mode[0] == "a":
             access, disposition, fd_flags = FILE_APPEND_DATA, FILE_OPEN_IF, os.O_WRONLY | os.O_APPEND
         else:
@@ -168,6 +175,12 @@ def open_workspace_file(root: Path, parts: tuple[str, ...], mode: str,
             directory_handles[-1], parts[-1], directory=False,
             access=access, disposition=disposition
         )
+        if mode[0] == "w":
+            zero = ctypes.c_longlong(0)
+            if not kernel32.SetFilePointerEx(leaf_handle, 0, ctypes.byref(zero), 0):
+                raise _last_error("cannot position workspace file for truncation")
+            if not kernel32.SetEndOfFile(leaf_handle):
+                raise _last_error("cannot truncate workspace file")
         fd = msvcrt.open_osfhandle(leaf_handle.value, fd_flags | getattr(os, "O_BINARY", 0))
         leaf_handle = None  # The CRT descriptor now owns the native handle.
         return os.fdopen(fd, mode) if "b" in mode else os.fdopen(fd, mode, encoding="utf-8")
