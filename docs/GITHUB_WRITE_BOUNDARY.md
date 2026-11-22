@@ -2,7 +2,7 @@
 
 AUREN treats GitHub mutations as approved external effects. The MCP adapter does not launch a GitHub write tool until all of these checks pass:
 
-1. A host-supplied canonical execution plan identifies the exact repository, implementation branch, base SHA, path scope and optional pull-request base branch.
+1. A host-supplied canonical execution plan identifies the exact repository, implementation branch, base SHA, path scope and optional pull-request base branch. It must explicitly require `github_mcp` and `repository.write`, with positive capability evidence for both.
 2. The plan contains exactly one tool contract for the configured GitHub tool. The contract contains the live MCP `inputSchema` captured during planning and a SHA-256 digest of the exact argument object. This avoids copying file contents into the plan.
 3. The request identifies the same owner/repository and implementation branch. File mutations list every path, and each path passes `RepositoryTarget.authorize_path`.
 4. The write includes the expected current head SHA. Branch creation uses the approved base SHA. Commit creation must have exactly the approved SHA as its parent. PR create/update/merge calls must include an exact expected head SHA and base SHA; PR writes also require `pull_request_base_branch` in the canonical plan.
