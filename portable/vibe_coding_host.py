@@ -35,6 +35,7 @@ from .agent_execution_guard import (
 )
 from .execution_boundary import ExecutionAuthorityBinding, execute_bound_action
 from .runtime_recovery import RuntimeExecutionGuard
+from .repository_execution_preflight import guard_governance_repository, repository_slug_from_remote
 from .provider_fabric import ProviderFabric
 from .engineering_design_guard import EngineeringDesignGuard
 from .vibe_coding import STAGE_ORDER, STAGE_SPECS, VibeCodingCheckpoint, VibeStage
@@ -2677,6 +2678,53 @@ class LocalVibeCodingHost:
             raise ValueError("workflow_id must be a safe identifier")
         if not intent.strip():
             raise ValueError("intent is required")
+        # Protect the orchestration repository from accidental product-code writes.
+        # AUREN development remains possible, but requires an explicit operator opt-in.
+        origin = _run(
+            ("git", "-C", str(self.project_root), "remote", "get-url", "origin"),
+            cwd=self.project_root, timeout=10,
+        )
+        allow_unverified_identity = (
+            os.environ.get("AUREN_ALLOW_UNVERIFIED_REPOSITORY_IDENTITY") == "1"
+        )
+        governance_repository = os.environ.get(
+            "AUREN_GOVERNANCE_REPOSITORY", "sourabhJainR/AUREN"
+        )
+        allow_governance_changes = (
+            os.environ.get("AUREN_ALLOW_GOVERNANCE_REPOSITORY_CHANGES") == "1"
+        )
+        origin_url = (origin.stdout or "").strip()
+        observed_repository = None
+        if origin.returncode == 0 and origin_url:
+            observed_repository = guard_governance_repository(
+                origin_url,
+                governance_repository=governance_repository,
+                allow_governance_repository_changes=allow_governance_changes,
+            )
+        if observed_repository is None:
+            if not allow_unverified_identity:
+                raise PermissionError(
+                    "cannot verify the implementation repository identity; configure a supported "
+                    "GitHub origin or explicitly declare the local target after operator review"
+                )
+            declared_repository = os.environ.get("AUREN_IMPLEMENTATION_REPOSITORY", "").strip()
+            if not declared_repository:
+                raise PermissionError(
+                    "unverified repository identity requires "
+                    "AUREN_IMPLEMENTATION_REPOSITORY=owner/repo"
+                )
+            declared_remote = f"https://github.com/{declared_repository}"
+            if repository_slug_from_remote(declared_remote) is None:
+                raise PermissionError(
+                    "AUREN_IMPLEMENTATION_REPOSITORY must be a canonical owner/repo slug"
+                )
+            # The declaration identifies the target but is not proof of its remote.
+            # Still apply the governance-repository opt-in to the declared target.
+            guard_governance_repository(
+                declared_remote,
+                governance_repository=governance_repository,
+                allow_governance_repository_changes=allow_governance_changes,
+            )
         lease = IsolatedGitWorktree(self.project_root, workflow_id, self.state_root / "worktrees")
         workspace = lease.open() if self.config.allow_workspace_writes else self.project_root
         if self.config.allow_workspace_writes:

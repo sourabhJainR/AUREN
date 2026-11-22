@@ -1549,8 +1549,17 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
             os.chmod(config_path, 0o600)
             previous_path = os.environ.get("PATH", "")
             previous_pythonpath = os.environ.get("PYTHONPATH")
+            previous_unverified_identity = os.environ.get("AUREN_ALLOW_UNVERIFIED_REPOSITORY_IDENTITY")
+            previous_implementation_repository = os.environ.get("AUREN_IMPLEMENTATION_REPOSITORY")
+            previous_governance_changes = os.environ.get("AUREN_ALLOW_GOVERNANCE_REPOSITORY_CHANGES")
             os.environ["PATH"] = str(bin_dir) + os.pathsep + previous_path
             os.environ["PYTHONPATH"] = str(project) + os.pathsep + str(project / ".ai-harness")
+            # This test intentionally clones AUREN to a local file://-style
+            # origin. Explicitly declare and opt into self-maintenance so the
+            # test reaches the provider-native lookup gate below.
+            os.environ["AUREN_ALLOW_UNVERIFIED_REPOSITORY_IDENTITY"] = "1"
+            os.environ["AUREN_IMPLEMENTATION_REPOSITORY"] = "sourabhJainR/AUREN"
+            os.environ["AUREN_ALLOW_GOVERNANCE_REPOSITORY_CHANGES"] = "1"
             try:
                 host_config = load_host_config(config_path)
                 try:
@@ -1574,6 +1583,18 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
                     os.environ.pop("PYTHONPATH", None)
                 else:
                     os.environ["PYTHONPATH"] = previous_pythonpath
+                if previous_unverified_identity is None:
+                    os.environ.pop("AUREN_ALLOW_UNVERIFIED_REPOSITORY_IDENTITY", None)
+                else:
+                    os.environ["AUREN_ALLOW_UNVERIFIED_REPOSITORY_IDENTITY"] = previous_unverified_identity
+                if previous_implementation_repository is None:
+                    os.environ.pop("AUREN_IMPLEMENTATION_REPOSITORY", None)
+                else:
+                    os.environ["AUREN_IMPLEMENTATION_REPOSITORY"] = previous_implementation_repository
+                if previous_governance_changes is None:
+                    os.environ.pop("AUREN_ALLOW_GOVERNANCE_REPOSITORY_CHANGES", None)
+                else:
+                    os.environ["AUREN_ALLOW_GOVERNANCE_REPOSITORY_CHANGES"] = previous_governance_changes
             self.assertEqual(report["run_status"], "failed", report["stop_reason"])
             self.assertEqual("failed", report["stage_statuses"]["development"])
             self.assertFalse(report["production_deployment_performed"])
