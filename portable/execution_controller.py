@@ -2515,7 +2515,8 @@ class ExecutionController:
             approval_scope = " ".join((*plan.requirements, *plan.constraints))
             explicit_approval_required = bool(re.search(
                 r"\b(?:without|unless|until)\b.{0,80}\b(?:explicit\s+)?(?:human\s+)?(?:approval|consent)\b"
-                r"|\b(?:approval|consent)\s+(?:is\s+)?required\s+before\b",
+                r"|\b(?:approval|consent)\s+(?:is\s+)?required\s+before\b"
+                r"|\b(?:approval|consent)\b.{0,40}\b(?:before|prior to)\b",
                 approval_scope,
                 flags=re.IGNORECASE,
             ))
