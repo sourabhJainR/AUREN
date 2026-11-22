@@ -41,8 +41,6 @@ def resolve_workspace_path(root: str | Path, relative_path: str | Path) -> Path:
         raise NotADirectoryError("workspace root must be a directory")
     parts = _relative_parts(relative_path)
     enforce_agent_resource_scope(PurePosixPath(*parts).as_posix())
-    if any(flag in mode for flag in ("w", "a", "x", "+")):
-        enforce_execution_plan_write(PurePosixPath(*parts).as_posix())
     current = workspace
     for index, part in enumerate(parts):
         current = current / part
@@ -114,6 +112,8 @@ def open_workspace_file(
         raise NotADirectoryError("workspace root must be a directory")
     parts = _relative_parts(relative_path)
     enforce_agent_resource_scope(PurePosixPath(*parts).as_posix())
+    if any(flag in mode for flag in ("w", "a", "x", "+")):
+        enforce_execution_plan_write(PurePosixPath(*parts).as_posix())
     if os.name == "posix":
         try:
             descriptor = _open_posix(workspace, parts, mode, create_parents)
