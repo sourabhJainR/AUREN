@@ -128,6 +128,29 @@ class CanonicalExecutionPlanTests(unittest.TestCase):
         self.assertFalse((self.root / "outside/result.txt").exists())
         self.assertEqual(controller.task(task.id).state, "failed")
 
+    def test_feasibility_receipt_surfaces_existing_implementation_to_reuse(self):
+        controller = ExecutionController(self.root)
+        controller.register_handler("plan_write", _plan_write_handler, execution_class="read_only")
+        plan = self.plan()
+        plan["requirements"] = ["Improve durable retry and resume behavior."]
+        task = controller.submit(
+            "plan_write",
+            {"root": str(self.root), "path": "output/reuse-review.txt"},
+            execution_plan=plan,
+        )
+        receipt = task.payload["_auren_feasibility_review"]
+        recommendations = receipt["reuse_review"]["recommendations"]
+        self.assertTrue(recommendations)
+        evidence_paths = {
+            path
+            for recommendation in recommendations
+            for path in recommendation.get("repository_evidence", ())
+        }
+        self.assertIn("portable/execution_controller.py", evidence_paths)
+        self.assertIn("durable state machine + deadline scheduling", {
+            recommendation["pattern"] for recommendation in recommendations
+        })
+
     def test_controller_rejects_a_second_workspace_root(self):
         controller = ExecutionController(self.root)
         controller.register_handler("plan_write", _plan_write_handler, execution_class="read_only")
