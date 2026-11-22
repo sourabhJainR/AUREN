@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Mapping, Sequence
 from .extension_policy import ExtensionInvocationDenied, evaluate_invocation
 from .agent_execution_guard import deny_unscoped_subprocess_for_assigned_agent
+from .canonical_execution_plan import enforce_execution_plan_subprocess
 
 
 class SubprocessProviderError(RuntimeError):
@@ -328,6 +329,7 @@ class SubprocessProviderInvoker:
         # Deny before extension-policy checks or process creation until a host-enforced
         # scoped executor is supplied.
         deny_unscoped_subprocess_for_assigned_agent()
+        enforce_execution_plan_subprocess()
         extension_decision = None
         if self.is_extension:
             extension_decision = evaluate_invocation(
