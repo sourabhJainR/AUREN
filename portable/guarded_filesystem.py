@@ -14,6 +14,7 @@ from pathlib import Path, PurePosixPath
 from typing import BinaryIO, Iterator, TextIO
 
 from .agent_execution_guard import enforce_agent_resource_scope
+from .canonical_execution_plan import enforce_execution_plan_write
 from .context_streaming import InputChunk, iter_stream_chunks
 
 
@@ -40,6 +41,8 @@ def resolve_workspace_path(root: str | Path, relative_path: str | Path) -> Path:
         raise NotADirectoryError("workspace root must be a directory")
     parts = _relative_parts(relative_path)
     enforce_agent_resource_scope(PurePosixPath(*parts).as_posix())
+    if any(flag in mode for flag in ("w", "a", "x", "+")):
+        enforce_execution_plan_write(PurePosixPath(*parts).as_posix())
     current = workspace
     for index, part in enumerate(parts):
         current = current / part
