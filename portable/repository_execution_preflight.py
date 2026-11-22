@@ -134,13 +134,15 @@ def _validate_schema_value(schema: Mapping[str, Any], value: Any, path: str) -> 
     """Validate the supported recursive JSON-Schema subset; reject unknown constraints."""
     if not isinstance(schema, Mapping):
         raise ToolContractError(f"invalid schema for {path}")
+    if any(not isinstance(key, str) for key in schema):
+        raise ToolContractError(f"schema keywords for {path} must be strings")
     unsupported = sorted(set(schema) - _SCHEMA_ALLOWED_KEYWORDS)
     if unsupported:
         raise ToolContractError(
             f"unsupported schema keywords for {path}: " + ", ".join(unsupported)
         )
     kind = schema.get("type")
-    if kind not in {"string", "integer", "number", "boolean", "array", "object", "null"}:
+    if not isinstance(kind, str) or kind not in {"string", "integer", "number", "boolean", "array", "object", "null"}:
         raise ToolContractError(f"unsupported schema type for {path}: {kind}")
 
     scoped_keywords = {
@@ -190,7 +192,7 @@ def _validate_schema_value(schema: Mapping[str, Any], value: Any, path: str) -> 
         if type(value) is not int:
             raise ToolContractError(f"{path} must be integer")
     elif kind == "number":
-        if type(value) not in (int, float) or not math.isfinite(value):
+        if type(value) not in (int, float) or (type(value) is float and not math.isfinite(value)):
             raise ToolContractError(f"{path} must be a finite number")
     elif kind == "boolean":
         if type(value) is not bool:
@@ -208,8 +210,8 @@ def _validate_schema_value(schema: Mapping[str, Any], value: Any, path: str) -> 
             raise ToolContractError(f"{path} has fewer than minItems")
         if maximum is not None and len(value) > maximum:
             raise ToolContractError(f"{path} has more than maxItems")
-        item_schema = schema.get("items")
-        if item_schema is not None:
+        if "items" in schema:
+            item_schema = schema["items"]
             if not isinstance(item_schema, Mapping):
                 raise ToolContractError(f"items schema for {path} must be an object")
             for index, item in enumerate(value):
@@ -257,7 +259,7 @@ def _validate_schema_value(schema: Mapping[str, Any], value: Any, path: str) -> 
         for key in ("minimum", "maximum"):
             if key in schema:
                 bound = schema[key]
-                if type(bound) not in (int, float) or not math.isfinite(bound):
+                if type(bound) not in (int, float) or (type(bound) is float and not math.isfinite(bound)):
                     raise ToolContractError(f"{key} for {path} must be a finite number")
         minimum, maximum = schema.get("minimum"), schema.get("maximum")
         if minimum is not None and maximum is not None and minimum > maximum:
