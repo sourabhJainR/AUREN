@@ -148,6 +148,45 @@ class RepositoryExecutionPreflightTests(unittest.TestCase):
             with self.subTest(args=args), self.assertRaises(ToolContractError):
                 validate_tool_arguments(schema, args)
 
+    def test_nested_tool_schemas_validate_required_properties_and_array_items(self):
+        schema = {
+            "type": "object",
+            "properties": {
+                "config": {
+                    "type": "object",
+                    "required": ["branch"],
+                    "additionalProperties": False,
+                    "properties": {"branch": {"type": "string", "minLength": 2}},
+                },
+                "targets": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {"type": "integer", "minimum": 1},
+                },
+            },
+            "required": ["config", "targets"],
+            "additionalProperties": False,
+        }
+        validate_tool_arguments(
+            schema, {"config": {"branch": "main"}, "targets": [1, 2]}
+        )
+        invalid_arguments = (
+            {"config": {}, "targets": [1]},
+            {"config": {"branch": "main", "extra": True}, "targets": [1]},
+            {"config": {"branch": "main"}, "targets": [1, "two"]},
+        )
+        for arguments in invalid_arguments:
+            with self.subTest(arguments=arguments), self.assertRaises(ToolContractError):
+                validate_tool_arguments(schema, arguments)
+
+    def test_unsupported_nested_schema_constraints_fail_closed(self):
+        schema = {
+            "type": "object",
+            "properties": {"branch": {"type": "string", "pattern": "^[a-z]+$"}},
+        }
+        with self.assertRaisesRegex(ToolContractError, "unsupported schema keywords"):
+            validate_tool_arguments(schema, {"branch": "main"})
+
     def test_unknown_schema_type_fails_closed(self):
         with self.assertRaises(ToolContractError):
             validate_tool_arguments({"type": "object", "properties": {"x": {"type": "file"}}}, {"x": "a"})
@@ -183,12 +222,18 @@ class RepositoryExecutionPreflightTests(unittest.TestCase):
         self.assertFalse(result["passed"])
         self.assertEqual(result["checks"][1]["state"], "skipped_required")
         checks[1]["conclusion"] = "success"
-        self.assertTrue(exact_head_ci_gate(SHA, checks)["passed"])
+        self.assertTrue(exact_head_ci_gate(
+            SHA, checks, required_check_names=("unit", "browser")
+        )["passed"])
         checks[0]["head_sha"] = "b" * 40
-        self.assertFalse(exact_head_ci_gate(SHA, checks)["passed"])
+        self.assertFalse(exact_head_ci_gate(
+            SHA, checks, required_check_names=("unit", "browser")
+        )["passed"])
         checks[0]["head_sha"] = SHA
         checks[0]["conclusion"] = "neutral"
-        self.assertFalse(exact_head_ci_gate(SHA, checks)["passed"])
+        self.assertFalse(exact_head_ci_gate(
+            SHA, checks, required_check_names=("unit", "browser")
+        )["passed"])
         checks[0]["conclusion"] = "success"
         missing = exact_head_ci_gate(SHA, checks, required_check_names=("unit", "browser", "security"))
         self.assertFalse(missing["passed"])
@@ -199,6 +244,8 @@ class RepositoryExecutionPreflightTests(unittest.TestCase):
         self.assertFalse(exact_head_ci_gate(
             SHA, optionalized, required_check_names=("required",)
         )["passed"])
+        with self.assertRaisesRegex(ValueError, "authoritative non-empty"):
+            exact_head_ci_gate(SHA, checks)
 
     def test_acceptance_matrix_persists_via_canonical_ledger_contract(self):
         class Ledger:
