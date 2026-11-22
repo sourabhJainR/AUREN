@@ -101,3 +101,8 @@ The canonical plan test suite includes deliberately contradictory requirements a
 
 
 A plan-scoped `ContextVar` is an adapter guard, not an operating-system sandbox. The guarded filesystem checks both the approved canonical repository root and the relative path, and plan-scoped raw subprocess entry points fail closed. Arbitrary Python handlers can still bypass these adapters with direct filesystem or network APIs unless they run inside an OS-enforced sandbox. Therefore a plan receipt alone must never be used to claim isolation. Do not run untrusted handlers or handle sensitive data under this adapter-only mode; require a configured sandbox and trusted approval/egress policy first.
+
+
+The feasibility receipt also carries the existing `EngineeringDesignGuard.recommend_approaches` inventory for both the implementation checkout and the AUREN runtime checkout. It exposes known reusable owners and repository evidence before dispatch. This is a bounded, pattern-based inventory, not proof that no duplicate implementation exists; reviewers must inspect the candidate files and justify a new owner when reuse is not suitable.
+
+Plans mentioning personal, sensitive, confidential or customer data, credentials, secrets, security or privacy must declare an explicit data-handling constraint. A constraint that requires consent or approval binds the task to the trusted `approval_gated` path. Plans that declare `isolated_sandbox` as required are rejected when the host probe cannot confirm that capability. Adapter-only plan scope must not be described as isolation.
