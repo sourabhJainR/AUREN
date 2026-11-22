@@ -140,17 +140,28 @@ def open_workspace_file(root: Path, parts: tuple[str, ...], mode: str,
     """Open a workspace file without pathname re-resolution after root open."""
     if mode not in {"r", "rt", "rb", "w", "wt", "wb", "a", "at", "ab", "x", "xt", "xb"}:
         raise ValueError("unsupported workspace file mode")
+    # Open the volume/share anchor first, then resolve every root component
+    # relative to retained handles. CreateFileW on the full root path would
+    # follow reparse points in intermediate components before we could inspect
+    # them.
+    if not root.is_absolute() or not root.anchor:
+        raise PermissionError("Windows workspace root must be absolute")
     root_handle = kernel32.CreateFileW(
-        str(root), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, None,
+        root.anchor, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, None,
         OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, None
     )
     if root_handle == INVALID_HANDLE_VALUE:
-        raise _last_error("cannot open workspace root handle")
+        raise _last_error("cannot open workspace volume or share anchor")
 
     directory_handles = [root_handle]
     leaf_handle = None
     try:
-        _check_handle(root_handle, "workspace root", directory=True)
+        _check_handle(root_handle, "workspace volume or share anchor", directory=True)
+        for component in root.parts[1:]:
+            directory_handles.append(_open_relative(
+                directory_handles[-1], component, directory=True,
+                access=FILE_READ_DATA, disposition=FILE_OPEN
+            ))
         writing = mode[0] in {"w", "a", "x"}
         for part in parts[:-1]:
             disposition = FILE_OPEN_IF if writing and create_parents else FILE_OPEN
