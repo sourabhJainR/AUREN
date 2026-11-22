@@ -470,7 +470,7 @@ class GitHubWriteBoundaryTests(unittest.TestCase):
             )
         context.repository_slug = "acme/product"
         authorization.approval = None
-        with self.assertRaisesRegex(GitHubWriteBoundaryError, "approval was not accepted"):
+        with self.assertRaisesRegex(GitHubWriteBoundaryError, "trusted approval receipt"):
             validate_github_write_authorization(
                 payload, authorization=authorization,
                 request={"provider_operation": {"provider": "github"}},
