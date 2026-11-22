@@ -536,7 +536,7 @@ class GitHubWriteBoundaryTests(unittest.TestCase):
             def write_server(live_schema):
                 server.write_text(
                     "import json, pathlib, sys\n"
-                    f"schema = {json.dumps(live_schema)!r}\n"
+                    f"schema = json.loads({json.dumps(json.dumps(live_schema))})\n"
                     f"marker = {str(marker)!r}\n"
                     "for line in sys.stdin:\n"
                     "    request = json.loads(line)\n"
