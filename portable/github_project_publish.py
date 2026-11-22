@@ -14,6 +14,8 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
+from .canonical_execution_plan import enforce_execution_plan_subprocess
+
 _REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$")
 
 
@@ -55,6 +57,7 @@ def _normalize_github_remote(remote: str) -> str:
 
 
 def _run(args: Sequence[str], cwd: Path, timeout: int = 120) -> str:
+    enforce_execution_plan_subprocess()
     try:
         result = subprocess.run(
             list(args), cwd=cwd, check=True, capture_output=True, text=True,
