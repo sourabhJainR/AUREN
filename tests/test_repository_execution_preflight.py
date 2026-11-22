@@ -88,6 +88,10 @@ class RepositoryExecutionPreflightTests(unittest.TestCase):
         self.assertTrue(exact_head_ci_gate(SHA, checks)["passed"])
         checks[0]["head_sha"] = "b" * 40
         self.assertFalse(exact_head_ci_gate(SHA, checks)["passed"])
+        checks[0]["head_sha"] = SHA
+        checks[0]["conclusion"] = "neutral"
+        self.assertFalse(exact_head_ci_gate(SHA, checks)["passed"])
+        checks[0]["conclusion"] = "success"
         missing = exact_head_ci_gate(SHA, checks, required_check_names=("unit", "browser", "security"))
         self.assertFalse(missing["passed"])
         self.assertEqual(missing["missing_required"], ["security"])
