@@ -318,6 +318,36 @@ class RepositoryExecutionPreflightTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "immutable tuple"):
             AcceptanceMatrix("acme/product", SHA, [row])
 
+    def test_acceptance_row_rejects_mutable_payload_fields(self):
+        values = {
+            "requirement_id": "REQ-1",
+            "description": "Requirement",
+            "implementation": "",
+            "positive_test": "",
+            "negative_test": "",
+            "integration_test": "",
+            "status": AcceptanceStatus.BLOCKED,
+            "evidence_uri": "",
+            "evidence_sha": "",
+            "residual_risk": "",
+        }
+        for field in (
+            "requirement_id", "description", "implementation", "positive_test",
+            "negative_test", "integration_test", "evidence_uri", "evidence_sha",
+            "residual_risk",
+        ):
+            with self.subTest(field=field), self.assertRaisesRegex(
+                ValueError, "must be an immutable string"
+            ):
+                AcceptanceRow(**{**values, field: ["mutable"]})
+
+    def test_acceptance_row_requires_typed_status(self):
+        with self.assertRaisesRegex(ValueError, "status must be an AcceptanceStatus"):
+            AcceptanceRow(
+                "REQ-1", "Requirement", "", "", "", "",
+                status="blocked",
+            )
+
     def test_acceptance_matrix_rejects_dot_segments_in_repository_slug(self):
         row = AcceptanceRow(
             "REQ-1", "Requirement", "", "", "", "",
