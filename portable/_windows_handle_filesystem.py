@@ -125,7 +125,10 @@ def _open_relative(parent, name: str, *, directory: bool, access: int,
     status = ntdll.NtCreateFile(
         ctypes.byref(handle), access | SYNCHRONIZE | FILE_READ_ATTRIBUTES,
         ctypes.byref(attributes), ctypes.byref(status_block), None,
-        FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ | FILE_SHARE_WRITE,
+        FILE_ATTRIBUTE_NORMAL,
+        # Deliberately omit FILE_SHARE_DELETE: a retained parent handle must
+        # prevent rename/reparse replacement until its child has been opened.
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
         disposition, options, None, 0
     )
     if status < 0:
