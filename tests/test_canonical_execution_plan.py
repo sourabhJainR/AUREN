@@ -11,6 +11,7 @@ from portable.canonical_execution_plan import (
 )
 from portable.execution_controller import ExecutionController
 from portable.guarded_filesystem import write_workspace_text
+from portable.bounded_subprocess import run_bounded_command
 
 
 def _plan_write_handler(payload):
@@ -78,6 +79,12 @@ class CanonicalExecutionPlanTests(unittest.TestCase):
                 write_workspace_text(self.root, "secrets/result.txt", "denied")
         self.assertEqual((self.root / "output/result.txt").read_text(encoding="utf-8"), "allowed")
         self.assertFalse((self.root / "secrets/result.txt").exists())
+
+    def test_plan_scoped_work_denies_raw_subprocess(self):
+        plan = CanonicalExecutionPlan.from_mapping(self.plan())
+        with execution_plan_scope(plan):
+            with self.assertRaises(PermissionError):
+                run_bounded_command(["python", "-c", "print('must not run')"], timeout_seconds=2)
 
     def test_controller_binds_plan_and_allows_scoped_write(self):
         controller = ExecutionController(self.root)
