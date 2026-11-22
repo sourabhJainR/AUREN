@@ -77,6 +77,46 @@ class RepositoryTarget:
         return normalized
 
 
+def repository_slug_from_remote(remote_url: str) -> str | None:
+    """Extract a GitHub owner/repo slug from HTTPS, SSH or SCP-style remotes."""
+    value = _text(remote_url, "remote URL")
+    match = re.fullmatch(
+        r"(?:https://github\\.com/|ssh://git@github\\.com/|git@github\\.com:)([^/\\s]+/[^/\\s]+?)(?:\\.git)?/?",
+        value,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+    slug = match.group(1)
+    if any(part in {"", ".", ".."} for part in slug.split("/")):
+        raise ValueError("remote URL contains an invalid repository slug")
+    return slug
+
+
+def guard_governance_repository(
+    remote_url: str,
+    *,
+    governance_repository: str,
+    allow_governance_repository_changes: bool = False,
+) -> str | None:
+    """Reject accidental product writes to the orchestration repository."""
+    if type(allow_governance_repository_changes) is not bool:
+        raise ValueError("allow_governance_repository_changes must be boolean")
+    if not _SLUG.fullmatch(governance_repository):
+        raise ValueError("governance_repository must be an owner/repo slug")
+    observed = repository_slug_from_remote(remote_url)
+    if (
+        observed
+        and observed.casefold() == governance_repository.casefold()
+        and not allow_governance_repository_changes
+    ):
+        raise PermissionError(
+            "workspace writes to the AUREN governance repository require explicit opt-in; "
+            "select the product repository or set AUREN_ALLOW_GOVERNANCE_REPOSITORY_CHANGES=1"
+        )
+    return observed
+
+
 class ToolContractError(ValueError):
     """Tool arguments do not satisfy the discovered input contract."""
 
