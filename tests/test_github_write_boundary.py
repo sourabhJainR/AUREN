@@ -1,10 +1,13 @@
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from portable.canonical_execution_plan import CanonicalExecutionPlan
 from portable.github_write_boundary import (
     GitHubWriteBoundaryError,
     preflight_github_tool,
     validate_preflight_payload,
+    validate_github_write_authorization,
 )
 
 SHA = "a" * 40
@@ -263,6 +266,167 @@ class GitHubWriteBoundaryTests(unittest.TestCase):
         payload["branch"] = "main"
         with self.assertRaisesRegex(GitHubWriteBoundaryError, "digest is invalid"):
             validate_preflight_payload(payload)
+
+
+    def test_write_authorization_binds_host_identity_action_target_and_approval(self):
+        payload = preflight_github_tool(
+            argv=self.argv, tool_name="push_files",
+            arguments={
+                "owner": "acme", "repo": "product", "branch": "feature/work",
+                "expected_head_sha": SHA, "files": [{"path": "src/main.py", "content": "x"}],
+            },
+            plan=self.plan,
+        )
+        digest = payload["digest"]
+        action_request = SimpleNamespace(
+            capability="repository.write",
+            action="repository.write",
+            target=payload["target"],
+            risk="external_effect",
+            idempotency_key="github-write-operation-1",
+            evidence_refs=(f"github-write:{digest}", f"canonical-plan:{self.plan.digest}"),
+        )
+
+        class Gateway:
+            def requires_approval(self, request):
+                return True
+
+            def evaluate(self, request, *, approval=None):
+                return SimpleNamespace(allowed=approval == "approved", approval_required=True)
+
+        authorization = SimpleNamespace(
+            trusted_context=SimpleNamespace(
+                repository_slug="acme/product",
+                repository_branch="feature/work",
+                repository_revision=SHA,
+                execution_plan_digest=self.plan.digest,
+            ),
+            action_request=action_request,
+            gateway=Gateway(),
+            approval="approved",
+        )
+        binding = SimpleNamespace(tool_name="push_files")
+        request = {"provider_operation": {"provider": "github"}}
+        validate_github_write_authorization(
+            payload, authorization=authorization, request=request, call_binding=binding,
+        )
+
+    def test_write_authorization_rejects_wrong_host_identity_and_missing_approval(self):
+        payload = preflight_github_tool(
+            argv=self.argv, tool_name="push_files",
+            arguments={
+                "owner": "acme", "repo": "product", "branch": "feature/work",
+                "expected_head_sha": SHA, "files": [{"path": "src/main.py", "content": "x"}],
+            },
+            plan=self.plan,
+        )
+        action_request = SimpleNamespace(
+            capability="repository.write", action="repository.write",
+            target=payload["target"], risk="external_effect",
+            idempotency_key="github-write-operation-1",
+            evidence_refs=(f"github-write:{payload['digest']}", f"canonical-plan:{self.plan.digest}"),
+        )
+
+        class Gateway:
+            def requires_approval(self, request):
+                return True
+
+            def evaluate(self, request, *, approval=None):
+                return SimpleNamespace(allowed=approval == "approved", approval_required=True)
+
+        context = SimpleNamespace(
+            repository_slug="other/repo",
+            repository_branch="feature/work",
+            repository_revision=SHA,
+            execution_plan_digest=self.plan.digest,
+        )
+        authorization = SimpleNamespace(
+            trusted_context=context, action_request=action_request,
+            gateway=Gateway(), approval="approved",
+        )
+        with self.assertRaisesRegex(GitHubWriteBoundaryError, "host-verified repository"):
+            validate_github_write_authorization(
+                payload, authorization=authorization,
+                request={"provider_operation": {"provider": "github"}},
+                call_binding=SimpleNamespace(tool_name="push_files"),
+            )
+        context.repository_slug = "acme/product"
+        authorization.approval = None
+        with self.assertRaisesRegex(GitHubWriteBoundaryError, "approval was not accepted"):
+            validate_github_write_authorization(
+                payload, authorization=authorization,
+                request={"provider_operation": {"provider": "github"}},
+                call_binding=SimpleNamespace(tool_name="push_files"),
+            )
+
+    def test_write_authorization_requires_exact_action_target_and_evidence(self):
+        payload = preflight_github_tool(
+            argv=self.argv, tool_name="push_files",
+            arguments={
+                "owner": "acme", "repo": "product", "branch": "feature/work",
+                "expected_head_sha": SHA, "files": [{"path": "src/main.py", "content": "x"}],
+            },
+            plan=self.plan,
+        )
+
+        class Gateway:
+            def requires_approval(self, request):
+                return True
+
+            def evaluate(self, request, *, approval=None):
+                return SimpleNamespace(allowed=True, approval_required=True)
+
+        context = SimpleNamespace(
+            repository_slug="acme/product", repository_branch="feature/work",
+            repository_revision=SHA, execution_plan_digest=self.plan.digest,
+        )
+        action_request = SimpleNamespace(
+            capability="repository.write", action="repository.write",
+            target="acme/product@main", risk="external_effect",
+            idempotency_key="github-write-operation-1",
+            evidence_refs=(f"github-write:{payload['digest']}",),
+        )
+        authorization = SimpleNamespace(
+            trusted_context=context, action_request=action_request,
+            gateway=Gateway(), approval="approved",
+        )
+        with self.assertRaisesRegex(GitHubWriteBoundaryError, "approved repository/branch/PR"):
+            validate_github_write_authorization(
+                payload, authorization=authorization,
+                request={"provider_operation": {"provider": "github"}},
+                call_binding=SimpleNamespace(tool_name="push_files"),
+            )
+        action_request.target = payload["target"]
+        with self.assertRaisesRegex(GitHubWriteBoundaryError, "canonical plan and exact write target"):
+            validate_github_write_authorization(
+                payload, authorization=authorization,
+                request={"provider_operation": {"provider": "github"}},
+                call_binding=SimpleNamespace(tool_name="push_files"),
+            )
+
+    def test_mcp_adapter_blocks_github_write_before_child_process_without_authority(self):
+        from portable.vibe_coding_host import AdapterUnavailable, MCPStdioToolAdapter
+
+        adapter = MCPStdioToolAdapter(
+            argv=("python", "fake-github-mcp-server"),
+            tool_name="push_files",
+            argument_map={
+                "owner": "$owner", "repo": "$repo", "branch": "$branch",
+                "expected_head_sha": "$expected_head_sha", "files": "$files",
+            },
+            timeout_seconds=1,
+            requires_authority_binding=False,
+            github_server=True,
+            execution_plan=self.plan,
+        )
+        request = {
+            "owner": "acme", "repo": "product", "branch": "feature/work",
+            "expected_head_sha": SHA, "files": [{"path": "src/main.py", "content": "x"}],
+        }
+        with patch("subprocess.Popen", side_effect=AssertionError("child process must not start")):
+            with self.assertRaises(AdapterUnavailable):
+                adapter._call_untraced(request)
+
 
 
 if __name__ == "__main__":
