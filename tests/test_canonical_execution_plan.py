@@ -276,6 +276,21 @@ class CanonicalExecutionPlanTests(unittest.TestCase):
                 self.assertIsNone(controller.task_by_work_key(work_key))
                 self.assertFalse((self.root / f"output/private-export-{index}.txt").exists())
 
+        plan = self.plan()
+        plan["requirements"] = ["Transfer personal data to an external service."]
+        plan["constraints"] = ["Encrypt transferred data and enforce role-based access control."]
+        plan["acceptance"] = ["Do not transfer personal data until the user consents."]
+        with self.assertRaises(PermissionError) as raised:
+            controller.submit(
+                "plan_write",
+                {"root": str(self.root), "path": "output/consent-export.txt"},
+                work_key="privacy-acceptance-consent-gate",
+                execution_plan=plan,
+            )
+        self.assertIn("approval_gated", str(raised.exception))
+        self.assertIsNone(controller.task_by_work_key("privacy-acceptance-consent-gate"))
+        self.assertFalse((self.root / "output/consent-export.txt").exists())
+
     def test_unknown_tool_schema_constraint_fails_closed_at_admission(self):
         plan = self.plan()
         plan["tool_contracts"] = [{
