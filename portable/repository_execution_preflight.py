@@ -408,7 +408,11 @@ class AcceptanceMatrix:
     rows: tuple[AcceptanceRow, ...]
 
     def __post_init__(self) -> None:
-        if not _SLUG.fullmatch(self.repository) or not _SHA.fullmatch(self.head_sha):
+        if (
+            not _SLUG.fullmatch(self.repository)
+            or any(part in {".", ".."} for part in self.repository.split("/"))
+            or not _SHA.fullmatch(self.head_sha)
+        ):
             raise ValueError("acceptance matrix requires canonical repository and full head SHA")
         ids = [row.requirement_id for row in self.rows]
         if not self.rows or len(ids) != len(set(ids)):
