@@ -71,6 +71,7 @@ class RepositoryExecutionPreflightTests(unittest.TestCase):
                 with self.subTest(origin=origin):
                     with patch.dict(os.environ, {
                         "AUREN_GOVERNANCE_REPOSITORY": "acme/auren",
+                        "AUREN_ALLOW_UNVERIFIED_REPOSITORY_IDENTITY": "0",
                     }):
                         with patch("portable.vibe_coding_host._run", return_value=origin):
                             with patch("portable.vibe_coding_host.IsolatedGitWorktree.open") as open_worktree:
