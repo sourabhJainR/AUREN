@@ -50,10 +50,17 @@ class RepositoryTarget:
         _text(self.branch, "branch")
         if not isinstance(self.base_sha, str) or not _SHA.fullmatch(self.base_sha):
             raise ValueError("base_sha must be a full lowercase 40-character commit SHA")
-        if not self.allowed_paths:
-            raise ValueError("at least one allowed path scope is required")
-        for pattern in self.allowed_paths:
+        if (
+            isinstance(self.allowed_paths, (str, bytes))
+            or not isinstance(self.allowed_paths, Sequence)
+            or not self.allowed_paths
+        ):
+            raise ValueError("allowed_paths must be a non-empty sequence of path patterns")
+        normalized_patterns = tuple(
             _safe_relative_path(pattern, "allowed path")
+            for pattern in self.allowed_paths
+        )
+        object.__setattr__(self, "allowed_paths", normalized_patterns)
         for name in ("governance_repository", "evidence_repository"):
             value = getattr(self, name)
             if value and (
@@ -76,9 +83,40 @@ class RepositoryTarget:
 
     def authorize_path(self, path: str) -> str:
         normalized = _safe_relative_path(path, "write path")
-        if not any(fnmatch.fnmatchcase(normalized, pattern) or normalized.startswith(pattern.rstrip("/") + "/") for pattern in self.allowed_paths):
+        if not any(
+            _path_pattern_matches(normalized, pattern)
+            or (
+                not any(marker in pattern for marker in "*?[")
+                and normalized.startswith(pattern.rstrip("/") + "/")
+            )
+            for pattern in self.allowed_paths
+        ):
             raise PermissionError(f"write path is outside the declared scope: {normalized}")
         return normalized
+
+
+def _path_pattern_matches(path: str, pattern: str) -> bool:
+    """Match glob patterns by path segment; '*' never crosses a directory."""
+    path_parts = path.split("/")
+    pattern_parts = pattern.split("/")
+    positions = {0}
+    for pattern_part in pattern_parts:
+        if pattern_part == "**":
+            expanded = set(positions)
+            for index in range(len(path_parts)):
+                if index in expanded:
+                    expanded.add(index + 1)
+            positions = expanded
+        else:
+            positions = {
+                index + 1
+                for index in positions
+                if index < len(path_parts)
+                and fnmatch.fnmatchcase(path_parts[index], pattern_part)
+            }
+        if not positions:
+            return False
+    return len(path_parts) in positions
 
 
 def repository_slug_from_remote(remote_url: str) -> str | None:
@@ -136,6 +174,25 @@ _SCHEMA_ALLOWED_KEYWORDS = {
 }
 
 
+def _json_values_equal(left: Any, right: Any) -> bool:
+    """Compare JSON values without Python's bool/int equality overlap."""
+    if isinstance(left, bool) or isinstance(right, bool):
+        return type(left) is type(right) and left == right
+    if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+        return left == right
+    if isinstance(left, Mapping) and isinstance(right, Mapping):
+        return (
+            left.keys() == right.keys()
+            and all(_json_values_equal(left[key], right[key]) for key in left)
+        )
+    if isinstance(left, (list, tuple)) and isinstance(right, (list, tuple)):
+        return (
+            len(left) == len(right)
+            and all(_json_values_equal(a, b) for a, b in zip(left, right))
+        )
+    return type(left) is type(right) and left == right
+
+
 def _validate_schema_value(schema: Mapping[str, Any], value: Any, path: str) -> None:
     """Validate the supported recursive JSON-Schema subset; reject unknown constraints."""
     if not isinstance(schema, Mapping):
@@ -171,7 +228,7 @@ def _validate_schema_value(schema: Mapping[str, Any], value: Any, path: str) -> 
         choices = schema["enum"]
         if not isinstance(choices, (list, tuple)) or not choices:
             raise ToolContractError(f"enum for {path} must be a non-empty array")
-        if value not in choices:
+        if not any(_json_values_equal(value, choice) for choice in choices):
             raise ToolContractError(f"{path} is not an allowed enum value")
 
     def integer_bound(key: str) -> int | None:
@@ -229,7 +286,11 @@ def _validate_schema_value(schema: Mapping[str, Any], value: Any, path: str) -> 
             raise ToolContractError(f"{path} object keys must be strings")
         properties = schema.get("properties", {})
         required = schema.get("required", [])
-        if not isinstance(properties, Mapping) or any(not isinstance(key, str) for key in properties):
+        if (
+            not isinstance(properties, Mapping)
+            or any(not isinstance(key, str) for key in properties)
+            or any(not isinstance(child_schema, Mapping) for child_schema in properties.values())
+        ):
             raise ToolContractError(f"properties schema for {path} is malformed")
         if not isinstance(required, list) or any(not isinstance(key, str) for key in required):
             raise ToolContractError(f"required schema for {path} is malformed")
@@ -397,7 +458,7 @@ def exact_head_ci_gate(
     expected_sha: str,
     checks: Sequence[Mapping[str, Any]],
     *,
-    required_check_names: Sequence[str] = (),
+    required_check_names: Sequence[str],
 ) -> dict[str, Any]:
     """Fail closed: stale, missing, skipped-required and pending checks never pass."""
     if not _SHA.fullmatch(expected_sha):
