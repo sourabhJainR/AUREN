@@ -180,12 +180,12 @@ class CanonicalExecutionPlanTests(unittest.TestCase):
                 ("Do not store external market data.",),
             ),
             (
-                ("Fetch required live data from an external API.",),
+                ("Fetch live data from the internet.",),
                 ("The application must work offline with no network access.",),
             ),
             (
                 ("Run every action fully autonomously without human approval.",),
-                ("A human must approve every consequential action.",),
+                ("Require human approval for every action.",),
             ),
         )
         for index, (requirements, constraints) in enumerate(cases):
