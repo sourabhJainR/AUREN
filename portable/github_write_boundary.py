@@ -336,6 +336,8 @@ def _trusted_tool_contract(plan: Any, tool_name: str, arguments: Mapping[str, An
         planned_arguments = json.loads(arguments_json)
     except (TypeError, ValueError) as exc:
         raise GitHubWriteBoundaryError("canonical GitHub tool contract is malformed") from exc
+    if not isinstance(planned_arguments, Mapping):
+        raise GitHubWriteBoundaryError("canonical GitHub tool arguments contract must be an object")
     if set(planned_arguments) == {"$arguments_sha256"}:
         expected_arguments_digest = planned_arguments.get("$arguments_sha256")
         if not isinstance(expected_arguments_digest, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_arguments_digest):
