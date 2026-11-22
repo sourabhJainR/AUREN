@@ -2514,8 +2514,8 @@ class ExecutionController:
             feasibility_receipt = self._canonical_plan_feasibility_review(plan)
             approval_scope = " ".join((*plan.requirements, *plan.constraints))
             explicit_approval_required = bool(re.search(
-                r"\\b(?:without|unless|until)\\b.{0,80}\\b(?:explicit\\s+)?(?:human\\s+)?(?:approval|consent)\\b"
-                r"|\\b(?:approval|consent)\\s+(?:is\\s+)?required\\s+before\\b",
+                r"\b(?:without|unless|until)\\b.{0,80}\\b(?:explicit\s+)?(?:human\s+)?(?:approval|consent)\\b"
+                r"|\\b(?:approval|consent)\s+(?:is\s+)?required\s+before\\b",
                 approval_scope,
                 flags=re.IGNORECASE,
             ))
