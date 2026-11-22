@@ -437,7 +437,10 @@ class GitHubWriteBoundaryTests(unittest.TestCase):
             argv=self.argv, tool_name="push_files",
             arguments={
                 "owner": "acme", "repo": "product", "branch": "feature/work",
-                "expected_head_sha": SHA, "files": [{"path": "src/main.py", "content": "x"}],
+                "expected_head_sha": SHA, "files": [
+                    {"path": "src/main.py", "content": "value = 1"},
+                    {"path": "tests/test_main.py", "content": "assert True"},
+                ],
             },
             plan=self.plan,
         )
