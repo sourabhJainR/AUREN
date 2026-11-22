@@ -75,7 +75,10 @@ workspace writes unless the operator explicitly sets
 `AUREN_ALLOW_GOVERNANCE_REPOSITORY_CHANGES=1`. This keeps product work in
 its product repository while allowing deliberate AUREN self-maintenance.
 
-The check is performed before worktree creation. It covers the Vibe Coding
-host entry point; it does not automatically govern host-native tools or every
-external GitHub client. A missing GitHub origin or a non-GitHub remote is not
-proof of repository identity and remains a capability/evidence limitation.
+The check is performed before worktree creation. A missing origin or an origin
+that cannot be mapped to a GitHub owner/repository is blocked by default. An
+operator who has reviewed the target may explicitly permit this local-only case
+with \`AUREN_ALLOW_UNVERIFIED_REPOSITORY_IDENTITY=1\`; this does not bypass the
+separate governance-repository opt-in for a known AUREN remote. It covers the
+Vibe Coding host entry point; it does not automatically govern host-native
+tools or every external GitHub client.
