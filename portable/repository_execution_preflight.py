@@ -41,6 +41,11 @@ def _safe_branch_name(value: str, field: str) -> str:
     return branch
 
 
+def validate_branch_name(value: str, field: str = "branch") -> str:
+    """Validate a Git branch name before it crosses a repository write boundary."""
+    return _safe_branch_name(value, field)
+
+
 def _safe_relative_path(value: str, field: str) -> str:
     value = _text(value, field).replace("\\", "/")
     parts = value.split("/")
