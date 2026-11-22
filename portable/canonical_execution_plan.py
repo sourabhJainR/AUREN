@@ -50,6 +50,9 @@ class CanonicalExecutionPlan:
     required_capabilities: tuple[str, ...]
     capabilities: tuple[tuple[str, bool, str], ...]
     stopping_condition: str
+    assumptions: tuple[str, ...] = ()
+    constraints: tuple[str, ...] = ()
+    non_goals: tuple[str, ...] = ()
     required_checks: tuple[str, ...] = ()
     tool_contracts: tuple[tuple[str, str, str], ...] = ()
 
@@ -63,6 +66,10 @@ class CanonicalExecutionPlan:
             if any(not isinstance(item, str) or not item.strip() for item in values):
                 raise ValueError(f"{name} must contain non-empty strings")
         _required_text(self.stopping_condition, "stopping_condition")
+        for name in ("assumptions", "constraints", "non_goals"):
+            values = getattr(self, name)
+            if not isinstance(values, tuple) or any(not isinstance(item, str) or not item.strip() for item in values):
+                raise ValueError(f"{name} must be an immutable tuple of non-empty strings")
         if not isinstance(self.required_checks, tuple) or any(not isinstance(item, str) or not item.strip() for item in self.required_checks):
             raise ValueError("required_checks must be an immutable tuple of non-empty names")
         if len(set(self.required_checks)) != len(self.required_checks):
@@ -131,6 +138,9 @@ class CanonicalExecutionPlan:
             required_capabilities=_string_tuple(value.get("required_capabilities", ()), "required_capabilities"),
             capabilities=capabilities,
             stopping_condition=value.get("stopping_condition", ""),
+            assumptions=_string_tuple(value.get("assumptions", ()), "assumptions"),
+            constraints=_string_tuple(value.get("constraints", ()), "constraints"),
+            non_goals=_string_tuple(value.get("non_goals", ()), "non_goals"),
             required_checks=_string_tuple(value.get("required_checks", ()), "required_checks"),
             tool_contracts=contracts,
         )
@@ -155,6 +165,9 @@ class CanonicalExecutionPlan:
                 for name, available, evidence in self.capabilities
             ],
             "stopping_condition": self.stopping_condition,
+            "assumptions": list(self.assumptions),
+            "constraints": list(self.constraints),
+            "non_goals": list(self.non_goals),
             "required_checks": list(self.required_checks),
             "tool_contracts": [
                 {"name": name, "schema": json.loads(schema_json), "arguments": json.loads(arguments_json)}
