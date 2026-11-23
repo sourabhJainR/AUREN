@@ -476,9 +476,12 @@ class RemoteMCPServiceTests(unittest.TestCase):
         )
         try:
             headers = {"authorization": "Bearer " + self.token}
-            self.assertEqual(self.principal.subject, first.authenticate(headers).subject)
-            with self.assertRaisesRegex(MCPServiceError, "rate limit exceeded"):
-                second.authenticate(headers)
+            # Keep both requests in one fixed bucket. Wall-clock bucket rollover
+            # between authentications made this shared-store contract flaky.
+            with patch("portable.remote_mcp.time.time", return_value=1_800_000_000):
+                self.assertEqual(self.principal.subject, first.authenticate(headers).subject)
+                with self.assertRaisesRegex(MCPServiceError, "rate limit exceeded"):
+                    second.authenticate(headers)
         finally:
             first.close()
             second.close()
