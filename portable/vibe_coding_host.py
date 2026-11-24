@@ -700,6 +700,9 @@ class MCPTrustedExecutionContext:
     repository_revision: str
     repository_digest: str
     budget_id: str
+    repository_slug: str = ""
+    repository_branch: str = ""
+    execution_plan_digest: str = ""
 
     def validate(self) -> None:
         for name in (
@@ -713,6 +716,13 @@ class MCPTrustedExecutionContext:
             value = Path(getattr(self, name)).expanduser()
             if not value.is_absolute() or str(value.resolve()) != getattr(self, name):
                 raise ValueError(f"trusted MCP execution context {name} must be an absolute canonical path")
+        if self.repository_slug and not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", self.repository_slug):
+            raise ValueError("trusted MCP repository slug must be owner/repo")
+        if self.repository_branch:
+            from .repository_execution_preflight import validate_branch_name
+            validate_branch_name(self.repository_branch, "trusted MCP repository branch")
+        if self.execution_plan_digest and not re.fullmatch(r"[0-9a-f]{64}", self.execution_plan_digest):
+            raise ValueError("trusted MCP execution plan digest must be a SHA-256 digest")
 
 
 @dataclass(frozen=True)
@@ -725,12 +735,13 @@ class MCPToolCallBinding:
     arguments_digest: str
     request_digest: str
     timeout_seconds: int
+    github_write_preflight_json: str = ""
 
     @classmethod
     def from_call(
         cls, tool_name: str, argv: Sequence[str], arguments: Mapping[str, Any],
         request: Mapping[str, Any], *, env_allowlist: Sequence[str] = (),
-        timeout_seconds: int = 30,
+        timeout_seconds: int = 30, github_write_preflight: Mapping[str, Any] | None = None,
     ) -> "MCPToolCallBinding":
         if not isinstance(tool_name, str) or not tool_name.strip():
             raise ValueError("MCP tool name is required")
@@ -742,6 +753,20 @@ class MCPToolCallBinding:
             raise ValueError("MCP call binding timeout must be between 1 and 300 seconds")
         if any(not isinstance(name, str) or not name for name in env_allowlist):
             raise ValueError("MCP environment allowlist must contain non-empty names")
+        if github_write_preflight is not None and not isinstance(github_write_preflight, Mapping):
+            raise TypeError("GitHub write preflight must be a mapping")
+        github_preflight_json = ""
+        if github_write_preflight is not None:
+            from .github_write_boundary import validate_preflight_payload
+            validated_preflight = validate_preflight_payload(github_write_preflight)
+            if validated_preflight["tool_name"] != tool_name:
+                raise ValueError("GitHub write preflight does not match configured tool name")
+            if validated_preflight["tool_arguments_digest"] != _digest(dict(arguments)):
+                raise ValueError("GitHub write preflight does not match exact MCP arguments")
+            github_preflight_json = json.dumps(
+                validated_preflight, sort_keys=True, separators=(",", ":"),
+                ensure_ascii=False, allow_nan=False,
+            )
         return cls(
             tool_name=tool_name,
             command_digest=_digest(list(argv)),
@@ -749,7 +774,17 @@ class MCPToolCallBinding:
             arguments_digest=_digest(dict(arguments)),
             request_digest=mcp_request_digest(request),
             timeout_seconds=timeout_seconds,
+            github_write_preflight_json=github_preflight_json,
         )
+
+    @property
+    def github_write_preflight(self) -> dict[str, Any] | None:
+        if not self.github_write_preflight_json:
+            return None
+        value = json.loads(self.github_write_preflight_json)
+        if not isinstance(value, dict):
+            raise ValueError("GitHub write preflight snapshot must be an object")
+        return value
 
     @property
     def digest(self) -> str:
@@ -760,6 +795,7 @@ class MCPToolCallBinding:
             "arguments_digest": self.arguments_digest,
             "request_digest": self.request_digest,
             "timeout_seconds": self.timeout_seconds,
+            "github_write_preflight_json": self.github_write_preflight_json,
         })
 
     def validate_for_request(self, request: Mapping[str, Any]) -> None:
@@ -773,6 +809,17 @@ class MCPToolCallBinding:
             raise ValueError("MCP call binding timeout is invalid")
         if self.request_digest != mcp_request_digest(request):
             raise ValueError("MCP call binding does not match the exact request")
+        if not isinstance(self.github_write_preflight_json, str):
+            raise ValueError("MCP GitHub write preflight snapshot must be text")
+        if self.github_write_preflight_json:
+            try:
+                preflight = json.loads(self.github_write_preflight_json)
+                from .github_write_boundary import validate_preflight_payload
+                validated = validate_preflight_payload(preflight)
+            except Exception as exc:
+                raise ValueError("MCP GitHub write preflight snapshot is invalid") from exc
+            if validated["tool_name"] != self.tool_name:
+                raise ValueError("MCP GitHub write preflight tool does not match the call binding")
 
 
 @dataclass(frozen=True)
@@ -899,6 +946,12 @@ class MCPExecutionAuthorization:
                 raise ValueError("MCP read action evidence must bind the exact request and configured tool call")
         if self.gateway.is_external_effect(self.action_request) and not self.gateway.has_durable_side_effect_ledger:
             raise ValueError("MCP external effects require the canonical durable side-effect ledger")
+        github_write = call_binding.github_write_preflight
+        if github_write is not None:
+            from .github_write_boundary import validate_github_write_authorization
+            validate_github_write_authorization(
+                github_write, authorization=self, request=request, call_binding=call_binding,
+            )
 
 
 def build_mcp_authority_dispatch(
@@ -1064,6 +1117,8 @@ class MCPStdioToolAdapter:
         read_only_response_chunker: Callable[[Mapping[str, Any]], Sequence[Mapping[str, Any]]] | None = None,
         read_only_response_merger: Callable[[Sequence[Mapping[str, Any]]], Mapping[str, Any]] | None = None,
         team_budget_enforcer: Any | None = None,
+        github_server: bool | None = None,
+        execution_plan: Any | None = None,
     ) -> None:
         if not argv or any(not isinstance(x, str) or not x for x in argv):
             raise ValueError("MCP command must be a non-empty argv array")
@@ -1134,6 +1189,16 @@ class MCPStdioToolAdapter:
         if team_budget_enforcer is not None and not callable(getattr(team_budget_enforcer, "execute", None)):
             raise TypeError("team_budget_enforcer must implement execute")
         self.team_budget_enforcer = team_budget_enforcer
+        if github_server is not None and type(github_server) is not bool:
+            raise TypeError("github_server must be a boolean or None")
+        from .github_write_boundary import is_github_server
+        self.github_server = bool(github_server) or is_github_server(self.argv, self.tool_name)
+        if execution_plan is not None and (
+            getattr(execution_plan, "target", None) is None
+            or not isinstance(getattr(execution_plan, "digest", None), str)
+        ):
+            raise TypeError("execution_plan must be a validated CanonicalExecutionPlan")
+        self.execution_plan = execution_plan
 
     @staticmethod
     def _read_response(stream: Any, responses: queue.Queue[str], request_id: int, timeout: float) -> dict[str, Any]:
@@ -1305,8 +1370,29 @@ class MCPStdioToolAdapter:
         # assignment-aware sandbox, deny this launch before authority dispatch.
         deny_unscoped_subprocess_for_assigned_agent()
 
+        arguments = self._arguments_for_request(request)
+        github_write_preflight: Mapping[str, Any] | None = None
+        if self.github_server:
+            try:
+                from .github_write_boundary import preflight_github_tool
+                plan = self.execution_plan
+                if plan is None:
+                    from .canonical_execution_plan import current_execution_plan
+                    plan = current_execution_plan()
+                github_write_preflight = preflight_github_tool(
+                    argv=self.argv, tool_name=self.tool_name, arguments=arguments,
+                    plan=plan, github_server=True,
+                )
+                if github_write_preflight is not None and (
+                    not self.requires_authority_binding or self.authority_dispatch is None
+                ):
+                    raise PermissionError(
+                        "GitHub mutations require canonical execution plan and trusted approval dispatch"
+                    )
+            except Exception as exc:
+                raise AdapterUnavailable(f"GitHub write boundary rejected MCP dispatch: {exc}") from exc
+
         if not self.requires_authority_binding:
-            arguments = self._arguments_for_request(request)
             adaptive_deadline = (
                 time.monotonic() + min(300.0, float(self.timeout_seconds * 3))
                 if self.read_only_response_reducer is not None or self.read_only_response_chunker is not None
@@ -1449,10 +1535,10 @@ class MCPStdioToolAdapter:
             request_snapshot = json.loads(json.dumps(dict(request), ensure_ascii=False, allow_nan=False))
             if not isinstance(request_snapshot, dict):
                 raise TypeError("MCP request snapshot must be an object")
-            arguments = self._arguments_for_request(request_snapshot)
             call_binding = MCPToolCallBinding.from_call(
                 self.tool_name, self.argv, arguments, request_snapshot,
                 env_allowlist=self.env_allowlist, timeout_seconds=self.timeout_seconds,
+                github_write_preflight=github_write_preflight,
             )
         except Exception as exc:
             raise AdapterUnavailable("MCP call binding could not be established; dispatch blocked") from exc
@@ -1463,7 +1549,10 @@ class MCPStdioToolAdapter:
             if dispatched:
                 raise AdapterUnavailable("MCP consequential dispatch may execute only once")
             dispatched = True
-            return self._invoke_unchecked(request_snapshot, arguments=arguments)
+            return self._invoke_unchecked(
+                request_snapshot, arguments=arguments,
+                github_write_preflight=github_write_preflight,
+            )
 
         result = self.authority_dispatch(request_snapshot, call_binding, invoke_once)
         if not dispatched:
@@ -1475,6 +1564,7 @@ class MCPStdioToolAdapter:
     def _invoke_unchecked(
         self, request: Mapping[str, Any], *, arguments: Mapping[str, Any] | None = None,
         deadline: float | None = None,
+        github_write_preflight: Mapping[str, Any] | None = None,
     ) -> Mapping[str, Any]:
         state = request.get("state", {})
         if not isinstance(state, Mapping):
@@ -1589,12 +1679,50 @@ class MCPStdioToolAdapter:
             proc.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}) + "\n")
             proc.stdin.flush()
             args = dict(arguments) if arguments is not None else self._arguments_for_request(request)
+            call_id = 2
+            if github_write_preflight is not None:
+                from .github_write_boundary import validate_preflight_payload
+                from .repository_execution_preflight import validate_tool_arguments
+                preflight = validate_preflight_payload(github_write_preflight)
+                if _digest(args) != preflight["tool_arguments_digest"]:
+                    raise AdapterUnavailable("GitHub MCP arguments changed after canonical preflight")
+                cursor = None
+                discovered_schema = None
+                for _page in range(8):
+                    list_request = {
+                        "jsonrpc": "2.0", "id": call_id, "method": "tools/list",
+                        "params": ({"cursor": cursor} if cursor else {}),
+                    }
+                    proc.stdin.write(json.dumps(list_request, ensure_ascii=False) + "\n")
+                    proc.stdin.flush()
+                    listing = self._read_response(proc.stdout, responses, call_id, response_timeout())
+                    call_id += 1
+                    tools = listing.get("tools")
+                    if not isinstance(tools, list):
+                        raise AdapterUnavailable("GitHub MCP tools/list returned no tool inventory")
+                    matches = [tool for tool in tools if isinstance(tool, Mapping) and tool.get("name") == self.tool_name]
+                    if len(matches) > 1:
+                        raise AdapterUnavailable("GitHub MCP tools/list returned duplicate tool names")
+                    if matches:
+                        discovered_schema = matches[0].get("inputSchema")
+                        break
+                    cursor = listing.get("nextCursor")
+                    if not cursor:
+                        break
+                if not isinstance(discovered_schema, Mapping):
+                    raise AdapterUnavailable("GitHub MCP tools/list did not return the configured tool schema")
+                if _digest(discovered_schema) != preflight["tool_schema_digest"]:
+                    raise AdapterUnavailable("live GitHub MCP tool schema differs from the canonical plan contract")
+                try:
+                    validate_tool_arguments(discovered_schema, args)
+                except Exception as exc:
+                    raise AdapterUnavailable("GitHub MCP arguments fail live tool-schema validation") from exc
             proc.stdin.write(json.dumps({
-                "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                "jsonrpc": "2.0", "id": call_id, "method": "tools/call",
                 "params": {"name": self.tool_name, "arguments": args},
             }, ensure_ascii=False) + "\n")
             proc.stdin.flush()
-            result = self._read_response(proc.stdout, responses, 2, response_timeout())
+            result = self._read_response(proc.stdout, responses, call_id, response_timeout())
             if result.get("isError") is True:
                 raise AdapterUnavailable(f"MCP tool reported an error: {result.get('content', [])}")
             structured = result.get("structuredContent")
@@ -2421,6 +2549,9 @@ def load_host_config(path: str | Path | None = None) -> VibeHostConfig:
         timeout = spec.get("timeout_seconds", 30)
         if type(timeout) is not int or not 1 <= timeout <= 300:
             raise ValueError(f"MCP tool {name} timeout_seconds must be 1..300")
+        github_server = spec.get("github_server")
+        if github_server is not None and type(github_server) is not bool:
+            raise ValueError(f"MCP tool {name} github_server must be a boolean")
         external_effects = spec.get("external_effects", name not in _MCP_READ_ONLY_CAPABILITIES)
         if type(external_effects) is not bool:
             raise ValueError(f"MCP tool {name} external_effects must be a boolean")
@@ -2673,7 +2804,10 @@ class LocalVibeCodingHost:
         if not config.allow_workspace_writes:
             raise PermissionError("the complete product lifecycle requires explicit isolated-worktree writes; source checkout remains untouched")
 
-    def run(self, workflow_id: str, intent: str, *, max_total_attempts: int = 32):
+    def run(
+        self, workflow_id: str, intent: str, *, max_total_attempts: int = 32,
+        execution_plan: Any | None = None,
+    ):
         if not _WORKFLOW_ID.fullmatch(workflow_id):
             raise ValueError("workflow_id must be a safe identifier")
         if not intent.strip():
@@ -2725,11 +2859,91 @@ class LocalVibeCodingHost:
                 governance_repository=governance_repository,
                 allow_governance_repository_changes=allow_governance_changes,
             )
+        source_branch_result = _run(
+            ("git", "-C", str(self.project_root), "branch", "--show-current"),
+            cwd=self.project_root, timeout=10,
+        )
+        source_head_result = _run(
+            ("git", "-C", str(self.project_root), "rev-parse", "--verify", "HEAD^{commit}"),
+            cwd=self.project_root, timeout=10,
+        )
+        if source_branch_result.returncode or not source_branch_result.stdout.strip() or source_head_result.returncode:
+            if execution_plan is not None:
+                raise PermissionError("canonical GitHub writes require a verified source branch and base commit")
+        source_branch = source_branch_result.stdout.strip()
+        source_head = source_head_result.stdout.strip()
+        from .canonical_execution_plan import CanonicalExecutionPlan, current_execution_plan
+        if execution_plan is None:
+            execution_plan = current_execution_plan()
+        canonical_plan = None
+        if execution_plan is not None:
+            if isinstance(execution_plan, CanonicalExecutionPlan):
+                canonical_plan = execution_plan
+            elif isinstance(execution_plan, Mapping):
+                canonical_plan = CanonicalExecutionPlan.from_mapping(execution_plan)
+            else:
+                raise TypeError("execution_plan must be a CanonicalExecutionPlan or mapping")
+            if observed_repository is None:
+                raise PermissionError("canonical GitHub writes require a verified GitHub origin")
+            if canonical_plan.target.repository.casefold() != observed_repository.casefold():
+                raise PermissionError("canonical plan repository differs from the verified GitHub origin")
+            allowed_source_branches = {canonical_plan.target.branch}
+            if canonical_plan.target.pull_request_base_branch:
+                allowed_source_branches.add(canonical_plan.target.pull_request_base_branch)
+            if source_branch not in allowed_source_branches:
+                raise PermissionError(
+                    "source checkout branch must be the approved implementation branch or declared PR base branch"
+                )
+            if canonical_plan.target.base_sha != source_head:
+                raise PermissionError("canonical plan base SHA differs from the verified source checkout HEAD")
+
+            from .github_write_boundary import is_github_server, is_github_write_tool
+            host_capabilities: dict[str, bool] = {
+                "workspace_filesystem": bool(self.config.allow_workspace_writes),
+                "isolated_sandbox": False,
+            }
+            github_server_configured = False
+            github_write_authority_configured = False
+            for tool_key, tool_spec in self.config.mcp_tools.items():
+                command = str(tool_spec["argv"][0])
+                command_path = Path(command).expanduser()
+                command_available = bool(
+                    shutil.which(command)
+                    or command_path.is_file()
+                    or (self.project_root / command_path).is_file()
+                )
+                if not command_available:
+                    continue
+                declared_capability = tool_spec.get("capability", tool_key)
+                if isinstance(declared_capability, str) and declared_capability.strip():
+                    host_capabilities[declared_capability] = True
+                if tool_spec.get("github_server") or is_github_server(tool_spec["argv"], tool_spec["tool_name"]):
+                    github_server_configured = True
+                    requires_authority = tool_spec.get(
+                        "requires_authority_binding",
+                        tool_spec.get("external_effects", tool_key not in _MCP_READ_ONLY_CAPABILITIES),
+                    )
+                    if requires_authority and is_github_write_tool(tool_spec["tool_name"]):
+                        github_write_authority_configured = True
+            host_capabilities["github_mcp"] = github_server_configured
+            host_capabilities["repository.write"] = bool(
+                github_write_authority_configured and self.mcp_authority_resolver is not None
+            )
+            host_capabilities["github_write_digest_contracts"] = host_capabilities["repository.write"]
+            canonical_plan.validate_runtime(
+                repository=observed_repository,
+                branch=canonical_plan.target.branch,
+                head_sha=source_head,
+                host_capabilities=host_capabilities,
+            )
+
         lease = IsolatedGitWorktree(self.project_root, workflow_id, self.state_root / "worktrees")
         workspace = lease.open() if self.config.allow_workspace_writes else self.project_root
         if self.config.allow_workspace_writes:
             # Reuse only a cleanly based, previously created isolated worktree.
             lease.base_revision = _run(("git", "-C", str(workspace), "rev-parse", "HEAD"), cwd=workspace, timeout=10).stdout.strip()
+            if canonical_plan is not None and lease.base_revision != source_head:
+                raise PermissionError("isolated worktree base SHA changed after canonical plan admission")
         else:
             head = _run(("git", "-C", str(self.project_root), "rev-parse", "HEAD"), cwd=self.project_root, timeout=10)
             if head.returncode:
@@ -2786,6 +3000,9 @@ class LocalVibeCodingHost:
                 repository_revision=current_head.stdout.strip(),
                 repository_digest=fingerprint_worktree(workspace),
                 budget_id=f"mcp:{workflow_id}",
+                repository_slug=observed_repository or "",
+                repository_branch=canonical_plan.target.branch if canonical_plan is not None else source_branch,
+                execution_plan_digest=canonical_plan.digest if canonical_plan is not None else "",
             )
             trusted_context.validate()
             assert self.mcp_authority_resolver is not None
@@ -2839,6 +3056,8 @@ class LocalVibeCodingHost:
                 requires_authority_binding=bool(spec.get("external_effects", capability not in _MCP_READ_ONLY_CAPABILITIES)),
                 trusted_workspace_root=workspace,
                 authority_dispatch=mcp_authority_dispatch,
+                github_server=spec.get("github_server"),
+                execution_plan=canonical_plan,
             )
         if "independent_review" in self.config.mcp_tools:
             tools["independent_review"] = MCPIndependentReviewTool(

@@ -134,3 +134,8 @@ Plans mentioning personal, sensitive, confidential or customer data, credentials
 
 
 When the reuse inventory finds code owners in `portable/` or `.ai-harness/runtime/`, admission requires an explicit `reuse_decision` and a complete list of reviewed candidate paths. A `new_component` decision also requires a written justification. The decision and reviewed paths are part of the immutable plan digest and are revalidated at dispatch. This forces a deliberate reuse decision; it does not replace human code review or prove that every possible duplicate has been discovered.
+
+
+## GitHub remote writes
+
+GitHub branch, file, commit and pull-request mutations are now guarded by the [GitHub write boundary](GITHUB_WRITE_BOUNDARY.md). The boundary requires a canonical repository target, exact SHA, path inventory, reviewed MCP schema and argument contract, a durable provider-operation claim and trusted approval. Unknown GitHub tools and tools without expected-SHA support fail closed.

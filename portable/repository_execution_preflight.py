@@ -24,6 +24,28 @@ def _text(value: Any, field: str) -> str:
     return value.strip()
 
 
+def _safe_branch_name(value: str, field: str) -> str:
+    branch = _text(value, field)
+    if (
+        len(branch) > 240
+        or branch.startswith("-")
+        or branch.endswith(("/", "."))
+        or "//" in branch
+        or ".." in branch
+        or "@{" in branch
+        or branch.endswith(".lock")
+        or any(ord(char) < 32 or char in " ~^:?*[" or ord(char) == 92 for char in branch)
+        or any(part in {"", ".", ".."} for part in branch.split("/"))
+    ):
+        raise ValueError(f"{field} must be a safe Git branch name")
+    return branch
+
+
+def validate_branch_name(value: str, field: str = "branch") -> str:
+    """Validate a Git branch name before it crosses a repository write boundary."""
+    return _safe_branch_name(value, field)
+
+
 def _safe_relative_path(value: str, field: str) -> str:
     value = _text(value, field).replace("\\", "/")
     parts = value.split("/")
@@ -42,12 +64,15 @@ class RepositoryTarget:
     governance_repository: str = ""
     evidence_repository: str = ""
     allow_governance_repository_changes: bool = False
+    pull_request_base_branch: str = ""
 
     def __post_init__(self) -> None:
         repo = _text(self.repository, "repository")
         if not _SLUG.fullmatch(repo) or any(part in {".", ".."} for part in repo.split("/")):
             raise ValueError("repository must be a canonical owner/repo slug")
-        _text(self.branch, "branch")
+        _safe_branch_name(self.branch, "branch")
+        if self.pull_request_base_branch:
+            _safe_branch_name(self.pull_request_base_branch, "pull_request_base_branch")
         if not isinstance(self.base_sha, str) or not _SHA.fullmatch(self.base_sha):
             raise ValueError("base_sha must be a full lowercase 40-character commit SHA")
         if (
