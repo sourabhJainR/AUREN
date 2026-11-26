@@ -245,7 +245,7 @@ def run_local_provider_task(payload: Mapping[str, Any]) -> Mapping[str, Any]:
     profile_constraints: dict[str, Any] = {}
     raw_profile_binding = payload.get("_auren_agent_profile")
     raw_assignment = payload.get("_auren_agent_assignment")
-    if raw_profile_binding is not None or raw_assignment is not None:
+    if raw_profile_binding is not None:
         if not isinstance(raw_profile_binding, Mapping) or not isinstance(raw_assignment, Mapping):
             raise LocalProviderNotConfigured("pinned agent profile or durable assignment is missing")
         from .agent_profiles import profile_route_constraints
