@@ -370,6 +370,46 @@ class RemoteModelProviderTests(unittest.TestCase):
         with self.assertRaisesRegex(RemoteProviderError, "not configured"):
             pool(Request())
 
+    def test_profile_preferences_only_match_exact_provider_ids_and_operator_order_wins(self):
+        calls = []
+
+        def transport(url, **kwargs):
+            calls.append(url)
+            return 200, json.dumps({
+                "id": "req-profile-hint",
+                "status": "completed",
+                "output": [{
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": "selected"}],
+                }],
+            }).encode()
+
+        pool = RemoteProviderPool([
+            OpenAICompatibleProvider(PROVIDER_SPECS["openai"], api_key="openai-secret", model="model-a", transport=transport),
+            OpenAICompatibleProvider(PROVIDER_SPECS["xai"], api_key="xai-secret", model="model-b", transport=transport),
+        ])
+
+        class Request:
+            task = "public task"
+            timeout_seconds = 5
+            provider_attempt = 0
+            provider_order = None
+            provider_preferences = ("xai", "openai")
+
+        self.assertEqual("xai", pool(Request()).provider)
+        self.assertTrue(calls[-1].startswith("https://api.x.ai/"))
+
+        Request.provider_preferences = ("strong_code_reasoning", "low_latency")
+        Request.provider_attempt = 0
+        self.assertEqual("openai", pool(Request()).provider)
+        self.assertTrue(calls[-1].startswith("https://api.openai.com/"))
+
+        Request.provider_preferences = ("xai",)
+        Request.provider_order = ("openai",)
+        Request.provider_attempt = 0
+        self.assertEqual("openai", pool(Request()).provider)
+        self.assertTrue(calls[-1].startswith("https://api.openai.com/"))
+
     def test_provider_configuration_report_is_secret_safe_and_supports_multiple_providers(self):
         from portable.remote_model_providers import provider_configuration_report
 
