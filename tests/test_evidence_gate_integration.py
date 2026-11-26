@@ -10,6 +10,8 @@ from unittest.mock import Mock
 
 from portable.evidence_gate import EvidenceCheck
 from portable.evidence_gate_integration import EvidenceGateIntegration
+from portable.execution_controller import ExecutionController
+from portable.engineering_recovery import EngineeringRecoveryLedger
 from portable.persistent_memory import PersistentMemory
 
 
@@ -51,6 +53,53 @@ class EvidenceGateIntegrationTests(unittest.TestCase):
             self.assertIsNotNone(recovered.graph.get_node(result.receipt_node_id))
             self.assertIsNotNone(recovered.graph.get_node(result.check_node_ids[0]))
             reopened.close()
+
+    def test_browser_ci_receipt_is_exact_head_bound_and_survives_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            memory_path = Path(directory) / "memory.sqlite"
+            memory = PersistentMemory(memory_path, require_approval=False)
+            integration = EvidenceGateIntegration(memory, "owner/repo")
+            sha = "a" * 40
+            receipt = {"provider": "github-actions", "repository": "owner/repo", "run_id": 42,
+                "run_url": "https://github.com/owner/repo/actions/runs/42", "expected_sha": sha,
+                "observed_sha": sha, "status": "completed", "conclusion": "success", "state": "passed"}
+            recorded = integration.record_browser_qa_ci_receipt(receipt, expected_revision=sha)
+            node = integration.graph.get_node(recorded["receipt_node_id"])
+            self.assertIsNotNone(node)
+            metadata = dict(node.metadata)
+            self.assertEqual(metadata["authorization"], "none")
+            self.assertEqual(json.loads(metadata["receipt_json"]), receipt)
+            with self.assertRaises(ValueError): integration.record_browser_qa_ci_receipt(receipt, expected_revision="b" * 40)
+            with self.assertRaises(ValueError): integration.record_browser_qa_ci_receipt({**receipt, "observed_sha": "b" * 40}, expected_revision=sha)
+            memory.close()
+            reopened = PersistentMemory(memory_path, require_approval=False)
+            recovered = EvidenceGateIntegration(reopened, "owner/repo")
+            self.assertIsNotNone(recovered.graph.get_node(recorded["run_node_id"]))
+            self.assertIsNotNone(recovered.graph.get_node(recorded["receipt_node_id"]))
+            reopened.close()
+
+    def test_controller_checkpoints_exact_head_ci_and_recovers_after_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            memory_path = root / "memory.sqlite"
+            memory = PersistentMemory(memory_path, require_approval=False)
+            controller = ExecutionController.__new__(ExecutionController)
+            controller.evidence_gate_integration = EvidenceGateIntegration(memory, "owner/repo")
+            recovery_path = root / "recovery.sqlite"
+            recovery = EngineeringRecoveryLedger(recovery_path)
+            recovery.start_run("browser-task", "verify browser QA exact head")
+            sha = "c" * 40
+            receipt = {"provider": "github-actions", "repository": "owner/repo", "run_id": 99,
+                "run_url": "https://github.com/owner/repo/actions/runs/99", "expected_sha": sha,
+                "observed_sha": sha, "status": "completed", "conclusion": "success", "state": "passed"}
+            result = controller.record_browser_qa_ci_receipt(
+                receipt, expected_revision=sha, recovery_ledger=recovery, task_id="browser-task")
+            self.assertEqual(result["recovery_status"], "verified")
+            checkpoint = EngineeringRecoveryLedger(recovery_path).get_checkpoint("browser-task", "browser_qa_ci")
+            self.assertEqual(checkpoint.status, "verified")
+            self.assertEqual(checkpoint.head_sha, sha)
+            self.assertEqual(checkpoint.payload["verified_head_sha"], sha)
+            memory.close()
 
     def test_stale_revision_is_recorded_and_checks_do_not_run(self):
         with tempfile.TemporaryDirectory() as directory:

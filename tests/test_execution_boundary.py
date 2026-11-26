@@ -531,6 +531,7 @@ class DirectNetworkCallInventoryTests(unittest.TestCase):
     """Tripwire for direct Python network clients; this is not enforcement proof."""
 
     REVIEWED_NETWORK_DISPOSITIONS = {
+        "portable/browser_qa_ci_adapter.py::poll_browser_qa::default_request": "bounded GitHub Actions run-metadata GET; bearer-authenticated HTTPS to fixed api.github.com path, explicit redirect rejection and no artifact downloads; read-only status observation only",
         "portable/local_llm.py::available": "legacy optional local-LLM endpoint; must be restricted to loopback or explicit remote host policy",
         "portable/local_llm.py::_generate_ollama": "legacy local-LLM POST client; migration requires HTTP and HTTPS endpoint policy",
         "portable/auren_runtime.py::_download_source": "portable updater archive download; migration requires bounded streaming and explicit redirect-host chain",
@@ -595,7 +596,8 @@ class DirectNetworkCallInventoryTests(unittest.TestCase):
                     )
                 )
                 imported_urlopen = isinstance(node.func, ast.Name) and node.func.id in self.urlopen_aliases
-                if direct_client or imported_urlopen or bootstrap_opener:
+                browser_qa_opener = (name == "opener.open" and self.relative_path == "portable/browser_qa_ci_adapter.py" and self.scope == ["poll_browser_qa", "default_request"])
+                if direct_client or imported_urlopen or bootstrap_opener or browser_qa_opener:
                     key = self.relative_path + "::" + "::".join(self.scope)
                     actual[key] = actual.get(key, 0) + 1
                 self.generic_visit(node)
