@@ -67,7 +67,8 @@ class OrganizationMessaging:
                  members: Mapping[str, AgentIdentity],
                  authorize: Callable[[AgentIdentity, AgentIdentity, Mapping[str, Any]], bool],
                  deliver: Callable[[AgentIdentity, Mapping[str, Any]], Any],
-                 *, max_messages: int = 10000, max_attempts: int = 4):
+                 *, reconcile_delivery: Callable[[AgentIdentity, Mapping[str, Any]], Mapping[str, Any]] | None = None,
+                 max_messages: int = 10000, max_attempts: int = 4):
         if not organization_id or not organization_id.strip():
             raise ValueError("organization_id is required")
         if not callable(authorize) or not callable(deliver):
@@ -79,7 +80,10 @@ class OrganizationMessaging:
         for key, identity in self.members.items():
             if key != identity.agent_id or identity.organization_id != organization_id:
                 raise ValueError("membership identity mismatch")
+        if reconcile_delivery is not None and not callable(reconcile_delivery):
+            raise TypeError("reconcile_delivery must be callable")
         self.authorize, self.deliver = authorize, deliver
+        self.reconcile_delivery = reconcile_delivery
         self.max_messages, self.max_attempts = max_messages, max_attempts
         self.db = sqlite3.connect(str(database), timeout=10, isolation_level=None)
         self.db.row_factory = sqlite3.Row
@@ -120,7 +124,8 @@ class OrganizationMessaging:
         envelope = {"schema_version": SCHEMA, "organization_id": self.organization_id,
             "sender_id": sender_id, "recipient_id": recipient_id, "kind": kind,
             "thread_id": thread_id or str(uuid4()), "correlation_id": correlation_id or str(uuid4()),
-            "body": dict(body), "body_digest": _digest(dict(body))}
+            "body": dict(body), "body_digest": _digest(dict(body)),
+            "idempotency_key": idempotency_key}
         if not self.authorize(sender, recipient, envelope):
             raise MessageDenied("organization Guard denied message admission")
         with self.db:
@@ -154,37 +159,139 @@ class OrganizationMessaging:
             (message_id,)).fetchone()
         if row is None:
             raise KeyError(message_id)
-        if row["state"] in ("delivered","dead_letter","cancelled"):
+        if row["state"] in ("delivered", "dead_letter", "cancelled", "expired", "denied"):
             return self._receipt(row)
-        if row["expires_at"] is not None and row["expires_at"] <= time.time():
-            self._set_state(message_id, "expired")
-            return self._receipt(self.db.execute("SELECT * FROM messages WHERE message_id=?",
-                (message_id,)).fetchone())
-        if row["attempts"] >= self.max_attempts:
-            self._set_state(message_id, "dead_letter")
-            return self._receipt(self.db.execute("SELECT * FROM messages WHERE message_id=?",
-                (message_id,)).fetchone())
-        sender, recipient = self.members.get(row["sender_id"]), self.members.get(row["recipient_id"])
+        if row["state"] in ("in_flight", "uncertain"):
+            raise MessageDenied("message outcome is uncertain and must be reconciled before retry")
+        if row["state"] not in ("queued", "retryable"):
+            raise MessageDenied("message is not eligible for dispatch")
+
+        sender = self.members.get(row["sender_id"])
+        recipient = self.members.get(row["recipient_id"])
         if not sender or not recipient:
-            self._set_state(message_id, "denied", "membership unavailable")
             raise MessageDenied("membership unavailable at dispatch")
-        envelope = {"schema_version":SCHEMA,"organization_id":row["organization_id"],
-            "sender_id":row["sender_id"],"recipient_id":row["recipient_id"],
-            "kind":row["kind"],"thread_id":row["thread_id"],
-            "correlation_id":row["correlation_id"],"body":json.loads(row["body"]),
-            "body_digest":row["body_digest"]}
+        envelope = {
+            "schema_version": SCHEMA,
+            "message_id": row["message_id"],
+            "idempotency_key": row["idempotency_key"],
+            "organization_id": row["organization_id"],
+            "sender_id": row["sender_id"],
+            "recipient_id": row["recipient_id"],
+            "kind": row["kind"],
+            "thread_id": row["thread_id"],
+            "correlation_id": row["correlation_id"],
+            "body": json.loads(row["body"]),
+            "body_digest": row["body_digest"],
+        }
         if not self.authorize(sender, recipient, envelope):
             self._set_state(message_id, "denied", "Guard denied at dispatch")
             raise MessageDenied("Guard denied message dispatch")
-        self._set_state(message_id, "in_flight", attempts=row["attempts"]+1)
+
+        # Claim with a database write lock. Two workers cannot both deliver the
+        # same queued/retryable message after observing the same old state.
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            current = self.db.execute("SELECT * FROM messages WHERE message_id=?",
+                (message_id,)).fetchone()
+            if current is None:
+                raise KeyError(message_id)
+            if current["state"] not in ("queued", "retryable"):
+                raise MessageDenied("message was claimed or changed by another dispatcher")
+            if current["expires_at"] is not None and current["expires_at"] <= time.time():
+                self.db.execute("UPDATE messages SET state='expired' WHERE message_id=?",
+                    (message_id,))
+                self.db.execute("COMMIT")
+                return self._receipt(self.db.execute(
+                    "SELECT * FROM messages WHERE message_id=?", (message_id,)).fetchone())
+            if current["attempts"] >= self.max_attempts:
+                self.db.execute("UPDATE messages SET state='dead_letter' WHERE message_id=?",
+                    (message_id,))
+                self.db.execute("COMMIT")
+                return self._receipt(self.db.execute(
+                    "SELECT * FROM messages WHERE message_id=?", (message_id,)).fetchone())
+            self.db.execute(
+                "UPDATE messages SET state='in_flight',attempts=attempts+1,last_error=NULL WHERE message_id=?",
+                (message_id,),
+            )
+            self.db.execute("COMMIT")
+        except Exception:
+            if self.db.in_transaction:
+                self.db.execute("ROLLBACK")
+            raise
+
         try:
             self.deliver(recipient, envelope)
         except Exception as exc:
-            # Outcome may be ambiguous if the receiver accepted before failure.
-            # Consumer must reconcile/idempotently process message_id.
-            self._set_state(message_id, "retryable", type(exc).__name__)
+            # A delivery exception cannot prove that the receiver did not accept
+            # the message. Preserve an uncertain outcome; never auto-retry it.
+            self._set_state(message_id, "uncertain", type(exc).__name__)
         else:
+            # A returned delivery callback confirms handoff, not task acceptance.
             self._set_state(message_id, "delivered")
+        return self._receipt(self.db.execute("SELECT * FROM messages WHERE message_id=?",
+            (message_id,)).fetchone())
+
+    def uncertain(self, limit: int = 100) -> list[str]:
+        if type(limit) is not int or not 1 <= limit <= 1000:
+            raise ValueError("limit must be between 1 and 1000")
+        return [row[0] for row in self.db.execute(
+            "SELECT message_id FROM messages WHERE state IN ('in_flight','uncertain') "
+            "ORDER BY created_at LIMIT ?", (limit,)).fetchall()]
+
+    def reconcile(self, message_id: str) -> MessageReceipt:
+        """Resolve an uncertain delivery using a trusted receiver-side lookup.
+
+        The callback must return an authoritative outcome bound to both the
+        persisted message ID and idempotency key. Unknown outcomes stay blocked.
+        """
+        row = self.db.execute("SELECT * FROM messages WHERE message_id=?",
+            (message_id,)).fetchone()
+        if row is None:
+            raise KeyError(message_id)
+        if row["state"] not in ("in_flight", "uncertain"):
+            return self._receipt(row)
+        if self.reconcile_delivery is None:
+            return self._receipt(row)
+
+        sender = self.members.get(row["sender_id"])
+        recipient = self.members.get(row["recipient_id"])
+        if not sender or not recipient:
+            raise MessageDenied("membership unavailable during reconciliation")
+        envelope = {
+            "schema_version": SCHEMA,
+            "message_id": row["message_id"],
+            "idempotency_key": row["idempotency_key"],
+            "organization_id": row["organization_id"],
+            "sender_id": row["sender_id"],
+            "recipient_id": row["recipient_id"],
+            "kind": row["kind"],
+            "thread_id": row["thread_id"],
+            "correlation_id": row["correlation_id"],
+            "body": json.loads(row["body"]),
+            "body_digest": row["body_digest"],
+        }
+        if not self.authorize(sender, recipient, envelope):
+            raise MessageDenied("Guard denied message reconciliation")
+        observation = self.reconcile_delivery(recipient, envelope)
+        if not isinstance(observation, Mapping):
+            raise MessageDenied("receiver reconciliation returned no structured evidence")
+        if (
+            observation.get("message_id") != row["message_id"]
+            or observation.get("idempotency_key") != row["idempotency_key"]
+        ):
+            raise MessageDenied("receiver reconciliation evidence is not bound to this message")
+        outcome = observation.get("outcome")
+        if outcome == "unknown":
+            return self._receipt(row)
+        if observation.get("authoritative") is not True:
+            raise MessageDenied("non-authoritative delivery evidence cannot resolve an uncertain message")
+        if outcome == "delivered":
+            self._set_state(message_id, "delivered")
+        elif outcome == "not_delivered":
+            next_state = "dead_letter" if row["attempts"] >= self.max_attempts else "retryable"
+            self._set_state(message_id, next_state)
+        else:
+            raise MessageDenied("unsupported receiver reconciliation outcome")
         return self._receipt(self.db.execute("SELECT * FROM messages WHERE message_id=?",
             (message_id,)).fetchone())
 
@@ -204,7 +311,7 @@ class OrganizationMessaging:
             raise KeyError(message_id)
         if requester_id not in (row["sender_id"], row["recipient_id"]):
             raise MessageDenied("only sender or recipient may cancel")
-        if row["state"] in ("in_flight","delivered"):
+        if row["state"] in ("in_flight", "uncertain", "delivered"):
             raise MessageDenied("in-flight/delivered message requires reconciliation")
         self._set_state(message_id,"cancelled")
         return self._receipt(self.db.execute("SELECT * FROM messages WHERE message_id=?",
