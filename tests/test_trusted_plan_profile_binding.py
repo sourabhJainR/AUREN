@@ -9,6 +9,7 @@ from portable.agent_org_runtime import authorize_agent_assignment
 from portable.durable_approval import DurableApprovalStore
 from portable.engineering_plan_dispatch import EngineeringPlanDispatch
 from portable.execution_controller import ExecutionController
+from portable.agent_profiles import profile_route_constraints
 from portable.engineering_plan_recovery import EngineeringPlanCheckpointMismatch
 from portable.trusted_plan_dispatch import TrustedPlanDispatchRoot
 from portable.runtime_recovery import RuntimeExecutionGuard
@@ -81,6 +82,14 @@ class TrustedPlanProfileBindingTests(unittest.TestCase):
         self.assertEqual(1, binding["revision"])
         self.assertEqual(64, len(binding["digest"]))
         self.assertEqual("BE-01", task.payload["_auren_agent_assignment"]["role_id"])
+        constraints = profile_route_constraints(
+            binding, task.payload["_auren_agent_assignment"],
+        )
+        self.assertEqual(binding["profile_id"], constraints["profile_id"])
+        self.assertEqual(binding["revision"], constraints["profile_revision"])
+        self.assertEqual(binding["digest"], constraints["profile_digest"])
+        self.assertTrue(constraints["required_capabilities"])
+        self.assertTrue(constraints["provider_preferences"])
 
     def test_profile_role_mismatch_and_unknown_revision_are_denied_before_queue_insert(self):
         root = self._root(self.controller)

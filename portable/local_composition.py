@@ -242,6 +242,15 @@ def run_local_provider_task(payload: Mapping[str, Any]) -> Mapping[str, Any]:
         or not isinstance(binding, Mapping)
     ):
         raise ValueError("host-bound local provider task fields are invalid")
+    profile_constraints: dict[str, Any] = {}
+    raw_profile_binding = payload.get("_auren_agent_profile")
+    raw_assignment = payload.get("_auren_agent_assignment")
+    if raw_profile_binding is not None:
+        if not isinstance(raw_profile_binding, Mapping) or not isinstance(raw_assignment, Mapping):
+            raise LocalProviderNotConfigured("pinned agent profile or durable assignment is missing")
+        from .agent_profiles import profile_route_constraints
+        profile_constraints = profile_route_constraints(raw_profile_binding, raw_assignment)
+
     supplied_state_root = Path(raw_state_root).expanduser()
     if supplied_state_root.is_symlink():
         raise PermissionError("local provider state root must not be a symlink")
@@ -309,9 +318,11 @@ def run_local_provider_task(payload: Mapping[str, Any]) -> Mapping[str, Any]:
                 available = bool(report.get("available")) and any(
                     isinstance(item, Mapping) and item.get("name") == model for item in models
                 )
+                # Local model names do not prove semantic capabilities. Profile-bound
+                # routes require a separately verified capability catalog.
                 return {
                     "available": available,
-                    "capabilities": ["general"],
+                    "capabilities": [] if profile_constraints else ["general"],
                     "privacy_levels": ["private"],
                     "verified_at_epoch": time.time(),
                     "max_age_seconds": 5.0,
@@ -325,9 +336,10 @@ def run_local_provider_task(payload: Mapping[str, Any]) -> Mapping[str, Any]:
                 if getattr(getattr(item, "spec", None), "name", None) == name
                 and getattr(item, "model", None) == model
             ), None)
+            # The configured provider/model identity is not a capability catalog.
             return {
                 "available": current is not None,
-                "capabilities": ["general"],
+                "capabilities": [] if profile_constraints else ["general"],
                 "privacy_levels": ["public"],
                 "verified_at_epoch": time.time(),
                 "max_age_seconds": 5.0,
@@ -338,13 +350,19 @@ def run_local_provider_task(payload: Mapping[str, Any]) -> Mapping[str, Any]:
             remote_executor=pool,
             availability_validator=validate_bound_provider,
         )
+        required_capabilities = tuple(profile_constraints.get("required_capabilities", ()))
         request = TaskRouteRequest(
             task=prompt,
-            capability="general",
+            capability=required_capabilities[0] if required_capabilities else "general",
             privacy="private" if kind == "local" else "public",
             max_attempts=1,
             timeout_seconds=120.0,
             provider_order=(name,) if kind == "remote" else None,
+            profile_id=profile_constraints.get("profile_id"),
+            profile_revision=profile_constraints.get("profile_revision"),
+            profile_digest=profile_constraints.get("profile_digest"),
+            required_capabilities=required_capabilities,
+            provider_preferences=tuple(profile_constraints.get("provider_preferences", ())),
         )
         routed = router.route_supervised(request, execution_payload=payload)
         content = routed.result

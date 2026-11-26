@@ -118,3 +118,14 @@ Rollback: disable template-based team formation at the trusted composition root.
 ### Organization registry migration
 
 Adding canonical roles changes the organization registry digest. Existing durable assignments pinned to the previous registry digest must be re-authorized against the new registry before further dispatch; do not rewrite historical receipts or silently accept stale role authority. Rollback is to restore the prior registry/profile files and re-run the assignment resolver. Keep the new role definitions and their tests in the branch until the host migration has been rehearsed.
+
+
+### Profile-aware model routing
+
+A trusted task carries the exact `_auren_agent_profile` binding and canonical `_auren_agent_assignment`. The provider task handler revalidates the binding against the assignment before building a route request. The request carries profile ID, revision, digest, required capabilities and semantic provider preferences through every bounded local/remote attempt.
+
+At dispatch, `HybridModelRouter` requires fresh host-supplied availability evidence covering the task capability and every profile-required capability. A profile-bound local route cannot use model-name heuristics as capability proof. If the host has no verified capability evidence, the route fails closed before provider dispatch.
+
+Provider preferences remain advisory metadata. The provider pool may reorder only on an exact match to a configured provider ID when no explicit order is supplied; it does not translate semantic labels (for example, `strong_code_reasoning`) into vendor/model IDs. An explicit operator `provider_order` remains authoritative and is preserved unchanged. A host may use profile hints only when its own verified model-capability catalog supports that decision.
+
+Current status: repository code and regression tests cover profile binding, capability propagation, freshness checks, and fail-closed behavior. AUREN does not yet ship a verified per-model capability catalog for every remote provider; profile-bound remote calls remain blocked until the host supplies one. Deployment identity, catalog custody and independent quality evaluation are not established by these tests.

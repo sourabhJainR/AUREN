@@ -569,5 +569,111 @@ class HybridRouterTests(unittest.TestCase):
         self.assertFalse(results[0].success)
         self.assertTrue(guard.cancellation_event.is_set())
 
+
+    def test_pinned_profile_contract_requires_all_verified_capabilities(self):
+        calls = []
+        request = TaskRouteRequest(
+            "public profile task", "coding", privacy="public", max_attempts=1,
+            provider_order=("groq",),
+            profile_id="backend_implementer", profile_revision=1,
+            profile_digest="a" * 64,
+            required_capabilities=("coding", "tool_use"),
+            provider_preferences=("strong_code_reasoning",),
+        )
+        router = HybridModelRouter(
+            discovery=Discovery([]),
+            remote_executor=lambda routed: calls.append(routed) or RemoteModelResponse(
+                provider="groq", model="verified-model", content="answer",
+                usage={}, request_id=None, finish_reason="stop",
+                latency_ms=1.0, response_digest="a" * 64,
+            ),
+            resource_reader=lambda: {},
+            availability_validator=lambda provider, model, routed: {
+                "available": True,
+                "capabilities": ["coding"],
+                "privacy_levels": ["public"],
+                "verified_at_epoch": time.time(),
+                "max_age_seconds": 10,
+            },
+        )
+        result = router.route(request)
+        self.assertFalse(result.success)
+        self.assertEqual([], calls)
+
+    def test_profile_hints_are_propagated_without_overriding_operator_provider_order(self):
+        calls = []
+        validations = []
+
+        def validator(provider, model, request):
+            validations.append(request)
+            return {
+                "available": True,
+                "capabilities": ["coding", "tool_use"],
+                "privacy_levels": ["public"],
+                "verified_at_epoch": time.time(),
+                "max_age_seconds": 10,
+            }
+
+        request = TaskRouteRequest(
+            "public profile task", "coding", privacy="public", max_attempts=1,
+            provider_order=("groq",),
+            profile_id="backend_implementer", profile_revision=2,
+            profile_digest="b" * 64,
+            required_capabilities=("coding", "tool_use"),
+            provider_preferences=("strong_code_reasoning", "low_latency"),
+        )
+        router = HybridModelRouter(
+            discovery=Discovery(["local-coder"]),
+            remote_executor=lambda routed: calls.append(routed) or RemoteModelResponse(
+                provider="groq", model="verified-model", content="answer",
+                usage={}, request_id=None, finish_reason="stop",
+                latency_ms=1.0, response_digest="c" * 64,
+            ),
+            resource_reader=lambda: {},
+            availability_validator=validator,
+        )
+        result = router.route(request)
+        self.assertTrue(result.success)
+        self.assertEqual("groq", result.provider)
+        self.assertEqual(("groq",), calls[0].provider_order)
+        self.assertEqual(("strong_code_reasoning", "low_latency"), calls[0].provider_preferences)
+        self.assertEqual("backend_implementer", validations[0].profile_id)
+        self.assertEqual(2, validations[0].profile_revision)
+        self.assertEqual("b" * 64, validations[0].profile_digest)
+        self.assertEqual(("coding", "tool_use"), validations[0].required_capabilities)
+
+    def test_profile_bound_routing_fails_closed_without_verified_capability_validator(self):
+        calls = []
+        router = HybridModelRouter(
+            discovery=Discovery([]),
+            remote_executor=lambda request: calls.append(request) or "unsafe",
+            resource_reader=lambda: {},
+        )
+        result = router.route(TaskRouteRequest(
+            "public profile task", "coding", privacy="public", max_attempts=1,
+            provider_order=("groq",),
+            profile_id="backend_implementer", profile_revision=1,
+            profile_digest="d" * 64,
+            required_capabilities=("coding", "tool_use"),
+            provider_preferences=("strong_code_reasoning",),
+        ))
+        self.assertFalse(result.success)
+        self.assertEqual([], calls)
+
+    def test_profile_required_capabilities_disable_name_only_model_heuristics(self):
+        models = [
+            {"name": "qwen2.5-coder:7b"},
+            {"name": "model-with-evidence", "capabilities": ["coding", "tool_use"]},
+            {"name": "model-missing-tool", "capabilities": ["coding"]},
+            {"name": "wildcard-only", "capabilities": ["*"]},
+        ]
+        self.assertEqual(
+            ["model-with-evidence"],
+            HybridModelRouter._ranked_candidates(
+                models, "coding", required_capabilities=("tool_use",),
+                require_verified_capabilities=True,
+            ),
+        )
+
 if __name__ == "__main__":
     unittest.main()

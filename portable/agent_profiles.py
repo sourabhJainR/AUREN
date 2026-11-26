@@ -409,3 +409,34 @@ def resolve_team_template(
         if item["template_id"] == template_id and item["revision"] == revision:
             return dict(item)
     raise AgentProfileError(f"unknown team template revision: {template_id}@{revision}")
+
+
+def profile_route_constraints(
+    binding: Mapping[str, Any],
+    assignment: Mapping[str, Any],
+    *,
+    profile_path: str | Path = DEFAULT_PROFILE_PATH,
+    organization_registry_path: str | Path = DEFAULT_ORGANIZATION_PATH,
+) -> dict[str, Any]:
+    """Build router hints only from the exact profile pinned to a durable assignment."""
+    if not isinstance(assignment, Mapping):
+        raise AgentProfileError("durable agent assignment is missing")
+    role_id = _text(assignment.get("role_id"), "assignment role_id")
+    manager_role_id = _text(assignment.get("manager_id"), "assignment manager_id")
+    action_class = _text(assignment.get("action_class"), "assignment action_class")
+    profile = validate_profile_binding(
+        binding,
+        role_id=role_id,
+        manager_role_id=manager_role_id,
+        action_class=action_class,
+        profile_path=profile_path,
+        organization_registry_path=organization_registry_path,
+    )
+    return {
+        "profile_id": profile.profile_id,
+        "profile_revision": profile.revision,
+        "profile_digest": profile.digest,
+        "required_capabilities": profile.required_capabilities,
+        # Semantic preferences remain hints. They are not translated into vendor IDs.
+        "provider_preferences": profile.provider_preferences,
+    }

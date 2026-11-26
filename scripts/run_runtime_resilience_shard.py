@@ -215,7 +215,7 @@ SHARDS = {
     "authority-core": [
         U("tests.test_remote_mcp_service.OAuthIntrospectionVerifierTests", "tests.test_remote_mcp_service.RemoteMCPASGITests"),
         U("tests.test_agent_execution_guard", "tests.test_guarded_filesystem", "tests.test_assigned_subprocess_scope", "tests.test_auren_sdk"),
-        U("tests.test_agent_profiles", "tests.test_agent_profile_registry_manager"),
+        U("tests.test_agent_profiles", "tests.test_agent_profile_registry_manager", "tests.test_trusted_plan_profile_binding"),
     ],
     "authority-integration": [
         U("tests.test_durable_approval", "tests.test_execution_boundary", "tests.test_governed_sandbox_execution", "tests.test_ai_coding_agency_bridge", "tests.test_agency_team_orchestrator", "tests.test_impact_policy"),
@@ -271,7 +271,7 @@ SHARDS = {
     ],
     "evidence-core": [
         U("tests.test_agency_state_graph", "tests.test_state_graph_hardening"),
-        U("tests.test_hybrid_model_router"),
+        U("tests.test_hybrid_model_router", "tests.test_remote_model_providers"),
         U("tests.test_runtime_recovery", "tests.test_graph_agent_team", "tests.test_graph_agent_crews"),
         U("tests.test_canonical_evidence_ledger"),
         U("tests.test_agency_evolution_gates", "tests.test_agency_evolution_runtime"),
