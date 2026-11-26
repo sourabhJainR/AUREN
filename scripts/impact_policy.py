@@ -91,6 +91,8 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("tests/test_agent_profiles.py", ("tests.test_agent_profiles",), True),
     ("tests/test_agent_org_runtime.py", ("tests.test_agent_org_runtime",), True),
     ("portable/agent_execution_guard.py", ("tests.test_agent_execution_guard", "tests.test_agent_org_runtime", "tests.test_agent_profiles", "tests.test_trusted_plan_profile_binding", "tests.test_execution_controller_guard_policy"), True),
+    ("portable/organization_messaging.py", ("tests.portable.test_organization_messaging",), True),
+    ("tests/portable/test_organization_messaging.py", ("tests.portable.test_organization_messaging",), True),
     ("tests/test_agent_execution_guard.py", ("tests.test_agent_execution_guard",), True),
     ("portable/agency_observability_ops.py", ("tests.test_agency_observability_ops", "tests.test_agency_observability"), True),
     ("portable/guarded_filesystem.py", ("tests.test_guarded_filesystem", "tests.test_agent_execution_guard", "tests.test_vibe_coding_host", "tests.test_execution_boundary"), True),
