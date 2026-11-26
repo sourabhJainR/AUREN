@@ -98,9 +98,13 @@ jobs:
       - name: Build FileKit production bundle
         working-directory: fileoperations/apps/filekit
         run: npm run build
-      - name: Verify production entry point
+      - name: Verify production entry point and PWA assets
         working-directory: fileoperations/apps/filekit
-        run: test -s dist/index.html
+        run: |
+          test -s dist/index.html
+          test -s dist/service-worker.js
+          test -s dist/manifest.webmanifest
+          test -s dist/icons/filekit.svg
       - name: Install Chromium
         working-directory: fileoperations/apps/filekit
         run: npx playwright install --with-deps chromium
