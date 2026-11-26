@@ -10,6 +10,8 @@ from unittest.mock import Mock
 
 from portable.evidence_gate import EvidenceCheck
 from portable.evidence_gate_integration import EvidenceGateIntegration
+from portable.execution_controller import ExecutionController
+from portable.engineering_recovery import EngineeringRecoveryLedger
 from portable.persistent_memory import PersistentMemory
 
 
@@ -75,6 +77,29 @@ class EvidenceGateIntegrationTests(unittest.TestCase):
             self.assertIsNotNone(recovered.graph.get_node(recorded["run_node_id"]))
             self.assertIsNotNone(recovered.graph.get_node(recorded["receipt_node_id"]))
             reopened.close()
+
+    def test_controller_checkpoints_exact_head_ci_and_recovers_after_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            memory_path = root / "memory.sqlite"
+            memory = PersistentMemory(memory_path, require_approval=False)
+            controller = ExecutionController.__new__(ExecutionController)
+            controller.evidence_gate_integration = EvidenceGateIntegration(memory, "owner/repo")
+            recovery_path = root / "recovery.sqlite"
+            recovery = EngineeringRecoveryLedger(recovery_path)
+            recovery.start_run("browser-task", "verify browser QA exact head")
+            sha = "c" * 40
+            receipt = {"provider": "github-actions", "repository": "owner/repo", "run_id": 99,
+                "run_url": "https://github.com/owner/repo/actions/runs/99", "expected_sha": sha,
+                "observed_sha": sha, "status": "completed", "conclusion": "success", "state": "passed"}
+            result = controller.record_browser_qa_ci_receipt(
+                receipt, expected_revision=sha, recovery_ledger=recovery, task_id="browser-task")
+            self.assertEqual(result["recovery_status"], "verified")
+            checkpoint = EngineeringRecoveryLedger(recovery_path).get_checkpoint("browser-task", "browser_qa_ci")
+            self.assertEqual(checkpoint.status, "verified")
+            self.assertEqual(checkpoint.head_sha, sha)
+            self.assertEqual(checkpoint.payload["verified_head_sha"], sha)
+            memory.close()
 
     def test_stale_revision_is_recorded_and_checks_do_not_run(self):
         with tempfile.TemporaryDirectory() as directory:
