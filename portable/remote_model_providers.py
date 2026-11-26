@@ -490,6 +490,23 @@ class RemoteProviderPool:
     def _providers_for(self, request: Any) -> tuple[OpenAICompatibleProvider, ...]:
         requested = getattr(request, "provider_order", None)
         if requested is None:
+            # Only exact configured provider IDs may influence ordering. Semantic
+            # profile hints are never translated into vendor/model identifiers.
+            preferences = getattr(request, "provider_preferences", ())
+            if isinstance(preferences, (tuple, list)) and preferences:
+                rank = {
+                    name.strip().casefold(): index
+                    for index, name in enumerate(preferences)
+                    if isinstance(name, str) and name.strip()
+                }
+                if rank:
+                    return tuple(sorted(
+                        self.providers,
+                        key=lambda provider: (
+                            rank.get(provider.spec.name.casefold(), len(rank)),
+                            self.providers.index(provider),
+                        ),
+                    ))
             return self.providers
         if (
             not isinstance(requested, (tuple, list))
