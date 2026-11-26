@@ -68,7 +68,8 @@ class OrganizationMessaging:
                  authorize: Callable[[AgentIdentity, AgentIdentity, Mapping[str, Any]], bool],
                  deliver: Callable[[AgentIdentity, Mapping[str, Any]], Any],
                  *, reconcile_delivery: Callable[[AgentIdentity, Mapping[str, Any]], Mapping[str, Any]] | None = None,
-                 max_messages: int = 10000, max_attempts: int = 4):
+                 max_messages: int = 10000, max_attempts: int = 4,
+                 delivery_lease_seconds: int = 300):
         if not organization_id or not organization_id.strip():
             raise ValueError("organization_id is required")
         if not callable(authorize) or not callable(deliver):
@@ -85,6 +86,7 @@ class OrganizationMessaging:
         self.authorize, self.deliver = authorize, deliver
         self.reconcile_delivery = reconcile_delivery
         self.max_messages, self.max_attempts = max_messages, max_attempts
+        self.delivery_lease_seconds = delivery_lease_seconds
         self.db = sqlite3.connect(str(database), timeout=10, isolation_level=None)
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA foreign_keys=ON")
@@ -218,8 +220,8 @@ class OrganizationMessaging:
                 return self._receipt(self.db.execute(
                     "SELECT * FROM messages WHERE message_id=?", (message_id,)).fetchone())
             self.db.execute(
-                "UPDATE messages SET state='in_flight',attempts=attempts+1,last_error=NULL WHERE message_id=?",
-                (message_id,),
+                "UPDATE messages SET state='in_flight',attempts=attempts+1,last_error=NULL,lease_expires_at=? WHERE message_id=?",
+                (time.time() + self.delivery_lease_seconds, message_id),
             )
             self.db.execute("COMMIT")
         except Exception:
@@ -258,6 +260,10 @@ class OrganizationMessaging:
             raise KeyError(message_id)
         if row["state"] not in ("in_flight", "uncertain"):
             return self._receipt(row)
+        if row["state"] == "in_flight":
+            lease_until = row["lease_expires_at"]
+            if not isinstance(lease_until, (int, float)) or lease_until > time.time():
+                raise MessageDenied("delivery lease is active or missing; reconciliation is not yet safe")
         if self.reconcile_delivery is None:
             return self._receipt(row)
 
@@ -293,13 +299,38 @@ class OrganizationMessaging:
             return self._receipt(row)
         if observation.get("authoritative") is not True:
             raise MessageDenied("non-authoritative delivery evidence cannot resolve an uncertain message")
-        if outcome == "delivered":
-            self._set_state(message_id, "delivered", expected_states=("in_flight", "uncertain"))
-        elif outcome == "not_delivered":
-            next_state = "dead_letter" if row["attempts"] >= self.max_attempts else "retryable"
-            self._set_state(message_id, next_state, expected_states=("in_flight", "uncertain"))
-        else:
+        if outcome not in ("delivered", "not_delivered"):
             raise MessageDenied("unsupported receiver reconciliation outcome")
+        next_state = "delivered" if outcome == "delivered" else (
+            "dead_letter" if row["attempts"] >= self.max_attempts else "retryable"
+        )
+        # Recheck the lease and state under a write lock after the receiver
+        # lookup. An active dispatch can never be requeued by a racing lookup.
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            current = self.db.execute("SELECT * FROM messages WHERE message_id=?",
+                (message_id,)).fetchone()
+            if current is None:
+                raise KeyError(message_id)
+            if current["state"] not in ("in_flight", "uncertain"):
+                self.db.execute("COMMIT")
+                return self._receipt(current)
+            if current["state"] == "in_flight" and (
+                not isinstance(current["lease_expires_at"], (int, float))
+                or current["lease_expires_at"] > time.time()
+            ):
+                raise MessageDenied("delivery lease became active before reconciliation committed")
+            self.db.execute(
+                "UPDATE messages SET state=?,last_error=NULL,lease_expires_at=NULL "
+                "WHERE message_id=? AND state=? AND (state!='in_flight' OR "
+                "(lease_expires_at IS NOT NULL AND lease_expires_at<=?))",
+                (next_state, message_id, current["state"], time.time()),
+            )
+            self.db.execute("COMMIT")
+        except Exception:
+            if self.db.in_transaction:
+                self.db.execute("ROLLBACK")
+            raise
         return self._receipt(self.db.execute("SELECT * FROM messages WHERE message_id=?",
             (message_id,)).fetchone())
 
@@ -311,19 +342,19 @@ class OrganizationMessaging:
                 placeholders = ",".join("?" for _ in expected_states)
                 if attempts is None:
                     cursor = self.db.execute(
-                        f"UPDATE messages SET state=?,last_error=? WHERE message_id=? AND state IN ({placeholders})",
+                        f"UPDATE messages SET state=?,last_error=?,lease_expires_at=NULL WHERE message_id=? AND state IN ({placeholders})",
                         (state, error, message_id, *expected_states),
                     )
                 else:
                     cursor = self.db.execute(
-                        f"UPDATE messages SET state=?,attempts=?,last_error=? WHERE message_id=? AND state IN ({placeholders})",
+                        f"UPDATE messages SET state=?,attempts=?,last_error=?,lease_expires_at=NULL WHERE message_id=? AND state IN ({placeholders})",
                         (state, attempts, error, message_id, *expected_states),
                     )
             elif attempts is None:
-                cursor = self.db.execute("UPDATE messages SET state=?,last_error=? WHERE message_id=?",
+                cursor = self.db.execute("UPDATE messages SET state=?,last_error=?,lease_expires_at=NULL WHERE message_id=?",
                     (state, error, message_id))
             else:
-                cursor = self.db.execute("UPDATE messages SET state=?,attempts=?,last_error=? WHERE message_id=?",
+                cursor = self.db.execute("UPDATE messages SET state=?,attempts=?,last_error=?,lease_expires_at=NULL WHERE message_id=?",
                     (state, attempts, error, message_id))
         return cursor.rowcount
 
