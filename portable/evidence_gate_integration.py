@@ -48,7 +48,8 @@ class EvidenceGateIntegration:
         repository, run_id = receipt.get("repository"), receipt.get("run_id")
         expected_sha, observed_sha, state = receipt.get("expected_sha"), receipt.get("observed_sha"), receipt.get("state")
         if receipt.get("provider") != "github-actions": raise ValueError("unsupported CI receipt provider")
-        if not isinstance(repository, str) or not re.fullmatch(r"[^/\\s]+/[^/\\s]+", repository.strip()): raise ValueError("CI receipt repository slug is malformed")
+        repo_parts = repository.strip().split("/") if isinstance(repository, str) else []
+        if len(repo_parts) != 2 or any(not part or any(ch.isspace() for ch in part) for part in repo_parts): raise ValueError("CI receipt repository slug is malformed")
         if type(run_id) is not int or run_id <= 0: raise ValueError("CI receipt run_id must be positive")
         if not isinstance(expected_sha, str) or not isinstance(observed_sha, str) or len(expected_sha) != 40 or any(c not in "0123456789abcdef" for c in expected_sha): raise ValueError("CI receipt SHAs are malformed")
         if observed_sha != expected_sha or expected_revision != expected_sha: raise ValueError("CI receipt does not match requested exact revision")
