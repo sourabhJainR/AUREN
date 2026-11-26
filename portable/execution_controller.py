@@ -2460,6 +2460,10 @@ class ExecutionController:
         )
         return True
 
+    def record_browser_qa_ci_receipt(self, receipt: Mapping[str, Any], *, expected_revision: str) -> Mapping[str, str]:
+        """Record exact-head browser CI evidence without granting execution or promotion authority."""
+        return self.evidence_gate_integration.record_browser_qa_ci_receipt(dict(receipt), expected_revision=expected_revision)
+
     def observe_failed_ci_check(self, *, recovery_ledger: Any, **observation: Any) -> Mapping[str, Any]:
         """Called by the existing supervisor's CI poll cycle; never starts another loop."""
         from .ci_repair_watchdog import CIRepairWatchdog
