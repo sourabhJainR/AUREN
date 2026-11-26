@@ -76,6 +76,8 @@ class OrganizationMessaging:
             raise TypeError("authorize and deliver callbacks are required")
         if not 1 <= max_messages <= 1000000 or not 1 <= max_attempts <= 100:
             raise ValueError("invalid ledger bounds")
+        if type(delivery_lease_seconds) is not int or not 1 <= delivery_lease_seconds <= 3600:
+            raise ValueError("delivery_lease_seconds must be between 1 and 3600")
         self.organization_id = organization_id
         self.members = dict(members)
         for key, identity in self.members.items():
@@ -97,7 +99,11 @@ class OrganizationMessaging:
             recipient_id TEXT NOT NULL, kind TEXT NOT NULL, thread_id TEXT NOT NULL,
             correlation_id TEXT NOT NULL, body TEXT NOT NULL, body_digest TEXT NOT NULL,
             state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
-            created_at REAL NOT NULL, expires_at REAL, last_error TEXT)""")
+            created_at REAL NOT NULL, expires_at REAL, last_error TEXT,
+            lease_expires_at REAL)""")
+        columns = {row[1] for row in self.db.execute("PRAGMA table_info(messages)")}
+        if "lease_expires_at" not in columns:
+            self.db.execute("ALTER TABLE messages ADD COLUMN lease_expires_at REAL")
         self.db.execute("""CREATE INDEX IF NOT EXISTS messages_thread
             ON messages(thread_id, created_at)""")
 
