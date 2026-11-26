@@ -665,6 +665,7 @@ class HybridRouterTests(unittest.TestCase):
             {"name": "qwen2.5-coder:7b"},
             {"name": "model-with-evidence", "capabilities": ["coding", "tool_use"]},
             {"name": "model-missing-tool", "capabilities": ["coding"]},
+            {"name": "wildcard-only", "capabilities": ["*"]},
         ]
         self.assertEqual(
             ["model-with-evidence"],
