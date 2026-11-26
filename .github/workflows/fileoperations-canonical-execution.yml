@@ -98,9 +98,13 @@ jobs:
       - name: Build FileKit production bundle
         working-directory: fileoperations/apps/filekit
         run: npm run build
-      - name: Verify production entry point
+      - name: Verify production entry point and PWA assets
         working-directory: fileoperations/apps/filekit
-        run: test -s dist/index.html
+        run: |
+          test -s dist/index.html
+          test -s dist/service-worker.js
+          test -s dist/manifest.webmanifest
+          test -s dist/icons/filekit.svg
       - name: Install Chromium
         working-directory: fileoperations/apps/filekit
         run: npx playwright install --with-deps chromium
@@ -131,3 +135,119 @@ jobs:
           python-version: "3.12"
       - name: Run guarded filesystem tests, including replacement race
         run: python -m unittest discover -s tests -p "test_guarded_filesystem.py" -v
+
+
+  tradingdyor-browser-regression:
+    name: AUREN browser QA acceptance on TradingDYOR
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout TradingDYOR testbed
+        uses: actions/checkout@v4
+        with:
+          repository: sourabhJainR/TradingDYOR
+          ref: main
+          path: tradingdyor
+          fetch-depth: 1
+      - name: Record exact TradingDYOR revision
+        id: tradingdyor_revision
+        working-directory: tradingdyor
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          printf 'sha=%s\n' "$sha" >> "$GITHUB_OUTPUT"
+          {
+            echo '### TradingDYOR browser testbed'
+            echo "- Repository: sourabhJainR/TradingDYOR"
+            echo "- Commit: $sha"
+            echo "- AUREN candidate: ${{ github.event.pull_request.head.sha || github.sha }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install TradingDYOR runtime
+        working-directory: tradingdyor
+        run: |
+          python -m pip install -e .
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+      - name: Run TradingDYOR browser, accessibility and responsive tests
+        working-directory: tradingdyor
+        env:
+          CI: "true"
+          TESTED_SHA: ${{ steps.tradingdyor_revision.outputs.sha }}
+          AUREN_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: npm run test:browser
+      - name: Produce AUREN-linked browser evidence manifest
+        if: always()
+        working-directory: tradingdyor
+        env:
+          TESTED_SHA: ${{ steps.tradingdyor_revision.outputs.sha }}
+          AUREN_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, subprocess
+          checkout = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          report = pathlib.Path("browser-qa-report.json")
+          data = json.loads(report.read_text()) if report.exists() else None
+          stats = (data or {}).get("stats", {})
+          unexpected = stats.get("unexpected")
+          expected = stats.get("expected")
+          if os.environ["JOB_STATUS"] == "success" and isinstance(expected, int) and expected > 0 and unexpected == 0:
+              result = "passed"
+          elif os.environ["JOB_STATUS"] == "failure" or (isinstance(unexpected, int) and unexpected > 0):
+              result = "failed"
+          else:
+              result = "unverified"
+          payload = {
+              "repository": "sourabhJainR/TradingDYOR",
+              "tested_sha": os.environ["TESTED_SHA"],
+              "checkout_sha": checkout,
+              "auren_sha": os.environ["AUREN_SHA"],
+              "workflow_run_id": os.environ["GITHUB_RUN_ID"],
+              "workflow_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "job_status": os.environ["JOB_STATUS"],
+              "report_present": report.exists(),
+              "report": data,
+              "status": result,
+          }
+          pathlib.Path("auren-tradingdyor-evidence.json").write_text(json.dumps(payload, indent=2))
+          PY
+      - name: Validate AUREN-linked browser evidence manifest
+        if: always()
+        working-directory: tradingdyor
+        run: |
+          python - <<'PY'
+          import json, pathlib
+          evidence = json.loads(pathlib.Path("auren-tradingdyor-evidence.json").read_text())
+          report = evidence.get("report") or {}
+          stats = report.get("stats") or {}
+          status = evidence.get("status")
+          if evidence.get("tested_sha") != evidence.get("checkout_sha"):
+              raise SystemExit("TradingDYOR evidence is not bound to the checked-out commit")
+          if status == "passed":
+              if evidence.get("job_status") != "success" or not isinstance(stats.get("expected"), int) or stats["expected"] < 1 or stats.get("unexpected") != 0:
+                  raise SystemExit("Passed evidence does not match successful browser results")
+          elif status == "failed":
+              if evidence.get("job_status") != "failure" and not (isinstance(stats.get("unexpected"), int) and stats["unexpected"] > 0):
+                  raise SystemExit("Failed evidence has no matching failure")
+          elif status != "unverified":
+              raise SystemExit("Unknown browser evidence status")
+          PY
+      - name: Upload TradingDYOR browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auren-tradingdyor-browser-evidence-${{ github.run_id }}
+          path: |
+            tradingdyor/browser-qa-report.json
+            tradingdyor/auren-tradingdyor-evidence.json
+            tradingdyor/browser-qa-artifacts/
+          if-no-files-found: warn
+          retention-days: 14
