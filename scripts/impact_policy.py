@@ -267,8 +267,6 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("benchmarks/paired_engineering_benchmark.py", ("tests.test_paired_engineering_benchmark", "tests.test_paired_benchmark_report_cli"), True),
     ("scripts/report_paired_engineering_benchmark.py", ("tests.test_paired_benchmark_report_cli",), True),
     ("tests/test_paired_engineering_benchmark.py", ("tests.test_paired_engineering_benchmark",), True),
-    ("portable/browser_qa_ci_adapter.py", ("tests.test_browser_qa_ci_adapter",), False),
-    ("tests/test_browser_qa_ci_adapter.py", ("tests.test_browser_qa_ci_adapter",), False),
 )
 
 _SENSITIVE_PREFIXES = (
