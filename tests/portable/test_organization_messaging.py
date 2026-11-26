@@ -264,5 +264,40 @@ class MessagingTests(unittest.TestCase):
         self.assertEqual(worker_errors, [])
         self.assertEqual(self.ledger.dispatch(receipt.message_id).state, "delivered")
 
+
+    def test_concurrent_enqueues_cannot_exceed_ledger_capacity(self):
+        barrier = threading.Barrier(2)
+        receipts = []
+        denied = []
+
+        def enqueue_worker(key):
+            worker = OrganizationMessaging(
+                self.path, "acme",
+                {k: v for k, v in self.members.items() if k != "other"},
+                lambda *_: True, lambda *_: None, max_messages=1,
+            )
+            try:
+                barrier.wait(5)
+                receipts.append(worker.enqueue(
+                    "lead", "dev", "QUERY", {"key": key}, idempotency_key=key,
+                ))
+            except MessageDenied as exc:
+                denied.append(exc)
+            finally:
+                worker.close()
+
+        threads = [
+            threading.Thread(target=enqueue_worker, args=("first",)),
+            threading.Thread(target=enqueue_worker, args=("second",)),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(5)
+        self.assertTrue(all(not thread.is_alive() for thread in threads))
+        self.assertEqual(len(receipts), 1)
+        self.assertEqual(len(denied), 1)
+        self.assertEqual(self.ledger.db.execute("SELECT COUNT(*) FROM messages").fetchone()[0], 1)
+
 if __name__=="__main__":
     unittest.main()
