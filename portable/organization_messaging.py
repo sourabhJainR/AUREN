@@ -128,24 +128,31 @@ class OrganizationMessaging:
             "idempotency_key": idempotency_key}
         if not self.authorize(sender, recipient, envelope):
             raise MessageDenied("organization Guard denied message admission")
-        with self.db:
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
             count = self.db.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
             existing = self.db.execute("SELECT * FROM messages WHERE idempotency_key=?",
                 (idempotency_key,)).fetchone()
             if existing:
                 if existing["body_digest"] != envelope["body_digest"] or existing["sender_id"] != sender_id or existing["recipient_id"] != recipient_id or existing["kind"] != kind:
                     raise MessageConflict("idempotency key conflicts with existing message")
-                return self._receipt(existing)
-            if count >= self.max_messages:
-                raise MessageDenied("message ledger capacity reached")
-            mid = str(uuid4())
-            self.db.execute("""INSERT INTO messages(message_id,idempotency_key,organization_id,
-                sender_id,recipient_id,kind,thread_id,correlation_id,body,body_digest,state,
-                created_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (mid,idempotency_key,self.organization_id,sender_id,recipient_id,kind,
-                 envelope["thread_id"],envelope["correlation_id"],encoded.decode(),
-                 envelope["body_digest"],"queued",now,expires_at))
-            row = self.db.execute("SELECT * FROM messages WHERE message_id=?", (mid,)).fetchone()
+                row = existing
+            else:
+                if count >= self.max_messages:
+                    raise MessageDenied("message ledger capacity reached")
+                mid = str(uuid4())
+                self.db.execute("""INSERT INTO messages(message_id,idempotency_key,organization_id,
+                    sender_id,recipient_id,kind,thread_id,correlation_id,body,body_digest,state,
+                    created_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (mid,idempotency_key,self.organization_id,sender_id,recipient_id,kind,
+                     envelope["thread_id"],envelope["correlation_id"],encoded.decode(),
+                     envelope["body_digest"],"queued",now,expires_at))
+                row = self.db.execute("SELECT * FROM messages WHERE message_id=?", (mid,)).fetchone()
+            self.db.execute("COMMIT")
+        except Exception:
+            if self.db.in_transaction:
+                self.db.execute("ROLLBACK")
+            raise
         return self._receipt(row)
 
     @staticmethod
@@ -184,7 +191,8 @@ class OrganizationMessaging:
             "body_digest": row["body_digest"],
         }
         if not self.authorize(sender, recipient, envelope):
-            self._set_state(message_id, "denied", "Guard denied at dispatch")
+            self._set_state(message_id, "denied", "Guard denied at dispatch",
+                expected_states=("queued", "retryable"))
             raise MessageDenied("Guard denied message dispatch")
 
         # Claim with a database write lock. Two workers cannot both deliver the
@@ -326,9 +334,10 @@ class OrganizationMessaging:
             raise KeyError(message_id)
         if requester_id not in (row["sender_id"], row["recipient_id"]):
             raise MessageDenied("only sender or recipient may cancel")
-        if row["state"] in ("in_flight", "uncertain", "delivered"):
-            raise MessageDenied("in-flight/delivered message requires reconciliation")
-        self._set_state(message_id,"cancelled")
+        if row["state"] not in ("queued", "retryable"):
+            raise MessageDenied("only queued/retryable messages may be cancelled")
+        if self._set_state(message_id, "cancelled", expected_states=("queued", "retryable")) != 1:
+            raise MessageDenied("message state changed before cancellation")
         return self._receipt(self.db.execute("SELECT * FROM messages WHERE message_id=?",
             (message_id,)).fetchone())
 
