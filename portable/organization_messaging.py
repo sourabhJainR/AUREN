@@ -224,10 +224,10 @@ class OrganizationMessaging:
         except Exception as exc:
             # A delivery exception cannot prove that the receiver did not accept
             # the message. Preserve an uncertain outcome; never auto-retry it.
-            self._set_state(message_id, "uncertain", type(exc).__name__)
+            self._set_state(message_id, "uncertain", type(exc).__name__, expected_states=("in_flight",))
         else:
             # A returned delivery callback confirms handoff, not task acceptance.
-            self._set_state(message_id, "delivered")
+            self._set_state(message_id, "delivered", expected_states=("in_flight",))
         return self._receipt(self.db.execute("SELECT * FROM messages WHERE message_id=?",
             (message_id,)).fetchone())
 
@@ -286,23 +286,38 @@ class OrganizationMessaging:
         if observation.get("authoritative") is not True:
             raise MessageDenied("non-authoritative delivery evidence cannot resolve an uncertain message")
         if outcome == "delivered":
-            self._set_state(message_id, "delivered")
+            self._set_state(message_id, "delivered", expected_states=("in_flight", "uncertain"))
         elif outcome == "not_delivered":
             next_state = "dead_letter" if row["attempts"] >= self.max_attempts else "retryable"
-            self._set_state(message_id, next_state)
+            self._set_state(message_id, next_state, expected_states=("in_flight", "uncertain"))
         else:
             raise MessageDenied("unsupported receiver reconciliation outcome")
         return self._receipt(self.db.execute("SELECT * FROM messages WHERE message_id=?",
             (message_id,)).fetchone())
 
-    def _set_state(self, message_id, state, error=None, attempts=None):
+    def _set_state(self, message_id, state, error=None, attempts=None, expected_states=None):
         with self.db:
-            if attempts is None:
-                self.db.execute("UPDATE messages SET state=?,last_error=? WHERE message_id=?",
-                    (state,error,message_id))
+            if expected_states is not None:
+                if not expected_states:
+                    raise ValueError("expected_states cannot be empty")
+                placeholders = ",".join("?" for _ in expected_states)
+                if attempts is None:
+                    cursor = self.db.execute(
+                        f"UPDATE messages SET state=?,last_error=? WHERE message_id=? AND state IN ({placeholders})",
+                        (state, error, message_id, *expected_states),
+                    )
+                else:
+                    cursor = self.db.execute(
+                        f"UPDATE messages SET state=?,attempts=?,last_error=? WHERE message_id=? AND state IN ({placeholders})",
+                        (state, attempts, error, message_id, *expected_states),
+                    )
+            elif attempts is None:
+                cursor = self.db.execute("UPDATE messages SET state=?,last_error=? WHERE message_id=?",
+                    (state, error, message_id))
             else:
-                self.db.execute("UPDATE messages SET state=?,attempts=?,last_error=? WHERE message_id=?",
-                    (state,attempts,error,message_id))
+                cursor = self.db.execute("UPDATE messages SET state=?,attempts=?,last_error=? WHERE message_id=?",
+                    (state, attempts, error, message_id))
+        return cursor.rowcount
 
     def cancel(self, message_id: str, requester_id: str) -> MessageReceipt:
         row = self.db.execute("SELECT * FROM messages WHERE message_id=?",
