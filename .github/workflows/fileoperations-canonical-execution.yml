@@ -131,3 +131,86 @@ jobs:
           python-version: "3.12"
       - name: Run guarded filesystem tests, including replacement race
         run: python -m unittest discover -s tests -p "test_guarded_filesystem.py" -v
+
+
+  tradingdyor-browser-regression:
+    name: AUREN browser QA acceptance on TradingDYOR
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout TradingDYOR testbed
+        uses: actions/checkout@v4
+        with:
+          repository: sourabhJainR/TradingDYOR
+          ref: main
+          path: tradingdyor
+          fetch-depth: 1
+      - name: Record exact TradingDYOR revision
+        id: tradingdyor_revision
+        working-directory: tradingdyor
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          printf 'sha=%s\n' "$sha" >> "$GITHUB_OUTPUT"
+          {
+            echo '### TradingDYOR browser testbed'
+            echo "- Repository: sourabhJainR/TradingDYOR"
+            echo "- Commit: $sha"
+            echo "- AUREN candidate: ${{ github.event.pull_request.head.sha || github.sha }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install TradingDYOR runtime
+        working-directory: tradingdyor
+        run: |
+          python -m pip install -e .
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+      - name: Run TradingDYOR browser, accessibility and responsive tests
+        working-directory: tradingdyor
+        env:
+          CI: "true"
+          TESTED_SHA: ${{ steps.tradingdyor_revision.outputs.sha }}
+          AUREN_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: npm run test:browser
+      - name: Produce AUREN-linked browser evidence manifest
+        if: always()
+        working-directory: tradingdyor
+        env:
+          TESTED_SHA: ${{ steps.tradingdyor_revision.outputs.sha }}
+          AUREN_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, subprocess
+          checkout = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          report = pathlib.Path("browser-qa-report.json")
+          payload = {
+              "repository": "sourabhJainR/TradingDYOR",
+              "tested_sha": os.environ["TESTED_SHA"],
+              "checkout_sha": checkout,
+              "auren_sha": os.environ["AUREN_SHA"],
+              "workflow_run_id": os.environ["GITHUB_RUN_ID"],
+              "workflow_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "report_present": report.exists(),
+              "report": json.loads(report.read_text()) if report.exists() else None,
+              "status": "completed-report" if report.exists() else "report-missing",
+          }
+          pathlib.Path("auren-tradingdyor-evidence.json").write_text(json.dumps(payload, indent=2))
+          PY
+      - name: Upload TradingDYOR browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auren-tradingdyor-browser-evidence-${{ github.run_id }}
+          path: |
+            tradingdyor/browser-qa-report.json
+            tradingdyor/auren-tradingdyor-evidence.json
+            tradingdyor/browser-qa-artifacts/
+          if-no-files-found: warn
+          retention-days: 14
