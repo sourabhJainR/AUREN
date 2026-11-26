@@ -219,6 +219,7 @@ SHARDS = {
     ],
     "authority-integration": [
         U("tests.test_durable_approval", "tests.test_execution_boundary", "tests.test_governed_sandbox_execution", "tests.test_ai_coding_agency_bridge", "tests.test_agency_team_orchestrator", "tests.test_impact_policy"),
+        U("tests.portable.test_organization_messaging"),
         B("tests.test_trusted_plan_dispatch", 0, 3),
     ],
     "durable-state": [

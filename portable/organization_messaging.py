@@ -67,20 +67,28 @@ class OrganizationMessaging:
                  members: Mapping[str, AgentIdentity],
                  authorize: Callable[[AgentIdentity, AgentIdentity, Mapping[str, Any]], bool],
                  deliver: Callable[[AgentIdentity, Mapping[str, Any]], Any],
-                 *, max_messages: int = 10000, max_attempts: int = 4):
+                 *, reconcile_delivery: Callable[[AgentIdentity, Mapping[str, Any]], Mapping[str, Any]] | None = None,
+                 max_messages: int = 10000, max_attempts: int = 4,
+                 delivery_lease_seconds: int = 300):
         if not organization_id or not organization_id.strip():
             raise ValueError("organization_id is required")
         if not callable(authorize) or not callable(deliver):
             raise TypeError("authorize and deliver callbacks are required")
         if not 1 <= max_messages <= 1000000 or not 1 <= max_attempts <= 100:
             raise ValueError("invalid ledger bounds")
+        if type(delivery_lease_seconds) is not int or not 1 <= delivery_lease_seconds <= 3600:
+            raise ValueError("delivery_lease_seconds must be between 1 and 3600")
         self.organization_id = organization_id
         self.members = dict(members)
         for key, identity in self.members.items():
             if key != identity.agent_id or identity.organization_id != organization_id:
                 raise ValueError("membership identity mismatch")
+        if reconcile_delivery is not None and not callable(reconcile_delivery):
+            raise TypeError("reconcile_delivery must be callable")
         self.authorize, self.deliver = authorize, deliver
+        self.reconcile_delivery = reconcile_delivery
         self.max_messages, self.max_attempts = max_messages, max_attempts
+        self.delivery_lease_seconds = delivery_lease_seconds
         self.db = sqlite3.connect(str(database), timeout=10, isolation_level=None)
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA foreign_keys=ON")
@@ -91,7 +99,11 @@ class OrganizationMessaging:
             recipient_id TEXT NOT NULL, kind TEXT NOT NULL, thread_id TEXT NOT NULL,
             correlation_id TEXT NOT NULL, body TEXT NOT NULL, body_digest TEXT NOT NULL,
             state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
-            created_at REAL NOT NULL, expires_at REAL, last_error TEXT)""")
+            created_at REAL NOT NULL, expires_at REAL, last_error TEXT,
+            lease_expires_at REAL)""")
+        columns = {row[1] for row in self.db.execute("PRAGMA table_info(messages)")}
+        if "lease_expires_at" not in columns:
+            self.db.execute("ALTER TABLE messages ADD COLUMN lease_expires_at REAL")
         self.db.execute("""CREATE INDEX IF NOT EXISTS messages_thread
             ON messages(thread_id, created_at)""")
 
@@ -120,27 +132,35 @@ class OrganizationMessaging:
         envelope = {"schema_version": SCHEMA, "organization_id": self.organization_id,
             "sender_id": sender_id, "recipient_id": recipient_id, "kind": kind,
             "thread_id": thread_id or str(uuid4()), "correlation_id": correlation_id or str(uuid4()),
-            "body": dict(body), "body_digest": _digest(dict(body))}
+            "body": dict(body), "body_digest": _digest(dict(body)),
+            "idempotency_key": idempotency_key}
         if not self.authorize(sender, recipient, envelope):
             raise MessageDenied("organization Guard denied message admission")
-        with self.db:
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
             count = self.db.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
             existing = self.db.execute("SELECT * FROM messages WHERE idempotency_key=?",
                 (idempotency_key,)).fetchone()
             if existing:
                 if existing["body_digest"] != envelope["body_digest"] or existing["sender_id"] != sender_id or existing["recipient_id"] != recipient_id or existing["kind"] != kind:
                     raise MessageConflict("idempotency key conflicts with existing message")
-                return self._receipt(existing)
-            if count >= self.max_messages:
-                raise MessageDenied("message ledger capacity reached")
-            mid = str(uuid4())
-            self.db.execute("""INSERT INTO messages(message_id,idempotency_key,organization_id,
-                sender_id,recipient_id,kind,thread_id,correlation_id,body,body_digest,state,
-                created_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (mid,idempotency_key,self.organization_id,sender_id,recipient_id,kind,
-                 envelope["thread_id"],envelope["correlation_id"],encoded.decode(),
-                 envelope["body_digest"],"queued",now,expires_at))
-            row = self.db.execute("SELECT * FROM messages WHERE message_id=?", (mid,)).fetchone()
+                row = existing
+            else:
+                if count >= self.max_messages:
+                    raise MessageDenied("message ledger capacity reached")
+                mid = str(uuid4())
+                self.db.execute("""INSERT INTO messages(message_id,idempotency_key,organization_id,
+                    sender_id,recipient_id,kind,thread_id,correlation_id,body,body_digest,state,
+                    created_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (mid,idempotency_key,self.organization_id,sender_id,recipient_id,kind,
+                     envelope["thread_id"],envelope["correlation_id"],encoded.decode(),
+                     envelope["body_digest"],"queued",now,expires_at))
+                row = self.db.execute("SELECT * FROM messages WHERE message_id=?", (mid,)).fetchone()
+            self.db.execute("COMMIT")
+        except Exception:
+            if self.db.in_transaction:
+                self.db.execute("ROLLBACK")
+            raise
         return self._receipt(row)
 
     @staticmethod
@@ -154,48 +174,195 @@ class OrganizationMessaging:
             (message_id,)).fetchone()
         if row is None:
             raise KeyError(message_id)
-        if row["state"] in ("delivered","dead_letter","cancelled"):
+        if row["state"] in ("delivered", "dead_letter", "cancelled", "expired", "denied"):
             return self._receipt(row)
-        if row["expires_at"] is not None and row["expires_at"] <= time.time():
-            self._set_state(message_id, "expired")
-            return self._receipt(self.db.execute("SELECT * FROM messages WHERE message_id=?",
-                (message_id,)).fetchone())
-        if row["attempts"] >= self.max_attempts:
-            self._set_state(message_id, "dead_letter")
-            return self._receipt(self.db.execute("SELECT * FROM messages WHERE message_id=?",
-                (message_id,)).fetchone())
-        sender, recipient = self.members.get(row["sender_id"]), self.members.get(row["recipient_id"])
+        if row["state"] in ("in_flight", "uncertain"):
+            raise MessageDenied("message outcome is uncertain and must be reconciled before retry")
+        if row["state"] not in ("queued", "retryable"):
+            raise MessageDenied("message is not eligible for dispatch")
+
+        sender = self.members.get(row["sender_id"])
+        recipient = self.members.get(row["recipient_id"])
         if not sender or not recipient:
-            self._set_state(message_id, "denied", "membership unavailable")
             raise MessageDenied("membership unavailable at dispatch")
-        envelope = {"schema_version":SCHEMA,"organization_id":row["organization_id"],
-            "sender_id":row["sender_id"],"recipient_id":row["recipient_id"],
-            "kind":row["kind"],"thread_id":row["thread_id"],
-            "correlation_id":row["correlation_id"],"body":json.loads(row["body"]),
-            "body_digest":row["body_digest"]}
+        envelope = {
+            "schema_version": SCHEMA,
+            "message_id": row["message_id"],
+            "idempotency_key": row["idempotency_key"],
+            "organization_id": row["organization_id"],
+            "sender_id": row["sender_id"],
+            "recipient_id": row["recipient_id"],
+            "kind": row["kind"],
+            "thread_id": row["thread_id"],
+            "correlation_id": row["correlation_id"],
+            "body": json.loads(row["body"]),
+            "body_digest": row["body_digest"],
+        }
         if not self.authorize(sender, recipient, envelope):
-            self._set_state(message_id, "denied", "Guard denied at dispatch")
+            self._set_state(message_id, "denied", "Guard denied at dispatch",
+                expected_states=("queued", "retryable"))
             raise MessageDenied("Guard denied message dispatch")
-        self._set_state(message_id, "in_flight", attempts=row["attempts"]+1)
+
+        # Claim with a database write lock. Two workers cannot both deliver the
+        # same queued/retryable message after observing the same old state.
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            current = self.db.execute("SELECT * FROM messages WHERE message_id=?",
+                (message_id,)).fetchone()
+            if current is None:
+                raise KeyError(message_id)
+            if current["state"] not in ("queued", "retryable"):
+                raise MessageDenied("message was claimed or changed by another dispatcher")
+            if current["expires_at"] is not None and current["expires_at"] <= time.time():
+                self.db.execute("UPDATE messages SET state='expired' WHERE message_id=?",
+                    (message_id,))
+                self.db.execute("COMMIT")
+                return self._receipt(self.db.execute(
+                    "SELECT * FROM messages WHERE message_id=?", (message_id,)).fetchone())
+            if current["attempts"] >= self.max_attempts:
+                self.db.execute("UPDATE messages SET state='dead_letter' WHERE message_id=?",
+                    (message_id,))
+                self.db.execute("COMMIT")
+                return self._receipt(self.db.execute(
+                    "SELECT * FROM messages WHERE message_id=?", (message_id,)).fetchone())
+            self.db.execute(
+                "UPDATE messages SET state='in_flight',attempts=attempts+1,last_error=NULL,lease_expires_at=? WHERE message_id=?",
+                (time.time() + self.delivery_lease_seconds, message_id),
+            )
+            self.db.execute("COMMIT")
+        except Exception:
+            if self.db.in_transaction:
+                self.db.execute("ROLLBACK")
+            raise
+
         try:
             self.deliver(recipient, envelope)
         except Exception as exc:
-            # Outcome may be ambiguous if the receiver accepted before failure.
-            # Consumer must reconcile/idempotently process message_id.
-            self._set_state(message_id, "retryable", type(exc).__name__)
+            # A delivery exception cannot prove that the receiver did not accept
+            # the message. Preserve an uncertain outcome; never auto-retry it.
+            self._set_state(message_id, "uncertain", type(exc).__name__, expected_states=("in_flight",))
         else:
-            self._set_state(message_id, "delivered")
+            # A returned delivery callback confirms handoff, not task acceptance.
+            self._set_state(message_id, "delivered", expected_states=("in_flight",))
         return self._receipt(self.db.execute("SELECT * FROM messages WHERE message_id=?",
             (message_id,)).fetchone())
 
-    def _set_state(self, message_id, state, error=None, attempts=None):
+    def uncertain(self, limit: int = 100) -> list[str]:
+        if type(limit) is not int or not 1 <= limit <= 1000:
+            raise ValueError("limit must be between 1 and 1000")
+        return [row[0] for row in self.db.execute(
+            "SELECT message_id FROM messages WHERE state IN ('in_flight','uncertain') "
+            "ORDER BY created_at LIMIT ?", (limit,)).fetchall()]
+
+    def reconcile(self, message_id: str) -> MessageReceipt:
+        """Resolve an uncertain delivery using a trusted receiver-side lookup.
+
+        The callback must return an authoritative outcome bound to both the
+        persisted message ID and idempotency key. Unknown outcomes stay blocked.
+        """
+        row = self.db.execute("SELECT * FROM messages WHERE message_id=?",
+            (message_id,)).fetchone()
+        if row is None:
+            raise KeyError(message_id)
+        if row["state"] not in ("in_flight", "uncertain"):
+            return self._receipt(row)
+        if row["state"] == "in_flight":
+            lease_until = row["lease_expires_at"]
+            if not isinstance(lease_until, (int, float)) or lease_until > time.time():
+                raise MessageDenied("delivery lease is active or missing; reconciliation is not yet safe")
+        if self.reconcile_delivery is None:
+            return self._receipt(row)
+
+        sender = self.members.get(row["sender_id"])
+        recipient = self.members.get(row["recipient_id"])
+        if not sender or not recipient:
+            raise MessageDenied("membership unavailable during reconciliation")
+        envelope = {
+            "schema_version": SCHEMA,
+            "message_id": row["message_id"],
+            "idempotency_key": row["idempotency_key"],
+            "organization_id": row["organization_id"],
+            "sender_id": row["sender_id"],
+            "recipient_id": row["recipient_id"],
+            "kind": row["kind"],
+            "thread_id": row["thread_id"],
+            "correlation_id": row["correlation_id"],
+            "body": json.loads(row["body"]),
+            "body_digest": row["body_digest"],
+        }
+        if not self.authorize(sender, recipient, envelope):
+            raise MessageDenied("Guard denied message reconciliation")
+        observation = self.reconcile_delivery(recipient, envelope)
+        if not isinstance(observation, Mapping):
+            raise MessageDenied("receiver reconciliation returned no structured evidence")
+        if (
+            observation.get("message_id") != row["message_id"]
+            or observation.get("idempotency_key") != row["idempotency_key"]
+        ):
+            raise MessageDenied("receiver reconciliation evidence is not bound to this message")
+        outcome = observation.get("outcome")
+        if outcome == "unknown":
+            return self._receipt(row)
+        if observation.get("authoritative") is not True:
+            raise MessageDenied("non-authoritative delivery evidence cannot resolve an uncertain message")
+        if outcome not in ("delivered", "not_delivered"):
+            raise MessageDenied("unsupported receiver reconciliation outcome")
+        next_state = "delivered" if outcome == "delivered" else (
+            "dead_letter" if row["attempts"] >= self.max_attempts else "retryable"
+        )
+        # Recheck the lease and state under a write lock after the receiver
+        # lookup. An active dispatch can never be requeued by a racing lookup.
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            current = self.db.execute("SELECT * FROM messages WHERE message_id=?",
+                (message_id,)).fetchone()
+            if current is None:
+                raise KeyError(message_id)
+            if current["state"] not in ("in_flight", "uncertain"):
+                self.db.execute("COMMIT")
+                return self._receipt(current)
+            if current["state"] == "in_flight" and (
+                not isinstance(current["lease_expires_at"], (int, float))
+                or current["lease_expires_at"] > time.time()
+            ):
+                raise MessageDenied("delivery lease became active before reconciliation committed")
+            self.db.execute(
+                "UPDATE messages SET state=?,last_error=NULL,lease_expires_at=NULL "
+                "WHERE message_id=? AND state=? AND (state!='in_flight' OR "
+                "(lease_expires_at IS NOT NULL AND lease_expires_at<=?))",
+                (next_state, message_id, current["state"], time.time()),
+            )
+            self.db.execute("COMMIT")
+        except Exception:
+            if self.db.in_transaction:
+                self.db.execute("ROLLBACK")
+            raise
+        return self._receipt(self.db.execute("SELECT * FROM messages WHERE message_id=?",
+            (message_id,)).fetchone())
+
+    def _set_state(self, message_id, state, error=None, attempts=None, expected_states=None):
         with self.db:
-            if attempts is None:
-                self.db.execute("UPDATE messages SET state=?,last_error=? WHERE message_id=?",
-                    (state,error,message_id))
+            if expected_states is not None:
+                if not expected_states:
+                    raise ValueError("expected_states cannot be empty")
+                placeholders = ",".join("?" for _ in expected_states)
+                if attempts is None:
+                    cursor = self.db.execute(
+                        f"UPDATE messages SET state=?,last_error=?,lease_expires_at=NULL WHERE message_id=? AND state IN ({placeholders})",
+                        (state, error, message_id, *expected_states),
+                    )
+                else:
+                    cursor = self.db.execute(
+                        f"UPDATE messages SET state=?,attempts=?,last_error=?,lease_expires_at=NULL WHERE message_id=? AND state IN ({placeholders})",
+                        (state, attempts, error, message_id, *expected_states),
+                    )
+            elif attempts is None:
+                cursor = self.db.execute("UPDATE messages SET state=?,last_error=?,lease_expires_at=NULL WHERE message_id=?",
+                    (state, error, message_id))
             else:
-                self.db.execute("UPDATE messages SET state=?,attempts=?,last_error=? WHERE message_id=?",
-                    (state,attempts,error,message_id))
+                cursor = self.db.execute("UPDATE messages SET state=?,attempts=?,last_error=?,lease_expires_at=NULL WHERE message_id=?",
+                    (state, attempts, error, message_id))
+        return cursor.rowcount
 
     def cancel(self, message_id: str, requester_id: str) -> MessageReceipt:
         row = self.db.execute("SELECT * FROM messages WHERE message_id=?",
@@ -204,9 +371,10 @@ class OrganizationMessaging:
             raise KeyError(message_id)
         if requester_id not in (row["sender_id"], row["recipient_id"]):
             raise MessageDenied("only sender or recipient may cancel")
-        if row["state"] in ("in_flight","delivered"):
-            raise MessageDenied("in-flight/delivered message requires reconciliation")
-        self._set_state(message_id,"cancelled")
+        if row["state"] not in ("queued", "retryable"):
+            raise MessageDenied("only queued/retryable messages may be cancelled")
+        if self._set_state(message_id, "cancelled", expected_states=("queued", "retryable")) != 1:
+            raise MessageDenied("message state changed before cancellation")
         return self._receipt(self.db.execute("SELECT * FROM messages WHERE message_id=?",
             (message_id,)).fetchone())
 
