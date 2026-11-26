@@ -1,0 +1,3 @@
+# Paired optimizer campaigns
+
+Aggregates measured paired runs with passed task-bound rubric receipts. The paired identity validator requires matching task, source, context, tools, provider/model, context budget, acceptance, rubric, policy and privacy identity. Metrics require measured input/output tokens, latency and monetary cost; missing fields fail closed. Both receipts must be passed and task-matched. Quality floor and regression limits are applied, and any increased policy-violation counter blocks eligibility. Reports mean and descriptive standard error (not confidence intervals). This helper does not prove causality, evaluator independence, or authorize promotion.
