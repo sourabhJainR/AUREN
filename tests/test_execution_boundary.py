@@ -531,7 +531,7 @@ class DirectNetworkCallInventoryTests(unittest.TestCase):
     """Tripwire for direct Python network clients; this is not enforcement proof."""
 
     REVIEWED_NETWORK_DISPOSITIONS = {
-        "portable/browser_qa_ci_adapter.py::poll_browser_qa::default_request": "bounded GitHub Actions run-metadata GET; bearer-authenticated HTTPS to fixed api.github.com path, no redirects or artifact downloads; read-only status observation only",
+        "portable/browser_qa_ci_adapter.py::poll_browser_qa::default_request": "bounded GitHub Actions run-metadata GET; bearer-authenticated HTTPS to fixed api.github.com path, explicit redirect rejection and no artifact downloads; read-only status observation only",
         "portable/local_llm.py::available": "legacy optional local-LLM endpoint; must be restricted to loopback or explicit remote host policy",
         "portable/local_llm.py::_generate_ollama": "legacy local-LLM POST client; migration requires HTTP and HTTPS endpoint policy",
         "portable/auren_runtime.py::_download_source": "portable updater archive download; migration requires bounded streaming and explicit redirect-host chain",
@@ -582,7 +582,7 @@ class DirectNetworkCallInventoryTests(unittest.TestCase):
                     "urllib.request.urlopen",
                     "requests.get", "requests.post", "requests.request",
                     "httpx.get", "httpx.post", "httpx.request",
-                    "socket.create_connection", "asyncio.open_connection",
+                    "socket.create_connection", "asyncio.open_connection", "opener.open",
                     "http.client.HTTPConnection", "http.client.HTTPSConnection",
                 }
                 bootstrap_opener = (
