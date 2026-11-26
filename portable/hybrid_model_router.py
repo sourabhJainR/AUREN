@@ -11,7 +11,7 @@ import math
 import time
 from threading import Event
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Mapping
 from uuid import uuid4
 
@@ -28,6 +28,11 @@ class TaskRouteRequest:
     timeout_seconds: float = 30.0
     provider_attempt: int = 0
     provider_order: tuple[str, ...] | None = None
+    profile_id: str | None = None
+    profile_revision: int | None = None
+    profile_digest: str | None = None
+    required_capabilities: tuple[str, ...] = ()
+    provider_preferences: tuple[str, ...] = ()
 
 @dataclass(frozen=True)
 class RouteResult:
@@ -163,7 +168,33 @@ class HybridModelRouter:
         self, provider: str, model: str | None, request: TaskRouteRequest,
     ) -> None:
         """Require fresh capability/privacy evidence at the dispatch boundary."""
+        profile_bound = any((
+            request.profile_id is not None,
+            request.profile_revision is not None,
+            request.profile_digest is not None,
+        ))
+        if profile_bound:
+            if (
+                not isinstance(request.profile_id, str) or not request.profile_id.strip()
+                or type(request.profile_revision) is not int or request.profile_revision < 1
+                or not isinstance(request.profile_digest, str)
+                or len(request.profile_digest) != 64
+                or any(ch not in "0123456789abcdef" for ch in request.profile_digest)
+                or not isinstance(request.required_capabilities, tuple)
+                or not request.required_capabilities
+            ):
+                raise RuntimeError("pinned profile route contract is incomplete or malformed")
+        if not isinstance(request.required_capabilities, tuple) or not all(
+            isinstance(item, str) and item.strip() for item in request.required_capabilities
+        ):
+            raise RuntimeError("required capability contract is malformed")
+        if not isinstance(request.provider_preferences, tuple) or not all(
+            isinstance(item, str) and item.strip() for item in request.provider_preferences
+        ):
+            raise RuntimeError("provider preference hints are malformed")
         if self.availability_validator is None:
+            if profile_bound or request.required_capabilities:
+                raise RuntimeError("profile-bound routing requires fresh verified model capability evidence")
             return
         evidence = self.availability_validator(provider, model, request)
         if not isinstance(evidence, Mapping):
@@ -180,8 +211,12 @@ class HybridModelRouter:
             isinstance(item, str) for item in privacy_levels
         ):
             raise RuntimeError("provider privacy evidence is missing")
-        if request.capability.casefold() not in {item.casefold() for item in capabilities}:
-            raise RuntimeError("provider no longer satisfies the task capability")
+        verified_capabilities = {item.casefold().strip() for item in capabilities}
+        required = {request.capability.casefold().strip()}
+        required.update(item.casefold().strip() for item in request.required_capabilities)
+        missing = required - verified_capabilities
+        if missing:
+            raise RuntimeError("provider capability evidence does not cover the full pinned profile contract")
         if request.privacy.casefold() not in {item.casefold() for item in privacy_levels}:
             raise RuntimeError("provider no longer satisfies the task privacy requirement")
         verified_at = evidence.get("verified_at_epoch")
@@ -230,12 +265,17 @@ class HybridModelRouter:
         return capability in model
 
     @classmethod
-    def _ranked_candidates(cls, models: Any, capability: str) -> list[str]:
-        """Prefer explicit provider capability metadata, then deterministic name heuristics."""
+    def _ranked_candidates(
+        cls, models: Any, capability: str, *,
+        required_capabilities: tuple[str, ...] = (),
+        require_verified_capabilities: bool = False,
+    ) -> list[str]:
+        """Rank only models with explicit evidence when a profile contract is pinned."""
         if not isinstance(models, list):
             return []
         ranked: list[tuple[int, int, str]] = []
-        wanted = capability.casefold().strip()
+        wanted = {capability.casefold().strip()}
+        wanted.update(item.casefold().strip() for item in required_capabilities)
         for index, item in enumerate(models):
             if not isinstance(item, Mapping):
                 continue
@@ -245,20 +285,20 @@ class HybridModelRouter:
             declared = item.get("capabilities")
             if declared is not None:
                 if not isinstance(declared, (list, tuple, set)) or not all(
-                    isinstance(value, str) for value in declared
+                    isinstance(value, str) and value.strip() for value in declared
                 ):
                     continue
                 normalized = {value.casefold().strip() for value in declared}
-                if wanted not in normalized and "*" not in normalized:
+                if "*" not in normalized and not wanted.issubset(normalized):
                     continue
-                score = 100 if wanted in normalized else 50
+                score = 100 if wanted.issubset(normalized) else 50
             else:
+                if require_verified_capabilities or required_capabilities:
+                    continue
                 if not cls._capable(name, capability):
                     continue
                 score = 10
             ranked.append((score, index, name.strip()))
-        # Preserve the provider's configured priority within the same capability
-        # tier; only explicit capability metadata outranks name heuristics.
         ranked.sort(key=lambda candidate: (-candidate[0], candidate[1]))
         return [name for _, _, name in ranked]
 
@@ -293,10 +333,7 @@ class HybridModelRouter:
             timeout = min(timeout, remaining)
             if timeout < 0.1:
                 raise ExecutionBudgetExceeded("supervisor deadline leaves insufficient budget for model routing")
-        bounded_request = TaskRouteRequest(
-            request.task, request.capability, request.privacy, request.max_attempts, timeout,
-            provider_order=request.provider_order,
-        )
+        bounded_request = replace(request, timeout_seconds=timeout)
         if execution_guard is not None:
             if cancellation is not None and execution_guard.cancellation_event is not cancellation:
                 raise ValueError("execution guard cancellation event differs from supervisor event")
@@ -349,6 +386,11 @@ class HybridModelRouter:
                     "provider_order": list(request.provider_order) if isinstance(request.provider_order, (list, tuple)) else None,
                     "max_attempts": request.max_attempts,
                     "timeout_seconds": request.timeout_seconds,
+                    "profile_id": request.profile_id,
+                    "profile_revision": request.profile_revision,
+                    "profile_digest": request.profile_digest,
+                    "required_capabilities": list(request.required_capabilities),
+                    "provider_preferences": list(request.provider_preferences),
                 },
                 parent_id=parent_id,
                 phase="routing",
@@ -440,10 +482,7 @@ class HybridModelRouter:
     ) -> RouteResult:
         attempts_limit = max(1, min(int(request.max_attempts), 3))
         timeout = max(0.1, min(float(request.timeout_seconds), 120.0))
-        bounded = TaskRouteRequest(
-            request.task, request.capability, request.privacy, attempts_limit, timeout,
-            provider_order=request.provider_order,
-        )
+        bounded = replace(request, max_attempts=attempts_limit, timeout_seconds=timeout)
         started = time.monotonic()
         route_deadline = started + timeout
         guard = execution_guard or RuntimeExecutionGuard(
@@ -481,6 +520,8 @@ class HybridModelRouter:
                 candidates = self._ranked_candidates(
                     local.get("models") if isinstance(local, Mapping) else None,
                     bounded.capability,
+                    required_capabilities=bounded.required_capabilities,
+                    require_verified_capabilities=bool(bounded.profile_id or bounded.required_capabilities),
                 )
                 discovery_error = None
         except Exception as exc:
@@ -502,19 +543,19 @@ class HybridModelRouter:
                         remaining = min(remaining, float(shared_remaining))
                     if remaining <= 0:
                         raise ExecutionBudgetExceeded("overall timeout budget exhausted")
-                    validation_request = TaskRouteRequest(
-                        bounded.task, bounded.capability, bounded.privacy,
-                        max(1, attempts_limit - attempts_used + 1), remaining,
-                        provider_order=bounded.provider_order,
+                    validation_request = replace(
+                        bounded, max_attempts=max(1, attempts_limit - attempts_used + 1),
+                        timeout_seconds=remaining,
                     )
                     self._validate_dispatch_availability("local", model, validation_request)
                     guard.charge_attempt(f"model-route:{route_id}:local:{attempts_used + 1}")
                     attempts_used += 1
                     persist_guard()
                     last_local_model = model
-                    attempt_request = TaskRouteRequest(bounded.task, bounded.capability, bounded.privacy,
-                                                       max(1, attempts_limit - attempts_used + 1), remaining,
-                    provider_order=bounded.provider_order)
+                    attempt_request = replace(
+                        bounded, max_attempts=max(1, attempts_limit - attempts_used + 1),
+                        timeout_seconds=remaining,
+                    )
                     value = self.local_executor(attempt_request, model)
                     if time.monotonic() >= route_deadline:
                         reason = "overall timeout budget exhausted"
@@ -574,21 +615,18 @@ class HybridModelRouter:
                     if bounded.provider_order and remote_index < len(bounded.provider_order)
                     else "remote"
                 )
-                validation_request = TaskRouteRequest(
-                    bounded.task, bounded.capability, bounded.privacy,
-                    max(1, attempts_limit - attempts_used + 1), remaining,
-                    provider_attempt=remote_index, provider_order=bounded.provider_order,
+                validation_request = replace(
+                    bounded, max_attempts=max(1, attempts_limit - attempts_used + 1),
+                    timeout_seconds=remaining, provider_attempt=remote_index,
                 )
                 self._validate_dispatch_availability(selected_provider, None, validation_request)
                 guard.charge_attempt(f"model-route:{route_id}:remote:{remote_attempts + 1}")
                 attempts_used += 1
                 remote_attempts += 1
                 persist_guard()
-                attempt_request = TaskRouteRequest(
-                    bounded.task, bounded.capability, bounded.privacy,
-                    max(1, attempts_limit - attempts_used + 1), remaining,
-                    provider_attempt=remote_attempts - 1,
-                    provider_order=bounded.provider_order,
+                attempt_request = replace(
+                    bounded, max_attempts=max(1, attempts_limit - attempts_used + 1),
+                    timeout_seconds=remaining, provider_attempt=remote_attempts - 1,
                 )
                 value = self.remote_executor(attempt_request)
                 if time.monotonic() >= route_deadline:
