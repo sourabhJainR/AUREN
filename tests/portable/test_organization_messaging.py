@@ -211,5 +211,58 @@ class MessagingTests(unittest.TestCase):
         self.assertEqual(self.ledger.dispatch(receipt.message_id).state, "delivered")
         self.assertEqual(delivered, [receipt.message_id])
 
+
+    def test_late_delivery_failure_cannot_overwrite_reconciled_success(self):
+        accepted = set()
+        started = threading.Event()
+        release = threading.Event()
+
+        def deliver(_recipient, envelope):
+            accepted.add(envelope["message_id"])
+            started.set()
+            if not release.wait(5):
+                raise TimeoutError("test delivery release timed out")
+            raise ConnectionError("late acknowledgement failure")
+
+        def reconcile(_recipient, envelope):
+            return {
+                "message_id": envelope["message_id"],
+                "idempotency_key": envelope["idempotency_key"],
+                "outcome": "delivered" if envelope["message_id"] in accepted else "unknown",
+                "authoritative": True,
+            }
+
+        self.ledger.close()
+        self.ledger = OrganizationMessaging(
+            self.path, "acme",
+            {k: v for k, v in self.members.items() if k != "other"},
+            lambda *_: True, lambda *_: None, reconcile_delivery=reconcile,
+        )
+        receipt = self.ledger.enqueue("lead", "dev", "QUERY", {}, idempotency_key="late-ack")
+        worker_errors = []
+
+        def dispatch_worker():
+            worker = OrganizationMessaging(
+                self.path, "acme",
+                {k: v for k, v in self.members.items() if k != "other"},
+                lambda *_: True, deliver,
+            )
+            try:
+                worker.dispatch(receipt.message_id)
+            except Exception as exc:
+                worker_errors.append(exc)
+            finally:
+                worker.close()
+
+        thread = threading.Thread(target=dispatch_worker)
+        thread.start()
+        self.assertTrue(started.wait(5))
+        self.assertEqual(self.ledger.reconcile(receipt.message_id).state, "delivered")
+        release.set()
+        thread.join(5)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(worker_errors, [])
+        self.assertEqual(self.ledger.dispatch(receipt.message_id).state, "delivered")
+
 if __name__=="__main__":
     unittest.main()
