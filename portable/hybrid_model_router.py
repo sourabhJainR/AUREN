@@ -289,9 +289,14 @@ class HybridModelRouter:
                 ):
                     continue
                 normalized = {value.casefold().strip() for value in declared}
-                if "*" not in normalized and not wanted.issubset(normalized):
-                    continue
-                score = 100 if wanted.issubset(normalized) else 50
+                if require_verified_capabilities or required_capabilities:
+                    if not wanted.issubset(normalized):
+                        continue
+                    score = 100
+                else:
+                    if wanted != {"*"} and wanted.isdisjoint(normalized) and "*" not in normalized:
+                        continue
+                    score = 100 if wanted.issubset(normalized) else 50
             else:
                 if require_verified_capabilities or required_capabilities:
                     continue
