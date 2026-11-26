@@ -2460,9 +2460,30 @@ class ExecutionController:
         )
         return True
 
-    def record_browser_qa_ci_receipt(self, receipt: Mapping[str, Any], *, expected_revision: str) -> Mapping[str, str]:
-        """Record exact-head browser CI evidence without granting execution or promotion authority."""
-        return self.evidence_gate_integration.record_browser_qa_ci_receipt(dict(receipt), expected_revision=expected_revision)
+    def record_browser_qa_ci_receipt(
+        self, receipt: Mapping[str, Any], *, expected_revision: str,
+        recovery_ledger: Any | None = None, task_id: str | None = None,
+    ) -> Mapping[str, str]:
+        """Record exact-head browser CI evidence and checkpoint its recovery state."""
+        if (recovery_ledger is None) != (task_id is None):
+            raise ValueError("recovery_ledger and task_id must be supplied together")
+        recorded = dict(self.evidence_gate_integration.record_browser_qa_ci_receipt(
+            dict(receipt), expected_revision=expected_revision,
+        ))
+        if recovery_ledger is not None and task_id is not None:
+            passed = recorded.get("state") == "passed"
+            payload = {
+                "verified_head_sha": expected_revision if passed else None,
+                "verification_evidence": [recorded["receipt_digest"], recorded["receipt_node_id"]],
+                "receipt_state": recorded.get("state"),
+                "next_action": None if passed else "inspect CI failure and rerun against the exact candidate SHA",
+            }
+            recovery_ledger.checkpoint(
+                task_id, "browser_qa_ci", status="verified" if passed else "blocked",
+                head_sha=expected_revision, payload=payload,
+            )
+            recorded["recovery_status"] = "verified" if passed else "blocked"
+        return recorded
 
     def observe_failed_ci_check(self, *, recovery_ledger: Any, **observation: Any) -> Mapping[str, Any]:
         """Called by the existing supervisor's CI poll cycle; never starts another loop."""
