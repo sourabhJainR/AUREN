@@ -53,3 +53,16 @@ The authority resolver can read the host-created contract from `call_binding.git
 ## Scope and remaining work
 
 This boundary covers GitHub MCP tools routed through `MCPStdioToolAdapter`. Existing AUREN GitHub CLI wrappers already reject subprocess execution while a canonical execution plan is active. It does not make arbitrary Python network calls or a malicious MCP server safe; those still require OS sandboxing, network egress controls and a trusted server binary. Issue #1436 remains open until every external repository write adapter is covered and independent evidence custody is in place.
+
+
+## Plan-bound MCP schema discovery
+
+Every MCP call made inside a canonical execution-plan scope must have exactly one
+matching tool contract in that plan. Before invoking the configured tool, the
+host pages through the live MCP `tools/list` inventory, rejects missing or
+ambiguous tool names, compares the live input schema with the reviewed schema,
+checks the exact argument digest or argument object, and validates the arguments
+against the live schema. Schema drift, unsupported schema constraints, missing
+contracts and argument changes block dispatch before `tools/call`. This applies
+to read and write MCP tools; GitHub writes retain their additional repository,
+branch, SHA, path and approval checks.

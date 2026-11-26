@@ -1680,12 +1680,49 @@ class MCPStdioToolAdapter:
             proc.stdin.flush()
             args = dict(arguments) if arguments is not None else self._arguments_for_request(request)
             call_id = 2
+            plan = self.execution_plan
+            if plan is None:
+                from .canonical_execution_plan import current_execution_plan
+                plan = current_execution_plan()
+            preflight = None
             if github_write_preflight is not None:
                 from .github_write_boundary import validate_preflight_payload
-                from .repository_execution_preflight import validate_tool_arguments
                 preflight = validate_preflight_payload(github_write_preflight)
                 if _digest(args) != preflight["tool_arguments_digest"]:
                     raise AdapterUnavailable("GitHub MCP arguments changed after canonical preflight")
+
+            # A plan-scoped MCP call is bound to the exact reviewed tool contract.
+            # Discover the live schema before tools/call; never trust a stale local
+            # registry or infer argument names from a tool's description.
+            expected_schema = None
+            expected_arguments = None
+            if plan is not None:
+                contracts = [
+                    contract for contract in plan.tool_contracts
+                    if isinstance(contract, tuple) and len(contract) == 3
+                    and contract[0] == self.tool_name
+                ]
+                if len(contracts) != 1:
+                    raise AdapterUnavailable(
+                        "plan-scoped MCP dispatch requires exactly one reviewed contract for the configured tool"
+                    )
+                try:
+                    expected_schema = json.loads(contracts[0][1])
+                    expected_arguments = json.loads(contracts[0][2])
+                except (TypeError, ValueError) as exc:
+                    raise AdapterUnavailable("canonical MCP tool contract is malformed") from exc
+                if not isinstance(expected_schema, Mapping) or not isinstance(expected_arguments, Mapping):
+                    raise AdapterUnavailable("canonical MCP tool contract must contain object schema and arguments")
+                if set(expected_arguments) == {"$arguments_sha256"}:
+                    if _digest(args) != expected_arguments["$arguments_sha256"]:
+                        raise AdapterUnavailable("MCP arguments differ from the canonical plan digest")
+                elif _digest(args) != _digest(expected_arguments):
+                    raise AdapterUnavailable("MCP arguments differ from the canonical plan contract")
+            elif preflight is not None:
+                raise AdapterUnavailable("GitHub write preflight requires an active canonical execution plan")
+
+            if plan is not None or preflight is not None:
+                from .repository_execution_preflight import validate_tool_arguments
                 cursor = None
                 discovered_schema = None
                 for _page in range(8):
@@ -1699,10 +1736,10 @@ class MCPStdioToolAdapter:
                     call_id += 1
                     tools = listing.get("tools")
                     if not isinstance(tools, list):
-                        raise AdapterUnavailable("GitHub MCP tools/list returned no tool inventory")
+                        raise AdapterUnavailable("MCP tools/list returned no tool inventory")
                     matches = [tool for tool in tools if isinstance(tool, Mapping) and tool.get("name") == self.tool_name]
                     if len(matches) > 1:
-                        raise AdapterUnavailable("GitHub MCP tools/list returned duplicate tool names")
+                        raise AdapterUnavailable("MCP tools/list returned duplicate tool names")
                     if matches:
                         discovered_schema = matches[0].get("inputSchema")
                         break
@@ -1710,13 +1747,15 @@ class MCPStdioToolAdapter:
                     if not cursor:
                         break
                 if not isinstance(discovered_schema, Mapping):
-                    raise AdapterUnavailable("GitHub MCP tools/list did not return the configured tool schema")
-                if _digest(discovered_schema) != preflight["tool_schema_digest"]:
+                    raise AdapterUnavailable("MCP tools/list did not return the configured tool schema")
+                if expected_schema is not None and _digest(discovered_schema) != _digest(expected_schema):
+                    raise AdapterUnavailable("live MCP tool schema differs from the canonical plan contract")
+                if preflight is not None and _digest(discovered_schema) != preflight["tool_schema_digest"]:
                     raise AdapterUnavailable("live GitHub MCP tool schema differs from the canonical plan contract")
                 try:
                     validate_tool_arguments(discovered_schema, args)
                 except Exception as exc:
-                    raise AdapterUnavailable("GitHub MCP arguments fail live tool-schema validation") from exc
+                    raise AdapterUnavailable("MCP arguments fail live tool-schema validation") from exc
             proc.stdin.write(json.dumps({
                 "jsonrpc": "2.0", "id": call_id, "method": "tools/call",
                 "params": {"name": self.tool_name, "arguments": args},
