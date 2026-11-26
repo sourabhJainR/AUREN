@@ -185,11 +185,22 @@ jobs:
         env:
           TESTED_SHA: ${{ steps.tradingdyor_revision.outputs.sha }}
           AUREN_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          JOB_STATUS: ${{ job.status }}
         run: |
           python - <<'PY'
           import json, os, pathlib, subprocess
           checkout = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
           report = pathlib.Path("browser-qa-report.json")
+          data = json.loads(report.read_text()) if report.exists() else None
+          stats = (data or {}).get("stats", {})
+          unexpected = stats.get("unexpected")
+          expected = stats.get("expected")
+          if os.environ["JOB_STATUS"] == "success" and isinstance(expected, int) and expected > 0 and unexpected == 0:
+              result = "passed"
+          elif os.environ["JOB_STATUS"] == "failure" or (isinstance(unexpected, int) and unexpected > 0):
+              result = "failed"
+          else:
+              result = "unverified"
           payload = {
               "repository": "sourabhJainR/TradingDYOR",
               "tested_sha": os.environ["TESTED_SHA"],
@@ -197,9 +208,10 @@ jobs:
               "auren_sha": os.environ["AUREN_SHA"],
               "workflow_run_id": os.environ["GITHUB_RUN_ID"],
               "workflow_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "job_status": os.environ["JOB_STATUS"],
               "report_present": report.exists(),
-              "report": json.loads(report.read_text()) if report.exists() else None,
-              "status": "completed-report" if report.exists() else "report-missing",
+              "report": data,
+              "status": result,
           }
           pathlib.Path("auren-tradingdyor-evidence.json").write_text(json.dumps(payload, indent=2))
           PY
