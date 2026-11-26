@@ -11,9 +11,10 @@ execution authority, provider router, or substitute for AUREN's ExecutionControl
 - Dispatch is notification/proposal-only. Consequential work must be submitted to the canonical controller and trusted plan dispatch, under existing approvals, budgets and Guard.
 - A delivered receipt means the delivery callback returned, not that the recipient accepted the work or verified it.
 - Delivery is claimed atomically before callback invocation. The receiver gets both message_id and idempotency_key and must deduplicate effects by those stable identities.
-- A delivery callback exception is an uncertain outcome, never an automatic retry. A process crash after claim also leaves an in-flight message that requires reconciliation.
+- A delivery callback exception is an uncertain outcome, never an automatic retry. A process crash after claim leaves an in-flight message with a durable dispatch lease; receiver reconciliation is blocked until that lease expires.
+- The host must bound delivery callback time below the configured lease and the receiver must enforce idempotency by message_id/idempotency_key. A lease expiry alone is not proof that no side effect occurred.
 - pending() returns only queued/retryable messages. uncertain() exposes in-flight/uncertain messages separately; dispatch refuses them until reconciled.
-- A trusted host may inject reconcile_delivery(recipient, envelope). It must perform an authoritative receiver-side lookup and return message_id, idempotency_key, outcome (delivered, not_delivered or unknown), and authoritative=true.
+- A trusted host may inject reconcile_delivery(recipient, envelope). It must perform an authoritative receiver-side lookup and return message_id, idempotency_key, outcome (delivered, not_delivered or unknown), and authoritative=true. Reconciliation rechecks the expired lease and message state under a database write lock before applying a transition.
 - Only an authoritative delivered result marks delivery complete. Only authoritative not_delivered evidence makes a message retryable; unknown, missing, mismatched or non-authoritative evidence leaves it blocked.
 - Without a receiver-side reconciliation callback, uncertain messages remain blocked for explicit host/operator handling.
 - No cross-organization routing is allowed by this instance. Separate instances must be configured and a cross-organization gateway must explicitly authorize any such path.
