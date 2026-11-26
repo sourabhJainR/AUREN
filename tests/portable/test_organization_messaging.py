@@ -1,4 +1,5 @@
 """Regression tests for organization messaging ledger."""
+import sqlite3
 import tempfile
 import threading
 import time
@@ -338,6 +339,47 @@ class MessagingTests(unittest.TestCase):
         time.sleep(1.05)
         self.assertEqual(self.ledger.reconcile(receipt.message_id).state, "delivered")
         self.assertEqual(self.ledger.pending(), [])
+
+
+    def test_legacy_ledger_migrates_lease_column_and_fails_closed(self):
+        legacy_path = self.path.with_name("legacy-messages.sqlite3")
+        db = sqlite3.connect(legacy_path)
+        db.execute("""CREATE TABLE messages(
+            message_id TEXT PRIMARY KEY, idempotency_key TEXT UNIQUE NOT NULL,
+            organization_id TEXT NOT NULL, sender_id TEXT NOT NULL,
+            recipient_id TEXT NOT NULL, kind TEXT NOT NULL, thread_id TEXT NOT NULL,
+            correlation_id TEXT NOT NULL, body TEXT NOT NULL, body_digest TEXT NOT NULL,
+            state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL, expires_at REAL, last_error TEXT)""")
+        db.execute(
+            "INSERT INTO messages(message_id,idempotency_key,organization_id,sender_id,recipient_id,"
+            "kind,thread_id,correlation_id,body,body_digest,state,attempts,created_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            ("legacy-inflight", "legacy-key", "acme", "lead", "dev", "QUERY",
+             "legacy-thread", "legacy-correlation", "{}", "digest", "in_flight", 1, time.time()),
+        )
+        db.commit()
+        db.close()
+
+        migrated = OrganizationMessaging(
+            legacy_path, "acme",
+            {k: v for k, v in self.members.items() if k != "other"},
+            lambda *_: True, lambda *_: None,
+            reconcile_delivery=lambda *_: {
+                "message_id": "legacy-inflight",
+                "idempotency_key": "legacy-key",
+                "outcome": "delivered",
+                "authoritative": True,
+            },
+        )
+        try:
+            columns = {row[1] for row in migrated.db.execute("PRAGMA table_info(messages)")}
+            self.assertIn("lease_expires_at", columns)
+            self.assertEqual(migrated.uncertain(), ["legacy-inflight"])
+            with self.assertRaises(MessageDenied):
+                migrated.reconcile("legacy-inflight")
+        finally:
+            migrated.close()
 
 if __name__=="__main__":
     unittest.main()
