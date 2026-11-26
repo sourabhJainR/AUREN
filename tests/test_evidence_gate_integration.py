@@ -52,6 +52,38 @@ class EvidenceGateIntegrationTests(unittest.TestCase):
             self.assertIsNotNone(recovered.graph.get_node(result.check_node_ids[0]))
             reopened.close()
 
+    def test_browser_ci_receipt_is_exact_head_bound_and_survives_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            memory_path = Path(directory) / "memory.sqlite"
+            memory = PersistentMemory(memory_path, require_approval=False)
+            integration = EvidenceGateIntegration(memory, "owner/repo")
+            sha = "a" * 40
+            receipt = {
+                "provider": "github-actions", "repository": "owner/repo", "run_id": 42,
+                "run_url": "https://github.com/owner/repo/actions/runs/42",
+                "expected_sha": sha, "observed_sha": sha, "status": "completed",
+                "conclusion": "success", "state": "passed",
+            }
+            recorded = integration.record_browser_qa_ci_receipt(receipt, expected_revision=sha)
+            node = integration.graph.get_node(recorded["receipt_node_id"])
+            self.assertIsNotNone(node)
+            metadata = dict(node.metadata)
+            self.assertEqual(metadata["authorization"], "none")
+            self.assertEqual(json.loads(metadata["receipt_json"]), receipt)
+            self.assertEqual(recorded["state"], "passed")
+            with self.assertRaises(ValueError):
+                integration.record_browser_qa_ci_receipt(receipt, expected_revision="b" * 40)
+            mismatched = {**receipt, "observed_sha": "b" * 40}
+            with self.assertRaises(ValueError):
+                integration.record_browser_qa_ci_receipt(mismatched, expected_revision=sha)
+            memory.close()
+
+            reopened = PersistentMemory(memory_path, require_approval=False)
+            recovered = EvidenceGateIntegration(reopened, "owner/repo")
+            self.assertIsNotNone(recovered.graph.get_node(recorded["run_node_id"]))
+            self.assertIsNotNone(recovered.graph.get_node(recorded["receipt_node_id"]))
+            reopened.close()
+
     def test_stale_revision_is_recorded_and_checks_do_not_run(self):
         with tempfile.TemporaryDirectory() as directory:
             memory = PersistentMemory(Path(directory) / "memory.sqlite", require_approval=False)
