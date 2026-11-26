@@ -1,6 +1,7 @@
 """Regression tests for organization messaging ledger."""
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -257,11 +258,14 @@ class MessagingTests(unittest.TestCase):
         thread = threading.Thread(target=dispatch_worker)
         thread.start()
         self.assertTrue(started.wait(5))
-        self.assertEqual(self.ledger.reconcile(receipt.message_id).state, "delivered")
+        with self.assertRaises(MessageDenied):
+            self.ledger.reconcile(receipt.message_id)
         release.set()
         thread.join(5)
         self.assertFalse(thread.is_alive())
         self.assertEqual(worker_errors, [])
+        self.assertEqual(self.ledger.uncertain(), [receipt.message_id])
+        self.assertEqual(self.ledger.reconcile(receipt.message_id).state, "delivered")
         self.assertEqual(self.ledger.dispatch(receipt.message_id).state, "delivered")
 
 
@@ -298,6 +302,42 @@ class MessagingTests(unittest.TestCase):
         self.assertEqual(len(receipts), 1)
         self.assertEqual(len(denied), 1)
         self.assertEqual(self.ledger.db.execute("SELECT COUNT(*) FROM messages").fetchone()[0], 1)
+
+
+    def test_process_crash_keeps_in_flight_message_fenced_until_lease_expires(self):
+        accepted = set()
+
+        def deliver(_recipient, envelope):
+            accepted.add(envelope["message_id"])
+            raise SystemExit("simulated process termination after receiver commit")
+
+        def reconcile(_recipient, envelope):
+            return {
+                "message_id": envelope["message_id"],
+                "idempotency_key": envelope["idempotency_key"],
+                "outcome": "delivered" if envelope["message_id"] in accepted else "not_delivered",
+                "authoritative": True,
+            }
+
+        self.ledger.close()
+        self.ledger = OrganizationMessaging(
+            self.path, "acme",
+            {k: v for k, v in self.members.items() if k != "other"},
+            lambda *_: True, deliver, reconcile_delivery=reconcile,
+            delivery_lease_seconds=1,
+        )
+        receipt = self.ledger.enqueue(
+            "lead", "dev", "TASK_REQUEST", {"task": "recover"},
+            idempotency_key="crash-after-receiver-commit",
+        )
+        with self.assertRaises(SystemExit):
+            self.ledger.dispatch(receipt.message_id)
+        self.assertEqual(self.ledger.uncertain(), [receipt.message_id])
+        with self.assertRaises(MessageDenied):
+            self.ledger.reconcile(receipt.message_id)
+        time.sleep(1.05)
+        self.assertEqual(self.ledger.reconcile(receipt.message_id).state, "delivered")
+        self.assertEqual(self.ledger.pending(), [])
 
 if __name__=="__main__":
     unittest.main()
