@@ -42,6 +42,31 @@ class EvidenceGateIntegration:
         self.project = project.strip()
         self.graph = PersistentEvidenceGraph(memory, self.project)
 
+    def record_browser_qa_ci_receipt(self, receipt: dict[str, object], *, expected_revision: str) -> dict[str, str]:
+        """Persist exact-head CI run metadata as evidence, never as authorization."""
+        if not isinstance(receipt, dict): raise TypeError("CI receipt must be a dictionary")
+        repository, run_id = receipt.get("repository"), receipt.get("run_id")
+        expected_sha, observed_sha, state = receipt.get("expected_sha"), receipt.get("observed_sha"), receipt.get("state")
+        if receipt.get("provider") != "github-actions": raise ValueError("unsupported CI receipt provider")
+        if not isinstance(repository, str) or repository.strip() != self.project: raise ValueError("CI receipt repository does not match evidence project")
+        if type(run_id) is not int or run_id <= 0: raise ValueError("CI receipt run_id must be positive")
+        if not isinstance(expected_sha, str) or not isinstance(observed_sha, str) or len(expected_sha) != 40 or any(c not in "0123456789abcdef" for c in expected_sha): raise ValueError("CI receipt SHAs are malformed")
+        if observed_sha != expected_sha or expected_revision != expected_sha: raise ValueError("CI receipt does not match requested exact revision")
+        if state not in {"passed", "failed", "cancelled", "blocked", "timeout", "sha_mismatch"}: raise ValueError("CI receipt state is unsupported")
+        if state == "passed" and (receipt.get("status") != "completed" or receipt.get("conclusion") != "success"): raise ValueError("passed receipt requires completed success")
+        payload = dict(receipt)
+        receipt_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        digest = _canonical_digest(payload)
+        revision = self.graph.add_node("repository_revision", expected_sha, {"project": self.project})
+        run = self.graph.add_node("browser_qa_ci_run", _canonical_digest({"project": self.project, "run_id": run_id, "digest": digest}), {"project": self.project, "run_id": str(run_id), "provider": "github-actions", "state": str(state), "receipt_digest": digest})
+        evidence = self.graph.add_node("browser_qa_ci_receipt", digest, {"project": self.project, "expected_revision": expected_sha, "observed_revision": observed_sha, "state": str(state), "receipt_json": receipt_json, "authorization": "none"})
+        self.graph.add_edge(revision, "tested_by", run)
+        self.graph.add_edge(run, "records_receipt", evidence)
+        saved_run, saved_evidence = self.graph.get_node(run.node_id), self.graph.get_node(evidence.node_id)
+        if saved_run is None or saved_evidence is None: raise RuntimeError("CI receipt lineage failed durable read-back")
+        if dict(saved_evidence.metadata).get("receipt_json") != receipt_json: raise RuntimeError("CI receipt failed durable read-back verification")
+        return {"receipt_digest": digest, "revision_node_id": revision.node_id, "run_node_id": run.node_id, "receipt_node_id": evidence.node_id, "state": str(state)}
+
     def run_and_record(
         self,
         project_root: str | Path,
