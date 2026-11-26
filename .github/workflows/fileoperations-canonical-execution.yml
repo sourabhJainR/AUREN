@@ -215,6 +215,27 @@ jobs:
           }
           pathlib.Path("auren-tradingdyor-evidence.json").write_text(json.dumps(payload, indent=2))
           PY
+      - name: Validate AUREN-linked browser evidence manifest
+        if: always()
+        working-directory: tradingdyor
+        run: |
+          python - <<'PY'
+          import json, pathlib
+          evidence = json.loads(pathlib.Path("auren-tradingdyor-evidence.json").read_text())
+          report = evidence.get("report") or {}
+          stats = report.get("stats") or {}
+          status = evidence.get("status")
+          if evidence.get("tested_sha") != evidence.get("checkout_sha"):
+              raise SystemExit("TradingDYOR evidence is not bound to the checked-out commit")
+          if status == "passed":
+              if evidence.get("job_status") != "success" or not isinstance(stats.get("expected"), int) or stats["expected"] < 1 or stats.get("unexpected") != 0:
+                  raise SystemExit("Passed evidence does not match successful browser results")
+          elif status == "failed":
+              if evidence.get("job_status") != "failure" and not (isinstance(stats.get("unexpected"), int) and stats["unexpected"] > 0):
+                  raise SystemExit("Failed evidence has no matching failure")
+          elif status != "unverified":
+              raise SystemExit("Unknown browser evidence status")
+          PY
       - name: Upload TradingDYOR browser evidence
         if: always()
         uses: actions/upload-artifact@v4
