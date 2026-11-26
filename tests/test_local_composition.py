@@ -22,6 +22,7 @@ from portable.local_composition import (
 )
 from portable.remote_mcp import MCPPrincipal
 from portable.local_host import create_local_mcp_service
+from portable.agent_profiles import resolve_agent_profile
 
 
 class FakeProvider:
@@ -501,6 +502,40 @@ os._exit(87)
             self.assertIsNone(ledger.begin(key))
             with self.assertRaisesRegex(LocalProviderOutcomeUnknown, "automatic replay is blocked"):
                 LocalProviderOperationLedger(ledger_path).begin(key)
+
+    def test_profile_bound_provider_route_fails_closed_without_verified_model_capabilities(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            state_root = root / "state"
+            state_root.mkdir()
+            provider = FakeProvider()
+            profile = resolve_agent_profile("backend_implementer", revision=1)
+            payload = {
+                "task": "Implement a bounded backend feature",
+                "work_key": "profile-route-work-key-0001",
+                "_auren_local_state_root": str(state_root),
+                "_auren_local_provider": {
+                    "kind": "remote", "name": "test-provider", "model": "test-model",
+                },
+                "_auren_local_remote_policy_digest": "a" * 64,
+                "_auren_agent_profile": {
+                    "profile_id": profile.profile_id,
+                    "revision": profile.revision,
+                    "digest": profile.digest,
+                },
+                "_auren_agent_assignment": {
+                    "role_id": "BE-01",
+                    "manager_id": "EM-ENG-01",
+                    "action_class": "edit_assigned_paths",
+                },
+            }
+            with (
+                patch("portable.local_composition._remote_policy_digest", return_value="a" * 64),
+                patch("portable.local_composition.provider_pool_from_environment", return_value=provider),
+            ):
+                with self.assertRaises(LocalProviderNotConfigured):
+                    run_local_provider_task(payload)
+            self.assertEqual([], provider.calls)
 
     def test_remote_provider_requires_explicit_public_workspace_opt_in(self):
         with tempfile.TemporaryDirectory() as temporary:
