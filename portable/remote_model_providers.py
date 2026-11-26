@@ -500,13 +500,14 @@ class RemoteProviderPool:
                     if isinstance(name, str) and name.strip()
                 }
                 if rank:
-                    return tuple(sorted(
-                        self.providers,
-                        key=lambda provider: (
-                            rank.get(provider.spec.name.casefold(), len(rank)),
-                            self.providers.index(provider),
+                    ordered = sorted(
+                        enumerate(self.providers),
+                        key=lambda item: (
+                            rank.get(item[1].spec.name.casefold(), len(rank)),
+                            item[0],
                         ),
-                    ))
+                    )
+                    return tuple(provider for _, provider in ordered)
             return self.providers
         if (
             not isinstance(requested, (tuple, list))
