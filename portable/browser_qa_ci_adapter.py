@@ -16,15 +16,22 @@ def poll_browser_qa(repo: str, run_id: int, expected_sha: str, *, token: str,
                     request: Callable[[str, str], dict] | None = None,
                     clock: Callable[[], float] = time.monotonic,
                     sleep: Callable[[float], None] = time.sleep) -> dict:
-    if not re.fullmatch(r"[^/\\s]+/[^/\\s]+", repo): raise ValueError("invalid repository slug")
+    parts = repo.split("/") if isinstance(repo, str) else []
+    if len(parts) != 2 or any(not part or any(ch.isspace() for ch in part) for part in parts): raise ValueError("invalid repository slug")
     if type(run_id) is not int or run_id <= 0: raise ValueError("run_id must be positive")
     if not SHA.fullmatch(expected_sha): raise ValueError("expected_sha must be a full commit SHA")
     if not token: raise ValueError("token is required")
     if timeout_seconds < 1 or interval_seconds < 1: raise ValueError("poll bounds must be positive")
     def default_request(url, token):
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                return None
+        if not url.startswith("https://api.github.com/repos/"):
+            raise ValueError("CI polling is restricted to GitHub's HTTPS API host")
         req=urllib.request.Request(url, headers={"Accept":"application/vnd.github+json",
           "Authorization":f"Bearer {token}", "X-GitHub-Api-Version":"2022-11-28"})
-        with urllib.request.urlopen(req, timeout=20) as response: return json.loads(response.read())
+        opener=urllib.request.build_opener(NoRedirect())
+        with opener.open(req, timeout=20) as response: return json.loads(response.read())
     fetch=request or default_request
     url=f"https://api.github.com/repos/{repo}/actions/runs/{run_id}"
     deadline=clock()+timeout_seconds
