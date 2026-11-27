@@ -466,10 +466,14 @@ class ExecutionController:
         # One supervisor-owned graph is the canonical store for revision-bound
         # execution evidence. Callers must not substitute task-payload receipts.
         self.evidence_project = __import__("os").environ.get("AUREN_REPOSITORY_SLUG", "").strip() or self.root.name
+        repository_identity = _git_repository_identity(self.root)
+        expected_repository = repository_identity[0] if repository_identity else None
         self.evidence_memory = PersistentMemory(
             self.root / ".auren" / "durable-evidence-graph.sqlite3", require_approval=False
         )
-        self.evidence_gate_integration = EvidenceGateIntegration(self.evidence_memory, self.evidence_project)
+        self.evidence_gate_integration = EvidenceGateIntegration(
+            self.evidence_memory, self.evidence_project, expected_repository=expected_repository,
+        )
         # Registered by EngineeringPlanDispatch; keyed by the durable plan-store path.
         # A restarted worker must explicitly restore this trusted bridge before execution.
         self._engineering_plan_recovery_bridges: dict[str, Any] = {}
