@@ -104,6 +104,13 @@ class EvidenceGateIntegrationTests(unittest.TestCase):
             self.assertIsNotNone(recovered.graph.get_node(recorded["receipt_node_id"]))
             reopened.close()
 
+    def test_invalid_repository_slug_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            memory = PersistentMemory(Path(directory) / "memory.sqlite", require_approval=False)
+            with self.assertRaisesRegex(ValueError, "valid repository slug"):
+                EvidenceGateIntegration(memory, "project", expected_repository="../repo")
+            memory.close()
+
     def test_receipt_fails_closed_without_configured_repository(self):
         with tempfile.TemporaryDirectory() as directory:
             memory = PersistentMemory(Path(directory) / "memory.sqlite", require_approval=False)
