@@ -41,7 +41,12 @@ class EvidenceGateIntegration:
         if not isinstance(project, str) or not project.strip():
             raise ValueError("project is required")
         if expected_repository is not None:
-            if not isinstance(expected_repository, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", expected_repository):
+            parts = expected_repository.split("/") if isinstance(expected_repository, str) else []
+            if (
+                len(parts) != 2
+                or any(part in {"", ".", ".."} for part in parts)
+                or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", expected_repository)
+            ):
                 raise ValueError("expected_repository must be a valid repository slug")
         self.project = project.strip()
         self.expected_repository = expected_repository.strip().lower() if expected_repository else None
