@@ -59,16 +59,22 @@ def test_completed_failure_is_failed():
 def test_running_run_times_out_without_unbounded_poll():
     calls = [0]
 
+    request_calls = [0]
+
     def clock():
         calls[0] += 1
-        return 0 if calls[0] == 1 else 2
+        return 0 if calls[0] <= 2 else 2
+
+    def request(url, token):
+        request_calls[0] += 1
+        return run_data(status="in_progress", conclusion=None)
 
     receipt = poll_browser_qa(
         "owner/repo", 1, SHA, token="fake", expected_workflow_path=PATH,
         timeout_seconds=1, interval_seconds=1,
-        request=lambda u, t: run_data(status="in_progress", conclusion=None),
-        clock=clock, sleep=lambda _: None,
+        request=request, clock=clock, sleep=lambda _: None,
     )
+    assert request_calls[0] == 1
     assert receipt["state"] == "timeout"
 
 
