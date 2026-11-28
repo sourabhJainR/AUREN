@@ -18,7 +18,8 @@ WORKFLOW = ".github/workflows/browser-qa.yml"
 
 
 def browser_receipt(sha: str, *, state: str = "passed", repository: str = "owner/repo",
-                    observed_sha: str | None = None, observed_path: str | None = WORKFLOW) -> dict:
+                    observed_sha: str | None = None, observed_path: str | None = WORKFLOW,
+                    observed_ref: str | None = None, raw_observed_path: str | None = None) -> dict:
     return {
         "provider": "github-actions",
         "repository": repository,
@@ -28,6 +29,8 @@ def browser_receipt(sha: str, *, state: str = "passed", repository: str = "owner
         "observed_sha": sha if observed_sha is None else observed_sha,
         "expected_workflow_path": WORKFLOW,
         "observed_workflow_path": observed_path,
+        "observed_workflow_ref": observed_ref,
+        "raw_observed_workflow_path": raw_observed_path,
         "status": "completed",
         "conclusion": "success",
         "state": state,
@@ -140,6 +143,30 @@ class EvidenceGateIntegrationTests(unittest.TestCase):
             integration = EvidenceGateIntegration(memory, "owner/repo", expected_repository="owner/repo")
             receipt = browser_receipt("a" * 40, observed_path=".github/workflows/test.yml")
             with self.assertRaisesRegex(ValueError, "expected workflow identity"):
+                integration.record_browser_qa_ci_receipt(receipt, expected_revision="a" * 40)
+            memory.close()
+
+    def test_passed_receipt_raw_workflow_path_is_bound(self):
+        with tempfile.TemporaryDirectory() as directory:
+            memory = PersistentMemory(Path(directory) / "memory.sqlite", require_approval=False)
+            integration = EvidenceGateIntegration(memory, "owner/repo", expected_repository="owner/repo")
+            sha = "a" * 40
+            valid = browser_receipt(
+                sha, observed_ref="refs/heads/main",
+                raw_observed_path=WORKFLOW + "@refs/heads/main",
+            )
+            integration.record_browser_qa_ci_receipt(valid, expected_revision=sha)
+            invalid = {**valid, "raw_observed_workflow_path": WORKFLOW + "@other"}
+            with self.assertRaisesRegex(ValueError, "raw workflow path does not match"):
+                integration.record_browser_qa_ci_receipt(invalid, expected_revision=sha)
+            memory.close()
+
+    def test_malformed_observed_workflow_ref_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            memory = PersistentMemory(Path(directory) / "memory.sqlite", require_approval=False)
+            integration = EvidenceGateIntegration(memory, "owner/repo", expected_repository="owner/repo")
+            receipt = browser_receipt("a" * 40, observed_ref="bad\nref")
+            with self.assertRaisesRegex(ValueError, "observed workflow ref is malformed"):
                 integration.record_browser_qa_ci_receipt(receipt, expected_revision="a" * 40)
             memory.close()
 
