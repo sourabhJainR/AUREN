@@ -146,6 +146,21 @@ class EvidenceGateIntegrationTests(unittest.TestCase):
                 integration.record_browser_qa_ci_receipt(receipt, expected_revision="a" * 40)
             memory.close()
 
+    def test_passed_receipt_raw_workflow_path_is_bound(self):
+        with tempfile.TemporaryDirectory() as directory:
+            memory = PersistentMemory(Path(directory) / "memory.sqlite", require_approval=False)
+            integration = EvidenceGateIntegration(memory, "owner/repo", expected_repository="owner/repo")
+            sha = "a" * 40
+            valid = browser_receipt(
+                sha, observed_ref="refs/heads/main",
+                raw_observed_path=WORKFLOW + "@refs/heads/main",
+            )
+            integration.record_browser_qa_ci_receipt(valid, expected_revision=sha)
+            invalid = {**valid, "raw_observed_workflow_path": WORKFLOW + "@other"}
+            with self.assertRaisesRegex(ValueError, "raw workflow path does not match"):
+                integration.record_browser_qa_ci_receipt(invalid, expected_revision=sha)
+            memory.close()
+
     def test_malformed_observed_workflow_ref_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             memory = PersistentMemory(Path(directory) / "memory.sqlite", require_approval=False)
