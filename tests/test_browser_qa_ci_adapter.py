@@ -32,10 +32,22 @@ def test_pass_requires_exact_sha_and_workflow_identity():
     assert receipt["workflow_id"] == 123
 
 
+def test_workflow_path_with_ref_suffix_is_accepted():
+    raw_path = PATH + "@refs/pull/1451/merge"
+    receipt = poll_browser_qa(
+        "owner/repo", 1, SHA, token="fake", expected_workflow_path=PATH,
+        request=lambda u, token: run_data(path=raw_path),
+    )
+    assert receipt["state"] == "passed"
+    assert receipt["observed_workflow_path"] == PATH
+    assert receipt["raw_observed_workflow_path"] == raw_path
+    assert receipt["observed_workflow_ref"] == "refs/pull/1451/merge"
+
+
 def test_workflow_path_mismatch_is_not_pass():
     receipt = poll_browser_qa(
         "owner/repo", 1, SHA, token="fake", expected_workflow_path=PATH,
-        request=lambda u, t: run_data(path=".github/workflows/test.yml"),
+        request=lambda u, t: run_data(path=".github/workflows/test.yml@main"),
     )
     assert receipt["state"] == "workflow_mismatch"
 
