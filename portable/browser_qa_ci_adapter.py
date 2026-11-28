@@ -27,6 +27,17 @@ class BrowserQAPollError(RuntimeError):
     pass
 
 
+def match_workflow_path(observed: object, expected: str) -> tuple[str | None, str | None, bool]:
+    if observed == expected:
+        return expected, None, True
+    prefix = expected + "@"
+    if isinstance(observed, str) and observed.startswith(prefix):
+        ref = observed[len(prefix):]
+        if ref and len(ref) <= 256 and not any(ord(char) < 32 for char in ref):
+            return expected, ref, True
+    return observed if isinstance(observed, str) else None, None, False
+
+
 def poll_browser_qa(
     repo: str,
     run_id: int,
@@ -120,7 +131,10 @@ def poll_browser_qa(
             }
 
         observed = run.get("head_sha", "")
-        observed_path = run.get("path")
+        raw_observed_path = run.get("path")
+        observed_path, workflow_ref, workflow_matches = match_workflow_path(
+            raw_observed_path, expected_workflow_path
+        )
         receipt = {
             "provider": "github-actions",
             "repository": repo,
@@ -130,12 +144,14 @@ def poll_browser_qa(
             "observed_sha": observed,
             "expected_workflow_path": expected_workflow_path,
             "observed_workflow_path": observed_path,
+            "raw_observed_workflow_path": raw_observed_path,
+            "observed_workflow_ref": workflow_ref,
             "workflow_id": run.get("workflow_id"),
             "workflow_name": run.get("name"),
             "status": run.get("status"),
             "conclusion": run.get("conclusion"),
         }
-        if observed_path != expected_workflow_path:
+        if not workflow_matches:
             receipt["state"] = "workflow_mismatch"
             return receipt
         if observed != expected_sha:
