@@ -2,7 +2,7 @@
 
 The adapter polls GitHub Actions run metadata with a bounded read-only HTTPS
 request. A passed receipt requires the configured repository, exact full SHA,
-terminal success, and the expected workflow file path. Redirects are rejected.
+terminal success, and the expected workflow file path, normalizing GitHub's `@ref` suffix and preserving the ref in the receipt. Redirects are rejected.
 Requests are capped by the remaining poll deadline; timeout, transport errors,
 workflow mismatch, SHA mismatch and non-success conclusions remain non-success.
 
