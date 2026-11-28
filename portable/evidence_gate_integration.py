@@ -95,6 +95,12 @@ class EvidenceGateIntegration:
         raw_observed_path = receipt.get("raw_observed_workflow_path")
         if raw_observed_path is not None and not isinstance(raw_observed_path, str):
             raise ValueError("CI receipt raw observed workflow path is malformed")
+        if state == "passed" and raw_observed_path is not None:
+            expected_raw_path = expected_path + (
+                "@" + observed_ref if observed_ref is not None else ""
+            )
+            if raw_observed_path != expected_raw_path:
+                raise ValueError("passed CI receipt raw workflow path does not match normalized identity")
         if state not in {"passed", "failed", "cancelled", "blocked", "timeout", "sha_mismatch", "workflow_mismatch"}:
             raise ValueError("CI receipt state is unsupported")
         if state == "passed":
